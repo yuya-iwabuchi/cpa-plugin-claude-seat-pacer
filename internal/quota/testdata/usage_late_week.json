@@ -1,0 +1,63 @@
+{
+  "five_hour": {
+    "utilization": 100.0,
+    "resets_at": "2026-09-04T18:15:00.000000Z",
+    "used_dollars": 45.0,
+    "remaining_dollars": 0.0,
+    "locked_reason": "five_hour_limit_reached"
+  },
+  "seven_day": {
+    "utilization": 54.0,
+    "resets_at": "2026-09-08T09:00:00.000000Z",
+    "used_dollars": 756.0,
+    "remaining_dollars": 644.0,
+    "locked_reason": null
+  },
+  "seven_day_opus": null,
+  "seven_day_sonnet": null,
+  "seven_day_oauth_apps": null,
+  "limits": [
+    {
+      "kind": "session",
+      "group": "default",
+      "percent": 100.0,
+      "severity": "critical",
+      "resets_at": "2026-09-04T18:15:00.000000Z",
+      "scope": null,
+      "is_active": true
+    },
+    {
+      "kind": "weekly_all",
+      "group": "default",
+      "percent": 54.0,
+      "severity": "warning",
+      "resets_at": "2026-09-08T09:00:00.000000Z",
+      "scope": null,
+      "is_active": false
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "fable",
+      "percent": 67.0,
+      "severity": "warning",
+      "resets_at": "2026-09-08T09:00:00.000000Z",
+      "scope": {
+        "model": {
+          "id": "fable-5-20260210",
+          "display_name": "Fable 5"
+        },
+        "surface": "claude_code"
+      },
+      "is_active": false
+    }
+  ],
+  "extra_usage": {
+    "enabled": false,
+    "used_dollars": 0.0
+  },
+  "spend": {
+    "five_hour_dollars": 45.0,
+    "seven_day_dollars": 756.0
+  },
+  "member_dashboard_available": false
+}
