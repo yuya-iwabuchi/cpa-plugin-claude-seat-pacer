@@ -5,3 +5,4 @@ dist/
 *.new
 .DS_Store
 /tmp/
+.claude/
