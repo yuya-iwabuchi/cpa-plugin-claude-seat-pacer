@@ -1,0 +1,228 @@
+// Package model holds the domain types shared by the quota, pace, session,
+// runtime, and web packages. It depends on nothing else in this module so any
+// package may import it without creating a cycle.
+package model
+
+import "time"
+
+// WindowKind identifies which Anthropic rate-limit window a reading describes.
+type WindowKind string
+
+const (
+	// WindowSession is the rolling 5-hour session window.
+	WindowSession WindowKind = "five_hour"
+	// WindowWeekly is the 7-day all-models window. Its reset is a fixed
+	// per-account anchor rather than a rolling offset from first use.
+	WindowWeekly WindowKind = "seven_day"
+	// WindowWeeklyScoped is a model-family weekly cap (Opus, Sonnet, Fable).
+	// Scope carries the family name.
+	WindowWeeklyScoped WindowKind = "weekly_scoped"
+)
+
+// Window durations. Anthropic publishes no absolute token caps, so a window is
+// only ever expressed as a utilization fraction plus a reset instant, and the
+// duration is needed to convert a reset instant into elapsed fraction.
+const (
+	SessionDuration = 5 * time.Hour
+	WeeklyDuration  = 7 * 24 * time.Hour
+)
+
+// Status values from the Anthropic-Ratelimit-Unified-*-Status headers.
+const (
+	StatusAllowed        = "allowed"
+	StatusAllowedWarning = "allowed_warning"
+	StatusRejected       = "rejected"
+)
+
+// Severity values from the /api/oauth/usage limits[] array.
+const (
+	SeverityNormal   = "normal"
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// Window is one rate-limit window reading for one credential.
+//
+// Utilization is normalized to 0..1 regardless of source: the usage endpoint
+// reports 0..100 while the response headers report 0..1. Values above 1 are
+// legitimate and occur when usage runs past a window's cap.
+type Window struct {
+	Kind        WindowKind    `json:"kind"`
+	Scope       string        `json:"scope,omitempty"`
+	Utilization float64       `json:"utilization"`
+	ResetsAt    time.Time     `json:"resets_at"`
+	Duration    time.Duration `json:"duration"`
+	Status      string        `json:"status,omitempty"`
+	Severity    string        `json:"severity,omitempty"`
+	// Active marks the window the provider currently treats as binding.
+	Active bool `json:"active"`
+}
+
+// Elapsed is the fraction of the window that has passed, clamped to 0..1. A
+// zero ResetsAt means no window is open, which reports 0.
+func (w Window) Elapsed(now time.Time) float64 {
+	if w.ResetsAt.IsZero() || w.Duration <= 0 {
+		return 0
+	}
+	remaining := w.ResetsAt.Sub(now)
+	if remaining <= 0 {
+		return 1
+	}
+	if remaining >= w.Duration {
+		return 0
+	}
+	return 1 - remaining.Seconds()/w.Duration.Seconds()
+}
+
+// Blocking reports whether the provider has already refused this window.
+func (w Window) Blocking() bool {
+	return w.Status == StatusRejected || w.Severity == SeverityCritical
+}
+
+// Source identifies where a snapshot's readings came from.
+const (
+	// SourceUsageEndpoint is an active GET of /api/oauth/usage. It covers
+	// every window including those for models the credential has not served.
+	SourceUsageEndpoint = "usage-endpoint"
+	// SourceResponseHeaders is a passive read of the unified rate-limit
+	// headers on a real response. Free, but only for windows that traffic
+	// has actually touched.
+	SourceResponseHeaders = "response-headers"
+)
+
+// AuthSnapshot is the most recent quota reading for one credential.
+type AuthSnapshot struct {
+	AuthID     string    `json:"auth_id"`
+	AuthIndex  string    `json:"auth_index,omitempty"`
+	Label      string    `json:"label,omitempty"`
+	Windows    []Window  `json:"windows"`
+	ObservedAt time.Time `json:"observed_at"`
+	Source     string    `json:"source"`
+	// Err records the last fetch failure. A snapshot with Err set retains
+	// whatever readings it already held.
+	Err string `json:"err,omitempty"`
+}
+
+// Window returns the reading for a kind and scope, and whether it exists.
+func (s AuthSnapshot) Window(kind WindowKind, scope string) (Window, bool) {
+	for _, w := range s.Windows {
+		if w.Kind == kind && w.Scope == scope {
+			return w, true
+		}
+	}
+	return Window{}, false
+}
+
+// Stale reports whether the snapshot is older than the given bound.
+func (s AuthSnapshot) Stale(now time.Time, maxAge time.Duration) bool {
+	return s.ObservedAt.IsZero() || now.Sub(s.ObservedAt) > maxAge
+}
+
+// WindowScore is the pace evaluation of one window.
+type WindowScore struct {
+	Kind  WindowKind `json:"kind"`
+	Scope string     `json:"scope,omitempty"`
+	// Elapsed is the fraction of the window that has passed.
+	Elapsed float64 `json:"elapsed"`
+	// Target is the utilization the pace curve expects at Elapsed.
+	Target float64 `json:"target"`
+	// Utilization is the observed fraction consumed.
+	Utilization float64 `json:"utilization"`
+	// Slack is Target-Utilization. Positive means under-consumed relative to
+	// pace, and therefore preferred.
+	Slack float64 `json:"slack"`
+	// Weight is the coefficient this window contributes with.
+	Weight float64 `json:"weight"`
+	// ResetsAt is carried through so the timeline view can plot the window
+	// without a second lookup.
+	ResetsAt time.Time `json:"resets_at"`
+}
+
+// Ineligibility reasons.
+const (
+	ReasonEligible     = ""
+	ReasonHardCutoff   = "hard-cutoff"
+	ReasonRejected     = "provider-rejected"
+	ReasonNoSnapshot   = "no-snapshot"
+	ReasonStale        = "stale-snapshot"
+	ReasonNotCandidate = "not-a-candidate"
+)
+
+// Score is the routing evaluation of one credential for one request.
+type Score struct {
+	AuthID string `json:"auth_id"`
+	// Total is the weighted sum of window slacks less the raw-utilization
+	// penalty. Higher wins.
+	Total   float64       `json:"total"`
+	Windows []WindowScore `json:"windows"`
+	// RawPenalty is the load-balancing term. Pace slack alone under-penalizes
+	// a heavily used credential that happens to be on pace, which starves
+	// idle siblings.
+	RawPenalty float64 `json:"raw_penalty"`
+	Eligible   bool    `json:"eligible"`
+	Reason     string  `json:"reason,omitempty"`
+}
+
+// Decision kinds.
+const (
+	// DecisionAffinityHit reuses an existing session binding.
+	DecisionAffinityHit = "affinity-hit"
+	// DecisionColdPick selects a credential for a session with no binding.
+	DecisionColdPick = "cold-pick"
+	// DecisionFailover rebinds because the bound credential is not among the
+	// candidates the host offered.
+	DecisionFailover = "failover"
+	// DecisionDeclined hands the choice back to the host's own selector.
+	DecisionDeclined = "declined"
+)
+
+// Decision records one routing outcome for the status and timeline views.
+type Decision struct {
+	At             time.Time `json:"at"`
+	SessionKey     string    `json:"session_key,omitempty"`
+	Model          string    `json:"model"`
+	Provider       string    `json:"provider"`
+	ChosenAuthID   string    `json:"chosen_auth_id,omitempty"`
+	PreviousAuthID string    `json:"previous_auth_id,omitempty"`
+	Kind           string    `json:"kind"`
+	// Note explains a declined or unusual decision.
+	Note string `json:"note,omitempty"`
+	// Scores holds the evaluation of every candidate, so the UI can show why
+	// the winner won.
+	Scores []Score `json:"scores,omitempty"`
+	// Subagent marks a request routed as a child of another session.
+	Subagent bool `json:"subagent"`
+}
+
+// Binding pins one conversation to one credential so Anthropic prompt caches
+// keep hitting. Caches are isolated between organizations, so moving a live
+// conversation to another credential guarantees a full cache miss.
+type Binding struct {
+	SessionKey string    `json:"session_key"`
+	AuthID     string    `json:"auth_id"`
+	Model      string    `json:"model,omitempty"`
+	BoundAt    time.Time `json:"bound_at"`
+	LastSeen   time.Time `json:"last_seen"`
+	Hits       int       `json:"hits"`
+}
+
+// CacheStats accumulates the cache-token counters reported by the host for one
+// credential, which is how the plugin measures whether its routing is actually
+// preserving caches.
+type CacheStats struct {
+	Requests            int64 `json:"requests"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	FreshInputTokens    int64 `json:"fresh_input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+}
+
+// HitRate is the share of input-side tokens served from cache, or 0 when no
+// input-side tokens have been recorded.
+func (c CacheStats) HitRate() float64 {
+	total := c.CacheReadTokens + c.CacheCreationTokens + c.FreshInputTokens
+	if total <= 0 {
+		return 0
+	}
+	return float64(c.CacheReadTokens) / float64(total)
+}
