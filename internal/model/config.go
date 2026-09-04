@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Config is the plugin's block under plugins.configs.<plugin-id> in the
 // CLIProxyAPI config file. The host owns Enabled and Priority and injects them
@@ -90,8 +93,7 @@ type QuotaConfig struct {
 	// MaxStaleness is the age past which a snapshot stops being trusted and
 	// the plugin declines rather than routing on stale data.
 	MaxStaleness time.Duration `yaml:"max-staleness" json:"max_staleness"`
-	// UsageURL is the endpoint read for per-window utilization. Overridable
-	// so tests can point at a stub.
+	// UsageURL is the endpoint read for per-window utilization.
 	UsageURL string `yaml:"usage-url" json:"usage_url"`
 }
 
@@ -143,9 +145,26 @@ func Defaults() Config {
 
 // Normalize fills zero values with defaults and clamps out-of-range settings
 // so a partial or hostile config block cannot produce a scorer that divides by
-// zero or a poller that spins.
+// zero, compares against NaN, or a poller that spins.
 func (c *Config) Normalize() {
 	d := Defaults()
+	for _, f := range []struct {
+		v   *float64
+		def float64
+	}{
+		{&c.Pace.CurveExponent, d.Pace.CurveExponent},
+		{&c.Pace.LandingTarget, d.Pace.LandingTarget},
+		{&c.Pace.WeeklyWeight, d.Pace.WeeklyWeight},
+		{&c.Pace.SessionWeight, d.Pace.SessionWeight},
+		{&c.Pace.ScopedWeight, d.Pace.ScopedWeight},
+		{&c.Pace.RawWeight, d.Pace.RawWeight},
+		{&c.Pace.HysteresisMargin, d.Pace.HysteresisMargin},
+		{&c.Pace.HardCutoff, d.Pace.HardCutoff},
+	} {
+		if math.IsNaN(*f.v) || math.IsInf(*f.v, 0) {
+			*f.v = f.def
+		}
+	}
 	if len(c.Providers) == 0 {
 		c.Providers = d.Providers
 	}

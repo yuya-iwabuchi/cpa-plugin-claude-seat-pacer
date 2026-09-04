@@ -19,6 +19,20 @@ const (
 	WindowWeeklyScoped WindowKind = "weekly_scoped"
 )
 
+// Model families. The usage endpoint names them in scope.model.display_name
+// and WindowWeeklyScoped.Scope carries the same spelling, so both parsers and
+// the scorer key on these exact strings.
+const (
+	FamilyOpus   = "Opus"
+	FamilySonnet = "Sonnet"
+	FamilyFable  = "Fable"
+	FamilyHaiku  = "Haiku"
+)
+
+// Families lists every known family, in the order a model id is matched
+// against them.
+var Families = []string{FamilyOpus, FamilySonnet, FamilyFable, FamilyHaiku}
+
 // Window durations. Anthropic publishes no absolute token caps, so a window is
 // only ever expressed as a utilization fraction plus a reset instant, and the
 // duration is needed to convert a reset instant into elapsed fraction.
@@ -101,6 +115,9 @@ type AuthSnapshot struct {
 	// Err records the last fetch failure. A snapshot with Err set retains
 	// whatever readings it already held.
 	Err string `json:"err,omitempty"`
+	// ErrCategory is the machine-readable class of Err, such as auth or
+	// timeout, so the status app can render it without parsing the message.
+	ErrCategory string `json:"err_category,omitempty"`
 }
 
 // Window returns the reading for a kind and scope, and whether it exists.
@@ -140,10 +157,16 @@ type WindowScore struct {
 
 // Ineligibility reasons.
 const (
-	ReasonEligible     = ""
-	ReasonHardCutoff   = "hard-cutoff"
-	ReasonRejected     = "provider-rejected"
-	ReasonNoSnapshot   = "no-snapshot"
+	ReasonEligible   = ""
+	ReasonHardCutoff = "hard-cutoff"
+	ReasonRejected   = "provider-rejected"
+	ReasonNoSnapshot = "no-snapshot"
+	// ReasonNoWindow marks a snapshot that exists but has no window bearing on
+	// the requested model, such as one holding only another family's cap.
+	ReasonNoWindow = "no-bearing-window"
+	// ReasonBadReading marks a snapshot whose utilization is not a finite
+	// number, which no comparison can order safely.
+	ReasonBadReading   = "bad-reading"
 	ReasonStale        = "stale-snapshot"
 	ReasonNotCandidate = "not-a-candidate"
 )

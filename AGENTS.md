@@ -94,6 +94,6 @@ pure and fully unit-testable without the host.
 - No blocking I/O on the pick path. Ever.
 - Every exported cgo entry point recovers from panics.
 - Prefer declining (`Handled: false`) over guessing.
-- Tests must not reach the network. The usage client takes a base URL so tests
-  point it at a stub.
+- Tests must not reach the network. The usage client does no networking of
+  its own: every request goes through an injected Doer, which tests stub.
 - Never log a token, a refresh token, or a request body.
