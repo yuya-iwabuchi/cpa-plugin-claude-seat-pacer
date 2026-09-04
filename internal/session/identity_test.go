@@ -1,0 +1,665 @@
+package session
+
+import (
+	"encoding/json"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+var hexKey = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+func hdr(kv ...string) map[string][]string {
+	h := make(map[string][]string, len(kv)/2)
+	for i := 0; i+1 < len(kv); i += 2 {
+		h[kv[i]] = append(h[kv[i]], kv[i+1])
+	}
+	return h
+}
+
+// Test fixtures mirror the Anthropic Messages API request shape.
+type tBlock struct {
+	Type         string         `json:"type"`
+	Text         string         `json:"text"`
+	CacheControl map[string]any `json:"cache_control,omitempty"`
+}
+
+type tMsg struct {
+	Role    string   `json:"role"`
+	Content []tBlock `json:"content"`
+}
+
+type tBody struct {
+	Model    string         `json:"model,omitempty"`
+	System   []tBlock       `json:"system,omitempty"`
+	Messages []tMsg         `json:"messages,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+	Stream   bool           `json:"stream,omitempty"`
+}
+
+func marked(text string) tBlock {
+	return tBlock{Type: "text", Text: text, CacheControl: map[string]any{"type": "ephemeral"}}
+}
+
+func plain(text string) tBlock {
+	return tBlock{Type: "text", Text: text}
+}
+
+func user(blocks ...tBlock) tMsg      { return tMsg{Role: "user", Content: blocks} }
+func assistant(blocks ...tBlock) tMsg { return tMsg{Role: "assistant", Content: blocks} }
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	return b
+}
+
+// claudeCodeBody is the shape Claude Code actually sends: the session id lives
+// in metadata.user_id and in no header.
+func claudeCodeBody(t *testing.T, userID any) []byte {
+	t.Helper()
+	return mustJSON(t, tBody{
+		Model:    "claude-opus-4-6-20260514",
+		System:   []tBlock{marked("You are Claude Code, Anthropic's official CLI for Claude.")},
+		Messages: []tMsg{user(plain("list the files here"))},
+		Metadata: map[string]any{"user_id": userID},
+		Stream:   true,
+	})
+}
+
+const ccUserID = "user_9f2c4a1b8e7d6c5b4a3928170f6e5d4c_account_11111111-2222-3333-4444-555555555555_session_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+const ccSessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+func TestExtractResolutionOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		headers  map[string][]string
+		body     []byte
+		material string // key material, hashed for comparison
+		source   string
+	}{
+		{
+			name:     "claude code session header",
+			headers:  hdr(headerSessionID, "sess-a"),
+			material: "sess-a",
+			source:   SourceClaudeCodeHeader,
+		},
+		{
+			name:     "header lookup is case insensitive",
+			headers:  hdr("x-claude-code-session-id", "sess-a"),
+			material: "sess-a",
+			source:   SourceClaudeCodeHeader,
+		},
+		{
+			name: "claude code header beats every later rule",
+			headers: hdr(
+				headerSessionID, "sess-a",
+				"Session-Id", "sess-b",
+				"X-Conversation-Id", "sess-c",
+			),
+			body:     claudeCodeBody(t, ccUserID),
+			material: "sess-a",
+			source:   SourceClaudeCodeHeader,
+		},
+		{
+			name:     "generic Session-Id",
+			headers:  hdr("Session-Id", "sess-b"),
+			material: "sess-b",
+			source:   "header:session-id",
+		},
+		{
+			name:     "generic X-Session-Id",
+			headers:  hdr("X-Session-Id", "sess-b"),
+			material: "sess-b",
+			source:   "header:x-session-id",
+		},
+		{
+			name:     "generic X-Conversation-Id",
+			headers:  hdr("X-Conversation-Id", "sess-b"),
+			material: "sess-b",
+			source:   "header:x-conversation-id",
+		},
+		{
+			name:     "generic X-Thread-Id",
+			headers:  hdr("X-Thread-Id", "sess-b"),
+			material: "sess-b",
+			source:   "header:x-thread-id",
+		},
+		{
+			name:     "generic X-Client-Request-Id",
+			headers:  hdr("X-Client-Request-Id", "sess-b"),
+			material: "sess-b",
+			source:   "header:x-client-request-id",
+		},
+		{
+			name: "generic headers resolve in declared order",
+			headers: hdr(
+				"X-Client-Request-Id", "sess-e",
+				"X-Thread-Id", "sess-d",
+				"X-Conversation-Id", "sess-c",
+				"X-Session-Id", "sess-b",
+				"Session-Id", "sess-a",
+			),
+			material: "sess-a",
+			source:   "header:session-id",
+		},
+		{
+			name:     "generic header beats the body",
+			headers:  hdr("X-Session-Id", "sess-b"),
+			body:     claudeCodeBody(t, ccUserID),
+			material: "sess-b",
+			source:   "header:x-session-id",
+		},
+		{
+			name:     "blank header falls through to the body",
+			headers:  hdr(headerSessionID, "   ", "X-Session-Id", ""),
+			body:     claudeCodeBody(t, ccUserID),
+			material: ccSessionID,
+			source:   SourceUserIDSuffix,
+		},
+		{
+			name:     "metadata.user_id suffix",
+			body:     claudeCodeBody(t, ccUserID),
+			material: ccSessionID,
+			source:   SourceUserIDSuffix,
+		},
+		{
+			name:     "metadata.user_id object",
+			body:     claudeCodeBody(t, map[string]any{"session_id": "sess-obj"}),
+			material: "sess-obj",
+			source:   SourceUserIDObject,
+		},
+		{
+			name:     "metadata.user_id object carried as a string",
+			body:     claudeCodeBody(t, `{"session_id":"sess-str","agent_id":"main"}`),
+			material: "sess-str",
+			source:   SourceUserIDObject,
+		},
+		{
+			name: "metadata.user_id beats the other body ids",
+			body: mustJSON(t, map[string]any{
+				"session_id":       "sess-d",
+				"prompt_cache_key": "sess-e",
+				"metadata":         map[string]any{"user_id": ccUserID},
+			}),
+			material: ccSessionID,
+			source:   SourceUserIDSuffix,
+		},
+		{
+			name:     "body session_id",
+			body:     mustJSON(t, map[string]any{"session_id": "sess-d"}),
+			material: "sess-d",
+			source:   "body:session_id",
+		},
+		{
+			name:     "body sessionId",
+			body:     mustJSON(t, map[string]any{"sessionId": "sess-d"}),
+			material: "sess-d",
+			source:   "body:sessionId",
+		},
+		{
+			name:     "body metadata.session_id",
+			body:     mustJSON(t, map[string]any{"metadata": map[string]any{"session_id": "sess-d"}}),
+			material: "sess-d",
+			source:   "body:metadata.session_id",
+		},
+		{
+			name:     "body prompt_cache_key",
+			body:     mustJSON(t, map[string]any{"prompt_cache_key": "sess-d"}),
+			material: "sess-d",
+			source:   "body:prompt_cache_key",
+		},
+		{
+			name:     "body conversation_id",
+			body:     mustJSON(t, map[string]any{"conversation_id": "sess-d"}),
+			material: "sess-d",
+			source:   "body:conversation_id",
+		},
+		{
+			name:     "body thread_id",
+			body:     mustJSON(t, map[string]any{"thread_id": "sess-d"}),
+			material: "sess-d",
+			source:   "body:thread_id",
+		},
+		{
+			name: "body ids resolve in declared order",
+			body: mustJSON(t, map[string]any{
+				"thread_id":        "sess-f",
+				"conversation_id":  "sess-e",
+				"prompt_cache_key": "sess-d",
+				"sessionId":        "sess-c",
+				"session_id":       "sess-b",
+				"metadata":         map[string]any{"session_id": "sess-a"},
+			}),
+			material: "sess-b",
+			source:   "body:session_id",
+		},
+		{
+			name: "body id beats the content hash",
+			body: mustJSON(t, tBody{
+				Model:    "claude-opus-4-6-20260514",
+				System:   []tBlock{marked("system")},
+				Messages: []tMsg{user(marked("hello"))},
+				Metadata: map[string]any{"session_id": "sess-d"},
+			}),
+			material: "sess-d",
+			source:   "body:metadata.session_id",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Extract(tc.headers, tc.body)
+			if want := hashKey(tc.material); got.Key != want {
+				t.Errorf("Key = %q, want %q (hash of %q)", got.Key, want, tc.material)
+			}
+			if got.Source != tc.source {
+				t.Errorf("Source = %q, want %q", got.Source, tc.source)
+			}
+			if got.Subagent {
+				t.Errorf("Subagent = true, want false")
+			}
+			if got.ParentKey != "" {
+				t.Errorf("ParentKey = %q, want empty", got.ParentKey)
+			}
+		})
+	}
+}
+
+func TestExtractSubagent(t *testing.T) {
+	tests := []struct {
+		name           string
+		headers        map[string][]string
+		body           []byte
+		keyMaterial    string
+		parentMaterial string // empty means ParentKey must be empty
+		subagent       bool
+	}{
+		{
+			name:        "agent id main is not a subagent",
+			headers:     hdr(headerSessionID, "sess-a", headerAgentID, "main"),
+			keyMaterial: "sess-a",
+		},
+		{
+			name:        "agent id main is matched case insensitively",
+			headers:     hdr(headerSessionID, "sess-a", headerAgentID, "MAIN"),
+			keyMaterial: "sess-a",
+		},
+		{
+			name:        "absent agent id is not a subagent",
+			headers:     hdr(headerSessionID, "sess-a"),
+			keyMaterial: "sess-a",
+		},
+		{
+			name:           "agent id alone marks a subagent and links the session root",
+			headers:        hdr(headerSessionID, "sess-a", headerAgentID, "explore"),
+			keyMaterial:    "sess-a#explore",
+			parentMaterial: "sess-a",
+			subagent:       true,
+		},
+		{
+			name: "parent agent id names the parent inside the session",
+			headers: hdr(
+				headerSessionID, "sess-a",
+				headerAgentID, "explore",
+				headerParentAgentID, "plan",
+			),
+			keyMaterial:    "sess-a#explore",
+			parentMaterial: "sess-a#plan",
+			subagent:       true,
+		},
+		{
+			name: "parent agent id main links the session root",
+			headers: hdr(
+				headerSessionID, "sess-a",
+				headerAgentID, "explore",
+				headerParentAgentID, "main",
+			),
+			keyMaterial:    "sess-a#explore",
+			parentMaterial: "sess-a",
+			subagent:       true,
+		},
+		{
+			name:           "parent session id alone marks a subagent",
+			body:           claudeCodeBody(t, map[string]any{"session_id": "child", "parent_session_id": "parent"}),
+			keyMaterial:    "child",
+			parentMaterial: "parent",
+			subagent:       true,
+		},
+		{
+			name: "agent id and parent session id together",
+			body: claudeCodeBody(t, map[string]any{
+				"session_id":        "child",
+				"parent_session_id": "parent",
+				"agent_id":          "explore",
+			}),
+			keyMaterial:    "child",
+			parentMaterial: "parent",
+			subagent:       true,
+		},
+		{
+			name:           "agent id without a parent session id scopes the session",
+			body:           claudeCodeBody(t, map[string]any{"session_id": "sess-a", "agent_id": "explore"}),
+			keyMaterial:    "sess-a#explore",
+			parentMaterial: "sess-a",
+			subagent:       true,
+		},
+		{
+			name:        "agent id main in the body is not a subagent",
+			body:        claudeCodeBody(t, map[string]any{"session_id": "sess-a", "agent_id": "main"}),
+			keyMaterial: "sess-a",
+		},
+		{
+			name:        "parent session id equal to the session id is not a subagent",
+			body:        claudeCodeBody(t, map[string]any{"session_id": "sess-a", "parent_session_id": "sess-a"}),
+			keyMaterial: "sess-a",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Extract(tc.headers, tc.body)
+			if want := hashKey(tc.keyMaterial); got.Key != want {
+				t.Errorf("Key = %q, want %q (hash of %q)", got.Key, want, tc.keyMaterial)
+			}
+			if got.Subagent != tc.subagent {
+				t.Errorf("Subagent = %v, want %v", got.Subagent, tc.subagent)
+			}
+			wantParent := ""
+			if tc.parentMaterial != "" {
+				wantParent = hashKey(tc.parentMaterial)
+			}
+			if got.ParentKey != wantParent {
+				t.Errorf("ParentKey = %q, want %q", got.ParentKey, wantParent)
+			}
+		})
+	}
+}
+
+// A subagent's key differs from its parent's while pointing back at it, which
+// is what lets affinity pin the child to the parent's credential without the
+// two sharing one binding.
+func TestExtractSubagentKeyLinksToParentKey(t *testing.T) {
+	parent := Extract(hdr(headerSessionID, "sess-a", headerAgentID, "main"), nil)
+	child := Extract(hdr(headerSessionID, "sess-a", headerAgentID, "explore"), nil)
+
+	if child.Key == parent.Key {
+		t.Fatalf("child and parent share key %q", child.Key)
+	}
+	if child.ParentKey != parent.Key {
+		t.Errorf("child.ParentKey = %q, want parent.Key %q", child.ParentKey, parent.Key)
+	}
+}
+
+func TestExtractCacheBreakpointHash(t *testing.T) {
+	sys := marked("You are Claude Code, Anthropic's official CLI for Claude.")
+	prefix := user(marked("read internal/session/identity.go"))
+
+	base := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{prefix}})
+	appended := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+		prefix,
+		assistant(plain("Here is the file.")),
+		user(plain("now the tests")),
+	}})
+	differentPrefix := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+		user(marked("read internal/session/store.go")),
+	}})
+	differentSystem := mustJSON(t, tBody{
+		System:   []tBlock{marked("You are a different assistant.")},
+		Messages: []tMsg{prefix},
+	})
+
+	got := Extract(nil, base)
+	if got.Source != SourceCacheBreakpoints {
+		t.Fatalf("Source = %q, want %q", got.Source, SourceCacheBreakpoints)
+	}
+	if !hexKey.MatchString(got.Key) {
+		t.Fatalf("Key = %q, want 32 hex chars", got.Key)
+	}
+
+	if k := Extract(nil, appended).Key; k != got.Key {
+		t.Errorf("appending an unmarked message changed the key: %q != %q", k, got.Key)
+	}
+	if k := Extract(nil, differentPrefix).Key; k == got.Key {
+		t.Errorf("a different marked message kept key %q", k)
+	}
+	if k := Extract(nil, differentSystem).Key; k == got.Key {
+		t.Errorf("a different marked system prompt kept key %q", k)
+	}
+}
+
+// Without a marked message the hash falls back to the system prompt plus the
+// first message.
+func TestExtractContentFallback(t *testing.T) {
+	sys := marked("shared workspace system prompt")
+
+	first := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+		user(plain("first question")),
+		assistant(plain("first answer")),
+	}})
+	sameFirst := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+		user(plain("first question")),
+		assistant(plain("a different answer")),
+		user(plain("second question")),
+	}})
+	otherFirst := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+		user(plain("a different first question")),
+	}})
+
+	got := Extract(nil, first)
+	if got.Source != SourceContentFallback {
+		t.Fatalf("Source = %q, want %q", got.Source, SourceContentFallback)
+	}
+	if !hexKey.MatchString(got.Key) {
+		t.Fatalf("Key = %q, want 32 hex chars", got.Key)
+	}
+	if k := Extract(nil, sameFirst).Key; k != got.Key {
+		t.Errorf("same system and first message gave %q, want %q", k, got.Key)
+	}
+	if k := Extract(nil, otherFirst).Key; k == got.Key {
+		t.Errorf("a different first message kept key %q", k)
+	}
+}
+
+// String content is equivalent to a single text block, which is how a plain
+// system prompt and a plain message body arrive.
+func TestExtractContentFallbackStringContent(t *testing.T) {
+	body := []byte(`{"system":"you are helpful","messages":[{"role":"user","content":"hi there"}]}`)
+	got := Extract(nil, body)
+	if got.Source != SourceContentFallback {
+		t.Fatalf("Source = %q, want %q", got.Source, SourceContentFallback)
+	}
+	if !hexKey.MatchString(got.Key) {
+		t.Errorf("Key = %q, want 32 hex chars", got.Key)
+	}
+}
+
+// A shared system prompt is not evidence of a shared conversation, so a key
+// derived from one with no message content is refused.
+func TestExtractSystemOnlyYieldsNoKey(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{
+			name: "marked system prompt and no messages",
+			body: mustJSON(t, tBody{System: []tBlock{marked("You are Claude Code.")}}),
+		},
+		{
+			name: "unmarked system prompt and no messages",
+			body: mustJSON(t, tBody{System: []tBlock{plain("You are Claude Code.")}}),
+		},
+		{
+			name: "system prompt with an empty message list",
+			body: []byte(`{"system":"You are Claude Code.","messages":[]}`),
+		},
+		{
+			name: "system prompt with a message carrying no text",
+			body: []byte(`{"system":"You are Claude Code.","messages":[{"role":"user","content":[]}]}`),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Extract(nil, tc.body); got != (Identity{}) {
+				t.Errorf("Extract = %+v, want zero Identity", got)
+			}
+		})
+	}
+}
+
+func TestExtractUnusableInput(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{name: "nil body", body: nil},
+		{name: "empty body", body: []byte{}},
+		{name: "whitespace", body: []byte("   \n\t ")},
+		{name: "not json", body: []byte("this is not json at all")},
+		{name: "html error page", body: []byte("<html><body>502</body></html>")},
+		{name: "truncated object", body: []byte(`{"metadata":{"user_id":"user_x_session_abc`)},
+		{name: "truncated messages", body: []byte(`{"system":"s","messages":[{"role":"user","content":[{"type":"tex`)},
+		{name: "bare string", body: []byte(`"just a string"`)},
+		{name: "bare number", body: []byte(`12345`)},
+		{name: "top level array", body: []byte(`[1,2,3]`)},
+		{name: "null", body: []byte(`null`)},
+		{name: "empty object", body: []byte(`{}`)},
+		{name: "user_id is a number", body: []byte(`{"metadata":{"user_id":123}}`)},
+		{name: "user_id is an array", body: []byte(`{"metadata":{"user_id":[1,2]}}`)},
+		{name: "user_id is an empty object", body: []byte(`{"metadata":{"user_id":{}}}`)},
+		{name: "user_id has no session suffix", body: []byte(`{"metadata":{"user_id":"user_abc_account_def"}}`)},
+		{name: "user_id suffix is not hex", body: []byte(`{"metadata":{"user_id":"user_abc_session_ZZZ!"}}`)},
+		{name: "user_id is a broken json string", body: []byte(`{"metadata":{"user_id":"{\"session_id\":"}}`)},
+		{name: "metadata is a string", body: []byte(`{"metadata":"nope"}`)},
+		{name: "ids are blank", body: []byte(`{"session_id":"","conversation_id":"   "}`)},
+		{name: "messages is not an array", body: []byte(`{"messages":5}`)},
+		{name: "content is a number", body: []byte(`{"messages":[{"role":"user","content":7}]}`)},
+		{name: "deeply nested noise", body: []byte(`{"a":{"b":{"c":{"d":[{"e":"f"}]}}}}`)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Extract(nil, tc.body); got != (Identity{}) {
+				t.Errorf("Extract = %+v, want zero Identity", got)
+			}
+			if got := Extract(map[string][]string{}, tc.body); got != (Identity{}) {
+				t.Errorf("Extract with empty headers = %+v, want zero Identity", got)
+			}
+		})
+	}
+}
+
+// Keys are opaque and bounded so nothing prompt-derived reaches the binding
+// table or the status UI.
+func TestExtractKeysAreOpaqueAndBounded(t *testing.T) {
+	secret := "SECRET-PROMPT-TEXT-do-not-leak"
+	bodies := [][]byte{
+		claudeCodeBody(t, ccUserID),
+		claudeCodeBody(t, map[string]any{"session_id": secret, "agent_id": secret + "-agent"}),
+		mustJSON(t, map[string]any{"session_id": secret}),
+		mustJSON(t, map[string]any{"prompt_cache_key": secret}),
+		mustJSON(t, tBody{System: []tBlock{marked(secret)}, Messages: []tMsg{user(marked(secret))}}),
+		mustJSON(t, tBody{System: []tBlock{plain(secret)}, Messages: []tMsg{user(plain(secret))}}),
+	}
+	headerSets := []map[string][]string{
+		nil,
+		hdr(headerSessionID, secret, headerAgentID, secret+"-agent"),
+		hdr("X-Conversation-Id", secret),
+	}
+
+	for _, h := range headerSets {
+		for i, body := range bodies {
+			got := Extract(h, body)
+			if got.Key == "" {
+				t.Fatalf("headers=%v body#%d: empty key", h, i)
+			}
+			for name, key := range map[string]string{"Key": got.Key, "ParentKey": got.ParentKey} {
+				if key == "" {
+					continue
+				}
+				if !hexKey.MatchString(key) {
+					t.Errorf("headers=%v body#%d: %s = %q, want 32 hex chars", h, i, name, key)
+				}
+				if strings.Contains(key, secret) || strings.Contains(key, ccSessionID) {
+					t.Errorf("headers=%v body#%d: %s = %q leaks input", h, i, name, key)
+				}
+			}
+		}
+	}
+}
+
+// Multi-megabyte bodies are routine, and the identifier rules must resolve
+// without choking on them.
+func TestExtractLargeBody(t *testing.T) {
+	filler := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 100_000) // ~4.5 MB
+
+	withID := mustJSON(t, tBody{
+		System:   []tBlock{marked(filler)},
+		Messages: []tMsg{user(marked(filler)), assistant(plain(filler))},
+		Metadata: map[string]any{"user_id": ccUserID},
+	})
+	if len(withID) < 4<<20 {
+		t.Fatalf("fixture is only %d bytes", len(withID))
+	}
+	if got := Extract(nil, withID); got.Key != hashKey(ccSessionID) || got.Source != SourceUserIDSuffix {
+		t.Errorf("Extract = %+v, want session %q from %q", got, ccSessionID, SourceUserIDSuffix)
+	}
+
+	noID := mustJSON(t, tBody{
+		System:   []tBlock{marked(filler)},
+		Messages: []tMsg{user(marked(filler)), assistant(plain(filler))},
+	})
+	got := Extract(nil, noID)
+	if got.Source != SourceCacheBreakpoints || !hexKey.MatchString(got.Key) {
+		t.Errorf("Extract = %+v, want a %q key", got, SourceCacheBreakpoints)
+	}
+}
+
+func TestBindingKey(t *testing.T) {
+	key := BindingKey("claude", "claude-opus-4-6-20260514", "abc")
+	if key != "claude|claude-opus-4-6-20260514|abc" {
+		t.Errorf("BindingKey = %q", key)
+	}
+	// A provider-blind or model-blind key would collide across credential
+	// sets that cannot serve each other's requests.
+	distinct := map[string]bool{
+		BindingKey("claude", "opus", "abc"):   true,
+		BindingKey("claude", "sonnet", "abc"): true,
+		BindingKey("other", "opus", "abc"):    true,
+		BindingKey("claude", "opus", "def"):   true,
+	}
+	if len(distinct) != 4 {
+		t.Errorf("BindingKey collides: %v", distinct)
+	}
+}
+
+func BenchmarkExtractClaudeCode(b *testing.B) {
+	body := []byte(`{"model":"claude-opus-4-6-20260514","metadata":{"user_id":"` + ccUserID + `"},` +
+		`"system":[{"type":"text","text":"` + strings.Repeat("system prompt ", 20_000) + `","cache_control":{"type":"ephemeral"}}],` +
+		`"messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("turn ", 100_000) + `"}]}]}`)
+	b.SetBytes(int64(len(body)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if Extract(nil, body).Key == "" {
+			b.Fatal("no key")
+		}
+	}
+}
+
+func BenchmarkExtractContentHash(b *testing.B) {
+	body := []byte(`{"system":[{"type":"text","text":"` + strings.Repeat("system prompt ", 20_000) + `","cache_control":{"type":"ephemeral"}}],` +
+		`"messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("turn ", 100_000) + `","cache_control":{"type":"ephemeral"}}]}]}`)
+	b.SetBytes(int64(len(body)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if Extract(nil, body).Key == "" {
+			b.Fatal("no key")
+		}
+	}
+}
