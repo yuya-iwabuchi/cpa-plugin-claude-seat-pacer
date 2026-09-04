@@ -3,7 +3,10 @@
 // package may import it without creating a cycle.
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // WindowKind identifies which Anthropic rate-limit window a reading describes.
 type WindowKind string
@@ -32,6 +35,20 @@ const (
 // Families lists every known family, in the order a model id is matched
 // against them.
 var Families = []string{FamilyOpus, FamilySonnet, FamilyFable, FamilyHaiku}
+
+// FamilyOf folds a model id, a usage-endpoint display name such as
+// "Claude Sonnet 4.5", or a header claim such as "seven_day_opus" onto its
+// family. It matches case-insensitively on the family token and returns ""
+// when no family matches, in which case the model has no scoped window.
+func FamilyOf(s string) string {
+	lower := strings.ToLower(s)
+	for _, f := range Families {
+		if strings.Contains(lower, strings.ToLower(f)) {
+			return f
+		}
+	}
+	return ""
+}
 
 // Window durations. Anthropic publishes no absolute token caps, so a window is
 // only ever expressed as a utilization fraction plus a reset instant, and the
@@ -220,10 +237,16 @@ type Decision struct {
 // Binding pins one conversation to one credential so Anthropic prompt caches
 // keep hitting. Caches are isolated between organizations, so moving a live
 // conversation to another credential guarantees a full cache miss.
+//
+// A binding is scoped per provider and model as well as per conversation,
+// because prompt caches are per model and different models may be served by
+// different credential sets. SessionKey is the bare conversation key, the same
+// value Decision.SessionKey carries.
 type Binding struct {
 	SessionKey string    `json:"session_key"`
+	Provider   string    `json:"provider"`
+	Model      string    `json:"model"`
 	AuthID     string    `json:"auth_id"`
-	Model      string    `json:"model,omitempty"`
 	BoundAt    time.Time `json:"bound_at"`
 	LastSeen   time.Time `json:"last_seen"`
 	Hits       int       `json:"hits"`
