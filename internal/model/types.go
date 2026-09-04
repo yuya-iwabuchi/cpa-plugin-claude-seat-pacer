@@ -226,3 +226,49 @@ func (c CacheStats) HitRate() float64 {
 	}
 	return float64(c.CacheReadTokens) / float64(total)
 }
+
+// PluginInfo identifies the running plugin build and its host to the status
+// app.
+type PluginInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// HostSchemaVersion is the RPC contract version the host announced at
+	// registration.
+	HostSchemaVersion uint32    `json:"host_schema_version"`
+	StartedAt         time.Time `json:"started_at"`
+}
+
+// AuthStatus is one credential's row in the status app: the host's view of
+// it, its latest quota reading, and its pace evaluation for one model.
+type AuthStatus struct {
+	AuthID   string `json:"auth_id"`
+	Label    string `json:"label,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Priority int    `json:"priority"`
+	// HostStatus is the credential state the host reports, such as active,
+	// disabled or cooling.
+	HostStatus string       `json:"host_status,omitempty"`
+	Snapshot   AuthSnapshot `json:"snapshot"`
+	// Score is the pace evaluation for Status.Model at Status.Now.
+	Score Score `json:"score"`
+	// Bindings counts live conversations pinned to this credential.
+	Bindings int        `json:"bindings"`
+	Cache    CacheStats `json:"cache"`
+}
+
+// Status is the complete state the status app renders. It carries no
+// credential material: labels and ids only.
+type Status struct {
+	Now    time.Time  `json:"now"`
+	Plugin PluginInfo `json:"plugin"`
+	Config Config     `json:"config"`
+	// Model is the model id every AuthStatus.Score was evaluated for.
+	Model     string       `json:"model"`
+	Auths     []AuthStatus `json:"auths"`
+	Bindings  []Binding    `json:"bindings"`
+	Decisions []Decision   `json:"decisions"`
+	// Warnings are operator-facing conditions that leave the plugin inert or
+	// degraded, such as a single-candidate pool or host session affinity
+	// still enabled.
+	Warnings []string `json:"warnings"`
+}
