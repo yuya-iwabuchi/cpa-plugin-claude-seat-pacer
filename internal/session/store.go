@@ -17,15 +17,25 @@ import (
 // happens to touch. A goroutine here would outlive nothing the host can
 // cancel and would block dlclose.
 //
-// Keys are opaque to the Store. Callers pass whatever BindingKey composes.
+// A binding is scoped per provider and model as well as per conversation,
+// because a model can be served by a different credential set than its
+// siblings: a provider-blind or model-blind lookup hands back a credential
+// that cannot serve the request.
 type Store struct {
 	mu  sync.Mutex
 	ttl time.Duration
 	max int
 	// order is the access order, most recently seen at the front, which is
-	// what eviction and lookup need in O(1).
+	// what eviction reads. index resolves a composed key in O(1).
 	order *list.List
 	index map[string]*list.Element
+}
+
+// entry is one binding plus the composed key it is filed under, so removing it
+// does not have to recompose that key from its parts.
+type entry struct {
+	index   string
+	binding model.Binding
 }
 
 // NewStore returns an empty store. ttl bounds idle time rather than total
@@ -42,61 +52,87 @@ func NewStore(ttl time.Duration, maxSessions int) *Store {
 	}
 }
 
-// Lookup returns the binding for a key. A hit refreshes LastSeen and counts a
-// hit; a binding idle past the TTL is a miss and is dropped.
-func (s *Store) Lookup(key string, now time.Time) (model.Binding, bool) {
+// indexKey composes the table key for one conversation on one provider and
+// model. The session key is already opaque and bounded, and provider and model
+// are host-supplied identifiers, so the composite needs no hashing.
+func indexKey(provider, modelID, sessionKey string) string {
+	return provider + "|" + modelID + "|" + sessionKey
+}
+
+// Lookup returns the binding for a conversation on one provider and model. A
+// hit refreshes LastSeen and counts a hit; a binding idle past the TTL is a
+// miss and is dropped. An empty session key names no conversation and always
+// misses.
+func (s *Store) Lookup(provider, modelID, sessionKey string, now time.Time) (model.Binding, bool) {
+	if sessionKey == "" {
+		return model.Binding{}, false
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	el, ok := s.index[key]
+	el, ok := s.index[indexKey(provider, modelID, sessionKey)]
 	if !ok {
 		return model.Binding{}, false
 	}
-	b := el.Value.(*model.Binding)
-	if s.expired(b, now) {
+	e := el.Value.(*entry)
+	if s.expired(e, now) {
 		s.remove(el)
 		return model.Binding{}, false
 	}
-	b.LastSeen = now
-	b.Hits++
+	e.binding.LastSeen = now
+	e.binding.Hits++
 	s.order.MoveToFront(el)
-	return *b, true
+	return e.binding, true
 }
 
-// Bind pins a key to a credential and returns the resulting binding. Rebinding
-// to the same credential and model refreshes the existing binding; anything
-// else replaces it, because a new credential means a new cached prefix.
-func (s *Store) Bind(key, authID, modelID string, now time.Time) model.Binding {
+// Bind pins a conversation on one provider and model to a credential and
+// returns the resulting binding. Rebinding to the same credential refreshes
+// the existing binding; a different credential replaces it, because a new
+// credential means a new cached prefix. An entry idle past the TTL is treated
+// as absent, so its hit count and bind time do not carry into a new
+// conversation that reuses the key. An empty session key names no conversation
+// and binds nothing.
+func (s *Store) Bind(provider, modelID, sessionKey, authID string, now time.Time) model.Binding {
+	if sessionKey == "" {
+		return model.Binding{}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	key := indexKey(provider, modelID, sessionKey)
 	if el, ok := s.index[key]; ok {
-		b := el.Value.(*model.Binding)
-		if b.AuthID == authID && b.Model == modelID {
-			b.LastSeen = now
+		e := el.Value.(*entry)
+		if !s.expired(e, now) && e.binding.AuthID == authID {
+			e.binding.LastSeen = now
 			s.order.MoveToFront(el)
-			return *b
+			return e.binding
 		}
 		s.remove(el)
 	}
 
-	b := &model.Binding{
-		SessionKey: key,
-		AuthID:     authID,
-		Model:      modelID,
-		BoundAt:    now,
-		LastSeen:   now,
+	e := &entry{
+		index: key,
+		binding: model.Binding{
+			SessionKey: sessionKey,
+			Provider:   provider,
+			Model:      modelID,
+			AuthID:     authID,
+			BoundAt:    now,
+			LastSeen:   now,
+		},
 	}
-	s.index[key] = s.order.PushFront(b)
+	s.index[key] = s.order.PushFront(e)
 	s.evict()
-	return *b
+	return e.binding
 }
 
 // Drop removes one binding.
-func (s *Store) Drop(key string) {
+func (s *Store) Drop(provider, modelID, sessionKey string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if el, ok := s.index[key]; ok {
+	if el, ok := s.index[indexKey(provider, modelID, sessionKey)]; ok {
 		s.remove(el)
 	}
 }
@@ -111,7 +147,7 @@ func (s *Store) DropAuth(authID string) int {
 	n := 0
 	for el := s.order.Front(); el != nil; {
 		next := el.Next()
-		if el.Value.(*model.Binding).AuthID == authID {
+		if el.Value.(*entry).binding.AuthID == authID {
 			s.remove(el)
 			n++
 		}
@@ -120,23 +156,48 @@ func (s *Store) DropAuth(authID string) int {
 	return n
 }
 
-// All returns every binding, newest LastSeen first and ties broken by key, so
-// the status UI renders the same table twice for the same state.
+// All returns every binding, newest LastSeen first and ties broken by session
+// key, provider and model, so the status UI renders the same table twice for
+// the same state.
 func (s *Store) All() []model.Binding {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	out := make([]model.Binding, 0, len(s.index))
-	for el := s.order.Front(); el != nil; el = el.Next() {
-		out = append(out, *el.Value.(*model.Binding))
+	for _, el := range s.index {
+		out = append(out, el.Value.(*entry).binding)
 	}
+	// Provider, model and session key together are the table key, so this
+	// ordering is total and does not depend on how the entries were reached.
 	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastSeen.Equal(out[j].LastSeen) {
-			return out[i].LastSeen.After(out[j].LastSeen)
+		a, b := out[i], out[j]
+		switch {
+		case !a.LastSeen.Equal(b.LastSeen):
+			return a.LastSeen.After(b.LastSeen)
+		case a.SessionKey != b.SessionKey:
+			return a.SessionKey < b.SessionKey
+		case a.Provider != b.Provider:
+			return a.Provider < b.Provider
+		default:
+			return a.Model < b.Model
 		}
-		return out[i].SessionKey < out[j].SessionKey
 	})
 	return out
+}
+
+// CountByAuth reports how many bindings each credential holds, which is the
+// per-credential session count the status UI shows. Bindings that have expired
+// since the last Sweep or Lookup are still counted, because expiry is only
+// observed when a caller supplies the time.
+func (s *Store) CountByAuth() map[string]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	counts := make(map[string]int)
+	for _, el := range s.index {
+		counts[el.Value.(*entry).binding.AuthID]++
+	}
+	return counts
 }
 
 // Len reports how many bindings are held, including any that have expired but
@@ -158,7 +219,7 @@ func (s *Store) Sweep(now time.Time) int {
 	n := 0
 	for el := s.order.Front(); el != nil; {
 		next := el.Next()
-		if s.expired(el.Value.(*model.Binding), now) {
+		if s.expired(el.Value.(*entry), now) {
 			s.remove(el)
 			n++
 		}
@@ -168,14 +229,14 @@ func (s *Store) Sweep(now time.Time) int {
 }
 
 // expired reports whether a binding has been idle longer than the TTL.
-func (s *Store) expired(b *model.Binding, now time.Time) bool {
-	return s.ttl > 0 && now.Sub(b.LastSeen) > s.ttl
+func (s *Store) expired(e *entry, now time.Time) bool {
+	return s.ttl > 0 && now.Sub(e.binding.LastSeen) > s.ttl
 }
 
 // remove unlinks an element from both the order and the index. Callers hold
 // the lock.
 func (s *Store) remove(el *list.Element) {
-	delete(s.index, el.Value.(*model.Binding).SessionKey)
+	delete(s.index, el.Value.(*entry).index)
 	s.order.Remove(el)
 }
 
