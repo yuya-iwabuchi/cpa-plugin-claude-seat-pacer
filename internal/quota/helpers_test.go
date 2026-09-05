@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,6 +25,18 @@ func at(hour, minute int) time.Time {
 
 func day(d, hour int) time.Time {
 	return time.Date(2026, 9, d, hour, 0, 0, 0, time.UTC)
+}
+
+func epoch(hour, minute int) string {
+	return strconv.FormatInt(at(hour, minute).Unix(), 10)
+}
+
+func epochMillis(hour, minute int) string {
+	return strconv.FormatInt(at(hour, minute).UnixMilli(), 10)
+}
+
+func epochDay(d, hour int) string {
+	return strconv.FormatInt(day(d, hour).Unix(), 10)
 }
 
 func fixture(t *testing.T, name string) []byte {

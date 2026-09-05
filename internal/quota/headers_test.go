@@ -7,14 +7,6 @@ import (
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
 )
 
-func epoch(hour, minute int) string {
-	return strconv.FormatInt(at(hour, minute).Unix(), 10)
-}
-
-func epochDay(d, hour int) string {
-	return strconv.FormatInt(day(d, hour).Unix(), 10)
-}
-
 func TestParseResponseHeaders(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -167,7 +159,7 @@ func TestParseResponseHeaders(t *testing.T) {
 			},
 		},
 		{
-			name: "a claim naming an unreported window synthesizes nothing",
+			name: "an allowed claim naming an unreported window synthesizes nothing",
 			headers: map[string][]string{
 				"Anthropic-Ratelimit-Unified-Status":               {"allowed"},
 				"Anthropic-Ratelimit-Unified-Reset":                {epochDay(10, 14)},
@@ -176,6 +168,63 @@ func TestParseResponseHeaders(t *testing.T) {
 			},
 			want: []model.Window{
 				{Kind: model.WindowSession, Utilization: 0.2, Duration: model.SessionDuration},
+			},
+		},
+		{
+			name: "a rejected claim for a family the headers do not report synthesizes its window",
+			headers: map[string][]string{
+				"Anthropic-Ratelimit-Unified-Status":               {"rejected"},
+				"Anthropic-Ratelimit-Unified-Reset":                {epochDay(10, 14)},
+				"Anthropic-Ratelimit-Unified-Representative-Claim": {"seven_day_opus"},
+				"Anthropic-Ratelimit-Unified-5h-Utilization":       {"0.2"},
+				"Anthropic-Ratelimit-Unified-7d-Utilization":       {"0.44"},
+			},
+			want: []model.Window{
+				{Kind: model.WindowSession, Utilization: 0.2, Duration: model.SessionDuration},
+				{Kind: model.WindowWeekly, Utilization: 0.44, Duration: model.WeeklyDuration},
+				{
+					Kind:        model.WindowWeeklyScoped,
+					Scope:       model.FamilyOpus,
+					Utilization: 0.44,
+					ResetsAt:    day(10, 14),
+					Duration:    model.WeeklyDuration,
+					Status:      model.StatusRejected,
+					Active:      true,
+				},
+			},
+		},
+		{
+			name: "a rejected claim with no seven-day reading synthesizes a window at zero",
+			headers: map[string][]string{
+				"Anthropic-Ratelimit-Unified-Status":               {"rejected"},
+				"Anthropic-Ratelimit-Unified-Representative-Claim": {"seven_day_sonnet"},
+				"Anthropic-Ratelimit-Unified-5h-Utilization":       {"0.2"},
+			},
+			want: []model.Window{
+				{Kind: model.WindowSession, Utilization: 0.2, Duration: model.SessionDuration},
+				{
+					Kind:     model.WindowWeeklyScoped,
+					Scope:    model.FamilySonnet,
+					Duration: model.WeeklyDuration,
+					Status:   model.StatusRejected,
+					Active:   true,
+				},
+			},
+		},
+		{
+			name: "a family claim marks the window the headers already report",
+			headers: map[string][]string{
+				"Anthropic-Ratelimit-Unified-Representative-Claim": {"seven_day_fable"},
+				"Anthropic-Ratelimit-Unified-7d_oi-Utilization":    {"0.67"},
+			},
+			want: []model.Window{
+				{
+					Kind:        model.WindowWeeklyScoped,
+					Scope:       model.FamilyFable,
+					Utilization: 0.67,
+					Duration:    model.WeeklyDuration,
+					Active:      true,
+				},
 			},
 		},
 		{
@@ -254,6 +303,28 @@ func TestParseResponseHeaders(t *testing.T) {
 			got := ParseResponseHeaders(tc.headers, testNow)
 			assertWindows(t, got, tc.want)
 		})
+	}
+}
+
+// TestParseResponseHeadersKeepARejectionBlocking pins the reason the scoped
+// window is synthesized at all: routing must see the refusal.
+func TestParseResponseHeadersKeepARejectionBlocking(t *testing.T) {
+	for _, claim := range []string{"seven_day_opus", "seven_day_sonnet", "seven_day_haiku"} {
+		got := ParseResponseHeaders(map[string][]string{
+			"Anthropic-Ratelimit-Unified-Status":               {"rejected"},
+			"Anthropic-Ratelimit-Unified-Representative-Claim": {claim},
+			"Anthropic-Ratelimit-Unified-7d-Utilization":       {"0.9"},
+		}, testNow)
+
+		blocking := false
+		for _, w := range got {
+			if w.Kind == model.WindowWeeklyScoped && w.Blocking() && w.Active {
+				blocking = true
+			}
+		}
+		if !blocking {
+			t.Errorf("claim %q produced %+v, want a blocking active scoped window", claim, got)
+		}
 	}
 }
 

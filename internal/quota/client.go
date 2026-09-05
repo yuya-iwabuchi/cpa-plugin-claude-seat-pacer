@@ -9,9 +9,9 @@ import (
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
 )
 
-// MaxBodyBytes caps the usage response. A Doer stops reading here and Fetch
-// rejects a longer body, so an endpoint that streams without end cannot
-// exhaust the host.
+// MaxBodyBytes caps the usage response. A Doer reads at most MaxBodyBytes+1
+// bytes, so Fetch can tell a capped body from a full one and rejects the capped
+// one; an endpoint that streams without end therefore cannot exhaust the host.
 const MaxBodyBytes = 256 << 10
 
 // userAgent identifies the caller to Anthropic as an OAuth CLI client, which
@@ -43,26 +43,40 @@ func NewClient(d Doer, usageURL string, timeout time.Duration) *Client {
 // Fetch reads one credential's quota windows.
 //
 // The returned snapshot is usable in both outcomes: on failure it carries Err
-// and no windows, so a caller can hand it straight to Store.Put, which keeps
-// the credential's prior readings and updates only the error.
+// and ErrCategory and no windows, so a caller can hand it straight to
+// Store.Put, which keeps the credential's prior readings and updates only the
+// error.
+//
+// ObservedAt dates the reading rather than the attempt: it is stamped once the
+// response is in hand, so a header merge that lands mid round-trip stays the
+// newer observation of the windows it covers.
 func (c *Client) Fetch(ctx context.Context, authID, authIndex, accessToken string) (model.AuthSnapshot, error) {
 	snap := model.AuthSnapshot{
-		AuthID:     authID,
-		AuthIndex:  authIndex,
-		ObservedAt: c.now(),
-		Source:     model.SourceUsageEndpoint,
+		AuthID:    authID,
+		AuthIndex: authIndex,
+		Source:    model.SourceUsageEndpoint,
 	}
 
-	windows, err := c.read(ctx, accessToken, snap.ObservedAt)
+	body, err := c.get(ctx, accessToken)
+	snap.ObservedAt = c.now()
+	if err == nil {
+		snap.Windows, err = ParseUsagePayload(body, snap.ObservedAt)
+	}
 	if err != nil {
+		snap.Windows = nil
 		snap.Err = err.Error()
+		snap.ErrCategory = string(Category(err))
 		return snap, err
 	}
-	snap.Windows = windows
 	return snap, nil
 }
 
-func (c *Client) read(ctx context.Context, accessToken string, now time.Time) ([]model.Window, error) {
+// get performs the usage request and reports the response body.
+//
+// The Doer runs on its own goroutine and the deadline is enforced here, so a
+// Doer that ignores ctx cannot hold the poll loop open: at the deadline get
+// reports a timeout and the abandoned goroutine's result is dropped.
+func (c *Client) get(ctx context.Context, accessToken string) ([]byte, error) {
 	if c.doer == nil {
 		return nil, &FetchError{Category: CategoryTransport, Detail: "no doer configured"}
 	}
@@ -72,37 +86,50 @@ func (c *Client) read(ctx context.Context, accessToken string, now time.Time) ([
 		defer cancel()
 	}
 
-	resp, err := c.doer.Do(ctx, Request{
-		Method: "GET",
-		URL:    c.url,
-		Header: map[string]string{
-			"Authorization":  "Bearer " + accessToken,
-			"Content-Type":   "application/json",
-			"anthropic-beta": oauthBeta,
-			"User-Agent":     userAgent,
-		},
-	})
-	if err != nil {
-		category := CategoryTransport
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			// Shutdown cancellation shares this category: routing treats both
-			// as "no reading this round" and the set carries no third name.
-			category = CategoryTimeout
-		}
-		return nil, &FetchError{Category: category, Detail: "request failed", cause: scrub(err, accessToken)}
+	type outcome struct {
+		resp Response
+		err  error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		resp, err := c.doer.Do(ctx, Request{
+			Method: "GET",
+			URL:    c.url,
+			Header: map[string]string{
+				"Authorization":  "Bearer " + accessToken,
+				"Content-Type":   "application/json",
+				"anthropic-beta": oauthBeta,
+				"User-Agent":     userAgent,
+			},
+		})
+		done <- outcome{resp: resp, err: err}
+	}()
+
+	var got outcome
+	select {
+	case got = <-done:
+	case <-ctx.Done():
+		return nil, &FetchError{Category: CategoryTimeout, Detail: "request failed", cause: ctx.Err()}
 	}
 
-	if err := statusError(resp.StatusCode); err != nil {
+	if got.err != nil {
+		category := CategoryTransport
+		if errors.Is(got.err, context.DeadlineExceeded) || errors.Is(got.err, context.Canceled) {
+			category = CategoryTimeout
+		}
+		return nil, &FetchError{Category: category, Detail: "request failed", cause: scrub(got.err, accessToken)}
+	}
+	if err := statusError(got.resp.StatusCode); err != nil {
 		return nil, err
 	}
-	if len(resp.Body) > MaxBodyBytes {
+	if len(got.resp.Body) > MaxBodyBytes {
 		return nil, &FetchError{
 			Category: CategoryOversize,
-			Status:   resp.StatusCode,
+			Status:   got.resp.StatusCode,
 			Detail:   "response exceeds the body cap",
 		}
 	}
-	return ParseUsagePayload(resp.Body, now)
+	return got.resp.Body, nil
 }
 
 // statusError classifies a response status, and reports nil for one that

@@ -142,6 +142,26 @@ func TestParseUsagePayload(t *testing.T) {
 			},
 		},
 		{
+			name: "an unknown family with no display name is the sole reading",
+			payload: `{
+				"five_hour": null,
+				"seven_day": null,
+				"limits": [
+					{"kind": "weekly_scoped", "percent": 12.0, "severity": "normal", "scope": {"model": {"id": "wombat-1", "display_name": ""}}, "is_active": true}
+				]
+			}`,
+			want: []model.Window{
+				{
+					Kind:        model.WindowWeeklyScoped,
+					Scope:       "wombat-1",
+					Utilization: 0.12,
+					Duration:    model.WeeklyDuration,
+					Severity:    model.SeverityNormal,
+					Active:      true,
+				},
+			},
+		},
+		{
 			name: "a scoped limit with no model is skipped",
 			payload: `{
 				"five_hour": {"utilization": 3.0, "resets_at": null},
@@ -325,6 +345,7 @@ func TestScopeFamily(t *testing.T) {
 		{name: "haiku display name", display: "Claude Haiku 4.5", want: "Haiku"},
 		{name: "family from id when display is empty", id: "claude-opus-4-6-20260514", want: "Opus"},
 		{name: "unknown family keeps its display name", id: "wombat-1", display: "Wombat 1", want: "Wombat 1"},
+		{name: "unknown family with no display name keeps its id", id: "wombat-1", want: "wombat-1"},
 		{name: "no model at all", want: ""},
 	}
 

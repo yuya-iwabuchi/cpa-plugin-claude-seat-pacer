@@ -2,9 +2,8 @@
 // values: it reads the OAuth usage endpoint, parses the unified rate-limit
 // response headers, and holds the newest snapshot per credential.
 //
-// The package does no networking of its own. The runtime layer routes HTTP
-// through the CLIProxyAPI host so requests inherit the host's proxy and TLS
-// configuration, and tests substitute a stub, so both plug into Doer.
+// The package does no networking of its own: every request goes through a
+// Doer, so the runtime supplies the host's HTTP path and tests supply a stub.
 package quota
 
 import "context"
@@ -23,8 +22,7 @@ type Request struct {
 	Header map[string]string
 }
 
-// Response is a Doer's output. Body is already read; an implementation stops
-// reading at MaxBodyBytes and Client.Fetch rejects anything longer.
+// Response is a Doer's output. Body is already read.
 type Response struct {
 	StatusCode int
 	Header     map[string][]string
