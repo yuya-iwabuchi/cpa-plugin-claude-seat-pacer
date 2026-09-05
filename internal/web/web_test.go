@@ -318,11 +318,11 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	ids := []string{
 		"tooltip", "svg-ns",
 		"plugin-name", "plugin-version", "host-schema", "started-at", "next-pick",
-		"model-input", "model-list", "refresh-toggle", "theme-toggle",
+		"model-input", "model-list", "model-hint", "refresh-toggle", "density-toggle", "theme-toggle",
 		"live-dot", "last-updated",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
-		"sec-seats", "seats",
-		"sec-timeline", "timeline", "timeline-legend",
+		"sec-seats", "seats", "seats-sub",
+		"sec-timeline", "timeline", "timeline-legend", "timeline-toggle", "timeline-note",
 		"sec-pace", "pace-curve", "pace-note",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
@@ -484,6 +484,101 @@ func TestPublicLabelMasksEmails(t *testing.T) {
 		if got := publicLabel(c.in); got != c.want {
 			t.Errorf("publicLabel(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestFileNameResidue(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, email, provider, want string }{
+		{"claude-alice-team-a.json", "alice@example.com", "claude", "team-a"},
+		{"claude-alice-team-b.json", "alice@example.com", "claude", "team-b"},
+		{"claude-ops@acme.example.json", "ops@acme.example", "claude", ""},
+		{"claude-ops@acme.example.json", "", "claude", ""},
+		{"claude-Ops@Acme.example-eu.json", "ops@acme.example", "claude", "eu"},
+		{"claude-team-data.json", "svc.data@acme.example", "claude", "team-data"},
+		{"claude-seat-b.json", "", "", "claude-seat-b"},
+		{"claude-oauth-a4f1c2", "", "claude", "oauth-a4f1c2"},
+		{"claude.json", "", "claude", "claude"},
+		{"", "x@y.example", "claude", ""},
+	}
+	for _, c := range cases {
+		if got := fileNameResidue(c.name, c.email, c.provider); got != c.want {
+			t.Errorf("fileNameResidue(%q, %q, %q) = %q, want %q", c.name, c.email, c.provider, got, c.want)
+		}
+	}
+}
+
+// TestPublicSeatNamesAreDistinct covers the naming order and its uniqueness:
+// two credentials of one account are told apart by what the operator put in
+// the file name, and two whose masked addresses coincide by a tag of the id.
+func TestPublicSeatNamesAreDistinct(t *testing.T) {
+	t.Parallel()
+	auths := []model.AuthStatus{
+		{AuthID: "claude-alice-team-a.json", Label: "alice@example.com", Email: "alice@example.com", Name: "claude-alice-team-a.json", Provider: "claude"},
+		{AuthID: "claude-alice-team-b.json", Label: "alice@example.com", Email: "alice@example.com", Name: "claude-alice-team-b.json", Provider: "claude"},
+		{AuthID: "claude-ops@acme.example.json", Label: "ops@acme.example", Email: "ops@acme.example", Name: "claude-ops@acme.example.json", Provider: "claude"},
+		{AuthID: "claude-oncall@acme.example.json", Label: "oncall@acme.example", Email: "oncall@acme.example", Name: "claude-oncall@acme.example.json", Provider: "claude"},
+		{AuthID: "claude-seat-e.json", Label: "Seat E", Name: "claude-seat-e.json", Provider: "claude"},
+		{AuthID: "claude-lone@acme.example.json", Label: "lone@acme.example", Name: "claude-lone@acme.example.json", Provider: "claude"},
+		{AuthID: "bare"},
+	}
+	got := publicSeatNames(auths)
+	want := []string{
+		"team-a", "team-b",
+		"o…@acme.example #" + publicID(auths[2].AuthID)[:seatTagLen],
+		"o…@acme.example #" + publicID(auths[3].AuthID)[:seatTagLen],
+		"Seat E", "l…@acme.example", "",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("name[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	seen := map[string]int{}
+	for i, n := range got {
+		if n == "" {
+			continue
+		}
+		if j, dup := seen[n]; dup {
+			t.Errorf("rows %d and %d share the name %q", j, i, n)
+		}
+		seen[n] = i
+	}
+	for _, n := range got {
+		if strings.Contains(n, "yuya") || strings.Contains(n, "ops@") || strings.Contains(n, "oncall") || strings.Contains(n, "lone@") {
+			t.Errorf("a published name carries the account's local part: %q", n)
+		}
+	}
+}
+
+// TestSeatIdentityIsReduced covers the route for the identity fields: the file
+// name is withheld, the address is masked, and the label is the published
+// name on both the row and its snapshot.
+func TestSeatIdentityIsReduced(t *testing.T) {
+	t.Parallel()
+	st := richStatus()
+	st.Auths[0].Label = "quota.bot@acme-corp.example"
+	st.Auths[0].Email = "quota.bot@acme-corp.example"
+	st.Auths[0].Name = "claude-quota.bot@acme-corp.example-primary.json"
+	st.Auths[0].Snapshot.Label = "quota.bot@acme-corp.example"
+
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	if body := rec.Body.String(); strings.Contains(body, "quota.bot") {
+		t.Errorf("the account's local part is served on the unauthenticated route: %s", body)
+	}
+	var got model.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	a := got.Auths[0]
+	if a.Label != "primary" || a.Snapshot.Label != "primary" {
+		t.Errorf("labels = %q / %q, want the file name residue on both", a.Label, a.Snapshot.Label)
+	}
+	if a.Name != "" {
+		t.Errorf("name = %q, want it withheld", a.Name)
+	}
+	if a.Email != "q…@acme-corp.example" {
+		t.Errorf("email = %q, want it masked", a.Email)
 	}
 }
 
