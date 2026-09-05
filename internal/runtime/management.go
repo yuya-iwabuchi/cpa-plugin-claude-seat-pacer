@@ -11,7 +11,7 @@ import (
 )
 
 // menuLabel is the Management Center menu entry for the status page.
-const menuLabel = "Claude Quota Scheduler"
+const menuLabel = "Claude Quota"
 
 // Resource paths under the plugin's resource prefix. The host matches a
 // resource route by exact path and rejects a bare "/" (the trailing slash is
@@ -76,7 +76,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	}
 	if p.config().Web.Enabled {
 		resp.Resources = []ResourceRoute{
-			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Quota scheduler status page."},
+			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Status page."},
 			{Path: resourceBase + resourceStatusPath, Description: "Status JSON for the page."},
 		}
 	}
