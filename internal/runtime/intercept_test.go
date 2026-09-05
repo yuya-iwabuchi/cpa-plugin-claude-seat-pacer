@@ -1,8 +1,9 @@
 package runtime
 
 import (
-	"encoding/json"
+	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,7 @@ func TestInterceptBeforeInjectsBridgeHeadersForClaudeCodeBody(t *testing.T) {
 	if len(out.Body) != 0 || out.Terminate {
 		t.Errorf("interceptor modified the request beyond headers: %+v", out)
 	}
+	assertClearsBridge(t, out)
 
 	// The same session id yields the same key on every request.
 	if again := tp.bridgeKeyFor(t, claudeCodeBody("11111111-1111-1111-1111-111111111111")); again != key {
@@ -58,7 +60,7 @@ func TestInterceptBeforeMarksSubagents(t *testing.T) {
 	}
 }
 
-func TestInterceptBeforeReturnsNothingWithoutIdentity(t *testing.T) {
+func TestInterceptBeforeSetsNoHeadersWithoutIdentity(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	for name, body := range map[string][]byte{
 		"no ids and no content": []byte(`{"model":"claude-opus-5","messages":[]}`),
@@ -66,24 +68,74 @@ func TestInterceptBeforeReturnsNothingWithoutIdentity(t *testing.T) {
 		"not json":              []byte("<html>"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			raw, ok := tp.Call(MethodRequestInterceptBefore, interceptPayload(t, body))
-			if !ok {
-				t.Fatalf("identity miss produced an error envelope: %s", raw)
+			var out RequestInterceptResponse
+			tp.callOK(t, MethodRequestInterceptBefore, interceptPayload(t, body), &out)
+			if len(out.Headers) != 0 || len(out.Body) != 0 || out.Terminate {
+				t.Errorf("identity miss modified the request: %+v", out)
 			}
-			var env Envelope
-			_ = json.Unmarshal(raw, &env)
-			var out map[string]json.RawMessage
-			_ = json.Unmarshal(env.Result, &out)
-			if len(out) != 0 {
-				t.Errorf("result = %s, want {}", env.Result)
-			}
+			assertClearsBridge(t, out)
 		})
 	}
 }
 
 func TestInterceptBeforeToleratesUndecodablePayload(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
-	if raw, ok := tp.Call(MethodRequestInterceptBefore, []byte("garbage")); !ok {
-		t.Fatalf("garbage payload produced an error envelope: %s", raw)
+	var out RequestInterceptResponse
+	tp.callOK(t, MethodRequestInterceptBefore, []byte("garbage"), &out)
+	assertClearsBridge(t, out)
+}
+
+// TestInterceptBeforeDoesNotLetAClientSetTheBridgeHeaders is the security
+// property the bridge rests on: the host merges the plugin's headers over the
+// client's own inbound headers, so a response that did not clear these would
+// let a client pin its own routing or join another conversation's credential.
+func TestInterceptBeforeDoesNotLetAClientSetTheBridgeHeaders(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	spoofed := http.Header{
+		"Content-Type":      {"application/json"},
+		HeaderSessionKey:    {"victim-key"},
+		HeaderSessionParent: {"victim-parent"},
+		HeaderSubagent:      {"1"},
+	}
+
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{"identity derived", claudeCodeBody("11111111-1111-1111-1111-111111111111")},
+		{"no identity", []byte(`{"model":"claude-opus-5","messages":[]}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := mustJSON(t, RequestInterceptRequest{
+				RequestID: "req-1", Model: fableModel, Headers: spoofed, Body: tc.body,
+			})
+			var out RequestInterceptResponse
+			tp.callOK(t, MethodRequestInterceptBefore, payload, &out)
+			assertClearsBridge(t, out)
+			for _, name := range []string{HeaderSessionKey, HeaderSessionParent, HeaderSubagent} {
+				if got := out.Headers.Get(name); strings.HasPrefix(got, "victim") {
+					t.Errorf("%s = %q, want the client's value replaced or dropped", name, got)
+				}
+			}
+			// A root session is never marked as somebody's child.
+			if out.Headers.Get(HeaderSubagent) != "" || out.Headers.Get(HeaderSessionParent) != "" {
+				t.Errorf("headers = %v, want no subagent pin from a client claim", out.Headers)
+			}
+		})
+	}
+}
+
+// assertClearsBridge checks that a response removes every bridge header before
+// setting the ones the plugin owns.
+func assertClearsBridge(t *testing.T, resp RequestInterceptResponse) {
+	t.Helper()
+	for _, name := range []string{HeaderSessionKey, HeaderSessionParent, HeaderSubagent} {
+		found := false
+		for _, cleared := range resp.ClearHeaders {
+			found = found || cleared == name
+		}
+		if !found {
+			t.Errorf("ClearHeaders = %v, want it to include %s", resp.ClearHeaders, name)
+		}
 	}
 }
