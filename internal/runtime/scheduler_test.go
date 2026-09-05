@@ -373,6 +373,26 @@ func TestSubagentDoesNotInheritABlockedParent(t *testing.T) {
 	}
 }
 
+// TestBoundCredentialRejectedForTheModelIsNotAPlainAffinityHit covers a
+// binding whose credential is the only one offered: with no challenger to
+// compare it against, the provider's own rejection is still what decides.
+func TestBoundCredentialRejectedForTheModelIsNotAPlainAffinityHit(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	blocked := seatA(t)
+	blocked.Windows[1].Status = model.StatusRejected
+	tp.quota.Put(blocked)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+	tp.pick(t, pickRequest(fableModel, "k", "seat-a"))
+	d := tp.lastDecision(t)
+	if d.Kind == model.DecisionAffinityHit {
+		t.Errorf("decision kind = %q, want the rejected window to break the affinity hit", d.Kind)
+	}
+	if !strings.Contains(d.Note, "rate-limited for this model") {
+		t.Errorf("note = %q, want the rejection named", d.Note)
+	}
+}
+
 func TestSingleCandidateWarningFollowsTheLatestPick(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
