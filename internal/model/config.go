@@ -64,8 +64,13 @@ type PaceConfig struct {
 	// WeeklyWeight scales the weekly window's slack. The weekly window is the
 	// resource actually lost at reset, so it dominates.
 	WeeklyWeight float64 `yaml:"weekly-weight" json:"weekly_weight"`
-	// SessionWeight scales the 5-hour window's slack. Non-zero keeps traffic
-	// from slamming one credential's session window when weekly slack ties.
+	// SessionWeight scales the 5-hour window's slack. It is zero: the session
+	// window is a rate limit rather than a budget, so there is nothing to pace
+	// against — unspent session capacity is not carried, and the window resets
+	// several times a day. The session window still gates a credential out
+	// when it is rejected or past the hard cutoff, and still feeds the raw
+	// utilization penalty, because both read the window rather than its slack.
+	// Non-zero restores a short-horizon term when weekly slack ties.
 	SessionWeight float64 `yaml:"session-weight" json:"session_weight"`
 	// ScopedWeight scales a model-family weekly window's slack when the
 	// requested model falls in that family.
@@ -125,7 +130,7 @@ func Defaults() Config {
 			CurveExponent:    1.0,
 			LandingTarget:    1.0,
 			WeeklyWeight:     1.0,
-			SessionWeight:    0.35,
+			SessionWeight:    0,
 			ScopedWeight:     0.5,
 			RawWeight:        0.25,
 			HysteresisMargin: 0.05,

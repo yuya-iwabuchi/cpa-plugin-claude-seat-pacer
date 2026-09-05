@@ -173,6 +173,7 @@ func TestSlackApproachesHeadroomAsWindowCloses(t *testing.T) {
 
 func TestScoreAuthBreakdownCoversEveryWindow(t *testing.T) {
 	cfg := model.Defaults().Pace
+	cfg.SessionWeight = 0.35
 	now := testNow
 
 	snap := seat("seat", now,
@@ -872,5 +873,34 @@ func TestShouldSwitch(t *testing.T) {
 				t.Fatalf("ShouldSwitch = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSessionWindowGatesWithoutPacing pins the split the default weights rely
+// on: a session window contributes no slack, yet still makes a credential
+// ineligible past the hard cutoff and still raises the raw utilization penalty.
+func TestSessionWindowGatesWithoutPacing(t *testing.T) {
+	cfg := model.Defaults().Pace
+	now := testNow
+
+	if cfg.SessionWeight != 0 {
+		t.Fatalf("SessionWeight = %v, want 0", cfg.SessionWeight)
+	}
+
+	busy := ScoreAuth(cfg, seat("busy", now,
+		paced(model.WindowSession, "", now, 0.5, 0.2),
+		weekly(now, 0.5, 0.1),
+	), "claude-opus-5", now)
+	bare := ScoreAuth(cfg, seat("bare", now, weekly(now, 0.5, 0.1)), "claude-opus-5", now)
+	if math.Abs(busy.Total-bare.Total) < tolerance {
+		t.Fatal("a session window at higher utilization must still cost through the raw penalty")
+	}
+
+	over := ScoreAuth(cfg, seat("over", now,
+		paced(model.WindowSession, "", now, 0.5, cfg.HardCutoff),
+		weekly(now, 0.5, 0.1),
+	), "claude-opus-5", now)
+	if over.Eligible || over.Reason != model.ReasonHardCutoff {
+		t.Fatalf("eligible=%v reason=%q, want the session window to gate", over.Eligible, over.Reason)
 	}
 }
