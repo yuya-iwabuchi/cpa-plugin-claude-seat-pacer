@@ -51,6 +51,11 @@ var contentSecurityPolicy = "default-src 'none'; " +
 // inline block: its SHA-256 hash, or 'unsafe-inline' for a document whose
 // script block cannot be located, so the page still runs. TestHeaders holds
 // the shipped policy to the hash.
+//
+// The hash covers the file's bytes, which is the script a browser hashes only
+// while the document carries neither NUL nor CR: the HTML tokenizer rewrites
+// those inside script data to U+FFFD and LF, and a policy naming any other
+// text blocks the document whole. TestPageHoldsNoRewrittenByte keeps them out.
 func inlineScriptSource(page []byte) string {
 	const openTag, closeTag = "<script>", "</script>"
 	i := bytes.Index(page, []byte(openTag))

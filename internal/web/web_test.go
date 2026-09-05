@@ -350,6 +350,23 @@ func TestScriptHashCoversTheServedPage(t *testing.T) {
 	}
 }
 
+// TestPageHoldsNoRewrittenByte covers the one way the shipped policy can name a
+// script no browser runs: the HTML tokenizer rewrites NUL to U+FFFD and CR to
+// LF inside script data, so a document carrying either hashes to one value here
+// and to another in the browser, which then blocks the page whole.
+func TestPageHoldsNoRewrittenByte(t *testing.T) {
+	t.Parallel()
+	page := get(t, NewHandler(&stubSource{}), "/index.html").Body.Bytes()
+	for _, c := range []struct {
+		b    byte
+		name string
+	}{{0x00, "NUL"}, {'\r', "CR"}} {
+		if i := bytes.IndexByte(page, c.b); i >= 0 {
+			t.Errorf("page carries %s at byte %d, which the parser rewrites before it hashes", c.name, i)
+		}
+	}
+}
+
 // TestNonFiniteSentinelLiteral holds nonFiniteLiteral to what the encoder
 // actually writes for the sentinel.
 func TestNonFiniteSentinelLiteral(t *testing.T) {

@@ -1797,7 +1797,7 @@ main[data-stale="true"] { opacity: .62; }
 
   /* The seat names a region renders alongside its own payload. */
   function seatNames(st) {
-    return (st.auths || []).map(function (a) { return a.auth_id + " " + seatLabel(a); });
+    return (st.auths || []).map(function (a) { return a.auth_id + "\u0000" + seatLabel(a); });
   }
 
   /* Focus survives a rebuild by key rather than by node: every generated stop
