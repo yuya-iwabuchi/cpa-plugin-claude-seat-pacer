@@ -72,7 +72,7 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 			Slack:       target - w.Utilization,
 			ResetsAt:    w.ResetsAt,
 		}
-		if bears(w, family) {
+		if w.BearsOn(family) {
 			bearing++
 			rejected = rejected || w.Blocking()
 			cutoff = cutoff || w.Utilization >= cfg.HardCutoff
@@ -106,19 +106,6 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 		score.Reason = model.ReasonHardCutoff
 	}
 	return score
-}
-
-// bears reports whether a window's kind and scope bear on a request for family.
-// An empty family names no scoped window, so every scoped cap is another
-// family's.
-func bears(w model.Window, family string) bool {
-	switch w.Kind {
-	case model.WindowSession, model.WindowWeekly:
-		return true
-	case model.WindowWeeklyScoped:
-		return family != "" && model.FamilyOf(w.Scope) == family
-	}
-	return false
 }
 
 // open reports whether a window has a period to place on the curve.
