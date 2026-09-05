@@ -125,7 +125,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		warnings = append(warnings, "credential listing is failing: "+listErr)
 	}
 	for _, provider := range single {
-		warnings = append(warnings, fmt.Sprintf("provider %s offered a single candidate; spreading cannot work until every credential in the pool shares one priority value", provider))
+		warnings = append(warnings, singleCandidateWarning(provider, rows))
 	}
 	for _, id := range ordered {
 		entry, listed := entries[id]
@@ -182,5 +182,32 @@ func hostStatus(entry HostAuthFileEntry) string {
 		return entry.Status
 	default:
 		return "unknown"
+	}
+}
+
+// singleCandidateWarning names why a provider was offered one candidate. The
+// host filters the list before the plugin sees it and caps it at the highest
+// priority tier, so a lone candidate means the pool holds one credential, the
+// rest sit on a lower tier, or the rest are unavailable. Only the tier case is
+// a misconfiguration, and a pool the plugin cannot see claims no cause at all.
+func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
+	tiers := make(map[int]struct{}, len(rows))
+	pool := 0
+	for _, row := range rows {
+		if row.Provider != provider {
+			continue
+		}
+		pool++
+		tiers[row.Priority] = struct{}{}
+	}
+	switch {
+	case pool == 0:
+		return fmt.Sprintf("provider %s offered a single candidate; the host filters candidates before the plugin sees them, so the rest are unavailable or on a lower priority tier", provider)
+	case pool == 1:
+		return fmt.Sprintf("provider %s offered a single candidate, which is the only credential in the pool", provider)
+	case len(tiers) > 1:
+		return fmt.Sprintf("provider %s offered a single candidate; the host caps candidates at the highest priority tier, so every credential in the pool needs the same priority value", provider)
+	default:
+		return fmt.Sprintf("provider %s offered a single candidate; the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", provider)
 	}
 }

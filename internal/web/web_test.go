@@ -183,7 +183,7 @@ func TestHeaders(t *testing.T) {
 			"connect-src 'self'",
 			"base-uri 'none'",
 			"form-action 'none'",
-			"frame-ancestors 'none'",
+			"frame-ancestors 'self'",
 		} {
 			if !strings.Contains(csp, want) {
 				t.Errorf("%s: CSP is missing %q: %q", target, want, csp)
@@ -535,7 +535,7 @@ func TestWarningsDropURLs(t *testing.T) {
 	st := richStatus()
 	st.Warnings = []string{
 		`quota poll failing for auth-a (timeout): Get "https://usage.internal.example/api/oauth/usage": context deadline exceeded`,
-		"provider claude offered a single candidate; spreading cannot work",
+		"provider claude offered a single candidate; the pool shares one priority tier",
 	}
 	original := st.Warnings[0]
 	src := &stubSource{status: st}
@@ -547,7 +547,7 @@ func TestWarningsDropURLs(t *testing.T) {
 	}
 	want := []string{
 		`quota poll failing for ` + publicID("auth-a") + ` (timeout): Get "…": context deadline exceeded`,
-		"provider claude offered a single candidate; spreading cannot work",
+		"provider claude offered a single candidate; the pool shares one priority tier",
 	}
 	if !reflect.DeepEqual(got.Warnings, want) {
 		t.Errorf("warnings = %q, want %q", got.Warnings, want)

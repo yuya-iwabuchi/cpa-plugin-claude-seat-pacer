@@ -46,14 +46,16 @@ const maxStatusBindings = 500
 // this document, named by hash. No directive names a remote origin, and
 // connect-src 'self' is what lets the page reach its own api/status. Inline
 // style attributes in the markup keep style-src on 'unsafe-inline', which a
-// hash cannot cover.
+// hash cannot cover. The Management Center reaches this page by embedding it
+// in an iframe of the same origin, so frame-ancestors admits 'self' and no
+// one else.
 var contentSecurityPolicy = "default-src 'none'; " +
 	"script-src " + inlineScriptSource(indexHTML) + "; " +
 	"style-src 'unsafe-inline'; " +
 	"connect-src 'self'; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +
-	"frame-ancestors 'none'"
+	"frame-ancestors 'self'"
 
 // inlineScriptSource is the script-src expression covering the document's
 // inline block: its SHA-256 hash, or 'unsafe-inline' for a document whose

@@ -11,7 +11,7 @@ import (
 )
 
 // menuLabel is the Management Center menu entry for the status page.
-const menuLabel = "Quota Scheduler"
+const menuLabel = "Claude Quota Scheduler"
 
 // Resource paths under the plugin's resource prefix. The host matches a
 // resource route by exact path and rejects a bare "/" (the trailing slash is

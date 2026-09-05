@@ -282,7 +282,7 @@ func (f *fixture) rebuildWarnings() {
 	}
 	if len(f.auths) == 1 {
 		f.warnings = append(f.warnings, fmt.Sprintf("provider %s offered a single candidate; "+
-			"spreading cannot work until every credential in the pool shares one priority value", "claude"))
+			"the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", "claude"))
 	}
 	for _, a := range f.auths {
 		snap, ok := f.snapshots[a.AuthID]
