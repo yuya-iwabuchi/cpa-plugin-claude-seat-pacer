@@ -130,15 +130,8 @@ func TestExtractResolutionOrder(t *testing.T) {
 			source:   "header:x-thread-id",
 		},
 		{
-			name:     "generic X-Client-Request-Id",
-			headers:  hdr("X-Client-Request-Id", "sess-b"),
-			material: "sess-b",
-			source:   "header:x-client-request-id",
-		},
-		{
 			name: "generic headers resolve in declared order",
 			headers: hdr(
-				"X-Client-Request-Id", "sess-e",
 				"X-Thread-Id", "sess-d",
 				"X-Conversation-Id", "sess-c",
 				"X-Session-Id", "sess-b",
@@ -146,6 +139,16 @@ func TestExtractResolutionOrder(t *testing.T) {
 			),
 			material: "sess-a",
 			source:   "header:session-id",
+		},
+		{
+			// A request id changes every turn and would rotate the key with
+			// it, and it arrives on Claude Code requests that carry a real
+			// session id in the body.
+			name:     "a per-request id is not a session header",
+			headers:  hdr("X-Client-Request-Id", "req-1"),
+			body:     claudeCodeBody(t, ccUserID),
+			material: ccSessionID,
+			source:   SourceUserIDSuffix,
 		},
 		{
 			name:     "generic header beats the body",
@@ -164,6 +167,19 @@ func TestExtractResolutionOrder(t *testing.T) {
 		{
 			name:     "metadata.user_id suffix",
 			body:     claudeCodeBody(t, ccUserID),
+			material: ccSessionID,
+			source:   SourceUserIDSuffix,
+		},
+		{
+			// Clients spell the uuid in either case.
+			name:     "metadata.user_id suffix in upper case",
+			body:     claudeCodeBody(t, strings.ToUpper(ccUserID)),
+			material: strings.ToUpper(ccSessionID),
+			source:   SourceUserIDSuffix,
+		},
+		{
+			name:     "metadata.user_id suffix with trailing whitespace",
+			body:     claudeCodeBody(t, ccUserID+"  \n"),
 			material: ccSessionID,
 			source:   SourceUserIDSuffix,
 		},
@@ -380,62 +396,75 @@ func TestExtractSubagent(t *testing.T) {
 	}
 }
 
-// A subagent's key differs from its parent's while pointing back at it, which
-// is what lets affinity pin the child to the parent's credential without the
-// two sharing one binding.
-func TestExtractSubagentKeyLinksToParentKey(t *testing.T) {
-	parent := Extract(hdr(headerSessionID, "sess-a", headerAgentID, "main"), nil)
-	child := Extract(hdr(headerSessionID, "sess-a", headerAgentID, "explore"), nil)
-
-	if child.Key == parent.Key {
-		t.Fatalf("child and parent share key %q", child.Key)
-	}
-	if child.ParentKey != parent.Key {
-		t.Errorf("child.ParentKey = %q, want parent.Key %q", child.ParentKey, parent.Key)
-	}
-}
-
-func TestExtractCacheBreakpointHash(t *testing.T) {
+// Clients move the message-level cache breakpoint to the newest turn on every
+// request, which is Anthropic's documented multi-turn pattern. The key covers
+// the system prompt's breakpoints and the first message only, so it survives
+// the marker moving.
+func TestExtractContentKeyIsStableAcrossTurns(t *testing.T) {
 	sys := marked("You are Claude Code, Anthropic's official CLI for Claude.")
-	prefix := user(marked("read internal/session/identity.go"))
+	const opening = "read internal/session/identity.go"
 
-	base := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{prefix}})
-	appended := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
-		prefix,
-		assistant(plain("Here is the file.")),
-		user(plain("now the tests")),
-	}})
-	differentPrefix := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
-		user(marked("read internal/session/store.go")),
-	}})
-	differentSystem := mustJSON(t, tBody{
-		System:   []tBlock{marked("You are a different assistant.")},
-		Messages: []tMsg{prefix},
-	})
+	turns := [][]byte{
+		mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+			user(marked(opening)),
+		}}),
+		mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+			user(plain(opening)),
+			assistant(plain("Here is the file.")),
+			user(marked("now the tests")),
+		}}),
+		mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+			user(plain(opening)),
+			assistant(plain("Here is the file.")),
+			user(plain("now the tests")),
+			assistant(plain("Here are the tests.")),
+			user(marked("and the store")),
+		}}),
+	}
 
-	got := Extract(nil, base)
+	got := Extract(nil, turns[0])
 	if got.Source != SourceCacheBreakpoints {
 		t.Fatalf("Source = %q, want %q", got.Source, SourceCacheBreakpoints)
 	}
 	if !hexKey.MatchString(got.Key) {
 		t.Fatalf("Key = %q, want 32 hex chars", got.Key)
 	}
+	for i, body := range turns[1:] {
+		if k := Extract(nil, body).Key; k != got.Key {
+			t.Errorf("turn %d moved the marker and changed the key: %q != %q", i+2, k, got.Key)
+		}
+	}
 
-	if k := Extract(nil, appended).Key; k != got.Key {
-		t.Errorf("appending an unmarked message changed the key: %q != %q", k, got.Key)
+	otherOpening := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
+		user(marked("read internal/session/store.go")),
+	}})
+	if k := Extract(nil, otherOpening).Key; k == got.Key {
+		t.Errorf("a different first message kept key %q", k)
 	}
-	if k := Extract(nil, differentPrefix).Key; k == got.Key {
-		t.Errorf("a different marked message kept key %q", k)
-	}
-	if k := Extract(nil, differentSystem).Key; k == got.Key {
+
+	otherSystem := mustJSON(t, tBody{
+		System:   []tBlock{marked("You are a different assistant.")},
+		Messages: []tMsg{user(marked(opening))},
+	})
+	if k := Extract(nil, otherSystem).Key; k == got.Key {
 		t.Errorf("a different marked system prompt kept key %q", k)
+	}
+
+	// Only the marked system blocks count, so text after the breakpoint —
+	// which a client rewrites per request — is outside the key.
+	trailingSystem := mustJSON(t, tBody{
+		System:   []tBlock{sys, plain("Today is 2026-09-04.")},
+		Messages: []tMsg{user(marked(opening))},
+	})
+	if k := Extract(nil, trailingSystem).Key; k != got.Key {
+		t.Errorf("an unmarked trailing system block changed the key: %q != %q", k, got.Key)
 	}
 }
 
-// Without a marked message the hash falls back to the system prompt plus the
-// first message.
+// Without a marked system block the hash falls back to the whole system prompt
+// plus the first message.
 func TestExtractContentFallback(t *testing.T) {
-	sys := marked("shared workspace system prompt")
+	sys := plain("shared workspace system prompt")
 
 	first := mustJSON(t, tBody{System: []tBlock{sys}, Messages: []tMsg{
 		user(plain("first question")),
@@ -513,11 +542,13 @@ func TestExtractSystemOnlyYieldsNoKey(t *testing.T) {
 
 func TestExtractUnusableInput(t *testing.T) {
 	tests := []struct {
-		name string
-		body []byte
+		name    string
+		headers map[string][]string
+		body    []byte
 	}{
 		{name: "nil body", body: nil},
 		{name: "empty body", body: []byte{}},
+		{name: "empty header map", headers: map[string][]string{}, body: []byte(`{}`)},
 		{name: "whitespace", body: []byte("   \n\t ")},
 		{name: "not json", body: []byte("this is not json at all")},
 		{name: "html error page", body: []byte("<html><body>502</body></html>")},
@@ -543,13 +574,27 @@ func TestExtractUnusableInput(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Extract(nil, tc.body); got != (Identity{}) {
+			if got := Extract(tc.headers, tc.body); got != (Identity{}) {
 				t.Errorf("Extract = %+v, want zero Identity", got)
 			}
-			if got := Extract(map[string][]string{}, tc.body); got != (Identity{}) {
-				t.Errorf("Extract with empty headers = %+v, want zero Identity", got)
-			}
 		})
+	}
+}
+
+// A block with a mistyped field is skipped and the rest of the array still
+// counts, matching how a mistyped top-level field is treated.
+func TestExtractContentSkipsMistypedBlocks(t *testing.T) {
+	good := []byte(`{"system":"s","messages":[{"role":"user","content":[` +
+		`{"type":"text","text":"hello"}]}]}`)
+	withBadBlock := []byte(`{"system":"s","messages":[{"role":"user","content":[` +
+		`{"type":"text","text":5},{"type":"text","text":"hello"}]}]}`)
+
+	want := Extract(nil, good)
+	if want.Source != SourceContentFallback || !hexKey.MatchString(want.Key) {
+		t.Fatalf("Extract = %+v, want a %q key", want, SourceContentFallback)
+	}
+	if got := Extract(nil, withBadBlock); got != want {
+		t.Errorf("Extract = %+v, want %+v; a mistyped block discarded the array", got, want)
 	}
 }
 
@@ -619,45 +664,33 @@ func TestExtractLargeBody(t *testing.T) {
 	}
 }
 
-func TestBindingKey(t *testing.T) {
-	key := BindingKey("claude", "claude-opus-4-6-20260514", "abc")
-	if key != "claude|claude-opus-4-6-20260514|abc" {
-		t.Errorf("BindingKey = %q", key)
+// benchBody is a multi-megabyte request in the shape both benchmarks measure:
+// a marked system prompt and one long marked user turn. metadata carries the
+// user id only when withUserID, which is what separates the identifier path
+// from the content path.
+func benchBody(withUserID bool) []byte {
+	metadata := ""
+	if withUserID {
+		metadata = `"metadata":{"user_id":"` + ccUserID + `"},`
 	}
-	// A provider-blind or model-blind key would collide across credential
-	// sets that cannot serve each other's requests.
-	distinct := map[string]bool{
-		BindingKey("claude", "opus", "abc"):   true,
-		BindingKey("claude", "sonnet", "abc"): true,
-		BindingKey("other", "opus", "abc"):    true,
-		BindingKey("claude", "opus", "def"):   true,
-	}
-	if len(distinct) != 4 {
-		t.Errorf("BindingKey collides: %v", distinct)
-	}
+	return []byte(`{"model":"claude-opus-4-6-20260514",` + metadata +
+		`"system":[{"type":"text","text":"` + strings.Repeat("system prompt ", 20_000) + `","cache_control":{"type":"ephemeral"}}],` +
+		`"messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("turn ", 100_000) + `","cache_control":{"type":"ephemeral"}}]}]}`)
 }
 
 func BenchmarkExtractClaudeCode(b *testing.B) {
-	body := []byte(`{"model":"claude-opus-4-6-20260514","metadata":{"user_id":"` + ccUserID + `"},` +
-		`"system":[{"type":"text","text":"` + strings.Repeat("system prompt ", 20_000) + `","cache_control":{"type":"ephemeral"}}],` +
-		`"messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("turn ", 100_000) + `"}]}]}`)
-	b.SetBytes(int64(len(body)))
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		if Extract(nil, body).Key == "" {
-			b.Fatal("no key")
-		}
-	}
+	benchmarkExtract(b, benchBody(true))
 }
 
 func BenchmarkExtractContentHash(b *testing.B) {
-	body := []byte(`{"system":[{"type":"text","text":"` + strings.Repeat("system prompt ", 20_000) + `","cache_control":{"type":"ephemeral"}}],` +
-		`"messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("turn ", 100_000) + `","cache_control":{"type":"ephemeral"}}]}]}`)
+	benchmarkExtract(b, benchBody(false))
+}
+
+func benchmarkExtract(b *testing.B, body []byte) {
+	b.Helper()
 	b.SetBytes(int64(len(body)))
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		if Extract(nil, body).Key == "" {
 			b.Fatal("no key")
 		}

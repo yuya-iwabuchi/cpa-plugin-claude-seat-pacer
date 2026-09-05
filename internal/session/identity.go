@@ -2,11 +2,10 @@
 // conversation is this request part of, and which credential is that
 // conversation already pinned to.
 //
-// Identity comes from the request body, not from headers alone. For Claude
-// Code the session id lives at metadata.user_id and appears in no header, and
-// request.intercept_before is the only hook that receives a body, so
-// extraction belongs here rather than in the scheduler. Every key is a
-// truncated SHA-256 so nothing prompt-derived is stored or displayed verbatim.
+// Identity is derived from headers first and then the request body, because
+// Claude Code carries its session id only in the body (metadata.user_id).
+// Every key is a truncated SHA-256 so nothing client-supplied is stored or
+// displayed verbatim.
 package session
 
 import (
@@ -29,14 +28,13 @@ type Identity struct {
 	// is empty when the parent cannot be named.
 	ParentKey string
 	// Subagent marks a request issued by a child agent of another
-	// conversation. Subagents replay the parent's prefix, so pinning them to
-	// the parent's credential is a large cache win.
+	// conversation.
 	Subagent bool
 	// Source names the rule that produced Key, for the status UI.
 	Source string
 }
 
-// Source values that are not derived from a field name.
+// Sources for rules that read more than one field.
 const (
 	SourceClaudeCodeHeader = "header:x-claude-code-session-id"
 	SourceUserIDObject     = "body:metadata.user_id.session_id"
@@ -54,13 +52,13 @@ const (
 )
 
 // sessionHeaders are the generic conversation headers other clients use, in
-// precedence order.
+// precedence order. Every one of them names a conversation rather than a
+// single request, so the key it yields survives the turn.
 var sessionHeaders = []string{
 	"Session-Id",
 	"X-Session-Id",
 	"X-Conversation-Id",
 	"X-Thread-Id",
-	"X-Client-Request-Id",
 }
 
 // mainAgentID is the agent id of a conversation's root agent. It is not a
@@ -68,16 +66,22 @@ var sessionHeaders = []string{
 const mainAgentID = "main"
 
 // userIDSessionRe matches the session id in Claude Code's plain-string
-// metadata.user_id, which ends in "_session_<uuid>".
-var userIDSessionRe = regexp.MustCompile(`_session_([a-f0-9-]+)$`)
+// metadata.user_id, which ends in "_session_<uuid>". Clients spell the uuid in
+// either case.
+var userIDSessionRe = regexp.MustCompile(`(?i)_session_([a-f0-9-]+)$`)
 
 // ephemeralCacheType is the cache_control type a client sets on the content
 // block that ends a cacheable prefix.
 const ephemeralCacheType = "ephemeral"
 
-// Extract derives the conversation identity of one request. Header lookups are
-// case-insensitive, and the first rule that yields a key wins. A body that is
-// empty, truncated, malformed or not JSON yields a zero Identity.
+// Extract derives the conversation identity of one request.
+//
+// Rules run in order and the first key wins: (a) Claude Code's
+// X-Claude-Code-* headers, (b) generic session headers in sessionHeaders
+// order, (c) metadata.user_id, (d) other body identifier fields in bodyIDs
+// order, (e) a hash of the system prompt's cache breakpoints plus the first
+// message. Header lookups are case-insensitive. A body that is empty,
+// truncated or not JSON contributes no key.
 func Extract(headers map[string][]string, body []byte) Identity {
 	h := newHeaderIndex(headers)
 
@@ -88,8 +92,6 @@ func Extract(headers map[string][]string, body []byte) Identity {
 		return raw.identity()
 	}
 
-	// Identifier fields decode without the content arrays, so the common path
-	// never allocates a multi-megabyte body's messages.
 	var ids bodyIDs
 	if decode(body, &ids) {
 		if raw, ok := fromUserID(ids); ok {
@@ -99,8 +101,8 @@ func Extract(headers map[string][]string, body []byte) Identity {
 			return raw.identity()
 		}
 	}
-	if raw, ok := fromContent(body); ok {
-		return raw.identity()
+	if id, ok := fromContent(body); ok {
+		return id
 	}
 	return Identity{}
 }
@@ -203,7 +205,7 @@ func fromSessionHeaders(h headerIndex) (rawIdentity, bool) {
 
 // bodyIDs holds a request body's identifier fields. The content arrays are
 // deliberately absent: encoding/json skips fields the struct does not name, so
-// this decode walks a large body without materializing its messages.
+// this decode walks a multi-megabyte body without materializing its messages.
 type bodyIDs struct {
 	SessionID      string `json:"session_id"`
 	SessionIDCamel string `json:"sessionId"`
@@ -211,7 +213,7 @@ type bodyIDs struct {
 	ConversationID string `json:"conversation_id"`
 	ThreadID       string `json:"thread_id"`
 	Metadata       struct {
-		// UserID stays raw because it arrives in two shapes.
+		// UserID stays raw because fromUserID accepts several shapes for it.
 		UserID    json.RawMessage `json:"user_id"`
 		SessionID string          `json:"session_id"`
 	} `json:"metadata"`
@@ -224,11 +226,10 @@ type userIDObject struct {
 	AgentID         string `json:"agent_id"`
 }
 
-// fromUserID reads rule c, the Claude Code path and the one that matters most.
-// metadata.user_id arrives in two shapes: an object carrying session_id,
-// parent_session_id and agent_id — as a JSON object or as a string holding
-// one — or a plain account string whose "_session_<uuid>" suffix is the
-// session id.
+// fromUserID reads rule c, the Claude Code path. metadata.user_id arrives in
+// three shapes: a JSON object carrying session_id, parent_session_id and
+// agent_id; a JSON string holding that same object; or a plain account string
+// whose "_session_<uuid>" suffix is the session id.
 func fromUserID(ids bodyIDs) (rawIdentity, bool) {
 	raw := bytes.TrimSpace(ids.Metadata.UserID)
 	if len(raw) == 0 {
@@ -293,8 +294,7 @@ func fromBodyIDs(ids bodyIDs) (rawIdentity, bool) {
 	return rawIdentity{}, false
 }
 
-// bodyContent holds the content arrays the hash fallback reads. It is decoded
-// only when every identifier rule has missed.
+// bodyContent holds the content arrays the hash fallback reads.
 type bodyContent struct {
 	System   json.RawMessage `json:"system"`
 	Messages []message       `json:"messages"`
@@ -323,45 +323,52 @@ func (b contentBlock) ephemeral() bool {
 // fromContent reads rule e, the content fallback for clients that send no
 // conversation id at all.
 //
-// The primary material is the blocks the client marked cache_control:
-// ephemeral, because those are the cache breakpoints affinity exists to
-// protect: they stay put as the conversation grows, which makes them a more
-// robust identity than a session id the client may not send. When no message
-// carries a breakpoint the material is the system prompt plus the first
-// message instead.
+// The material is the system prompt's cache breakpoints — the whole system
+// prompt when it carries none — plus the first contentful message. Both are
+// fixed for the life of a conversation, which is what makes the key stable.
+// Later messages are excluded: a client moves its message-level breakpoint to
+// the newest turn on every request, so any material drawn from them yields a
+// fresh key each turn and no affinity ever forms.
 //
 // A key derived from a system prompt with no message content is refused: a
 // shared system prompt is not evidence of a shared conversation, and every
 // Claude Code request in a workspace would collapse onto one key.
-func fromContent(body []byte) (rawIdentity, bool) {
-	if len(body) == 0 {
-		return rawIdentity{}, false
-	}
+//
+// The material is streamed through SHA-256 rather than concatenated, so this
+// rule builds the finished key itself instead of handing material to hashKey.
+func fromContent(body []byte) (Identity, bool) {
 	var c bodyContent
 	if !decode(body, &c) {
-		return rawIdentity{}, false
+		return Identity{}, false
+	}
+	role, blocks, ok := firstContentful(c.Messages)
+	if !ok {
+		return Identity{}, false
+	}
+
+	system := blocksOf(c.System)
+	source := SourceCacheBreakpoints
+	if marked := markedBlocks(system); len(marked) > 0 {
+		system = marked
+	} else {
+		source = SourceContentFallback
 	}
 
 	sum := sha256.New()
-	writeSection(sum, "system", blocksOf(c.System), true)
-	marked := false
-	for _, m := range c.Messages {
-		if writeSection(sum, m.Role, blocksOf(m.Content), true) {
-			marked = true
+	writeSection(sum, "system", system)
+	writeSection(sum, role, blocks)
+	return Identity{Key: digest(sum), Source: source}, true
+}
+
+// markedBlocks keeps only the blocks a client marked as a cache breakpoint.
+func markedBlocks(blocks []contentBlock) []contentBlock {
+	var out []contentBlock
+	for _, b := range blocks {
+		if b.ephemeral() {
+			out = append(out, b)
 		}
 	}
-	if marked {
-		return rawIdentity{key: digest(sum), source: SourceCacheBreakpoints}, true
-	}
-
-	role, blocks, ok := firstContentful(c.Messages)
-	if !ok {
-		return rawIdentity{}, false
-	}
-	sum = sha256.New()
-	writeSection(sum, "system", blocksOf(c.System), false)
-	writeSection(sum, role, blocks, false)
-	return rawIdentity{key: digest(sum), source: SourceContentFallback}, true
+	return out
 }
 
 // firstContentful returns the first user message that carries text, falling
@@ -397,7 +404,9 @@ func hasText(blocks []contentBlock) bool {
 }
 
 // blocksOf reads a content field, which is either a plain string or an array
-// of blocks. Anything else yields no blocks.
+// of blocks. A block whose fields have the wrong types is skipped and the rest
+// of the array still counts, matching how decode treats a mistyped field.
+// Anything that is neither a string nor an array yields no blocks.
 func blocksOf(raw json.RawMessage) []contentBlock {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
@@ -411,9 +420,17 @@ func blocksOf(raw json.RawMessage) []contentBlock {
 		}
 		return []contentBlock{{Type: "text", Text: s}}
 	case '[':
-		var blocks []contentBlock
-		if json.Unmarshal(raw, &blocks) != nil {
+		var entries []json.RawMessage
+		if json.Unmarshal(raw, &entries) != nil {
 			return nil
+		}
+		var blocks []contentBlock
+		for _, e := range entries {
+			var b contentBlock
+			if json.Unmarshal(e, &b) != nil {
+				continue
+			}
+			blocks = append(blocks, b)
 		}
 		return blocks
 	}
@@ -427,15 +444,10 @@ const (
 	recordSep = "\x1e"
 )
 
-// writeSection feeds one content array into the hash and reports whether it
-// contributed anything. Text is written block by block rather than joined so a
-// large prompt is never copied whole.
-func writeSection(h hash.Hash, role string, blocks []contentBlock, markedOnly bool) bool {
-	wrote := false
+// writeSection feeds one content array into the hash. Text is written block by
+// block rather than joined so a large prompt is never copied whole.
+func writeSection(h hash.Hash, role string, blocks []contentBlock) {
 	for _, b := range blocks {
-		if markedOnly && !b.ephemeral() {
-			continue
-		}
 		if b.Type == "" && b.Text == "" {
 			continue
 		}
@@ -445,9 +457,7 @@ func writeSection(h hash.Hash, role string, blocks []contentBlock, markedOnly bo
 		writeString(h, fieldSep)
 		writeString(h, b.Text)
 		writeString(h, recordSep)
-		wrote = true
 	}
-	return wrote
 }
 
 // writeString appends to a hash, which never fails.
@@ -455,8 +465,10 @@ func writeString(h hash.Hash, s string) {
 	_, _ = h.Write([]byte(s))
 }
 
+// digest is the hash's own truncated hex sum, in the same shape and width
+// hashKey produces, so every key the package emits is one format.
 func digest(h hash.Hash) string {
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)[:keyBytes])
 }
 
 // headerIndex resolves header names case-insensitively, since a header map may
