@@ -19,23 +19,71 @@ type HostFunc func(method string, payload []byte) ([]byte, error)
 //
 // A host callback is synchronous and takes no context, so a callback that has
 // to respect a deadline runs on its own goroutine and is abandoned when the
-// deadline passes. inflight counts the abandoned goroutines, because the host
+// deadline passes. tracker counts the abandoned goroutines, because the host
 // frees its callback table and dlcloses this library as soon as
 // cliproxy_plugin_shutdown returns: a goroutine that wakes after that runs
 // plugin code in unmapped memory.
 type host struct {
-	call     HostFunc
-	inflight *sync.WaitGroup
+	call    HostFunc
+	tracker *callTracker
 }
 
 func newHost(call HostFunc) host {
-	return host{call: call, inflight: new(sync.WaitGroup)}
+	return host{call: call, tracker: newCallTracker()}
+}
+
+// callTracker counts the host callbacks running on abandoned goroutines and
+// publishes a channel that is closed exactly while that count is zero.
+//
+// A drain waits on the channel it observed rather than on the live count, so it
+// needs no goroutine of its own — nothing to leak when its deadline passes —
+// and a callback that starts while it waits neither disturbs it nor holds it
+// open. Both matter because drain and spawn run concurrently: plugin.quiesce
+// arrives on a host goroutine while a management refresh is still polling.
+type callTracker struct {
+	mu   sync.Mutex
+	live int
+	idle chan struct{}
+}
+
+func newCallTracker() *callTracker {
+	tracker := &callTracker{idle: make(chan struct{})}
+	close(tracker.idle)
+	return tracker
+}
+
+func (t *callTracker) begin() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.live == 0 {
+		t.idle = make(chan struct{})
+	}
+	t.live++
+}
+
+func (t *callTracker) end() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.live--
+	if t.live == 0 {
+		close(t.idle)
+	}
+}
+
+// idleC is closed once the callbacks outstanding when it was read have all
+// returned.
+func (t *callTracker) idleC() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.idle
 }
 
 // invoke marshals payload, calls the host, and decodes the result member into
-// out. A nil call function reports every callback as failed, which is the
-// state after cliproxyPluginShutdown. It blocks for as long as the host takes,
-// so a caller with a deadline uses invokeCtx.
+// out. A nil call function reports every callback as failed, which is how a
+// test that must reach no host is wired; the shim always supplies one, and
+// cliproxyPluginShutdown drops the C-side host pointer rather than this, so a
+// later callback fails inside the shim. It blocks for as long as the host
+// takes, so a caller with a deadline uses invokeCtx.
 func (h host) invoke(method string, payload any, out any) error {
 	if h.call == nil {
 		return fmt.Errorf("%s: host callbacks are unavailable", method)
@@ -89,45 +137,48 @@ func (h host) invokeCtx(ctx context.Context, method string, payload any, out any
 	}
 }
 
-// spawn runs fn on a goroutine counted in inflight.
+// spawn runs fn on a tracked goroutine.
 func (h host) spawn(fn func()) {
-	if h.inflight == nil {
+	if h.tracker == nil {
 		go fn()
 		return
 	}
-	h.inflight.Add(1)
+	h.tracker.begin()
 	go func() {
-		defer h.inflight.Done()
+		defer h.tracker.end()
 		fn()
 	}()
 }
 
-// drain waits for the tracked callbacks to return and gives up after timeout.
-// A host call cannot be cancelled, so a host that never answers must not hold
-// the unload open for good.
+// drain waits for the callbacks outstanding when it starts and gives up after
+// timeout. A host call cannot be cancelled, so a host that never answers must
+// not hold the unload open for good.
 func (h host) drain(timeout time.Duration) {
-	if h.inflight == nil {
+	if h.tracker == nil {
 		return
 	}
-	done := make(chan struct{})
-	go func() {
-		h.inflight.Wait()
-		close(done)
-	}()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-done:
+	case <-h.tracker.idleC():
 	case <-timer.C:
 	}
 }
 
+// hostLogTimeout bounds one host.log call.
+const hostLogTimeout = 2 * time.Second
+
 // log emits a line through the host's logger. Levels outside the host's
-// vocabulary fall through to debug, so callers use info, warn, or error. A
-// failure is ignored: logging must never fail a hook. It blocks on the host,
-// which is why nothing on the pick path calls it.
+// vocabulary fall through to debug, so callers use info, warn, or error.
+//
+// The line is fire-and-forget, so a host that stops answering costs a dropped
+// line rather than a parked caller: the poll loop logs between the steps that
+// plugin.shutdown waits on, and the panic guard logs for every method
+// including scheduler.pick, which the host gives no timeout.
 func (h host) log(level, message string, fields map[string]any) {
-	_ = h.invoke(MethodHostLog, HostLogRequest{Level: level, Message: message, Fields: fields}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), hostLogTimeout)
+	defer cancel()
+	_ = h.invokeCtx(ctx, MethodHostLog, HostLogRequest{Level: level, Message: message, Fields: fields}, nil)
 }
 
 // authList reports every credential the host knows about.

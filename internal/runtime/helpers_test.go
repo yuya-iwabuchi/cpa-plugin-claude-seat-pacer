@@ -38,6 +38,8 @@ type fakeHost struct {
 	http    func(req HostHTTPRequest) (HostHTTPResponse, error)
 	// httpGate, when non-nil, blocks host.http.do until closed.
 	httpGate chan struct{}
+	// logGate, when non-nil, blocks host.log until closed.
+	logGate chan struct{}
 }
 
 type hostCall struct {
@@ -56,6 +58,9 @@ func (f *fakeHost) call(method string, payload []byte) ([]byte, error) {
 
 	switch method {
 	case MethodHostLog:
+		if f.logGate != nil {
+			<-f.logGate
+		}
 		return okEnvelope(emptyResult)
 	case MethodHostAuthList:
 		f.mu.Lock()

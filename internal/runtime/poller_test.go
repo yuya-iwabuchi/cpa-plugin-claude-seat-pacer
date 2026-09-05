@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -204,6 +205,61 @@ func TestPollCutShortKeepsThePreviousView(t *testing.T) {
 	}
 }
 
+// TestPollCutShortReportsItsOwnDeadline covers a cut-short poll that follows a
+// failed one: the listing it did complete has to clear the earlier failure, or
+// refresh and the status view both keep naming a listing that now works.
+func TestPollCutShortReportsItsOwnDeadline(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.host.mu.Lock()
+	tp.host.listErr = errors.New("core auth manager unavailable")
+	tp.host.mu.Unlock()
+	if err := tp.refresh(context.Background()); err == nil {
+		t.Fatal("refresh hid the list failure")
+	}
+
+	tp.host.mu.Lock()
+	tp.host.listErr = nil
+	tp.host.mu.Unlock()
+	tp.host.httpGate = make(chan struct{})
+	defer close(tp.host.httpGate)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := tp.refresh(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("refresh error = %v, want the deadline rather than the earlier listing failure", err)
+	}
+	if hasWarning(tp.Status(testNow, ""), "credential listing is failing") {
+		t.Errorf("warnings = %v, want the listing failure gone after a listing that succeeded", tp.Status(testNow, "").Warnings)
+	}
+}
+
+// TestEmptyGovernedListingKeepsThePreviousView covers the host answering a
+// listing it cannot serve with an empty set and no error.
+func TestEmptyGovernedListingKeepsThePreviousView(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before := len(tp.Status(testNow, "").Auths)
+
+	tp.host.mu.Lock()
+	tp.host.files = nil
+	tp.host.mu.Unlock()
+	if err := tp.refresh(context.Background()); err == nil {
+		t.Error("refresh reported success on a listing that named no governed credential")
+	}
+	if got := len(tp.quota.All()); got != 2 {
+		t.Errorf("snapshots = %d, want the two from the last complete poll", got)
+	}
+	if got := len(tp.Status(testNow, "").Auths); got != before {
+		t.Errorf("status rows = %d, want the %d from the last complete poll", got, before)
+	}
+	if !hasWarning(tp.Status(testNow, ""), errNoGovernedCredential) {
+		t.Errorf("warnings = %v, want the empty listing surfaced", tp.Status(testNow, "").Warnings)
+	}
+}
+
 func TestHostDoerHonoursContext(t *testing.T) {
 	h := newFakeHost()
 	h.httpGate = make(chan struct{})
@@ -217,8 +273,8 @@ func TestHostDoerHonoursContext(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want the deadline", err)
 	}
-	if time.Since(start) > time.Second {
-		t.Error("Do waited on the host past the context deadline")
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("Do took %v, want it bounded by its 20ms context deadline", elapsed)
 	}
 }
 
@@ -266,8 +322,107 @@ func TestDrainGivesUpOnAHostThatNeverAnswers(t *testing.T) {
 
 	start := time.Now()
 	hst.drain(50 * time.Millisecond)
-	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("drain took %v, want it bounded by its deadline", elapsed)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("drain took %v, want it bounded by its 50ms deadline", elapsed)
+	}
+}
+
+// TestDrainRunsBesideCallbacksThatStartWhileItWaits covers plugin.quiesce
+// racing a management refresh: the drain and the callbacks it does not cover
+// run concurrently, and the drain must survive a callback starting as the
+// count it is watching reaches zero.
+func TestDrainRunsBesideCallbacksThatStartWhileItWaits(t *testing.T) {
+	h := newFakeHost()
+	hst := newHost(h.call)
+
+	stop := make(chan struct{})
+	calling := make(chan struct{})
+	go func() {
+		defer close(calling)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = hst.invokeCtx(context.Background(), MethodHostLog, HostLogRequest{Level: "debug"}, nil)
+		}
+	}()
+	for i := 0; i < 3000; i++ {
+		hst.drain(time.Second)
+	}
+	close(stop)
+	<-calling
+}
+
+// TestTimedOutDrainsLeaveNoGoroutineBehind covers the hot-reload loop: every
+// unload drains, and a host that never answers must not cost a goroutine per
+// attempt.
+func TestTimedOutDrainsLeaveNoGoroutineBehind(t *testing.T) {
+	h := newFakeHost()
+	h.httpGate = make(chan struct{})
+	defer close(h.httpGate)
+	hst := newHost(h.call)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, _ = (hostDoer{h: hst}).Do(ctx, quota.Request{Method: "GET", URL: model.DefaultUsageURL})
+
+	const drains = 20
+	before := goruntime.NumGoroutine()
+	for i := 0; i < drains; i++ {
+		hst.drain(time.Millisecond)
+	}
+	if grew := goruntime.NumGoroutine() - before; grew > drains/4 {
+		t.Errorf("%d drains left %d goroutines behind", drains, grew)
+	}
+}
+
+// TestHostLogGivesUpOnAWedgedHost covers the poll loop, which logs between the
+// steps plugin.shutdown waits on, and the panic guard, which logs for every
+// method including scheduler.pick.
+func TestHostLogGivesUpOnAWedgedHost(t *testing.T) {
+	h := newFakeHost()
+	h.logGate = make(chan struct{})
+	defer close(h.logGate)
+	hst := newHost(h.call)
+
+	logged := make(chan struct{})
+	go func() {
+		defer close(logged)
+		hst.log("warn", "the host never answers", nil)
+	}()
+	select {
+	case <-logged:
+	case <-time.After(hostLogTimeout + 2*time.Second):
+		t.Fatal("host.log parked its caller on a host that never answered")
+	}
+}
+
+// TestAPanickingPickDoesNotWaitOnTheHostLogger pins the pick path's only host
+// call. scheduler.pick has no timeout, so the panic guard's line goes out on
+// its own goroutine.
+func TestAPanickingPickDoesNotWaitOnTheHostLogger(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.host.logGate = make(chan struct{})
+	defer close(tp.host.logGate)
+	tp.handle = func(string, []byte) ([]byte, error) { panic("boom") }
+
+	payload := mustJSON(t, pickRequest(fableModel, "k", "seat-a"))
+	picked := make(chan SchedulerPickResponse, 1)
+	go func() {
+		var out SchedulerPickResponse
+		raw, _ := tp.Call(MethodSchedulerPick, payload)
+		_ = unwrapEnvelope(raw, &out)
+		picked <- out
+	}()
+	select {
+	case resp := <-picked:
+		if resp.Handled {
+			t.Errorf("pick = %+v, want a decline", resp)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("the pick waited on the host logger")
 	}
 }
 

@@ -37,9 +37,10 @@ const (
 var bridgeHeaders = []string{HeaderSessionKey, HeaderSessionParent, HeaderSubagent}
 
 // interceptBefore answers request.intercept_before. A request with no
-// derivable identity gets the bare clear, never an error: the host feeds a
-// plugin error's HTTPStatus into its credential cooldown logic, and an
-// identity miss is not a request failure.
+// derivable identity gets the bare clear, never an error: the host discards
+// the whole response of an interceptor that failed
+// (internal/pluginhost/adapters_interceptors.go:29-33, :129-131), so
+// ClearHeaders never applies and a client's own bridge headers reach the pick.
 //
 // The body is read for identity extraction only and is never logged.
 func (p *Plugin) interceptBefore(payload []byte) ([]byte, error) {

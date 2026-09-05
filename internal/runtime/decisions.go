@@ -38,6 +38,11 @@ func (l *decisionLog) add(d model.Decision) {
 func (l *decisionLog) newestFirst() []model.Decision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return l.newestFirstLocked()
+}
+
+// newestFirstLocked is newestFirst with the lock already held.
+func (l *decisionLog) newestFirstLocked() []model.Decision {
 	count := l.next
 	if l.full {
 		count = len(l.entries)
@@ -52,24 +57,22 @@ func (l *decisionLog) newestFirst() []model.Decision {
 
 // resize changes the capacity, keeping the newest entries that fit. A resize
 // to the current capacity is a no-op, so a reconfigure that leaves the limit
-// alone costs nothing.
+// alone costs nothing. The lock is held throughout, so a decision recorded
+// beside it lands in the new ring rather than in the one being replaced.
 func (l *decisionLog) resize(limit int) {
 	if limit <= 0 {
 		limit = 1
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if limit == len(l.entries) {
-		l.mu.Unlock()
 		return
 	}
-	l.mu.Unlock()
 
-	kept := l.newestFirst()
+	kept := l.newestFirstLocked()
 	if len(kept) > limit {
 		kept = kept[:limit]
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.entries = make([]model.Decision, limit)
 	l.next = 0
 	l.full = false

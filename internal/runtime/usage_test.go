@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -50,6 +51,29 @@ func TestUsageHandleAccumulatesCacheStatsAndMergesHeaders(t *testing.T) {
 	// not at the start.
 	if !snap.ObservedAt.Equal(testNow.Add(time.Minute)) {
 		t.Errorf("ObservedAt = %v, want the response time", snap.ObservedAt)
+	}
+}
+
+// TestUsageCountersAloneOpenNoStatusRow pins what a usage record on its own is
+// worth to the status view: an id and counters, with no label, provider,
+// priority or status to put beside them.
+func TestUsageCountersAloneOpenNoStatusRow(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	listed := len(tp.Status(testNow, "").Auths)
+
+	tp.callOK(t, MethodUsageHandle, mustJSON(t, UsageRecord{
+		Provider: "claude", Model: fableModel, AuthID: "not-a-listed-credential",
+		Detail: UsageDetail{InputTokens: 10},
+	}), nil)
+	if got := tp.cacheStats("not-a-listed-credential").Requests; got != 1 {
+		t.Fatalf("cache requests = %d, want the record counted", got)
+	}
+	if got := len(tp.Status(testNow, "").Auths); got != listed {
+		t.Errorf("status rows = %d, want the %d the host listed", got, listed)
 	}
 }
 

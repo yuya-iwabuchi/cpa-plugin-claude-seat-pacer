@@ -6,10 +6,11 @@ import (
 	"fmt"
 )
 
-// Error codes this plugin puts on the wire. The host reads unknown_method as
-// "hook unsupported" and downgrades the failure to a debug log
-// (internal/pluginhost/host.go:878), so lifecycle methods this plugin does
-// not implement must answer with exactly that code.
+// Error codes this plugin puts on the wire. A plugin.quiesce answered with
+// unknown_method is read as "quiesce unsupported" and downgraded to a debug
+// log (internal/pluginhost/host.go:884); every other method's error envelope
+// is a failure whatever code it carries, so an unimplemented lifecycle method
+// answers with exactly that code.
 const (
 	codeUnknownMethod = "unknown_method"
 	codePluginError   = "plugin_error"

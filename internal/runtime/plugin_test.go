@@ -121,8 +121,9 @@ func TestPanicOnALifecycleMethodIsAnErrorEnvelope(t *testing.T) {
 
 // TestPanicOnATrafficMethodDegradesRatherThanFailing covers the methods the
 // host routes live traffic through: an error envelope from scheduler.pick
-// hard-fails the request with no fallback to the host's own selector, and the
-// interceptors and management surface fail their requests too.
+// hard-fails the request with no fallback to the host's own selector, one from
+// an interceptor makes the host drop the response and leave the bridge headers
+// unclear, and one from management.handle becomes a 502.
 func TestPanicOnATrafficMethodDegradesRatherThanFailing(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.handle = func(string, []byte) ([]byte, error) { panic("boom") }

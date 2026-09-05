@@ -41,9 +41,8 @@ func (p *Plugin) usage(rec UsageRecord) {
 		return
 	}
 	// The headers describe the response, so the reading is stamped at the end
-	// of the request: stamping it at the start would lose a long request's
-	// readings to a shorter later one and age every snapshot by the request's
-	// own duration.
+	// of the request. MergeHeaders keeps the newer of two readings for a
+	// window, which is that ordering.
 	observed := p.now()
 	if !rec.RequestedAt.IsZero() {
 		observed = rec.RequestedAt.Add(rec.Latency)

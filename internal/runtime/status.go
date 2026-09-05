@@ -47,8 +47,8 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	}
 	lastModel := p.lastModel
 	listErr := p.listErr
-	// Only providers whose latest cold pick was still down to one candidate,
-	// so the warning clears once the pool's priority values are fixed.
+	// Only providers whose latest pick was still down to one candidate, so the
+	// warning clears once the pool's priority values are fixed.
 	single := make([]string, 0, len(p.singleCandidates))
 	for provider, count := range p.singleCandidates {
 		if count == 1 {
@@ -72,11 +72,11 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		snapshots[snap.AuthID] = snap
 	}
 
-	// One row per credential the host lists, plus any the quota store still
-	// holds a reading for, so a credential the host stops listing keeps its
-	// row until the next poll prunes it. Usage counters only fill a row one of
-	// those two produced: a usage record carries an id and nothing else, so on
-	// its own it renders a row with no label, provider, priority or status.
+	// One row per credential the host lists, plus any the quota store holds a
+	// reading for, so a credential the host stops listing keeps its row until
+	// the next poll prunes it. Cache counters never open a row: a usage record
+	// carries an id and nothing else, so a row from one alone would name no
+	// label, provider, priority or status.
 	entries := make(map[string]HostAuthFileEntry, len(auths))
 	ids := make(map[string]struct{})
 	for _, entry := range auths {

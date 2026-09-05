@@ -21,14 +21,24 @@ import (
 // because a model can be served by a different credential set than its
 // siblings: a provider-blind or model-blind lookup hands back a credential
 // that cannot serve the request.
+//
+// The lock is an RWMutex because the status route is unauthenticated and the
+// pick path shares this table: All and CountByAuth take it for reading only, so
+// a status request cannot serialize routing. counts is maintained on every
+// insert and removal for the same reason — the per-credential tally is read on
+// every status render and on every pick that falls back to least-bound, and
+// walking the whole table for it costs the cap, which is 65536 by default.
 type Store struct {
-	mu  sync.Mutex
+	mu  sync.RWMutex
 	ttl time.Duration
 	max int
 	// order is the access order, most recently seen at the front, which is
 	// what eviction reads. index resolves a composed key in O(1).
 	order *list.List
 	index map[string]*list.Element
+	// counts is bindings per credential id, sized by the pool rather than by
+	// the table.
+	counts map[string]int
 }
 
 // entry is one binding plus the composed key it is filed under, so removing it
@@ -45,10 +55,11 @@ type entry struct {
 // model.Config.Normalize permits.
 func NewStore(ttl time.Duration, maxSessions int) *Store {
 	return &Store{
-		ttl:   ttl,
-		max:   maxSessions,
-		order: list.New(),
-		index: make(map[string]*list.Element),
+		ttl:    ttl,
+		max:    maxSessions,
+		order:  list.New(),
+		index:  make(map[string]*list.Element),
+		counts: make(map[string]int),
 	}
 }
 
@@ -124,6 +135,7 @@ func (s *Store) Bind(provider, modelID, sessionKey, authID string, now time.Time
 		},
 	}
 	s.index[key] = s.order.PushFront(e)
+	s.counts[authID]++
 	s.evict()
 	return e.binding
 }
@@ -160,15 +172,16 @@ func (s *Store) DropAuth(authID string) int {
 // key, provider and model, so the status UI renders the same table twice for
 // the same state.
 func (s *Store) All() []model.Binding {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	s.mu.RLock()
 	out := make([]model.Binding, 0, len(s.index))
 	for _, el := range s.index {
 		out = append(out, el.Value.(*entry).binding)
 	}
+	s.mu.RUnlock()
+
 	// Provider, model and session key together are the table key, so this
-	// ordering is total and does not depend on how the entries were reached.
+	// ordering is total and does not depend on how the entries were reached,
+	// which is what lets the sort run outside the lock.
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		switch {
@@ -190,12 +203,12 @@ func (s *Store) All() []model.Binding {
 // since the last Sweep or Lookup are still counted, because expiry is only
 // observed when a caller supplies the time.
 func (s *Store) CountByAuth() map[string]int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	counts := make(map[string]int)
-	for _, el := range s.index {
-		counts[el.Value.(*entry).binding.AuthID]++
+	counts := make(map[string]int, len(s.counts))
+	for authID, n := range s.counts {
+		counts[authID] = n
 	}
 	return counts
 }
@@ -203,8 +216,8 @@ func (s *Store) CountByAuth() map[string]int {
 // Len reports how many bindings are held, including any that have expired but
 // not yet been swept.
 func (s *Store) Len() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.index)
 }
 
@@ -233,11 +246,16 @@ func (s *Store) expired(e *entry, now time.Time) bool {
 	return s.ttl > 0 && now.Sub(e.binding.LastSeen) > s.ttl
 }
 
-// remove unlinks an element from both the order and the index. Callers hold
-// the lock.
+// remove unlinks an element from the order, the index and the per-credential
+// tally. It is the only way an entry leaves the table, so the tally cannot
+// drift. Callers hold the lock.
 func (s *Store) remove(el *list.Element) {
-	delete(s.index, el.Value.(*entry).index)
+	e := el.Value.(*entry)
+	delete(s.index, e.index)
 	s.order.Remove(el)
+	if s.counts[e.binding.AuthID]--; s.counts[e.binding.AuthID] <= 0 {
+		delete(s.counts, e.binding.AuthID)
+	}
 }
 
 // evict drops least-recently-seen bindings until the table is within cap.

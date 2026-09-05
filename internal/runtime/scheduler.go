@@ -65,13 +65,12 @@ func (in pickInput) scoreOf(authID string) model.Score {
 //     provider is on the route, the model is not governed, no candidate
 //     remains, or there is neither a session key nor a usable snapshot.
 //  2. With a session key and affinity on: a subagent inherits its parent's
-//     credential when that credential is a candidate; otherwise the
-//     session's own binding is honoured when its credential is a candidate,
-//     even when its pace score trails (OverrideThreshold), unless the
-//     credential's snapshot shows a window the provider already rejected for
-//     this model, or OverrideThreshold is off and the pace winner beats it by
-//     the hysteresis margin. A binding whose credential is not offered fails
-//     over to the cold pick.
+//     credential when that credential is a candidate and its snapshot shows no
+//     window the provider already rejected for this model; otherwise the
+//     session's own binding is honoured under those same two conditions, even
+//     when its pace score trails (OverrideThreshold), unless OverrideThreshold
+//     is off and the pace winner beats it by the hysteresis margin. A binding
+//     that fails any of those fails over to the cold pick.
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
 //     ineligible; the pace winner takes the session. When nothing is eligible
 //     but a session key exists, the candidate with the fewest live bindings
@@ -154,9 +153,8 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 
 	if in.cfg.Affinity.Subagents && id.subagent && id.parent != "" {
 		parent, ok := bindings.Lookup(in.provider, in.req.Model, id.parent, in.now)
-		// A credential the provider has already rejected for this model is no
-		// better a home for the child than for the parent, and a host allowed
-		// one pick per request has no retry to recover on.
+		// A credential the provider has already rejected is no better a home
+		// for the child than for the parent.
 		if ok && in.isCandidate(parent.AuthID) && !blockedFor(in.snaps[parent.AuthID], in.req.Model) {
 			bindings.Bind(in.provider, in.req.Model, id.key, parent.AuthID, in.now)
 			return p.decide(in, model.Decision{
@@ -179,12 +177,15 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 		return p.pickCold(in, bound.AuthID, note), true
 	}
 
-	best, hasBest := pace.Best(in.scores)
-	challenger := hasBest && best.AuthID != bound.AuthID
-	switch {
-	case challenger && blockedFor(in.snaps[bound.AuthID], in.req.Model):
+	// A window the provider has already rejected for this model makes the
+	// binding no home at all, whether or not another candidate outscores it: a
+	// host allowed one pick per request has no retry to recover on.
+	if blockedFor(in.snaps[bound.AuthID], in.req.Model) {
 		return p.pickCold(in, bound.AuthID, "bound credential is rate-limited for this model"), true
-	case challenger && !in.cfg.Affinity.OverrideThreshold && pace.ShouldSwitch(in.cfg.Pace, in.scoreOf(bound.AuthID), best):
+	}
+	best, hasBest := pace.Best(in.scores)
+	if hasBest && best.AuthID != bound.AuthID && !in.cfg.Affinity.OverrideThreshold &&
+		pace.ShouldSwitch(in.cfg.Pace, in.scoreOf(bound.AuthID), best) {
 		return p.pickCold(in, bound.AuthID, "pace winner beats the binding by the hysteresis margin"), true
 	}
 	return p.decide(in, model.Decision{
@@ -330,10 +331,11 @@ func joinNotes(a, b string) string {
 	}
 }
 
-// observeCandidates records how many candidates a provider was last offered
-// for a cold pick. A count of one means the host capped the pool at a single
-// priority tier and spreading cannot work; the status view warns for as long
-// as that holds, and the poller carries the log line.
+// observeCandidates records how many candidates a provider was last offered,
+// on an affinity hit as much as on a cold pick, because the count describes
+// the pool rather than the decision. A count of one means the host capped the
+// pool at a single priority tier and spreading cannot work; the status view
+// warns for as long as that holds, and the poller carries the log line.
 func (p *Plugin) observeCandidates(provider string, count int) {
 	p.mu.Lock()
 	p.singleCandidates[provider] = count
