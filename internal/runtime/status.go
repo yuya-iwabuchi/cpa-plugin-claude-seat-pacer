@@ -72,9 +72,11 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		snapshots[snap.AuthID] = snap
 	}
 
-	// One row per credential the host lists, plus any credential only a
-	// snapshot or usage record knows about, so nothing routed disappears from
-	// view between polls.
+	// One row per credential the host lists, plus any the quota store still
+	// holds a reading for, so a credential the host stops listing keeps its
+	// row until the next poll prunes it. Usage counters only fill a row one of
+	// those two produced: a usage record carries an id and nothing else, so on
+	// its own it renders a row with no label, provider, priority or status.
 	entries := make(map[string]HostAuthFileEntry, len(auths))
 	ids := make(map[string]struct{})
 	for _, entry := range auths {
@@ -83,9 +85,6 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		ids[id] = struct{}{}
 	}
 	for id := range snapshots {
-		ids[id] = struct{}{}
-	}
-	for id := range cache {
 		ids[id] = struct{}{}
 	}
 	ordered := make([]string, 0, len(ids))

@@ -240,6 +240,10 @@ plugins:
 	t.Logf("session one: kinds=%v auth=%s key=%s", kinds, chronological[0].ChosenAuthID, chronological[0].SessionKey)
 
 	send(sessionTwo)
+	// Credential rows come from the poll loop, whose first tick lands a couple
+	// of seconds after registration, so the routing assertions above run before
+	// there is anything to show for the credentials themselves.
+	waitForPoll(t, status, processDone, logPath)
 	second := status()
 	if len(second.Decisions) != 4 {
 		t.Fatalf("decisions after a second session = %d, want 4:\n%s", len(second.Decisions), mustIndent(t, second.Decisions))
@@ -298,6 +302,26 @@ plugins:
 			t.Errorf("server log contains %q", secret)
 		}
 	}
+}
+
+// waitForPoll blocks until the status view carries the credentials the host
+// lists, which is what the plugin's first poll publishes.
+func waitForPoll(t *testing.T, status func() model.Status, processDone <-chan struct{}, logPath string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-processDone:
+			t.Fatalf("CLIProxyAPI exited before the first poll\nserver log:\n%s", readFile(logPath))
+		default:
+		}
+		rows := status().Auths
+		if len(rows) == 2 && rows[0].Label != "" && rows[1].Label != "" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("the plugin never polled its credentials\nserver log:\n%s", readFile(logPath))
 }
 
 func mustIndent(t *testing.T, v any) string {
