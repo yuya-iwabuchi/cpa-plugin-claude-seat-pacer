@@ -1,0 +1,1747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude quota scheduler</title>
+<style>
+/* ---------------------------------------------------------------- tokens */
+:root {
+  color-scheme: light;
+  --plane:        #f9f9f7;
+  --surface-1:    #fcfcfb;
+  --surface-2:    #f2f1ec;
+  --surface-3:    #e9e8e1;
+  --ink-1:        #0b0b0b;
+  --ink-2:        #52514e;
+  --ink-3:        #6f6d67;
+  --rule:         #e1e0d9;
+  --axis:         #c3c2b7;
+  --hairline:     rgba(11,11,11,.10);
+  --shadow:       0 1px 2px rgba(11,11,11,.05), 0 8px 24px -16px rgba(11,11,11,.28);
+
+  --track:        #e6e5df;
+  --emph:         rgba(42,120,214,.07);
+
+  --good:         #0ca30c;
+  --info:         #2a78d6;
+  --serious:      #ec835a;
+  --critical:     #d03b3b;
+  --warning:      #fab219;
+
+  --seat-1:       #2a78d6;
+  --seat-2:       #eb6834;
+  --seat-3:       #1baf7a;
+  --seat-x:       #898781;
+
+  --pos-text:     #006300;
+  --neg-text:     #b8332f;
+  --focus:        #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --plane:      #0d0d0d;
+    --surface-1:  #1a1a19;
+    --surface-2:  #232320;
+    --surface-3:  #2c2c2a;
+    --ink-1:      #ffffff;
+    --ink-2:      #c3c2b7;
+    --ink-3:      #9b998f;
+    --rule:       #2c2c2a;
+    --axis:       #383835;
+    --hairline:   rgba(255,255,255,.10);
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.9);
+    --track:      #2c2c2a;
+    --emph:       rgba(57,135,229,.12);
+    --info:       #3987e5;
+    --seat-1:     #3987e5;
+    --seat-2:     #d95926;
+    --seat-3:     #199e70;
+    --pos-text:   #0ca30c;
+    --neg-text:   #e66767;
+    --focus:      #3987e5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:      #0d0d0d;
+  --surface-1:  #1a1a19;
+  --surface-2:  #232320;
+  --surface-3:  #2c2c2a;
+  --ink-1:      #ffffff;
+  --ink-2:      #c3c2b7;
+  --ink-3:      #9b998f;
+  --rule:       #2c2c2a;
+  --axis:       #383835;
+  --hairline:   rgba(255,255,255,.10);
+  --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.9);
+  --track:      #2c2c2a;
+  --emph:       rgba(57,135,229,.12);
+  --info:       #3987e5;
+  --seat-1:     #3987e5;
+  --seat-2:     #d95926;
+  --seat-3:     #199e70;
+  --pos-text:   #0ca30c;
+  --neg-text:   #e66767;
+  --focus:      #3987e5;
+}
+
+/* ------------------------------------------------------------ typography */
+:root {
+  --sans: ui-sans-serif, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --cond: "Avenir Next Condensed", "HelveticaNeue-CondensedBold", "Roboto Condensed",
+          "Arial Narrow", var(--sans);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background:
+    radial-gradient(120% 60% at 12% -10%, var(--surface-2) 0%, transparent 62%),
+    var(--plane);
+  color: var(--ink-1);
+  font: 400 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  padding: 0 0 72px;
+}
+.wrap { max-width: 1360px; margin: 0 auto; padding: 0 28px; }
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.num  { font-variant-numeric: tabular-nums; }
+
+a { color: inherit; }
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* --------------------------------------------------------------- masthead */
+.mast {
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(180deg, var(--surface-1), transparent);
+}
+.mast-inner {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px;
+  padding: 30px 28px 20px;
+  max-width: 1360px; margin: 0 auto;
+}
+.brand { flex: 1 1 300px; min-width: 260px; }
+.brand-eyebrow {
+  font: 600 10.5px/1 var(--mono);
+  letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3);
+  display: block; margin-bottom: 10px;
+}
+.brand-name {
+  font-family: var(--cond);
+  font-size: clamp(30px, 4.4vw, 46px);
+  font-weight: 700; letter-spacing: .008em; line-height: .95;
+  margin: 0; text-transform: uppercase;
+}
+.brand-rule {
+  margin-top: 14px; height: 4px; width: 108px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--seat-1), var(--seat-2));
+}
+.mast-meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, max-content));
+  gap: 10px 34px; align-content: end;
+}
+.mast-meta div { display: flex; flex-direction: column; gap: 2px; }
+.mast-meta dt, .meta-k {
+  font: 600 10px/1.4 var(--mono);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+}
+.mast-meta dd, .meta-v { margin: 0; font: 500 14px/1.35 var(--mono); color: var(--ink-1); }
+
+/* --------------------------------------------------------------- controls */
+.controls {
+  position: sticky; top: 0; z-index: 30;
+  background: color-mix(in srgb, var(--plane) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rule);
+}
+.controls-inner {
+  max-width: 1360px; margin: 0 auto; padding: 10px 28px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+}
+.ctl { display: flex; align-items: center; gap: 8px; }
+.ctl label { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+input[type="text"] {
+  font: 500 12.5px/1 var(--mono);
+  color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px;
+  padding: 7px 10px; min-width: 356px;
+}
+input[type="text"]::placeholder { color: var(--ink-3); }
+button {
+  font: 600 11.5px/1 var(--sans);
+  color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px;
+  padding: 8px 12px; cursor: pointer;
+}
+button:hover { background: var(--surface-2); }
+button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); }
+.spacer { flex: 1 1 auto; }
+.stamp { font: 500 11.5px/1 var(--mono); color: var(--ink-2); }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--good); display: inline-block; flex: none;
+}
+.live-dot[data-live="paused"] { background: var(--ink-3); }
+.live-dot[data-live="error"]  { background: var(--critical); }
+
+/* --------------------------------------------------------------- banners */
+.banner {
+  border: 1px solid var(--hairline); border-left: 3px solid var(--warning);
+  background: var(--surface-1); border-radius: 8px;
+  padding: 12px 16px; margin: 18px 0 0;
+  box-shadow: var(--shadow);
+}
+.banner h2 {
+  font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-2); margin: 0 0 8px;
+}
+.banner ul { margin: 0; padding-left: 18px; }
+.banner li { margin: 3px 0; color: var(--ink-1); }
+.banner.err { border-left-color: var(--critical); }
+
+/* -------------------------------------------------------------- sections */
+section { margin-top: 42px; }
+.sec-head {
+  display: flex; align-items: baseline; gap: 14px; margin: 0 0 16px;
+}
+.sec-head h2 {
+  font-family: var(--cond); font-size: 21px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; margin: 0;
+}
+.sec-idx { font: 600 10.5px/1 var(--mono); color: var(--ink-3); letter-spacing: .1em; }
+.sec-sub { font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
+.sec-line { flex: 1 1 auto; height: 1px; background: var(--rule); }
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+/* ----------------------------------------------------------------- seats */
+.seats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(324px, 1fr)); }
+.seat { padding: 18px 18px 16px; position: relative; overflow: hidden; }
+.seat::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: var(--seat-color, var(--ink-3));
+}
+.seat-top { display: flex; align-items: center; gap: 9px; margin-bottom: 3px; }
+.seat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--seat-color); flex: none; }
+.seat-name { font: 600 16px/1.2 var(--sans); margin: 0; letter-spacing: -.005em; }
+.seat-rank {
+  margin-left: auto; font: 600 10.5px/1 var(--mono); letter-spacing: .06em;
+  color: var(--ink-2); border: 1px solid var(--axis); border-radius: 999px;
+  padding: 5px 9px; white-space: nowrap;
+}
+.seat-rank[data-lead="true"] { color: var(--surface-1); background: var(--ink-1); border-color: var(--ink-1); }
+.seat-id { font: 400 11px/1.4 var(--mono); color: var(--ink-3); margin: 0 0 14px; word-break: break-all; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0 0 14px; }
+.kv dt { font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.kv dd { margin: 0; font: 500 12.5px/1.5 var(--sans); text-align: right; }
+/* Chip text stays in ink so it always clears contrast; the glyph and the
+   plate carry the tone. */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 10.5px/1 var(--mono); letter-spacing: .04em;
+  border-radius: 5px; padding: 4px 7px; white-space: nowrap;
+  color: var(--ink-1);
+  background: color-mix(in srgb, var(--tone) 13%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--tone) 34%, transparent);
+}
+.chip-glyph { font-size: 10px; line-height: 1; color: var(--tone); }
+.chip[data-tone="good"]     { --tone: var(--good); }
+.chip[data-tone="info"]     { --tone: var(--info); }
+.chip[data-tone="serious"]  { --tone: var(--serious); }
+.chip[data-tone="critical"] { --tone: var(--critical); }
+.chip[data-tone="muted"]    { --tone: var(--ink-3); }
+
+.seat-foot {
+  border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 11px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+}
+.seat-foot span:first-child {
+  font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+}
+.seat-foot .mono { font-size: 12px; }
+
+/* -------------------------------------------------------------- timeline */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
+  margin: 0 0 12px; padding: 0; list-style: none;
+}
+.legend li { display: flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--sans); color: var(--ink-2); }
+.legend .sw { width: 14px; height: 9px; border-radius: 2px; flex: none; }
+.legend .gl { font: 600 11px/1 var(--mono); flex: none; }
+.tl-card { padding: 16px 8px 8px 8px; overflow-x: auto; }
+svg.tl { display: block; }
+svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
+svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+svg.tl .t-muted { fill: var(--ink-3); }
+svg.tl .t-sec { fill: var(--ink-2); }
+svg.tl g.lane { cursor: default; }
+svg.tl g.lane:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; rx: 4; }
+svg.tl g.lane:hover rect.hit { fill: var(--surface-2); }
+svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
+svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+svg.pace .t-muted { fill: var(--ink-3); }
+svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; }
+.pace-grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(220px, 320px); gap: 24px; padding: 18px; align-items: start; }
+@media (max-width: 860px) { .pace-grid { grid-template-columns: 1fr; } }
+.pace-note { font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
+.pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.pace-note h3 { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 8px; }
+
+/* -------------------------------------------------------------- decisions */
+.log { padding: 4px 0; }
+.dec { border-bottom: 1px solid var(--rule); }
+.dec:last-child { border-bottom: 0; }
+.dec > summary {
+  display: grid; align-items: center; gap: 12px; cursor: pointer;
+  grid-template-columns: 78px 106px 92px 216px 190px minmax(140px, 1fr);
+  padding: 9px 16px; list-style: none;
+}
+.dec > summary > .chip { justify-self: start; }
+@media (max-width: 1000px) {
+  .dec > summary { display: flex; flex-wrap: wrap; }
+}
+.dec > summary::-webkit-details-marker { display: none; }
+.dec > summary:hover { background: var(--surface-2); }
+.dec[open] > summary { background: var(--surface-2); }
+.dec-time { font: 500 11.5px/1 var(--mono); color: var(--ink-2); }
+.dec-key  { font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
+.dec-model { font: 500 11.5px/1.3 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.dec-route { font: 500 12px/1.3 var(--sans); }
+.dec-route .arrow { color: var(--ink-3); font-family: var(--mono); }
+.dec-route .prev { color: var(--ink-3); }
+.dec-tail { display: flex; gap: 8px; align-items: center; justify-self: end; }
+.dec-note { font: 400 11.5px/1.3 var(--sans); color: var(--ink-2); font-style: italic; max-width: 34ch; }
+.dec-body { padding: 4px 16px 18px; }
+.caret { display: inline-block; width: 9px; color: var(--ink-3); font-family: var(--mono); }
+.dec[open] .caret { transform: rotate(90deg); }
+
+/* ---------------------------------------------------------------- tables */
+table { width: 100%; border-collapse: collapse; }
+caption { text-align: left; font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); padding: 0 0 9px; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--rule); }
+thead th {
+  font: 600 9.5px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3); border-bottom: 1px solid var(--axis); white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--surface-2); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+th button {
+  all: unset; cursor: pointer; display: inline-flex; gap: 5px; align-items: center;
+  font: inherit; color: inherit;
+}
+th button:hover { color: var(--ink-1); }
+th[aria-sort] button { color: var(--ink-1); }
+.sort-glyph { font-family: var(--mono); font-size: 10px; }
+.tbl-card { padding: 16px; overflow-x: auto; }
+.scores { margin-top: 4px; }
+.scores caption { padding-bottom: 8px; }
+.scores th, .scores td { padding: 6px 10px; font-size: 12px; }
+.wslack { display: inline-flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; }
+.wslack span { white-space: nowrap; color: var(--ink-2); }
+.wslack b { font-weight: 600; color: var(--ink-1); }
+
+/* ---------------------------------------------------------------- states */
+.skel { display: grid; gap: 16px; }
+.skel-row { height: 76px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hairline); }
+.skel-row:nth-child(2) { height: 220px; }
+@media (prefers-reduced-motion: no-preference) {
+  .skel-row { animation: pulse 1.6s ease-in-out infinite; }
+  .skel-row:nth-child(2) { animation-delay: .18s; }
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+.empty { padding: 44px 24px; text-align: center; }
+.empty p { margin: 0 auto; max-width: 52ch; color: var(--ink-2); }
+.empty strong { display: block; font: 600 17px/1.3 var(--sans); color: var(--ink-1); margin-bottom: 8px; }
+[hidden] { display: none !important; }
+main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
+
+/* --------------------------------------------------------------- tooltip */
+#tooltip {
+  position: fixed; z-index: 90; pointer-events: none;
+  max-width: 320px; padding: 10px 12px;
+  background: var(--surface-1); color: var(--ink-1);
+  border: 1px solid var(--hairline); border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 14px 34px -12px rgba(0,0,0,.42);
+  font: 500 11.5px/1.55 var(--mono);
+  white-space: pre-line; opacity: 0; transform: translateY(2px);
+  transition: opacity .1s ease;
+}
+#tooltip[data-show="true"] { opacity: 1; transform: none; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="tooltip" role="tooltip" aria-hidden="true"></div>
+
+<!-- The script reads its SVG namespace off this element, so the document
+     itself holds no absolute URL of any kind. -->
+<svg id="svg-ns" width="0" height="0" aria-hidden="true" focusable="false"
+     style="position:absolute"></svg>
+
+<header class="mast">
+  <div class="mast-inner">
+    <div class="brand">
+      <span class="brand-eyebrow">CLIProxyAPI plugin &middot; routing status</span>
+      <h1 class="brand-name" id="plugin-name">Claude quota scheduler</h1>
+      <div class="brand-rule"></div>
+    </div>
+    <dl class="mast-meta">
+      <div><dt>Version</dt><dd id="plugin-version">&mdash;</dd></div>
+      <div><dt>Host schema</dt><dd id="host-schema">&mdash;</dd></div>
+      <div><dt>Started</dt><dd id="started-at">&mdash;</dd></div>
+      <div><dt>Next cold pick</dt><dd id="next-pick">&mdash;</dd></div>
+    </dl>
+  </div>
+</header>
+
+<div class="controls">
+  <div class="controls-inner">
+    <div class="ctl">
+      <label for="model-input">Model</label>
+      <input type="text" id="model-input" list="model-list" spellcheck="false"
+             autocomplete="off" placeholder="source default">
+      <datalist id="model-list"></datalist>
+    </div>
+    <div class="spacer"></div>
+    <div class="ctl">
+      <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
+      <span class="stamp" id="last-updated">never</span>
+    </div>
+    <button type="button" id="refresh-toggle" aria-pressed="false">Pause auto-refresh</button>
+    <button type="button" id="theme-toggle">Theme: auto</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div id="error-strip" class="banner err" role="status" hidden></div>
+  <div id="warnings" hidden></div>
+
+  <div id="loading" class="skel" style="margin-top:42px">
+    <div class="skel-row"></div>
+    <div class="skel-row"></div>
+    <div class="skel-row"></div>
+  </div>
+
+  <div id="empty-state" class="card empty" hidden style="margin-top:42px">
+    <p><strong>No credentials reported yet.</strong>
+    The quota poller has not published a snapshot. Until it does, the scheduler
+    declines every pick and the host&rsquo;s own selector routes the traffic.</p>
+  </div>
+
+  <main id="app" hidden>
+
+    <section id="sec-seats">
+      <div class="sec-head">
+        <span class="sec-idx">01</span>
+        <h2>Seats</h2>
+        <span class="sec-sub">ranked by weighted pace slack &mdash; eligible first</span>
+        <span class="sec-line"></span>
+      </div>
+      <div id="seats" class="seats"></div>
+    </section>
+
+    <section id="sec-timeline">
+      <div class="sec-head">
+        <span class="sec-idx">02</span>
+        <h2>Quota timeline</h2>
+        <span class="sec-sub">bar spans the window on the axis; the meter is budget spent against target</span>
+        <span class="sec-line"></span>
+      </div>
+      <ul class="legend" id="timeline-legend">
+        <li><span class="sw" style="background:var(--good)"></span><span class="gl" style="color:var(--good)">&#9660;</span> under target</li>
+        <li><span class="sw" style="background:var(--info)"></span><span class="gl" style="color:var(--info)">&#9679;</span> on pace</li>
+        <li><span class="sw" style="background:var(--serious)"></span><span class="gl" style="color:var(--serious)">&#9650;</span> over target</li>
+        <li><span class="sw" style="background:var(--critical)"></span><span class="gl" style="color:var(--critical)">&#10005;</span> blocked / hard cutoff</li>
+        <li><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
+        <li><span class="gl">&#9474;</span> now</li>
+      </ul>
+      <div class="card tl-card"><div id="timeline"></div></div>
+    </section>
+
+    <section id="sec-pace">
+      <div class="sec-head">
+        <span class="sec-idx">03</span>
+        <h2>Pace curve</h2>
+        <span class="sec-sub">where each counted window sits against its target</span>
+        <span class="sec-line"></span>
+      </div>
+      <div class="card pace-grid">
+        <div id="pace-curve"></div>
+        <div class="pace-note" id="pace-note"></div>
+      </div>
+    </section>
+
+    <section id="sec-decisions">
+      <div class="sec-head">
+        <span class="sec-idx">04</span>
+        <h2>Routing log</h2>
+        <span class="sec-sub">newest first &mdash; open a row for the candidate scores</span>
+        <span class="sec-line"></span>
+      </div>
+      <div class="card log" id="decisions"></div>
+    </section>
+
+    <section id="sec-bindings">
+      <div class="sec-head">
+        <span class="sec-idx">05</span>
+        <h2>Bindings</h2>
+        <span class="sec-sub">live conversations pinned to a seat</span>
+        <span class="sec-line"></span>
+      </div>
+      <div class="card tbl-card" id="bindings"></div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SVGNS = document.getElementById("svg-ns").namespaceURI;
+  var REFRESH_MS = 10000;
+  var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
+  var MAX_DECISIONS = 120;
+
+  var state = {
+    model: "",
+    paused: false,
+    data: null,              /* last good status; a failed fetch keeps it */
+    error: null,
+    fetchedAt: null,
+    inFlight: false,
+    sort: { key: "last_seen", dir: -1 },
+    theme: "auto"
+  };
+
+  /* ------------------------------------------------------------- helpers */
+
+  function $(id) { return document.getElementById(id); }
+
+  function h(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function svg(name, attrs, parent) {
+    var e = document.createElementNS(SVGNS, name);
+    for (var k in attrs) {
+      if (attrs[k] === null || attrs[k] === undefined) continue;
+      e.setAttribute(k, String(attrs[k]));
+    }
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function svgText(parent, x, y, str, cls, attrs) {
+    var t = svg("text", attrs || {}, parent);
+    t.setAttribute("x", String(x));
+    t.setAttribute("y", String(y));
+    if (cls) t.setAttribute("class", cls);
+    t.textContent = str;
+    return t;
+  }
+
+  /* Trims SVG text to the measured pixel budget rather than a character
+     guess, so a long label never runs into the plot. */
+  function fitText(node, maxWidth) {
+    var full = node.textContent;
+    if (node.getComputedTextLength() <= maxWidth) return;
+    for (var n = full.length - 1; n > 1; n--) {
+      node.textContent = full.slice(0, n) + "…";
+      if (node.getComputedTextLength() <= maxWidth) return;
+    }
+  }
+
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+  function num(v) { return typeof v === "number" && isFinite(v); }
+
+  /* Go marshals an unset time.Time as year 1, which is not a reading. */
+  function parseT(s) {
+    if (!s) return null;
+    var d = new Date(s);
+    if (isNaN(d.getTime()) || d.getUTCFullYear() < 1971) return null;
+    return d;
+  }
+
+  function pct(v, digits) {
+    if (!num(v)) return "—";
+    return (v * 100).toFixed(digits === undefined ? 1 : digits) + "%";
+  }
+
+  function signed(v, digits) {
+    if (!num(v)) return "—";
+    var d = digits === undefined ? 3 : digits;
+    return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
+  }
+
+  function absTime(d) {
+    return d.toLocaleString(undefined, {
+      weekday: "short", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit"
+    });
+  }
+
+  function relText(d, base) {
+    if (!d) return "—";
+    var ms = d.getTime() - base;
+    var future = ms > 0;
+    var s = Math.floor(Math.abs(ms) / 1000);
+    if (s < 10) return future ? "in a moment" : "just now";
+    var out;
+    if (s < 60) out = s + "s";
+    else if (s < 3600) out = Math.floor(s / 60) + "m";
+    else if (s < 86400) {
+      var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60);
+      out = mm ? hh + "h " + mm + "m" : hh + "h";
+    } else {
+      var dd = Math.floor(s / 86400), rh = Math.floor((s % 86400) / 3600);
+      out = rh ? dd + "d " + rh + "h" : dd + "d";
+    }
+    return future ? "in " + out : out + " ago";
+  }
+
+  /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts]. */
+  function stamp(d, cls) {
+    var e = h("time", cls || "");
+    if (!d) { e.textContent = "—"; return e; }
+    e.dateTime = d.toISOString();
+    e.setAttribute("data-ts", String(d.getTime()));
+    e.title = absTime(d);
+    e.textContent = relText(d, Date.now());
+    return e;
+  }
+
+  function tickStamps() {
+    var now = Date.now();
+    var nodes = document.querySelectorAll("[data-ts]");
+    for (var i = 0; i < nodes.length; i++) {
+      nodes[i].textContent = relText(new Date(+nodes[i].getAttribute("data-ts")), now);
+    }
+  }
+
+  /* --------------------------------------------------------- domain shape */
+
+  function windowName(w) {
+    if (w.kind === "five_hour") return "5-hour session";
+    if (w.kind === "seven_day") return "7-day all models";
+    if (w.kind === "weekly_scoped") return (w.scope || "scoped") + " weekly";
+    return w.kind;
+  }
+
+  function windowShort(w) {
+    if (w.kind === "five_hour") return "5h session";
+    if (w.kind === "seven_day") return "7d all models";
+    if (w.kind === "weekly_scoped") return (w.scope || "scoped") + " 7d";
+    return w.kind;
+  }
+
+  function windowOrder(w) {
+    if (w.kind === "five_hour") return 0;
+    if (w.kind === "seven_day") return 1;
+    return 2;
+  }
+
+  function sortedWindows(list) {
+    return (list || []).slice().sort(function (a, b) {
+      var d = windowOrder(a) - windowOrder(b);
+      return d !== 0 ? d : String(a.scope || "").localeCompare(String(b.scope || ""));
+    });
+  }
+
+  function scoreFor(auth, w) {
+    var list = (auth.score && auth.score.windows) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === w.kind && (list[i].scope || "") === (w.scope || "")) return list[i];
+    }
+    return null;
+  }
+
+  function blocked(w, cfg) {
+    if (w.status === "rejected" || w.severity === "critical") return true;
+    var cut = cfg && cfg.pace ? cfg.pace.hard_cutoff : 0;
+    return num(cut) && cut > 0 && w.utilization >= cut;
+  }
+
+  var STATE_META = {
+    under:   { color: "var(--good)",     glyph: "▼", label: "under target" },
+    on:      { color: "var(--info)",     glyph: "●", label: "on pace" },
+    over:    { color: "var(--serious)",  glyph: "▲", label: "over target" },
+    blocked: { color: "var(--critical)", glyph: "✕", label: "blocked" }
+  };
+
+  function laneState(w, ws, cfg) {
+    if (blocked(w, cfg)) return "blocked";
+    var slack = ws && num(ws.slack) ? ws.slack : (ws ? 0 : null);
+    if (slack === null) return "on";
+    if (slack > PACE_BAND) return "under";
+    if (slack < -PACE_BAND) return "over";
+    return "on";
+  }
+
+  function seatColor(i) {
+    return i === 0 ? "var(--seat-1)" : i === 1 ? "var(--seat-2)"
+         : i === 2 ? "var(--seat-3)" : "var(--seat-x)";
+  }
+
+  function seatLabel(a) { return a.label || a.auth_id || "(unnamed)"; }
+
+  /* Mirrors internal/pace ranking: eligible first, then Total desc, then id. */
+  function rankAuths(auths) {
+    return (auths || []).slice().sort(function (x, y) {
+      var a = x.score || {}, b = y.score || {};
+      if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
+      if ((a.total || 0) !== (b.total || 0)) return (b.total || 0) - (a.total || 0);
+      return String(x.auth_id).localeCompare(String(y.auth_id));
+    });
+  }
+
+  function hitRate(c) {
+    if (!c) return null;
+    var total = (c.cache_read_tokens || 0) + (c.cache_creation_tokens || 0) + (c.fresh_input_tokens || 0);
+    if (total <= 0) return null;
+    return c.cache_read_tokens / total;
+  }
+
+  function intFmt(v) { return (v || 0).toLocaleString(); }
+
+  /* ------------------------------------------------------------- tooltip */
+
+  var tipEl = $("tooltip");
+
+  function showTip(text, x, y) {
+    tipEl.textContent = text;
+    tipEl.setAttribute("data-show", "true");
+    var pad = 14;
+    var r = tipEl.getBoundingClientRect();
+    var left = Math.min(x + pad, window.innerWidth - r.width - 8);
+    var top = y + pad + r.height > window.innerHeight ? y - r.height - pad : y + pad;
+    tipEl.style.left = Math.max(8, left) + "px";
+    tipEl.style.top = Math.max(8, top) + "px";
+  }
+
+  function hideTip() { tipEl.removeAttribute("data-show"); }
+
+  document.addEventListener("pointerover", function (ev) {
+    var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    if (!t) return;
+    showTip(t.getAttribute("data-tip"), ev.clientX, ev.clientY);
+  });
+  document.addEventListener("pointermove", function (ev) {
+    if (tipEl.getAttribute("data-show") !== "true") return;
+    var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    if (!t) { hideTip(); return; }
+    showTip(t.getAttribute("data-tip"), ev.clientX, ev.clientY);
+  });
+  document.addEventListener("pointerout", function (ev) {
+    var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    if (t) hideTip();
+  });
+  document.addEventListener("focusin", function (ev) {
+    var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    if (!t) { hideTip(); return; }
+    var r = t.getBoundingClientRect();
+    showTip(t.getAttribute("data-tip"), r.left + r.width / 2, r.bottom - 6);
+  });
+  document.addEventListener("focusout", hideTip);
+  window.addEventListener("scroll", hideTip, true);
+
+  /* --------------------------------------------------------------- seats */
+
+  function chip(text, tone, glyph) {
+    var c = h("span", "chip");
+    c.setAttribute("data-tone", tone || "muted");
+    if (glyph) {
+      var g = h("span", "chip-glyph", glyph);
+      g.setAttribute("aria-hidden", "true");
+      c.appendChild(g);
+    }
+    c.appendChild(document.createTextNode(text));
+    return c;
+  }
+
+  function renderSeats(st, ranked) {
+    var host = $("seats");
+    host.textContent = "";
+    var cfg = st.config || {};
+
+    ranked.forEach(function (a, i) {
+      var card = h("article", "card seat");
+      card.style.setProperty("--seat-color", seatColor(i));
+      var eligible = !!(a.score && a.score.eligible);
+
+      var top = h("div", "seat-top");
+      var dot = h("span", "seat-dot");
+      dot.setAttribute("aria-hidden", "true");
+      top.appendChild(dot);
+      top.appendChild(h("h3", "seat-name", seatLabel(a)));
+      var lead = eligible && i === 0;
+      var rank = h("span", "seat-rank", lead ? "#1 next cold pick" : "#" + (i + 1));
+      if (lead) rank.setAttribute("data-lead", "true");
+      top.appendChild(rank);
+      card.appendChild(top);
+
+      card.appendChild(h("p", "seat-id mono", (a.auth_id || "—") +
+        (a.provider ? "  ·  " + a.provider : "")));
+
+      var dl = h("dl", "kv");
+      function row(k, node) {
+        dl.appendChild(h("dt", "", k));
+        var dd = h("dd", "");
+        dd.appendChild(node);
+        dl.appendChild(dd);
+      }
+
+      row("Host", chip(a.host_status || "unknown",
+        a.host_status === "active" ? "good" : a.host_status ? "serious" : "muted"));
+
+      row("Eligibility", eligible
+        ? chip("eligible", "good", "✓")
+        : chip(a.score && a.score.reason ? a.score.reason : "ineligible", "critical", "✕"));
+
+      var scoreLine = h("span", "mono", signed(a.score ? a.score.total : NaN));
+      scoreLine.setAttribute("data-tip",
+        "weighted slack total " + signed(a.score ? a.score.total : NaN) +
+        "\nraw-utilization penalty −" + (a.score && num(a.score.raw_penalty) ? a.score.raw_penalty.toFixed(3) : "—"));
+      scoreLine.tabIndex = 0;
+      row("Score", scoreLine);
+
+      row("Priority", h("span", "mono", String(a.priority == null ? "—" : a.priority)));
+      row("Bindings", h("span", "mono", intFmt(a.bindings) + " live"));
+
+      var hr = hitRate(a.cache);
+      var hrNode = h("span", "mono", hr === null ? "no traffic" : pct(hr));
+      if (a.cache) {
+        hrNode.tabIndex = 0;
+        hrNode.setAttribute("data-tip",
+          "cache read      " + intFmt(a.cache.cache_read_tokens) +
+          "\ncache creation  " + intFmt(a.cache.cache_creation_tokens) +
+          "\nfresh input     " + intFmt(a.cache.fresh_input_tokens) +
+          "\noutput          " + intFmt(a.cache.output_tokens) +
+          "\nrequests        " + intFmt(a.cache.requests));
+      }
+      row("Cache hits", hrNode);
+
+      var snap = a.snapshot || {};
+      var obs = parseT(snap.observed_at);
+      var snapWrap = h("span", "");
+      snapWrap.appendChild(stamp(obs, "mono"));
+      if (snap.source) {
+        snapWrap.appendChild(document.createTextNode("  "));
+        snapWrap.appendChild(chip(snap.source, "muted"));
+      }
+      row("Snapshot", snapWrap);
+
+      if (snap.err || snap.err_category) {
+        var errChip = chip(snap.err_category || "error", "critical", "⚠");
+        if (snap.err) {
+          errChip.tabIndex = 0;
+          errChip.setAttribute("data-tip", snap.err);
+        }
+        row("Fetch error", errChip);
+      }
+      card.appendChild(dl);
+
+      var active = null;
+      sortedWindows(snap.windows).forEach(function (w) { if (w.active) active = w; });
+      if (active) {
+        var foot = h("div", "seat-foot");
+        var resets = parseT(active.resets_at);
+        foot.appendChild(h("span", "", "Binding window"));
+        var fv = h("span", "mono", "");
+        fv.appendChild(document.createTextNode(windowShort(active) + " · " + pct(active.utilization) + " · "));
+        fv.appendChild(stamp(resets, ""));
+        foot.appendChild(fv);
+        card.appendChild(foot);
+      }
+
+      host.appendChild(card);
+    });
+  }
+
+  function laneTip(a, w, ws, stt, st) {
+    var now = parseT(st.now) || new Date();
+    var resets = parseT(w.resets_at);
+    var lines = [
+      seatLabel(a) + " · " + windowName(w),
+      STATE_META[stt].label,
+      "utilization  " + pct(w.utilization),
+      ws ? "pace target  " + pct(ws.target) : null,
+      ws ? "slack        " + signed(ws.slack) : null,
+      ws ? "weight       " + (num(ws.weight) ? ws.weight.toFixed(2) : "—") +
+           (ws.weight ? "" : "  (does not count)") : null,
+      ws ? "elapsed      " + pct(ws.elapsed) : null,
+      resets ? "resets       " + relText(resets, now.getTime()) + " · " + absTime(resets) : null,
+      w.status ? "status       " + w.status : null,
+      w.severity ? "severity     " + w.severity : null,
+      w.active ? "the provider treats this window as binding" : null
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
+  function laneAria(a, w, ws, stt) {
+    return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
+      ", utilization " + pct(w.utilization) +
+      (ws ? ", target " + pct(ws.target) + ", slack " + signed(ws.slack) : "");
+  }
+
+  /* ------------------------------------------------------------ timeline */
+
+  var GUT = 346, PAD_R = 20, LANE_H = 26, HEAD_H = 32, GROUP_GAP = 14, AXIS_H = 40, TOP = 10;
+  var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
+
+  function renderTimeline(st, ranked) {
+    var host = $("timeline");
+    host.textContent = "";
+    if (!ranked.length) return;
+
+    var cfg = st.config || {};
+    var now = parseT(st.now) || new Date();
+    var width = Math.max(760, host.clientWidth || 1000);
+    var plotW = width - GUT - PAD_R;
+
+    /* The axis reaches back far enough to hold every open window whole:
+       a bar cut off on the left would show its fill starting nowhere, which
+       reads as a full bar however little of the budget is spent. */
+    var tMax = now.getTime() + 7 * 86400000;
+    var earliest = now.getTime() - 86400000;
+    ranked.forEach(function (a) {
+      sortedWindows(a.snapshot && a.snapshot.windows).forEach(function (w) {
+        var r = parseT(w.resets_at);
+        if (!r) return;
+        tMax = Math.max(tMax, r.getTime());
+        if (num(w.duration) && w.duration > 0) {
+          earliest = Math.min(earliest, r.getTime() - w.duration / 1e6);
+        }
+      });
+    });
+    var t0 = Math.floor(Math.max(earliest, now.getTime() - 8 * 86400000) / 3600000) * 3600000;
+    var t1 = Math.ceil((tMax + 2 * 3600000) / 3600000) * 3600000;
+    var X = function (t) { return GUT + (t - t0) / (t1 - t0) * plotW; };
+
+    var groups = ranked.map(function (a) {
+      return { a: a, wins: sortedWindows(a.snapshot && a.snapshot.windows) };
+    });
+    var y = TOP, layout = [];
+    groups.forEach(function (g) {
+      var top = y;
+      y += HEAD_H;
+      var lanes = g.wins.map(function (w) { var ly = y; y += LANE_H; return { w: w, y: ly }; });
+      layout.push({ g: g, top: top, bottom: y, lanes: lanes });
+      y += GROUP_GAP;
+    });
+    var plotH = y - GROUP_GAP + 6;
+    var height = plotH + AXIS_H;
+
+    var root = svg("svg", {
+      "class": "tl", width: width, height: height,
+      viewBox: "0 0 " + width + " " + height,
+      role: "group",
+      "aria-label": "Quota windows for every seat on a shared time axis"
+    }, host);
+
+    var gGrid = svg("g", {}, root);
+    var gBack = svg("g", {}, root);
+    var gBars = svg("g", {}, root);
+    var gNow = svg("g", {}, root);
+    var gGut = svg("g", {}, root);
+
+    /* Day gridlines and the bottom axis. */
+    var day = new Date(t0);
+    day.setHours(0, 0, 0, 0);
+    if (day.getTime() < t0) day.setDate(day.getDate() + 1);
+    for (var d = day.getTime(); d <= t1; d += 86400000) {
+      var gx = X(d);
+      svg("line", { x1: gx, x2: gx, y1: 0, y2: plotH, stroke: "var(--rule)", "stroke-width": 1 }, gGrid);
+      svgText(gGrid, gx, plotH + 20,
+        new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        "t-muted", { "font-size": 10.5, "text-anchor": "middle" });
+    }
+    svg("line", {
+      x1: GUT, x2: GUT + plotW, y1: plotH + 0.5, y2: plotH + 0.5,
+      stroke: "var(--axis)", "stroke-width": 1
+    }, gGrid);
+    svgText(gGrid, GUT, plotH + 35, "one day per tick · " +
+      new Date(t0).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+      " → " + new Date(t1).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      "t-muted", { "font-size": 10 });
+
+    /* Rows. */
+    layout.forEach(function (row, i) {
+      var a = row.g.a;
+      var eligible = !!(a.score && a.score.eligible);
+      var lead = eligible && i === 0;
+      var col = seatColor(i);
+
+      if (lead) {
+        svg("rect", {
+          x: 6, y: row.top - 6, width: width - 12, height: row.bottom - row.top + 8,
+          rx: 8, fill: "var(--emph)"
+        }, gBack);
+      }
+      svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
+
+      var headY = row.top + 20;
+      svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gGut);
+      svgText(gGut, 34, headY, "#" + (i + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
+      var nameEl = svgText(gGut, 58, headY, seatLabel(a), "", { "font-size": 13.5, "font-weight": 600 });
+
+      var tail;
+      if (!eligible) {
+        tail = svgText(gGut, GUT - 14, headY, (a.score && a.score.reason) || "ineligible",
+          "t-mono", { "font-size": 10.5, "text-anchor": "end", fill: "var(--critical)" });
+      } else {
+        tail = svgText(gGut, GUT - 14, headY, signed(a.score ? a.score.total : NaN),
+          "t-mono t-sec", { "font-size": 11 });
+        tail.setAttribute("text-anchor", "end");
+      }
+      fitText(nameEl, GUT - 58 - tail.getComputedTextLength() - 18);
+
+      if (lead) {
+        svgText(gGut, 58, headY + 13, "next cold pick", "t-mono t-muted", { "font-size": 9.5, "letter-spacing": ".1em" });
+      }
+
+      var groupOpacity = eligible ? 1 : 0.62;
+
+      row.lanes.forEach(function (lane) {
+        var w = lane.w;
+        var ws = scoreFor(a, w);
+        var stt = laneState(w, ws, cfg);
+        var meta = STATE_META[stt];
+        var cy = lane.y + LANE_H / 2;
+
+        var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: groupOpacity }, gBars);
+        g.setAttribute("aria-label", laneAria(a, w, ws, stt));
+        g.setAttribute("data-tip", laneTip(a, w, ws, stt, st));
+
+        /* Gutter: name, state glyph, utilization. All three are text, so no
+           value in this view depends on hovering a bar. */
+        var nm = svgText(gGut, 40, cy + 4, windowShort(w), "t-sec", { "font-size": 11.5, opacity: groupOpacity });
+        fitText(nm, 112);
+        svgText(gGut, 160, cy + 4, meta.glyph, "", { "font-size": 10, fill: meta.color, opacity: groupOpacity });
+        svgText(gGut, 218, cy + 4, pct(w.utilization), "t-mono",
+          { "font-size": 11.5, "text-anchor": "end", opacity: groupOpacity });
+        /* The budget meter is a fixed width, so utilization and its target
+           stay readable even where the window is a sliver on the time axis. */
+        budgetMeter(gGut, cy, w, ws, meta.color, groupOpacity);
+
+        var resets = parseT(w.resets_at);
+        var durMs = num(w.duration) ? w.duration / 1e6 : 0;
+        if (!resets || durMs <= 0) {
+          svgText(gBars, GUT + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
+          return;
+        }
+
+        var x0 = X(resets.getTime() - durMs), x1 = X(resets.getTime());
+        var bx0 = Math.max(x0, GUT), bx1 = Math.max(Math.min(x1, GUT + plotW), bx0 + 8);
+        if (bx1 <= bx0) return;
+
+        var barH = 13, by = cy - barH / 2;
+
+        svg("rect", {
+          "class": "hit", x: bx0 - 6, y: lane.y, width: (bx1 - bx0) + 12, height: LANE_H,
+          rx: 4, fill: "transparent"
+        }, g);
+        svg("rect", { x: bx0, y: by, width: bx1 - bx0, height: barH, rx: 3, fill: "var(--track)" }, g);
+
+        var fillX = x0 + (x1 - x0) * clamp(w.utilization, 0, 1);
+        var fx1 = Math.min(fillX, bx1);
+        if (fx1 > bx0) {
+          var rounded = fillX <= bx1 + 0.5;
+          svg("path", {
+            d: roundedRight(bx0, by, fx1 - bx0, barH, rounded ? 3 : 0),
+            fill: meta.color
+          }, g);
+        }
+        if (stt === "blocked") {
+          svg("rect", {
+            x: bx0, y: by, width: Math.min(fx1, bx1) - bx0, height: barH, rx: 3,
+            fill: "url(#hatch)"
+          }, g);
+        }
+        if (w.utilization > 1) {
+          svg("path", {
+            d: "M" + (bx1 + 4) + " " + (cy - 4) + "L" + (bx1 + 10) + " " + cy + "L" + (bx1 + 4) + " " + (cy + 4) + "Z",
+            fill: meta.color
+          }, g);
+        }
+        /* The pace target rides the same axis as the fill: it marks where the
+           fill should reach right now. */
+        if (ws && num(ws.target)) {
+          var tx = x0 + (x1 - x0) * clamp(ws.target, 0, 1);
+          if (tx >= bx0 - 0.5 && tx <= bx1 + 0.5) {
+            svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
+            svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
+            svg("path", {
+              d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
+              fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
+            }, g);
+          }
+        }
+      });
+    });
+
+    /* One now line across every row. */
+    var nx = X(now.getTime());
+    svg("line", { x1: nx, x2: nx, y1: 0, y2: plotH, stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: .5 }, gNow);
+    var nowLabel = svgText(gNow, nx + 5, 9, "NOW", "t-mono", { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600 });
+    var lw = nowLabel.getComputedTextLength();
+    svg("rect", { x: nx + 2, y: 1, width: lw + 6, height: 11, fill: "var(--surface-1)" }, gNow);
+    gNow.appendChild(nowLabel);
+
+    /* Hatch marks a blocked window without leaning on colour. */
+    var defs = svg("defs", {}, root);
+    var pat = svg("pattern", {
+      id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse",
+      patternTransform: "rotate(45)"
+    }, defs);
+    svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
+  }
+
+  function budgetMeter(parent, cy, w, ws, color, opacity) {
+    var y = cy - MET_H / 2;
+    svg("rect", { x: MET_X, y: y, width: MET_W, height: MET_H, rx: MET_H / 2,
+      fill: "var(--track)", opacity: opacity }, parent);
+    var fw = MET_W * clamp(w.utilization, 0, 1);
+    if (fw > 0.5) {
+      svg("path", { d: roundedRight(MET_X, y, fw, MET_H, MET_H / 2), fill: color, opacity: opacity }, parent);
+    }
+    if (ws && num(ws.target)) {
+      var tx = MET_X + MET_W * clamp(ws.target, 0, 1);
+      svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
+        stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
+      svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
+        stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: opacity }, parent);
+    }
+    if (w.utilization > 1) {
+      svg("path", { d: "M" + (MET_X + MET_W + 3) + " " + (cy - 3.5) +
+        "L" + (MET_X + MET_W + 8) + " " + cy + "L" + (MET_X + MET_W + 3) + " " + (cy + 3.5) + "Z",
+        fill: color, opacity: opacity }, parent);
+    }
+  }
+
+  function roundedRight(x, y, w, hgt, r) {
+    if (w <= 0) return "";
+    r = Math.min(r, w, hgt / 2);
+    if (r <= 0) return "M" + x + " " + y + "h" + w + "v" + hgt + "h" + (-w) + "Z";
+    return "M" + x + " " + y +
+      "h" + (w - r) + "a" + r + " " + r + " 0 0 1 " + r + " " + r +
+      "v" + (hgt - 2 * r) + "a" + r + " " + r + " 0 0 1 " + (-r) + " " + r +
+      "h" + (-(w - r)) + "Z";
+  }
+
+  /* ----------------------------------------------------------- pace curve */
+
+  function renderPace(st, ranked) {
+    var host = $("pace-curve");
+    host.textContent = "";
+    var pace = (st.config && st.config.pace) || {};
+    var gamma = num(pace.curve_exponent) && pace.curve_exponent > 0 ? pace.curve_exponent : 1;
+    var landing = num(pace.landing_target) && pace.landing_target > 0 ? pace.landing_target : 1;
+
+    var W = Math.max(320, host.clientWidth || 480), H = 248;
+    var m = { l: 46, r: 22, t: 18, b: 46 };
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+
+    var maxY = 1.05;
+    ranked.forEach(function (a) {
+      ((a.score && a.score.windows) || []).forEach(function (ws) {
+        if (ws.weight > 0 && num(ws.utilization)) maxY = Math.max(maxY, ws.utilization + 0.05);
+      });
+    });
+
+    var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
+    var Y = function (u) { return m.t + ph - clamp(u, 0, maxY) / maxY * ph; };
+
+    var root = svg("svg", {
+      "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
+      role: "img",
+      "aria-label": "Target utilization against elapsed window time, with every counted window plotted"
+    }, host);
+
+    var ticks = [0, 0.25, 0.5, 0.75, 1];
+    ticks.forEach(function (t) {
+      var gy = Y(t);
+      svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
+      svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+      var gx = X(t);
+      svgText(root, gx, H - 26, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "middle" });
+    });
+    svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0), y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
+    svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
+    svgText(root, m.l + pw / 2, H - 8, "elapsed through the window", "t-muted",
+      { "font-size": 10.5, "text-anchor": "middle" });
+    svgText(root, m.l - 38, m.t - 6, "utilization", "t-muted", { "font-size": 10.5 });
+
+    var pts = [];
+    for (var i = 0; i <= 60; i++) {
+      var e = i / 60;
+      pts.push((i ? "L" : "M") + X(e).toFixed(2) + " " + Y(landing * Math.pow(e, gamma)).toFixed(2));
+    }
+    svg("path", {
+      d: pts.join(" "), fill: "none", stroke: "var(--ink-1)",
+      "stroke-width": 2, "stroke-linecap": "round", opacity: .78
+    }, root);
+    svgText(root, X(1) - 4, Y(landing) - 10, "target", "t-muted",
+      { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
+
+    var SHAPES = { five_hour: "circle", seven_day: "square", weekly_scoped: "triangle" };
+    var plotted = 0;
+    ranked.forEach(function (a, si) {
+      var col = seatColor(si);
+      ((a.score && a.score.windows) || []).forEach(function (ws) {
+        if (!(ws.weight > 0) || !num(ws.utilization) || !num(ws.elapsed)) return;
+        plotted++;
+        var cx = X(ws.elapsed), cy = Y(ws.utilization);
+        var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+        g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
+          ", elapsed " + pct(ws.elapsed) + ", utilization " + pct(ws.utilization) +
+          ", slack " + signed(ws.slack));
+        g.setAttribute("data-tip", seatLabel(a) + " · " + windowName(ws) +
+          "\nelapsed      " + pct(ws.elapsed) +
+          "\nutilization  " + pct(ws.utilization) +
+          "\ntarget       " + pct(ws.target) +
+          "\nslack        " + signed(ws.slack) +
+          "\nweight       " + ws.weight.toFixed(2));
+        svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
+        mark(g, SHAPES[ws.kind] || "circle", cx, cy, col);
+      });
+    });
+
+    if (!plotted) {
+      svgText(root, m.l + pw / 2, m.t + ph / 2, "no counted windows for this model",
+        "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
+    }
+
+    renderPaceNote(st, ranked, gamma, landing);
+  }
+
+  function mark(parent, shape, cx, cy, col) {
+    var ring = { stroke: "var(--surface-1)", "stroke-width": 2 };
+    if (shape === "square") {
+      svg("rect", Object.assign({ x: cx - 4.4, y: cy - 4.4, width: 8.8, height: 8.8, rx: 1.5, fill: col }, ring), parent);
+    } else if (shape === "triangle") {
+      svg("path", Object.assign({
+        d: "M" + cx + " " + (cy - 5.4) + "L" + (cx + 5) + " " + (cy + 4) + "L" + (cx - 5) + " " + (cy + 4) + "Z",
+        fill: col, "stroke-linejoin": "round"
+      }, ring), parent);
+    } else {
+      svg("circle", Object.assign({ cx: cx, cy: cy, r: 4.6, fill: col }, ring), parent);
+    }
+  }
+
+  function renderPaceNote(st, ranked, gamma, landing) {
+    var note = $("pace-note");
+    note.textContent = "";
+    note.appendChild(h("h3", "", "Reading this"));
+
+    var p = h("p", "");
+    p.style.marginTop = "0";
+    p.appendChild(document.createTextNode("Target is "));
+    p.appendChild(h("code", "", "landing × elapsed^" + gamma));
+    p.appendChild(document.createTextNode(" with landing at " + pct(landing, 0) +
+      ". A window below the curve has positive slack and pulls its seat up the ranking; " +
+      "the seat with the most weighted slack takes the next cold pick."));
+    note.appendChild(p);
+
+    var seatLeg = h("ul", "legend");
+    seatLeg.style.margin = "14px 0 0";
+    ranked.forEach(function (a, i) {
+      var li = h("li", "");
+      var sw = h("span", "sw");
+      sw.style.background = seatColor(i);
+      sw.style.borderRadius = "50%";
+      sw.style.width = "10px";
+      sw.style.height = "10px";
+      li.appendChild(sw);
+      li.appendChild(document.createTextNode(seatLabel(a)));
+      seatLeg.appendChild(li);
+    });
+    note.appendChild(seatLeg);
+
+    var shapeLeg = h("ul", "legend");
+    shapeLeg.style.margin = "8px 0 0";
+    [["●", "5-hour session"], ["■", "7-day all models"], ["▲", "scoped weekly"]]
+      .forEach(function (pair) {
+        var li = h("li", "");
+        var gl = h("span", "gl", pair[0]);
+        li.appendChild(gl);
+        li.appendChild(document.createTextNode(pair[1]));
+        shapeLeg.appendChild(li);
+      });
+    note.appendChild(shapeLeg);
+
+    var wts = (st.config && st.config.pace) || {};
+    var wl = h("dl", "kv");
+    wl.style.marginTop = "16px";
+    [["weekly", wts.weekly_weight], ["session", wts.session_weight],
+     ["scoped", wts.scoped_weight], ["raw penalty", wts.raw_utilization_weight],
+     ["hysteresis", wts.hysteresis_margin], ["hard cutoff", wts.hard_cutoff]]
+      .forEach(function (pair) {
+        wl.appendChild(h("dt", "", pair[0]));
+        var dd = h("dd", "");
+        dd.appendChild(h("span", "mono", num(pair[1]) ? pair[1].toFixed(2) : "—"));
+        wl.appendChild(dd);
+      });
+    note.appendChild(wl);
+  }
+
+  /* ------------------------------------------------------------ decisions */
+
+  var KIND_META = {
+    "affinity-hit": { tone: "good", glyph: "↻", label: "affinity hit" },
+    "cold-pick":    { tone: "info", glyph: "◆", label: "cold pick" },
+    "failover":     { tone: "serious", glyph: "↱", label: "failover" },
+    "declined":     { tone: "muted", glyph: "–", label: "declined" }
+  };
+
+  function renderDecisions(st) {
+    var host = $("decisions");
+    host.textContent = "";
+    var list = (st.decisions || []).slice().sort(function (a, b) {
+      return (parseT(b.at) || 0) - (parseT(a.at) || 0);
+    }).slice(0, MAX_DECISIONS);
+
+    if (!list.length) {
+      var e = h("p", "");
+      e.style.padding = "20px 16px";
+      e.style.color = "var(--ink-2)";
+      e.textContent = "No routing decisions recorded yet.";
+      host.appendChild(e);
+      return;
+    }
+
+    var byID = {};
+    (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    function name(id) {
+      if (!id) return null;
+      return byID[id] ? seatLabel(byID[id]) : id;
+    }
+
+    list.forEach(function (dec) {
+      var det = h("details", "dec");
+      var sum = h("summary", "");
+
+      var caret = h("span", "caret", "›");
+      caret.setAttribute("aria-hidden", "true");
+
+      var t = h("span", "dec-time");
+      t.appendChild(caret);
+      t.appendChild(document.createTextNode(" "));
+      t.appendChild(stamp(parseT(dec.at), ""));
+      sum.appendChild(t);
+
+      var km = KIND_META[dec.kind] || { tone: "muted", glyph: "·", label: dec.kind || "unknown" };
+      sum.appendChild(chip(km.label, km.tone, km.glyph));
+
+      sum.appendChild(h("code", "dec-key", dec.session_key ? dec.session_key.slice(0, 8) : "—"));
+      sum.appendChild(h("span", "dec-model", dec.model || "—"));
+
+      var route = h("span", "dec-route");
+      if (dec.chosen_auth_id) {
+        route.appendChild(document.createTextNode(name(dec.chosen_auth_id)));
+        if (dec.previous_auth_id && dec.previous_auth_id !== dec.chosen_auth_id) {
+          var ar = h("span", "arrow", "  ←  ");
+          route.appendChild(ar);
+          route.appendChild(h("span", "prev", name(dec.previous_auth_id)));
+        }
+      } else {
+        route.appendChild(h("span", "prev", "host selector"));
+      }
+      sum.appendChild(route);
+
+      var tail = h("span", "dec-tail");
+      if (dec.subagent) tail.appendChild(chip("subagent", "muted", "↳"));
+      if (dec.note) tail.appendChild(h("span", "dec-note", dec.note));
+      sum.appendChild(tail);
+
+      det.appendChild(sum);
+      det.appendChild(decisionBody(dec, name));
+      host.appendChild(det);
+    });
+  }
+
+  function decisionBody(dec, name) {
+    var body = h("div", "dec-body");
+    if (!dec.scores || !dec.scores.length) {
+      var p = h("p", "");
+      p.style.color = "var(--ink-2)";
+      p.style.margin = "6px 0 0";
+      p.textContent = "No candidate scores were recorded for this decision.";
+      body.appendChild(p);
+      return body;
+    }
+    var tbl = h("table", "scores");
+    tbl.appendChild(h("caption", "", "Candidate scores"));
+    var thead = h("thead", "");
+    var hr = h("tr", "");
+    ["Auth", "Total", "Raw penalty", "Eligibility", "Per-window slack"].forEach(function (c, i) {
+      var th = h("th", i === 1 || i === 2 ? "n" : "", c);
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    tbl.appendChild(thead);
+
+    var tb = h("tbody", "");
+    dec.scores.slice().sort(function (a, b) {
+      if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
+      return (b.total || 0) - (a.total || 0);
+    }).forEach(function (s) {
+      var tr = h("tr", "");
+      var td0 = h("td", "");
+      if (s.auth_id === dec.chosen_auth_id) {
+        var win = h("strong", "", name(s.auth_id));
+        td0.appendChild(win);
+        td0.appendChild(document.createTextNode(" "));
+        td0.appendChild(chip("chosen", "info", "✓"));
+      } else {
+        td0.textContent = name(s.auth_id) || "—";
+      }
+      tr.appendChild(td0);
+      tr.appendChild(h("td", "n mono", signed(s.total)));
+      tr.appendChild(h("td", "n mono", num(s.raw_penalty) ? "−" + s.raw_penalty.toFixed(3) : "—"));
+
+      var tdE = h("td", "");
+      tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
+                                 : chip(s.reason || "ineligible", "critical", "✕"));
+      tr.appendChild(tdE);
+
+      var tdW = h("td", "");
+      var span = h("span", "wslack");
+      (s.windows || []).forEach(function (ws) {
+        var item = h("span", "");
+        item.appendChild(document.createTextNode(windowShort(ws) + " "));
+        var b = h("b", "", signed(ws.slack));
+        if (ws.weight > 0) b.style.color = ws.slack >= 0 ? "var(--pos-text)" : "var(--neg-text)";
+        else item.style.opacity = ".55";
+        item.appendChild(b);
+        if (!(ws.weight > 0)) item.appendChild(document.createTextNode(" (0w)"));
+        span.appendChild(item);
+      });
+      tdW.appendChild(span);
+      tr.appendChild(tdW);
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    body.appendChild(tbl);
+    return body;
+  }
+
+  /* ------------------------------------------------------------- bindings */
+
+  var BIND_COLS = [
+    { key: "session_key", label: "Session", n: false },
+    { key: "provider", label: "Provider", n: false },
+    { key: "model", label: "Model", n: false },
+    { key: "auth_id", label: "Seat", n: false },
+    { key: "bound_at", label: "Bound", n: false },
+    { key: "last_seen", label: "Last seen", n: false },
+    { key: "hits", label: "Hits", n: true }
+  ];
+
+  function renderBindings(st) {
+    var host = $("bindings");
+    host.textContent = "";
+    var rows = (st.bindings || []).slice();
+
+    if (!rows.length) {
+      var p = h("p", "");
+      p.style.color = "var(--ink-2)";
+      p.style.margin = "4px 0";
+      p.textContent = "No conversation is pinned to a seat right now.";
+      host.appendChild(p);
+      return;
+    }
+
+    var byID = {};
+    (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+
+    var key = state.sort.key, dir = state.sort.dir;
+    rows.sort(function (a, b) {
+      var x = a[key], y = b[key];
+      if (key === "bound_at" || key === "last_seen") {
+        x = (parseT(x) || 0) && parseT(x).getTime();
+        y = (parseT(y) || 0) && parseT(y).getTime();
+        x = x || 0; y = y || 0;
+      }
+      if (typeof x === "number" && typeof y === "number") return (x - y) * dir;
+      return String(x).localeCompare(String(y)) * dir;
+    });
+
+    var tbl = h("table", "");
+    tbl.appendChild(h("caption", "", rows.length + " bound conversation" + (rows.length === 1 ? "" : "s")));
+    var thead = h("thead", "");
+    var hr = h("tr", "");
+    BIND_COLS.forEach(function (c) {
+      var th = h("th", c.n ? "n" : "");
+      if (key === c.key) th.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
+      var btn = h("button", "", "");
+      btn.type = "button";
+      btn.appendChild(document.createTextNode(c.label));
+      var gl = h("span", "sort-glyph", key === c.key ? (dir > 0 ? "▲" : "▼") : "↕");
+      gl.setAttribute("aria-hidden", "true");
+      btn.appendChild(gl);
+      btn.addEventListener("click", function () {
+        if (state.sort.key === c.key) state.sort.dir = -state.sort.dir;
+        else state.sort = { key: c.key, dir: c.key === "session_key" || c.key === "model" ? 1 : -1 };
+        renderBindings(state.data);
+      });
+      th.appendChild(btn);
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    tbl.appendChild(thead);
+
+    var tb = h("tbody", "");
+    rows.forEach(function (b) {
+      var tr = h("tr", "");
+      var k = h("td", "");
+      var code = h("code", "mono", (b.session_key || "").slice(0, 12) + ((b.session_key || "").length > 12 ? "…" : ""));
+      code.title = b.session_key || "";
+      k.appendChild(code);
+      tr.appendChild(k);
+      tr.appendChild(h("td", "", b.provider || "—"));
+      tr.appendChild(h("td", "mono", b.model || "—"));
+      tr.appendChild(h("td", "", byID[b.auth_id] ? seatLabel(byID[b.auth_id]) : (b.auth_id || "—")));
+      var bd = h("td", "");
+      bd.appendChild(stamp(parseT(b.bound_at), "mono"));
+      tr.appendChild(bd);
+      var ls = h("td", "");
+      ls.appendChild(stamp(parseT(b.last_seen), "mono"));
+      tr.appendChild(ls);
+      tr.appendChild(h("td", "n mono", intFmt(b.hits)));
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    host.appendChild(tbl);
+  }
+
+  /* --------------------------------------------------------------- shell */
+
+  function renderHeader(st, ranked) {
+    var p = st.plugin || {};
+    $("plugin-name").textContent = p.name || "Claude quota scheduler";
+    $("plugin-version").textContent = p.version || "—";
+    $("host-schema").textContent = p.host_schema_version != null ? "v" + p.host_schema_version : "—";
+
+    var startedCell = $("started-at");
+    startedCell.textContent = "";
+    startedCell.appendChild(stamp(parseT(p.started_at), ""));
+
+    var next = $("next-pick");
+    next.textContent = "";
+    var lead = ranked.filter(function (a) { return a.score && a.score.eligible; })[0];
+    if (lead) {
+      var dot = h("span", "seat-dot");
+      dot.style.background = seatColor(ranked.indexOf(lead));
+      dot.style.display = "inline-block";
+      dot.style.marginRight = "7px";
+      dot.setAttribute("aria-hidden", "true");
+      next.appendChild(dot);
+      next.appendChild(document.createTextNode(seatLabel(lead)));
+    } else {
+      next.textContent = ranked.length ? "none eligible" : "—";
+    }
+  }
+
+  function renderWarnings(st, ranked) {
+    var host = $("warnings");
+    host.textContent = "";
+    var msgs = (st.warnings || []).slice();
+    if (ranked.length === 1) {
+      msgs.push("Only one credential is in the pool. With a single candidate there is " +
+        "nothing to spread across, so every pick is forced and the pace scoring has no effect.");
+    }
+    if (!msgs.length) { host.hidden = true; return; }
+    host.hidden = false;
+    var box = h("div", "banner");
+    var head = h("h2", "", msgs.length === 1 ? "Warning" : msgs.length + " warnings");
+    box.appendChild(head);
+    var ul = h("ul", "");
+    msgs.forEach(function (m) { ul.appendChild(h("li", "", m)); });
+    box.appendChild(ul);
+    host.appendChild(box);
+  }
+
+  function renderModels(st) {
+    var dl = $("model-list");
+    dl.textContent = "";
+    var seen = Object.create(null);
+    function add(m) {
+      if (!m || seen[m]) return;
+      seen[m] = true;
+      var o = document.createElement("option");
+      o.value = m;
+      dl.appendChild(o);
+    }
+    add(st.model);
+    (st.decisions || []).forEach(function (d) { add(d.model); });
+    (st.bindings || []).forEach(function (b) { add(b.model); });
+
+    var input = $("model-input");
+    if (document.activeElement !== input && !state.model) {
+      input.placeholder = st.model ? st.model + " (source default)" : "source default";
+    }
+  }
+
+  function render() {
+    var st = state.data;
+    if (!st) return;
+    var ranked = rankAuths(st.auths);
+
+    $("loading").hidden = true;
+    renderHeader(st, ranked);
+    renderWarnings(st, ranked);
+    renderModels(st);
+
+    var empty = !ranked.length;
+    $("empty-state").hidden = !empty;
+    $("app").hidden = false;
+    $("sec-seats").hidden = empty;
+    $("sec-timeline").hidden = empty;
+    $("sec-pace").hidden = empty;
+
+    if (!empty) {
+      renderSeats(st, ranked);
+      renderTimeline(st, ranked);
+      renderPace(st, ranked);
+    }
+    renderDecisions(st);
+    renderBindings(st);
+  }
+
+  function setError(err) {
+    state.error = err;
+    var strip = $("error-strip");
+    strip.textContent = "";
+    if (!err) { strip.hidden = true; return; }
+    strip.hidden = false;
+    var head = h("h2", "", "Status fetch failed");
+    strip.appendChild(head);
+    var p = h("p", "");
+    p.style.margin = "0";
+    p.textContent = err + (state.data ? " — showing the last good reading." : "");
+    strip.appendChild(p);
+  }
+
+  function setLive() {
+    var dot = $("live-dot");
+    dot.setAttribute("data-live", state.error ? "error" : state.paused ? "paused" : "live");
+    var s = $("last-updated");
+    s.textContent = "";
+    if (!state.fetchedAt) { s.textContent = state.inFlight ? "loading…" : "never"; return; }
+    s.appendChild(document.createTextNode(state.paused ? "paused · updated " : "updated "));
+    s.appendChild(stamp(state.fetchedAt, ""));
+  }
+
+  /* Relative fetch: the mount prefix is chosen by the host and unknown here. */
+  function statusURL() {
+    return "api/status" + (state.model ? "?model=" + encodeURIComponent(state.model) : "");
+  }
+
+  function refresh() {
+    if (state.inFlight) return;
+    state.inFlight = true;
+    if (state.data) $("app").setAttribute("data-stale", "true");
+    setLive();
+
+    fetch(statusURL(), { headers: { "Accept": "application/json" }, cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        state.data = data;
+        state.fetchedAt = new Date();
+        setError(null);
+        render();
+      })
+      .catch(function (e) {
+        setError(String(e && e.message ? e.message : e));
+        $("loading").hidden = !!state.data;
+      })
+      .then(function () {
+        state.inFlight = false;
+        $("app").removeAttribute("data-stale");
+        setLive();
+      });
+  }
+
+  /* --------------------------------------------------------------- wiring */
+
+  var input = $("model-input");
+  input.addEventListener("change", function () {
+    state.model = input.value.trim();
+    refresh();
+  });
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { state.model = input.value.trim(); refresh(); }
+  });
+
+  var toggle = $("refresh-toggle");
+  toggle.addEventListener("click", function () {
+    state.paused = !state.paused;
+    toggle.setAttribute("aria-pressed", state.paused ? "true" : "false");
+    toggle.textContent = state.paused ? "Resume auto-refresh" : "Pause auto-refresh";
+    setLive();
+    if (!state.paused) refresh();
+  });
+
+  var themeBtn = $("theme-toggle");
+  var THEMES = ["auto", "light", "dark"];
+  try {
+    var saved = window.localStorage.getItem("cqs-theme");
+    if (saved && THEMES.indexOf(saved) >= 0) state.theme = saved;
+  } catch (e) { /* storage may be blocked; auto is a fine default */ }
+  /* A ?theme= on the page URL pins the scheme for a screenshot or a link. */
+  var qsTheme = new URLSearchParams(window.location.search).get("theme");
+  if (qsTheme && THEMES.indexOf(qsTheme) >= 0) state.theme = qsTheme;
+  function applyTheme() {
+    if (state.theme === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", state.theme);
+    themeBtn.textContent = "Theme: " + state.theme;
+    try { window.localStorage.setItem("cqs-theme", state.theme); } catch (e) { /* ignored */ }
+  }
+  themeBtn.addEventListener("click", function () {
+    state.theme = THEMES[(THEMES.indexOf(state.theme) + 1) % THEMES.length];
+    applyTheme();
+    if (state.data) render();
+  });
+  applyTheme();
+
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(function () { if (state.data) render(); }, 160);
+  });
+
+  window.setInterval(function () { if (!state.paused) refresh(); }, REFRESH_MS);
+  window.setInterval(function () { tickStamps(); setLive(); }, 1000);
+
+  refresh();
+})();
+</script>
+</body>
+</html>
