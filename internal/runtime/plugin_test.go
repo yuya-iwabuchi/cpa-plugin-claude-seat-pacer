@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ func TestRegisterThenReconfigureIsIdempotent(t *testing.T) {
 	// Reconfigure with a different pace knob but the same affinity settings:
 	// the config swaps, the poller and binding table stay.
 	tp.register(t, MethodPluginReconfigure, testConfigYAML+"pace:\n  hard-cutoff: 0.9\n")
-	if got := tp.Config().Pace.HardCutoff; got != 0.9 {
+	if got := tp.config().Pace.HardCutoff; got != 0.9 {
 		t.Errorf("hard-cutoff = %v after reconfigure, want 0.9", got)
 	}
 	tp.lifeMu.Lock()
@@ -49,17 +50,17 @@ func TestRegisterThenReconfigureIsIdempotent(t *testing.T) {
 	if tp.built != builds+1 {
 		t.Errorf("binding store builds = %d, want %d after a TTL change", tp.built, builds+1)
 	}
-	if got := tp.Config().Affinity.TTL; got != 30*time.Minute {
+	if got := tp.config().Affinity.TTL; got != 30*time.Minute {
 		t.Errorf("affinity TTL = %v, want 30m", got)
 	}
-	if got := tp.Config().Pace.HardCutoff; got != 0.98 {
+	if got := tp.config().Pace.HardCutoff; got != 0.98 {
 		t.Errorf("hard-cutoff = %v, want the default restored when the key is absent", got)
 	}
 }
 
 func TestInvalidConfigRegistersInert(t *testing.T) {
 	tp := newTestPlugin(t, "enabled: true\npace: [not a map\n")
-	if tp.Config().Enabled {
+	if tp.config().Enabled {
 		t.Error("an unparsable config left the plugin enabled")
 	}
 	logs := tp.host.logs()
@@ -75,7 +76,7 @@ func TestInvalidConfigRegistersInert(t *testing.T) {
 
 func TestDurationsDecodeFromStrings(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML+"quota:\n  poll-interval: 5m\n  max-staleness: 20m\naffinity:\n  ttl: 2h\n")
-	cfg := tp.Config()
+	cfg := tp.config()
 	if cfg.Quota.PollInterval != 5*time.Minute || cfg.Quota.MaxStaleness != 20*time.Minute || cfg.Affinity.TTL != 2*time.Hour {
 		t.Errorf("durations = %v %v %v", cfg.Quota.PollInterval, cfg.Quota.MaxStaleness, cfg.Affinity.TTL)
 	}
@@ -101,11 +102,11 @@ func TestQuiesceStopsPollerAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestPanicGuardConvertsPanicToErrorEnvelope(t *testing.T) {
+func TestPanicOnALifecycleMethodIsAnErrorEnvelope(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.handle = func(string, []byte) ([]byte, error) { panic("boom") }
 
-	raw, ok := tp.Call(MethodSchedulerPick, []byte(`{}`))
+	raw, ok := tp.Call(MethodPluginRegister, []byte(`{}`))
 	if ok {
 		t.Fatal("a panicking handler reported success")
 	}
@@ -115,6 +116,45 @@ func TestPanicGuardConvertsPanicToErrorEnvelope(t *testing.T) {
 	}
 	if env.OK || env.Error == nil || env.Error.Code != codePluginPanic || !strings.Contains(env.Error.Message, "boom") {
 		t.Errorf("envelope = %s, want a plugin_panic error mentioning boom", raw)
+	}
+}
+
+// TestPanicOnATrafficMethodDegradesRatherThanFailing covers the methods the
+// host routes live traffic through: an error envelope from scheduler.pick
+// hard-fails the request with no fallback to the host's own selector, and the
+// interceptors and management surface fail their requests too.
+func TestPanicOnATrafficMethodDegradesRatherThanFailing(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.handle = func(string, []byte) ([]byte, error) { panic("boom") }
+
+	var pick SchedulerPickResponse
+	tp.callOK(t, MethodSchedulerPick, mustJSON(t, pickRequest(fableModel, "k", "seat-a", "seat-b")), &pick)
+	if pick.Handled || pick.AuthID != "" {
+		t.Errorf("pick = %+v, want a decline", pick)
+	}
+
+	var intercept RequestInterceptResponse
+	tp.callOK(t, MethodRequestInterceptBefore, interceptPayload(t, claudeCodeBody("s")), &intercept)
+	if len(intercept.Headers) != 0 {
+		t.Errorf("intercept_before = %+v, want no headers set", intercept)
+	}
+	assertClearsBridge(t, intercept)
+
+	for _, method := range []string{MethodRequestInterceptAfter, MethodUsageHandle} {
+		var out map[string]any
+		tp.callOK(t, method, []byte(`{}`), &out)
+		if len(out) != 0 {
+			t.Errorf("%s = %v, want {}", method, out)
+		}
+	}
+
+	var mgmt ManagementResponse
+	tp.callOK(t, MethodManagementHandle, []byte(`{}`), &mgmt)
+	if mgmt.StatusCode != http.StatusInternalServerError {
+		t.Errorf("management.handle = %d, want 500", mgmt.StatusCode)
+	}
+	if strings.Contains(string(mgmt.Body), "boom") {
+		t.Errorf("management body names the panic: %s", mgmt.Body)
 	}
 }
 
