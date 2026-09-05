@@ -3,14 +3,16 @@
 // The host mounts these routes without authentication, so everything they
 // expose is read-only and reduced for an anonymous reader: the app issues no
 // mutating request, model.Status carries ids and labels but no credential
-// material, and serveStatus masks a label that is an account email, keeps only
-// the config block the page reads, strips URLs out of the operator warnings and
-// bounds the binding list. The authenticated management route serves the same
-// status unreduced.
+// material, and serveStatus names each seat without its account address,
+// withholds the credential file name, keeps only the config block the page
+// reads, strips URLs out of the operator warnings and bounds the binding
+// list. The authenticated management route serves the same status unreduced.
 //
 // A credential's id is published as a truncated hash of the real one rather
 // than masked: every table on the page correlates on the id, and masking is
-// not injective, so two seats sharing a domain would merge into one row.
+// not injective, so two seats sharing a domain would merge into one row. Seat
+// names are made unique the same way, with a tag of that hash, because two
+// organizations registered under one address share every other name.
 //
 // The whole app — markup, styles and script — is one embedded document with no
 // external reference, so it renders on a host with no outbound network.
@@ -201,15 +203,20 @@ func reduceForPublic(st model.Status) model.Status {
 	}
 	st.Warnings = warnings
 
+	names := publicSeatNames(st.Auths)
 	auths := make([]model.AuthStatus, len(st.Auths))
 	for i, a := range st.Auths {
+		a.Label = names[i]
+		a.Email = publicLabel(seatEmail(a))
+		// The file name carries the account's local part more often than not,
+		// and everything it distinguishes is already in Label.
+		a.Name = ""
 		a.AuthID = publicID(a.AuthID)
-		a.Label = publicLabel(a.Label)
 		a.Snapshot.AuthID = publicID(a.Snapshot.AuthID)
 		// The host's runtime credential index is a digest of the credential's
 		// file path, and no view on the page reads it.
 		a.Snapshot.AuthIndex = ""
-		a.Snapshot.Label = publicLabel(a.Snapshot.Label)
+		a.Snapshot.Label = names[i]
 		a.Snapshot.Err = publicText(a.Snapshot.Err, ids)
 		a.Snapshot.Windows = finiteWindows(a.Snapshot.Windows)
 		a.Score = finiteScore(a.Score)
@@ -338,6 +345,118 @@ func publicText(s string, ids *strings.Replacer) string {
 	s = absoluteURL.ReplaceAllString(s, "…")
 	s = ids.Replace(s)
 	return bareEmail.ReplaceAllStringFunc(s, publicLabel)
+}
+
+// seatEmail is the account address a credential row carries: the host's email
+// field, else a label the host filled in from that same address.
+func seatEmail(a model.AuthStatus) string {
+	if a.Email != "" {
+		return a.Email
+	}
+	if bareEmail.MatchString(a.Label) && publicLabel(a.Label) != a.Label {
+		return a.Label
+	}
+	return ""
+}
+
+// publicSeatNames is the operator-facing name of every seat, in row order, as
+// the unauthenticated route publishes it. Every name is unique across the
+// rows, so the two credentials one account holds in two organizations stay
+// apart on the page.
+//
+// A name comes from the first of these that yields one: a label the operator
+// set on the host, the credential's file name with the account address taken
+// out of it, and the masked address. Two rows that still share a name each
+// carry a tag of their published id, which is stable across restarts.
+func publicSeatNames(auths []model.AuthStatus) []string {
+	names := make([]string, len(auths))
+	count := make(map[string]int, len(auths))
+	for i, a := range auths {
+		email := seatEmail(a)
+		switch {
+		case a.Label != "" && a.Label != email:
+			names[i] = publicLabel(a.Label)
+		case fileNameResidue(a.Name, email, a.Provider) != "":
+			names[i] = fileNameResidue(a.Name, email, a.Provider)
+		default:
+			names[i] = publicLabel(email)
+		}
+		count[names[i]]++
+	}
+	for i, a := range auths {
+		if count[names[i]] < 2 {
+			continue
+		}
+		tag := "#" + publicID(a.AuthID)[:seatTagLen]
+		if names[i] == "" {
+			names[i] = tag
+		} else {
+			names[i] += " " + tag
+		}
+	}
+	return names
+}
+
+// seatTagLen is how many hex characters of the published id a seat tag
+// carries. Four is short enough to read aloud and, with sixteen bits, keeps a
+// pool of a dozen same-named seats clear of collisions in practice.
+const seatTagLen = 4
+
+// nameSeparators are the characters a credential file name uses between its
+// parts, which a removed part leaves dangling.
+const nameSeparators = "-_. "
+
+// fileNameResidue is what an operator wrote into a credential file name over
+// and above what the host derives: the extension, the provider, and the
+// account address or its local part are taken out, and the separators they
+// leave behind are trimmed. The host's default name is the address alone, so
+// its residue is empty.
+func fileNameResidue(name, email, provider string) string {
+	if name == "" {
+		return ""
+	}
+	name = strings.TrimSuffix(name, ".json")
+	name = bareEmail.ReplaceAllString(name, "")
+	if email != "" {
+		name = replaceFold(name, email, "")
+		if at := strings.Index(email, "@"); at > 0 {
+			name = replaceFold(name, email[:at], "")
+		}
+	}
+	if provider != "" {
+		trimmed := strings.TrimLeft(name, nameSeparators)
+		if len(trimmed) > len(provider) && strings.EqualFold(trimmed[:len(provider)], provider) &&
+			strings.ContainsRune(nameSeparators, rune(trimmed[len(provider)])) {
+			name = trimmed[len(provider):]
+		}
+	}
+	for {
+		next := strings.Trim(name, nameSeparators)
+		next = strings.ReplaceAll(next, "--", "-")
+		if next == name {
+			return name
+		}
+		name = next
+	}
+}
+
+// replaceFold removes every case-insensitive occurrence of old from s.
+func replaceFold(s, old, repl string) string {
+	if old == "" {
+		return s
+	}
+	lower, target := strings.ToLower(s), strings.ToLower(old)
+	var b strings.Builder
+	for {
+		i := strings.Index(lower, target)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:i])
+		b.WriteString(repl)
+		s, lower = s[i+len(old):], lower[i+len(old):]
+	}
 }
 
 // publicLabel masks a label that is an account email. The host label falls

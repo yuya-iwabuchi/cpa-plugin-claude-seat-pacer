@@ -32,9 +32,14 @@
   --critical:     #d03b3b;
   --warning:      #fab219;
 
+  /* Six hues, in an order whose adjacent pairs stay apart under colour-vision
+     deficiency; a seventh seat is neutral and its name carries the identity. */
   --seat-1:       #2a78d6;
   --seat-2:       #eb6834;
   --seat-3:       #1baf7a;
+  --seat-4:       #eda100;
+  --seat-5:       #e87ba4;
+  --seat-6:       #4a3aa7;
   --seat-x:       #898781;
 
   --pos-text:     #006300;
@@ -62,6 +67,9 @@
     --seat-1:     #3987e5;
     --seat-2:     #d95926;
     --seat-3:     #199e70;
+    --seat-4:     #c98500;
+    --seat-5:     #d55181;
+    --seat-6:     #9085e9;
     --pos-text:   #0ca30c;
     --neg-text:   #e66767;
     --focus:      #3987e5;
@@ -87,6 +95,9 @@
   --seat-1:     #3987e5;
   --seat-2:     #d95926;
   --seat-3:     #199e70;
+  --seat-4:     #c98500;
+  --seat-5:     #d55181;
+  --seat-6:     #9085e9;
   --pos-text:   #0ca30c;
   --neg-text:   #e66767;
   --focus:      #3987e5;
@@ -128,11 +139,16 @@ a { color: inherit; }
   background: linear-gradient(180deg, var(--surface-1), transparent);
 }
 .mast-inner {
-  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px;
-  padding: 30px 28px 20px;
+  display: flex; flex-direction: column; gap: 22px;
+  padding: 26px 28px 20px;
   max-width: 1360px; margin: 0 auto;
 }
-.brand { flex: 1 1 300px; min-width: 260px; }
+/* The Management Center floats its own toolbar over the top-right corner of
+   the frame it embeds this page in, so a framed document keeps that corner
+   empty: nothing of the masthead or the sticky bar sits under it. */
+:root[data-framed] .mast-inner,
+:root[data-framed] .controls-inner { padding-right: max(28px, min(250px, 38vw)); }
+.brand { min-width: 0; }
 .brand-eyebrow {
   font: 600 10.5px/1 var(--mono);
   letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3);
@@ -149,15 +165,15 @@ a { color: inherit; }
   background: linear-gradient(90deg, var(--seat-1), var(--seat-2));
 }
 .mast-meta {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, max-content));
-  gap: 10px 34px; align-content: end;
+  display: flex; flex-wrap: wrap; gap: 10px 34px; margin: 0;
 }
-.mast-meta div { display: flex; flex-direction: column; gap: 2px; }
+.mast-meta div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .mast-meta dt {
   font: 600 10px/1.4 var(--mono);
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
 }
-.mast-meta dd { margin: 0; font: 500 14px/1.35 var(--mono); color: var(--ink-1); }
+.mast-meta dd { margin: 0; font: 500 13.5px/1.35 var(--mono); color: var(--ink-1); overflow-wrap: anywhere; }
+.mast-meta dd .seat-dot { display: inline-block; margin-right: 7px; vertical-align: 1px; }
 
 /* --------------------------------------------------------------- controls */
 .controls {
@@ -171,6 +187,10 @@ a { color: inherit; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+/* The model field grows with the bar: a dated model id runs past thirty
+   characters and a field that cannot hold it clips its own value. */
+.ctl-model { flex: 1 1 360px; }
+.ctl-hint { font: 500 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
 .ctl label { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
 input[type="text"] {
   font: 500 12.5px/1 var(--mono);
@@ -179,7 +199,7 @@ input[type="text"] {
   padding: 7px 10px;
   /* Shrinkable below its preferred width: a phone viewport is narrower than
      the field, and a sticky bar that overflows desynchronises from the page. */
-  flex: 1 1 356px; min-width: 0; max-width: 100%;
+  flex: 1 1 240px; min-width: 0; max-width: 100%;
 }
 input[type="text"]::placeholder { color: var(--ink-3); }
 button {
@@ -217,15 +237,17 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 /* -------------------------------------------------------------- sections */
 section { margin-top: 42px; }
 .sec-head {
-  display: flex; align-items: baseline; gap: 14px; margin: 0 0 16px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 0 0 16px;
 }
 .sec-head h2 {
   font-family: var(--cond); font-size: 21px; font-weight: 700;
-  letter-spacing: .04em; text-transform: uppercase; margin: 0;
+  letter-spacing: .04em; text-transform: uppercase; margin: 0; white-space: nowrap;
 }
 .sec-idx { font: 600 10.5px/1 var(--mono); color: var(--ink-3); letter-spacing: .1em; }
 .sec-sub { font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
-.sec-line { flex: 1 1 auto; height: 1px; background: var(--rule); }
+.sec-line { flex: 1 1 40px; height: 1px; background: var(--rule); }
+.sec-tools { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.sec-tools button { padding: 5px 9px; font-size: 10.5px; }
 
 .card {
   background: var(--surface-1);
@@ -256,6 +278,28 @@ section { margin-top: 42px; }
 }
 .seat-rank[data-lead="true"] { color: var(--surface-1); background: var(--ink-1); border-color: var(--ink-1); }
 .seat-id { font: 400 11px/1.4 var(--mono); color: var(--ink-3); margin: 0 0 14px; word-break: break-all; }
+.seat-mark { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
+.seat-mark .seat-dot { width: 8px; height: 8px; }
+.seat-mark .seat-mark-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* One row per seat, for a pool too large to give every seat a card. */
+.seat-table td, .seat-table th { padding: 8px 8px; }
+.seat-table td { font-size: 12.5px; }
+.seat-table tr[data-eligible="false"] td:not(.keep) { opacity: .62; }
+.seat-table .seat-mark { font-weight: 600; max-width: 26ch; }
+.seat-table .seat-sub { display: block; font: 400 10.5px/1.4 var(--mono); color: var(--ink-3); }
+.seat-table .rank { font: 600 11px/1 var(--mono); color: var(--ink-2); white-space: nowrap; }
+.seat-table .rank[data-lead="true"] { color: var(--surface-1); background: var(--ink-1); border-radius: 999px; padding: 4px 7px; }
+.mm { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; font: 500 11.5px/1 var(--mono); }
+.mm-glyph { font-size: 10px; width: 10px; text-align: center; }
+.mm-track { position: relative; display: inline-block; width: 56px; height: 7px; border-radius: 4px; background: var(--track); overflow: visible; }
+.mm-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+/* A blocked window is hatched, so the state does not ride on colour alone. */
+.mm-fill[data-blocked="true"] {
+  background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--surface-1) 3px 5px);
+}
+.mm-tick { position: absolute; top: -3px; bottom: -3px; width: 1.5px; margin-left: -.75px; background: var(--ink-1); box-shadow: 0 0 0 1.5px var(--surface-1); }
+.mm-over { color: var(--ink-3); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0 0 14px; }
 .kv dt { font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
 .kv dd { margin: 0; font: 500 12.5px/1.5 var(--sans); text-align: right; }
@@ -291,6 +335,8 @@ section { margin-top: 42px; }
   margin: 0 0 12px; padding: 0; list-style: none;
 }
 .legend li { display: flex; align-items: center; gap: 7px; font: 500 11.5px/1 var(--sans); color: var(--ink-2); }
+.legend li[data-seat] { cursor: default; }
+.legend li[data-seat]:hover { color: var(--ink-1); }
 .legend .sw { width: 14px; height: 9px; border-radius: 2px; flex: none; }
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
 .tl-card { padding: 16px 8px 8px 8px; overflow-x: auto; }
@@ -306,6 +352,8 @@ svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
 svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 svg.pace .t-muted { fill: var(--ink-3); }
 svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; }
+svg.pace[data-focus] g.pt:not([data-focused]) { opacity: .16; }
+.tl-note { margin: 10px 8px 2px; font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .pace-grid {
   display: grid; grid-template-columns: minmax(min(320px, 100%), 1fr) minmax(220px, 320px);
   gap: 24px; padding: 18px; align-items: start; overflow-x: auto;
@@ -410,7 +458,10 @@ main[data-stale="true"] { opacity: .62; }
   #tooltip { transition: opacity .1s ease; }
 }
 
-/* Carries a value the layout has no room for to assistive technology. */
+/* Carries a value the layout has no room for to assistive technology. Every
+   region that scrolls sideways is its containing block, so one placed deep in
+   a wide table cannot widen the page instead of the table. */
+.tl-card, .tbl-card, .dec-body, .pace-grid { position: relative; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -430,25 +481,27 @@ main[data-stale="true"] { opacity: .62; }
   <div class="mast-inner">
     <div class="brand">
       <span class="brand-eyebrow">CLIProxyAPI plugin &middot; routing status</span>
-      <h1 class="brand-name" id="plugin-name">Claude quota scheduler</h1>
+      <h1 class="brand-name">Claude quota scheduler</h1>
       <div class="brand-rule"></div>
     </div>
     <dl class="mast-meta">
+      <div><dt>Next cold pick</dt><dd id="next-pick">&mdash;</dd></div>
+      <div><dt>Plugin</dt><dd id="plugin-name">&mdash;</dd></div>
       <div><dt>Version</dt><dd id="plugin-version">&mdash;</dd></div>
       <div><dt>Host schema</dt><dd id="host-schema">&mdash;</dd></div>
       <div><dt>Started</dt><dd id="started-at">&mdash;</dd></div>
-      <div><dt>Next cold pick</dt><dd id="next-pick">&mdash;</dd></div>
     </dl>
   </div>
 </header>
 
 <div class="controls">
   <div class="controls-inner">
-    <div class="ctl">
+    <div class="ctl ctl-model">
       <label for="model-input">Model</label>
       <input type="text" id="model-input" list="model-list" spellcheck="false"
              autocomplete="off" placeholder="source default">
       <datalist id="model-list"></datalist>
+      <span class="ctl-hint" id="model-hint"></span>
     </div>
     <div class="spacer"></div>
     <div class="ctl">
@@ -456,6 +509,7 @@ main[data-stale="true"] { opacity: .62; }
       <span class="stamp" id="last-updated">never</span>
     </div>
     <button type="button" id="refresh-toggle" aria-pressed="false">Pause auto-refresh</button>
+    <button type="button" id="density-toggle">Density: auto</button>
     <button type="button" id="theme-toggle">Theme: auto</button>
   </div>
 </div>
@@ -490,7 +544,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub">ranked by weighted pace slack &mdash; eligible first</span>
+        <span class="sec-sub" id="seats-sub">one credential each, ranked by weighted pace slack &mdash; eligible first</span>
         <span class="sec-line"></span>
       </div>
       <div id="seats" class="seats"></div>
@@ -500,8 +554,9 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Quota timeline</h2>
-        <span class="sec-sub">bar spans the window on the axis; the meter is budget spent against target</span>
+        <span class="sec-sub">each bar is a quota window on a shared time axis; the meter by its name is budget spent, the tick where pace says it should be</span>
         <span class="sec-line"></span>
+        <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Show every seat in full</button></span>
       </div>
       <!-- The lane states come from STATE_META at render time; only the two
            axis markers, which no script draws, are markup. -->
@@ -509,14 +564,14 @@ main[data-stale="true"] { opacity: .62; }
         <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
-      <div class="card tl-card"><div id="timeline"></div></div>
+      <div class="card tl-card"><div id="timeline"></div><p class="tl-note" id="timeline-note" hidden></p></div>
     </section>
 
     <section id="sec-pace" hidden>
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Pace curve</h2>
-        <span class="sec-sub">where each counted window sits against its target</span>
+        <span class="sec-sub">every window the score counts, plotted against the target curve for this model</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-grid">
@@ -559,6 +614,9 @@ main[data-stale="true"] { opacity: .62; }
   var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
+  var DENSE_AT = 4;          /* more seats than this and density "auto" tabulates */
+  var TL_FULL_ROWS = 6;      /* dense timeline: seats drawn lane by lane before the rest fold */
+  var SEAT_HUES = 6;         /* --seat-1 … --seat-6; every later seat is neutral */
 
   var state = {
     model: "",
@@ -578,7 +636,10 @@ main[data-stale="true"] { opacity: .62; }
        DOM — and with it focus, selection and scroll. */
     sigs: Object.create(null),
     sort: { key: "last_seen", dir: -1 },
-    theme: "auto"
+    theme: "auto",
+    density: "auto",
+    /* Whether the dense timeline draws every seat lane by lane. */
+    timelineAll: false
   };
 
   function nowMs() { return Date.now() - state.skew; }
@@ -777,12 +838,73 @@ main[data-stale="true"] { opacity: .62; }
     return signed(score.total);
   }
 
-  function seatColor(i) {
-    return i === 0 ? "var(--seat-1)" : i === 1 ? "var(--seat-2)"
-         : i === 2 ? "var(--seat-3)" : "var(--seat-x)";
+  /* Seat identity, indexed once per payload.
+
+     Names: the status route publishes one per seat, unique across the rows.
+     A source that does not is disambiguated here with a tag of the id, which
+     is derived from nothing but the credential and so survives a restart.
+
+     Colours: assigned in id order, not rank order, so a seat keeps its hue
+     when the ranking moves under it. Past the six hues a seat is neutral and
+     its name carries the identity. */
+  var seatNameByID = Object.create(null);
+  var seatColorByID = Object.create(null);
+
+  function indexSeats(st) {
+    seatNameByID = Object.create(null);
+    seatColorByID = Object.create(null);
+    var auths = (st.auths || []).slice();
+    var count = Object.create(null);
+    auths.forEach(function (a) { var l = a.label || ""; if (l) count[l] = (count[l] || 0) + 1; });
+    auths.forEach(function (a) {
+      var l = a.label || "";
+      if (!l) l = a.auth_id || "(unnamed)";
+      else if (count[l] > 1) l += " #" + String(a.auth_id || "").slice(0, 4);
+      seatNameByID[a.auth_id] = l;
+    });
+    auths.sort(function (x, y) { return String(x.auth_id).localeCompare(String(y.auth_id)); });
+    auths.forEach(function (a, i) {
+      seatColorByID[a.auth_id] = i < SEAT_HUES ? "var(--seat-" + (i + 1) + ")" : "var(--seat-x)";
+    });
   }
 
-  function seatLabel(a) { return a.label || a.auth_id || "(unnamed)"; }
+  function seatLabel(a) {
+    if (!a) return "(unnamed)";
+    return seatNameByID[a.auth_id] || a.label || a.auth_id || "(unnamed)";
+  }
+
+  function seatColor(a) { return (a && seatColorByID[a.auth_id]) || "var(--seat-x)"; }
+
+  /* A seat's name with its colour dot in front, for every place a seat is
+     named outside its own card. */
+  function seatMark(a, fallback) {
+    var m = h("span", "seat-mark");
+    if (!a) { m.textContent = fallback || "—"; return m; }
+    var dot = h("span", "seat-dot");
+    dot.style.background = seatColor(a);
+    dot.setAttribute("aria-hidden", "true");
+    m.appendChild(dot);
+    var nm = h("span", "seat-mark-name", seatLabel(a));
+    nm.title = seatLabel(a);
+    m.appendChild(nm);
+    return m;
+  }
+
+  /* Free text from the plugin names a seat by id; the page names it the way
+     the cards do. */
+  function nameIDs(text) {
+    var out = String(text || "");
+    Object.keys(seatNameByID).forEach(function (id) {
+      if (id && out.indexOf(id) >= 0) out = out.split(id).join(seatNameByID[id]);
+    });
+    return out;
+  }
+
+  function dense(count) {
+    if (state.density === "cards") return false;
+    if (state.density === "table") return true;
+    return count > DENSE_AT;
+  }
 
   /* Mirrors internal/pace ranking: eligible first, then Total desc, then id. */
   function rankAuths(auths) {
@@ -885,13 +1007,37 @@ main[data-stale="true"] { opacity: .62; }
     return node;
   }
 
+  function seatMetaLine(a) {
+    var parts = [];
+    if (a.email && a.email !== seatLabel(a)) parts.push(a.email);
+    if (a.auth_id) parts.push(a.auth_id);
+    if (a.provider) parts.push(a.provider);
+    return parts.join("  ·  ") || "—";
+  }
+
+  function eligibilityChip(a) {
+    var eligible = !!(a.score && a.score.eligible);
+    return eligible
+      ? chip("eligible", "good", "✓")
+      : chip(a.score && a.score.reason ? a.score.reason : "ineligible", "critical", "✕");
+  }
+
   function renderSeats(st, ranked) {
     var host = $("seats");
     host.textContent = "";
+    var tabular = dense(ranked.length);
+    $("seats-sub").textContent = tabular
+      ? "one row per credential, ranked by weighted pace slack — eligible first; each meter is budget spent, the tick where pace says it should be"
+      : "one card per credential, ranked by weighted pace slack — eligible first";
+    if (tabular) renderSeatTable(st, ranked, host);
+    else renderSeatCards(st, ranked, host);
+  }
 
+  function renderSeatCards(st, ranked, host) {
+    host.className = "seats";
     ranked.forEach(function (a, i) {
       var card = h("article", "card seat");
-      card.style.setProperty("--seat-color", seatColor(i));
+      card.style.setProperty("--seat-color", seatColor(a));
       var eligible = !!(a.score && a.score.eligible);
 
       var top = h("div", "seat-top");
@@ -907,8 +1053,7 @@ main[data-stale="true"] { opacity: .62; }
       top.appendChild(rank);
       card.appendChild(top);
 
-      card.appendChild(h("p", "seat-id mono", (a.auth_id || "—") +
-        (a.provider ? "  ·  " + a.provider : "")));
+      card.appendChild(h("p", "seat-id mono", seatMetaLine(a)));
 
       var dl = h("dl", "kv");
       function row(k, node) {
@@ -923,9 +1068,7 @@ main[data-stale="true"] { opacity: .62; }
       var hs = a.host_status || "unknown";
       row("Host", chip(hs, hs === "active" ? "good" : hs === "unknown" ? "muted" : "serious"));
 
-      row("Eligibility", eligible
-        ? chip("eligible", "good", "✓")
-        : chip(a.score && a.score.reason ? a.score.reason : "ineligible", "critical", "✕"));
+      row("Eligibility", eligibilityChip(a));
 
       var scored = !!(a.score && a.score.windows && a.score.windows.length);
       var scoreWrap = h("span", "");
@@ -939,19 +1082,7 @@ main[data-stale="true"] { opacity: .62; }
 
       row("Priority", h("span", "mono", String(a.priority == null ? "—" : a.priority)));
       row("Bindings", h("span", "mono", intFmt(a.bindings) + " live"));
-
-      var hr = hitRate(a.cache);
-      var hrNode = h("span", "mono", hr === null ? "no traffic" : pct(hr));
-      if (a.cache) {
-        hrNode.setAttribute("data-fk", "cache:" + a.auth_id);
-        tipOnly(hrNode,
-          "cache read      " + intFmt(a.cache.cache_read_tokens) +
-          "\ncache creation  " + intFmt(a.cache.cache_creation_tokens) +
-          "\nfresh input     " + intFmt(a.cache.fresh_input_tokens) +
-          "\noutput          " + intFmt(a.cache.output_tokens) +
-          "\nrequests        " + intFmt(a.cache.requests));
-      }
-      row("Cache hits", hrNode);
+      row("Cache hits", cacheNode(a));
 
       var snap = a.snapshot || {};
       var obs = parseT(snap.observed_at);
@@ -963,14 +1094,7 @@ main[data-stale="true"] { opacity: .62; }
       }
       row("Snapshot", snapWrap);
 
-      if (snap.err || snap.err_category) {
-        var errChip = chip(snap.err_category || "error", "critical", "⚠");
-        if (snap.err) {
-          errChip.setAttribute("data-fk", "err:" + a.auth_id);
-          tipOnly(errChip, snap.err);
-        }
-        row("Fetch error", errChip);
-      }
+      if (snap.err || snap.err_category) row("Fetch error", errChip(a));
       card.appendChild(dl);
 
       var active = null;
@@ -988,6 +1112,159 @@ main[data-stale="true"] { opacity: .62; }
 
       host.appendChild(card);
     });
+  }
+
+  function cacheNode(a) {
+    var hr = hitRate(a.cache);
+    var hrNode = h("span", "mono", hr === null ? "no traffic" : pct(hr));
+    if (a.cache) {
+      hrNode.setAttribute("data-fk", "cache:" + a.auth_id);
+      tipOnly(hrNode,
+        "cache read      " + intFmt(a.cache.cache_read_tokens) +
+        "\ncache creation  " + intFmt(a.cache.cache_creation_tokens) +
+        "\nfresh input     " + intFmt(a.cache.fresh_input_tokens) +
+        "\noutput          " + intFmt(a.cache.output_tokens) +
+        "\nrequests        " + intFmt(a.cache.requests));
+    }
+    return hrNode;
+  }
+
+  function errChip(a) {
+    var snap = a.snapshot || {};
+    var c = chip(snap.err_category || "error", "critical", "⚠");
+    if (snap.err) {
+      c.setAttribute("data-fk", "err:" + a.auth_id);
+      tipOnly(c, snap.err);
+    }
+    return c;
+  }
+
+  /* The windows every seat is asked about, in display order, as column keys. */
+  function windowColumns(ranked) {
+    var seen = Object.create(null), cols = [];
+    ranked.forEach(function (a) {
+      sortedWindows(a.snapshot && a.snapshot.windows).forEach(function (w) {
+        var k = w.kind + "|" + (w.scope || "");
+        if (seen[k]) return;
+        seen[k] = true;
+        cols.push({ key: k, kind: w.kind, scope: w.scope || "", label: windowShort(w) });
+      });
+    });
+    return cols.sort(function (x, y) {
+      var d = windowOrder(x) - windowOrder(y);
+      return d !== 0 ? d : x.scope.localeCompare(y.scope);
+    });
+  }
+
+  /* One window, the size of a table cell: state glyph, budget meter with the
+     pace tick, and the utilization in text so nothing depends on colour. */
+  function miniMeter(a, w, ws, cfg) {
+    var stt = laneState(w, ws, cfg);
+    var meta = STATE_META[stt];
+    var m = h("span", "mm");
+    m.tabIndex = 0;
+    m.setAttribute("role", "img");
+    m.setAttribute("data-fk", "mm:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
+    m.setAttribute("data-tip", laneTip(a, w, ws, stt, false));
+    m.setAttribute("aria-label", laneAria(a, w, ws, stt));
+    var gl = h("span", "mm-glyph", meta.glyph);
+    gl.style.color = meta.color;
+    gl.setAttribute("aria-hidden", "true");
+    m.appendChild(gl);
+    var track = h("span", "mm-track");
+    track.setAttribute("aria-hidden", "true");
+    var fw = clamp(num(w.utilization) ? w.utilization : 0, 0, 1);
+    if (fw > 0) {
+      var fill = h("span", "mm-fill");
+      fill.style.width = (fw * 100).toFixed(1) + "%";
+      fill.style.background = meta.color;
+      if (stt === "blocked") fill.setAttribute("data-blocked", "true");
+      track.appendChild(fill);
+    }
+    if (stt !== "unknown" && ws && num(ws.target)) {
+      var tick = h("span", "mm-tick");
+      tick.style.left = (clamp(ws.target, 0, 1) * 100).toFixed(1) + "%";
+      track.appendChild(tick);
+    }
+    m.appendChild(track);
+    m.appendChild(h("span", "", pct(w.utilization, 0)));
+    if (w.utilization > 1) m.appendChild(h("span", "mm-over", "▸"));
+    return m;
+  }
+
+  function renderSeatTable(st, ranked, host) {
+    host.className = "card tbl-card";
+    var cfg = st.config || {};
+    var cols = windowColumns(ranked);
+    var tbl = h("table", "seat-table");
+    tbl.appendChild(h("caption", "", ranked.length + " credentials"));
+    var thead = h("thead", ""), hr = h("tr", "");
+    var heads = [["#", ""], ["Seat", ""], ["Eligibility", ""], ["Score", "n"]];
+    cols.forEach(function (c) { heads.push([c.label, ""]); });
+    heads.push(["Bindings", "n"], ["Cache hits", "n"], ["Snapshot", ""]);
+    heads.forEach(function (pair) { hr.appendChild(h("th", pair[1], pair[0])); });
+    thead.appendChild(hr);
+    tbl.appendChild(thead);
+
+    var tb = h("tbody", "");
+    ranked.forEach(function (a, i) {
+      var eligible = !!(a.score && a.score.eligible);
+      var tr = h("tr", "");
+      tr.setAttribute("data-eligible", eligible ? "true" : "false");
+
+      var lead = eligible && i === 0;
+      var tdR = h("td", "keep");
+      var rank = h("span", "rank", lead ? "#1 next" : "#" + (i + 1));
+      if (lead) rank.setAttribute("data-lead", "true");
+      tdR.appendChild(rank);
+      tr.appendChild(tdR);
+
+      var tdS = h("td", "keep");
+      tdS.appendChild(seatMark(a));
+      tdS.appendChild(h("span", "seat-sub", seatMetaLine(a)));
+      tr.appendChild(tdS);
+
+      /* The host's state rides with eligibility; an active credential is the
+         norm and says nothing a row needs to spend a column on. */
+      var tdE = h("td", "keep");
+      tdE.appendChild(eligibilityChip(a));
+      var hs = a.host_status || "unknown";
+      if (hs !== "active") {
+        tdE.appendChild(document.createTextNode(" "));
+        tdE.appendChild(chip("host " + hs, hs === "unknown" ? "muted" : "serious"));
+      }
+      tr.appendChild(tdE);
+
+      tr.appendChild(h("td", "n mono", totalText(a.score)));
+
+      var wins = sortedWindows(a.snapshot && a.snapshot.windows);
+      cols.forEach(function (c) {
+        var td = h("td", "");
+        var w = null;
+        wins.forEach(function (x) { if (x.kind === c.kind && (x.scope || "") === c.scope) w = x; });
+        if (w) td.appendChild(miniMeter(a, w, scoreFor(a, w), cfg));
+        else { td.textContent = "—"; td.style.color = "var(--ink-3)"; }
+        tr.appendChild(td);
+      });
+
+      tr.appendChild(h("td", "n mono", intFmt(a.bindings)));
+      var tdC = h("td", "n");
+      tdC.appendChild(cacheNode(a));
+      tr.appendChild(tdC);
+
+      var snap = a.snapshot || {};
+      var tdN = h("td", "");
+      tdN.appendChild(stamp(parseT(snap.observed_at), "mono"));
+      if (snap.err || snap.err_category) {
+        tdN.appendChild(document.createTextNode(" "));
+        tdN.appendChild(errChip(a));
+      }
+      tr.appendChild(tdN);
+
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    host.appendChild(tbl);
   }
 
   function laneTip(a, w, ws, stt, clipped) {
@@ -1019,8 +1296,13 @@ main[data-stale="true"] { opacity: .62; }
 
   /* ------------------------------------------------------------ timeline */
 
-  var GUT = 346, PAD_R = 20, LANE_H = 26, HEAD_H = 32, GROUP_GAP = 14, AXIS_H = 40, TOP = 10;
+  var GUT = 346, PAD_R = 20, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
+  /* Row geometry, at the two densities the timeline draws. */
+  var TL_GEO = {
+    roomy:   { head: 32, lane: 26, gap: 14, name: 13.5 },
+    compact: { head: 26, lane: 21, gap: 8,  name: 12.5 }
+  };
 
   /* The lane states are one list: the legend, the glyph, the tooltip and the
      aria-label all read STATE_META, so they cannot drift apart. */
@@ -1043,13 +1325,31 @@ main[data-stale="true"] { opacity: .62; }
     for (var i = 0; i < markers.length; i++) host.appendChild(markers[i]);
   }
 
+  /* Which seats fold to a single row in the dense timeline: one with nothing
+     to draw — no lane the scorer evaluated — and, past TL_FULL_ROWS, every
+     seat that is not eligible. An eligible seat always keeps its lanes,
+     because it is one the next cold pick can land on. */
+  function foldSeat(a, wins, cfg, rank, compact) {
+    if (!compact || state.timelineAll) return false;
+    var eligible = !!(a.score && a.score.eligible);
+    var evaluated = wins.some(function (w) { return laneState(w, scoreFor(a, w), cfg) !== "unknown"; });
+    if (!evaluated && !eligible) return true;
+    return rank >= TL_FULL_ROWS && !eligible;
+  }
+
   function renderTimeline(st, ranked) {
     var host = $("timeline");
     host.textContent = "";
     renderStateLegend();
+    var note = $("timeline-note");
+    var toggle = $("timeline-toggle");
+    note.hidden = true;
+    toggle.hidden = true;
     if (!ranked.length) return;
 
     var cfg = st.config || {};
+    var compact = dense(ranked.length);
+    var geo = compact ? TL_GEO.compact : TL_GEO.roomy;
     var now = new Date(nowMs());
     var width = Math.max(760, host.clientWidth || 1000);
     var plotW = width - GUT - PAD_R;
@@ -1074,19 +1374,34 @@ main[data-stale="true"] { opacity: .62; }
     var t1 = Math.ceil((tMax + 2 * 3600000) / 3600000) * 3600000;
     var X = function (t) { return GUT + (t - t0) / (t1 - t0) * plotW; };
 
-    var groups = ranked.map(function (a) {
-      return { a: a, wins: sortedWindows(a.snapshot && a.snapshot.windows) };
+    var folded = 0;
+    var groups = ranked.map(function (a, i) {
+      var wins = sortedWindows(a.snapshot && a.snapshot.windows);
+      var fold = foldSeat(a, wins, cfg, i, compact);
+      if (fold) folded++;
+      return { a: a, wins: wins, fold: fold };
     });
     var y = TOP, layout = [];
     groups.forEach(function (g) {
       var top = y;
-      y += HEAD_H;
-      var lanes = g.wins.map(function (w) { var ly = y; y += LANE_H; return { w: w, y: ly }; });
+      y += geo.head;
+      var lanes = g.fold ? [] : g.wins.map(function (w) { var ly = y; y += geo.lane; return { w: w, y: ly }; });
       layout.push({ g: g, top: top, bottom: y, lanes: lanes });
-      y += GROUP_GAP;
+      y += geo.gap;
     });
-    var plotH = y - GROUP_GAP + 6;
+    var plotH = y - geo.gap + 6;
     var height = plotH + AXIS_H;
+
+    if (compact) {
+      toggle.hidden = false;
+      toggle.setAttribute("aria-pressed", state.timelineAll ? "true" : "false");
+      toggle.textContent = state.timelineAll ? "Fold ineligible seats" : "Show every seat in full";
+      note.hidden = false;
+      note.textContent = folded
+        ? folded + " of " + ranked.length + " seats folded to a row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
+          ". Their windows are in the seat table above."
+        : ranked.length + " seats, every window drawn.";
+    }
 
     var root = svg("svg", {
       "class": "tl", width: width, height: height,
@@ -1126,7 +1441,7 @@ main[data-stale="true"] { opacity: .62; }
       var a = row.g.a;
       var eligible = !!(a.score && a.score.eligible);
       var lead = eligible && i === 0;
-      var col = seatColor(i);
+      var col = seatColor(a);
 
       if (lead) {
         svg("rect", {
@@ -1136,10 +1451,11 @@ main[data-stale="true"] { opacity: .62; }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      var headY = row.top + 20;
+      var headY = row.top + (compact ? 17 : 20);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gGut);
-      svgText(gGut, 34, headY, "#" + (i + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
-      var nameEl = svgText(gGut, 58, headY, seatLabel(a), "", { "font-size": 13.5, "font-weight": 600 });
+      var rankEl = svgText(gGut, 34, headY, "#" + (i + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
+      var nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
+      var nameEl = svgText(gGut, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
       var tail;
       if (!eligible) {
@@ -1150,10 +1466,29 @@ main[data-stale="true"] { opacity: .62; }
           "t-mono t-sec", { "font-size": 11 });
         tail.setAttribute("text-anchor", "end");
       }
-      fitText(nameEl, GUT - 58 - tail.getComputedTextLength() - 18);
+      fitText(nameEl, GUT - nameX - tail.getComputedTextLength() - 18);
 
-      if (lead) {
-        svgText(gGut, 58, headY + 13, "next cold pick", "t-mono t-muted", { "font-size": 9.5, "letter-spacing": ".1em" });
+      if (lead && !compact) {
+        svgText(gGut, nameX, headY + 13, "next cold pick", "t-mono t-muted", { "font-size": 9.5, "letter-spacing": ".1em" });
+      }
+
+      if (row.g.fold) {
+        /* A folded seat keeps its state glyphs on the axis side, so the row
+           still says what every window is doing without a lane each. */
+        var gx0 = GUT + 6;
+        row.g.wins.forEach(function (w) {
+          var ws = scoreFor(a, w), stt = laneState(w, ws, cfg), meta = STATE_META[stt];
+          var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: .8 }, gBars);
+          g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
+          g.setAttribute("aria-label", laneAria(a, w, ws, stt));
+          g.setAttribute("data-tip", laneTip(a, w, ws, stt, false));
+          var t = svgText(g, gx0, headY, meta.glyph + " " + windowShort(w) + " " + pct(w.utilization, 0),
+            "t-mono t-sec", { "font-size": 10.5 });
+          svg("rect", { "class": "hit", x: gx0 - 4, y: row.top, width: t.getComputedTextLength() + 8, height: geo.head, rx: 4, fill: "transparent" }, g);
+          g.appendChild(t);
+          gx0 += t.getComputedTextLength() + 18;
+        });
+        return;
       }
 
       var groupOpacity = eligible ? 1 : 0.62;
@@ -1163,7 +1498,7 @@ main[data-stale="true"] { opacity: .62; }
         var ws = scoreFor(a, w);
         var stt = laneState(w, ws, cfg);
         var meta = STATE_META[stt];
-        var cy = lane.y + LANE_H / 2;
+        var cy = lane.y + geo.lane / 2;
 
         var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: groupOpacity }, gBars);
         g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
@@ -1194,10 +1529,10 @@ main[data-stale="true"] { opacity: .62; }
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
         g.setAttribute("data-tip", laneTip(a, w, ws, stt, clipped));
 
-        var barH = 13, by = cy - barH / 2;
+        var barH = compact ? 11 : 13, by = cy - barH / 2;
 
         svg("rect", {
-          "class": "hit", x: bx0 - 6, y: lane.y, width: (bx1 - bx0) + 12, height: LANE_H,
+          "class": "hit", x: bx0 - 6, y: lane.y, width: (bx1 - bx0) + 12, height: geo.lane,
           rx: 4, fill: "transparent"
         }, g);
         svg("rect", { x: bx0, y: by, width: bx1 - bx0, height: barH, rx: 3, fill: "var(--track)" }, g);
@@ -1356,13 +1691,14 @@ main[data-stale="true"] { opacity: .62; }
 
     var SHAPES = { five_hour: "circle", seven_day: "square", weekly_scoped: "triangle" };
     var plotted = 0;
-    ranked.forEach(function (a, si) {
-      var col = seatColor(si);
+    ranked.forEach(function (a) {
+      var col = seatColor(a);
       ((a.score && a.score.windows) || []).forEach(function (ws) {
         if (!(ws.weight > 0) || !num(ws.utilization) || !num(ws.elapsed)) return;
         plotted++;
         var cx = X(ws.elapsed), cy = Y(ws.utilization);
         var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+        g.setAttribute("data-seat", a.auth_id);
         g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
         g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
           ", elapsed " + pct(ws.elapsed) + ", utilization " + pct(ws.utilization) +
@@ -1383,7 +1719,19 @@ main[data-stale="true"] { opacity: .62; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceNote(st, ranked, gamma, landing);
+    renderPaceNote(st, ranked, gamma, landing, root);
+  }
+
+  /* Pointing at a seat in the legend lifts its points out of the rest: with a
+     dozen seats the neutral ones are told apart by name, not hue. */
+  function focusSeat(root, id) {
+    if (!id) { root.removeAttribute("data-focus"); }
+    else { root.setAttribute("data-focus", id); }
+    var pts = root.querySelectorAll("g.pt");
+    for (var i = 0; i < pts.length; i++) {
+      if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
+      else pts[i].removeAttribute("data-focused");
+    }
   }
 
   function mark(parent, shape, cx, cy, col) {
@@ -1400,7 +1748,7 @@ main[data-stale="true"] { opacity: .62; }
     }
   }
 
-  function renderPaceNote(st, ranked, gamma, landing) {
+  function renderPaceNote(st, ranked, gamma, landing, root) {
     var note = $("pace-note");
     note.textContent = "";
     note.appendChild(h("h3", "", "Reading this"));
@@ -1411,20 +1759,25 @@ main[data-stale="true"] { opacity: .62; }
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
     p.appendChild(document.createTextNode(" with landing at " + pct(landing, 0) +
       ". A window below the curve has positive slack and pulls its seat up the ranking; " +
-      "the seat with the most weighted slack takes the next cold pick."));
+      "the seat with the most weighted slack takes the next cold pick. " +
+      "Windows the scorer gave no weight for this model are not plotted."));
     note.appendChild(p);
 
     var seatLeg = h("ul", "legend");
     seatLeg.style.margin = "14px 0 0";
-    ranked.forEach(function (a, i) {
+    seatLeg.setAttribute("aria-label", "Seats plotted");
+    ranked.forEach(function (a) {
       var li = h("li", "");
+      li.setAttribute("data-seat", a.auth_id);
       var sw = h("span", "sw");
-      sw.style.background = seatColor(i);
+      sw.style.background = seatColor(a);
       sw.style.borderRadius = "50%";
       sw.style.width = "10px";
       sw.style.height = "10px";
       li.appendChild(sw);
       li.appendChild(document.createTextNode(seatLabel(a)));
+      li.addEventListener("pointerenter", function () { focusSeat(root, a.auth_id); });
+      li.addEventListener("pointerleave", function () { focusSeat(root, null); });
       seatLeg.appendChild(li);
     });
     note.appendChild(seatLeg);
@@ -1491,9 +1844,11 @@ main[data-stale="true"] { opacity: .62; }
 
     var byID = {};
     (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    /* A seat mark for a credential the status still lists, its bare id for
+       one a retained decision outlives. */
     function name(id) {
-      if (!id) return null;
-      return byID[id] ? seatLabel(byID[id]) : id;
+      if (!id) return h("span", "", "—");
+      return byID[id] ? seatMark(byID[id]) : h("span", "mono", id);
     }
 
     /* Rebuilt from the rows that came back, so a key cannot outlive the
@@ -1528,11 +1883,13 @@ main[data-stale="true"] { opacity: .62; }
 
       var route = h("span", "dec-route");
       if (dec.chosen_auth_id) {
-        route.appendChild(document.createTextNode(name(dec.chosen_auth_id)));
+        route.appendChild(name(dec.chosen_auth_id));
         if (dec.previous_auth_id && dec.previous_auth_id !== dec.chosen_auth_id) {
           var ar = h("span", "arrow", "  ←  ");
           route.appendChild(ar);
-          route.appendChild(h("span", "prev", name(dec.previous_auth_id)));
+          var prev = h("span", "prev");
+          prev.appendChild(name(dec.previous_auth_id));
+          route.appendChild(prev);
         }
       } else {
         route.appendChild(h("span", "prev", "host selector"));
@@ -1541,7 +1898,7 @@ main[data-stale="true"] { opacity: .62; }
 
       var tail = h("span", "dec-tail");
       if (dec.subagent) tail.appendChild(chip("subagent", "muted", "↳"));
-      if (dec.note) tail.appendChild(h("span", "dec-note", dec.note));
+      if (dec.note) tail.appendChild(h("span", "dec-note", nameIDs(dec.note)));
       sum.appendChild(tail);
 
       det.appendChild(sum);
@@ -1585,12 +1942,13 @@ main[data-stale="true"] { opacity: .62; }
       var tr = h("tr", "");
       var td0 = h("td", "");
       if (s.auth_id === dec.chosen_auth_id) {
-        var win = h("strong", "", name(s.auth_id));
+        var win = h("strong", "");
+        win.appendChild(name(s.auth_id));
         td0.appendChild(win);
         td0.appendChild(document.createTextNode(" "));
         td0.appendChild(chip("chosen", "info", "✓"));
       } else {
-        td0.textContent = name(s.auth_id) || "—";
+        td0.appendChild(name(s.auth_id));
       }
       var scored = !!(s.windows && s.windows.length);
       tr.appendChild(td0);
@@ -1656,6 +2014,10 @@ main[data-stale="true"] { opacity: .62; }
     var key = state.sort.key, dir = state.sort.dir;
     rows.sort(function (a, b) {
       var x = a[key], y = b[key];
+      if (key === "auth_id") {
+        x = byID[x] ? seatLabel(byID[x]) : String(x || "");
+        y = byID[y] ? seatLabel(byID[y]) : String(y || "");
+      }
       if (key === "bound_at" || key === "last_seen") {
         x = (parseT(x) || 0) && parseT(x).getTime();
         y = (parseT(y) || 0) && parseT(y).getTime();
@@ -1709,7 +2071,9 @@ main[data-stale="true"] { opacity: .62; }
       tr.appendChild(k);
       tr.appendChild(h("td", "", b.provider || "—"));
       tr.appendChild(h("td", "mono", b.model || "—"));
-      tr.appendChild(h("td", "", byID[b.auth_id] ? seatLabel(byID[b.auth_id]) : (b.auth_id || "—")));
+      var seatTd = h("td", "");
+      seatTd.appendChild(byID[b.auth_id] ? seatMark(byID[b.auth_id]) : h("span", "mono", b.auth_id || "—"));
+      tr.appendChild(seatTd);
       var bd = h("td", "");
       bd.appendChild(stamp(parseT(b.bound_at), "mono"));
       tr.appendChild(bd);
@@ -1727,7 +2091,7 @@ main[data-stale="true"] { opacity: .62; }
 
   function renderHeader(st, ranked) {
     var p = st.plugin || {};
-    $("plugin-name").textContent = p.name || "Claude quota scheduler";
+    $("plugin-name").textContent = p.name || "—";
     $("plugin-version").textContent = p.version || "—";
     $("host-schema").textContent = p.host_schema_version != null ? "v" + p.host_schema_version : "—";
 
@@ -1739,13 +2103,7 @@ main[data-stale="true"] { opacity: .62; }
     next.textContent = "";
     var lead = ranked.filter(function (a) { return a.score && a.score.eligible; })[0];
     if (lead) {
-      var dot = h("span", "seat-dot");
-      dot.style.background = seatColor(ranked.indexOf(lead));
-      dot.style.display = "inline-block";
-      dot.style.marginRight = "7px";
-      dot.setAttribute("aria-hidden", "true");
-      next.appendChild(dot);
-      next.appendChild(document.createTextNode(seatLabel(lead)));
+      next.appendChild(seatMark(lead));
     } else {
       next.textContent = ranked.length ? "none eligible" : "—";
     }
@@ -1763,7 +2121,7 @@ main[data-stale="true"] { opacity: .62; }
     var head = h("h2", "", msgs.length === 1 ? "Warning" : msgs.length + " warnings");
     box.appendChild(head);
     var ul = h("ul", "");
-    msgs.forEach(function (m) { ul.appendChild(h("li", "", m)); });
+    msgs.forEach(function (m) { ul.appendChild(h("li", "", nameIDs(m))); });
     box.appendChild(ul);
     host.appendChild(box);
   }
@@ -1783,10 +2141,13 @@ main[data-stale="true"] { opacity: .62; }
     (st.decisions || []).forEach(function (d) { add(d.model); });
     (st.bindings || []).forEach(function (b) { add(b.model); });
 
+    /* The placeholder is the id alone, so a dated model id fits the field;
+       the hint beside it says where the default came from. */
     var input = $("model-input");
     if (document.activeElement !== input && !state.model) {
-      input.placeholder = st.model ? st.model + " (source default)" : "source default";
+      input.placeholder = st.model || "source default";
     }
+    $("model-hint").textContent = state.model ? "pinned" : (st.model ? "source default" : "");
   }
 
   /* Rebuilding a region destroys whatever the operator had focused, so a
@@ -1840,6 +2201,7 @@ main[data-stale="true"] { opacity: .62; }
   function render() {
     var st = state.data;
     if (!st) return;
+    indexSeats(st);
     var ranked = rankAuths(st.auths);
     var focused = captureFocus();
     hideTip();
@@ -1993,6 +2355,32 @@ main[data-stale="true"] { opacity: .62; }
     toggle.textContent = state.paused ? "Resume auto-refresh" : "Pause auto-refresh";
     setLive();
     if (!state.paused) refresh(true);
+  });
+
+  /* Framed by the Management Center, the page keeps its top-right corner
+     clear of the console's floating toolbar. */
+  if (window.self !== window.top) document.documentElement.setAttribute("data-framed", "");
+
+  var densityBtn = $("density-toggle");
+  var DENSITIES = ["auto", "cards", "table"];
+  try {
+    var savedDensity = window.localStorage.getItem("cqs-density");
+    if (savedDensity && DENSITIES.indexOf(savedDensity) >= 0) state.density = savedDensity;
+  } catch (e) { /* storage may be blocked; auto is a fine default */ }
+  function applyDensity() {
+    densityBtn.textContent = "Density: " + state.density;
+    try { window.localStorage.setItem("cqs-density", state.density); } catch (e) { /* ignored */ }
+  }
+  densityBtn.addEventListener("click", function () {
+    state.density = DENSITIES[(DENSITIES.indexOf(state.density) + 1) % DENSITIES.length];
+    applyDensity();
+    if (state.data) render();
+  });
+  applyDensity();
+
+  $("timeline-toggle").addEventListener("click", function () {
+    state.timelineAll = !state.timelineAll;
+    if (state.data) render();
   });
 
   var themeBtn = $("theme-toggle");

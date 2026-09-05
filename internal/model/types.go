@@ -304,8 +304,16 @@ type PluginInfo struct {
 // AuthStatus is one credential's row in the status app: the host's view of
 // it, its latest quota reading, and its pace evaluation for one model.
 type AuthStatus struct {
-	AuthID   string `json:"auth_id"`
-	Label    string `json:"label,omitempty"`
+	AuthID string `json:"auth_id"`
+	// Label is the host's operator-facing name: the credential's label field,
+	// else its account email. Two credentials of one account share it.
+	Label string `json:"label,omitempty"`
+	// Name is the credential file name as the host lists it. Files in one
+	// directory are distinct, so it tells two credentials of one account
+	// apart where Label cannot.
+	Name string `json:"name,omitempty"`
+	// Email is the account address the host reads off the credential.
+	Email    string `json:"email,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Priority int    `json:"priority"`
 	// HostStatus is the credential state the host reports, such as active,

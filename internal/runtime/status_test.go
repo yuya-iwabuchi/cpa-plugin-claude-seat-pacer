@@ -50,6 +50,9 @@ func TestStatusFillsEveryField(t *testing.T) {
 	if a.Label != "a@example.com" || a.Provider != "claude" || a.Priority != 3 || a.HostStatus != "active" {
 		t.Errorf("row a = label %q provider %q priority %d status %q", a.Label, a.Provider, a.Priority, a.HostStatus)
 	}
+	if a.Name != "claude-a.json" || a.Email != "a@example.com" {
+		t.Errorf("row a = name %q email %q, want the host's file name and address", a.Name, a.Email)
+	}
 	if len(a.Snapshot.Windows) == 0 || a.Snapshot.Source != model.SourceUsageEndpoint {
 		t.Errorf("row a snapshot = %+v", a.Snapshot)
 	}

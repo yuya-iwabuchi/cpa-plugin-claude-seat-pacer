@@ -110,6 +110,8 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		}
 		if listed {
 			row.Label = authLabel(entry)
+			row.Name = entry.Name
+			row.Email = entry.Email
 			row.Provider = strings.ToLower(entry.Provider)
 			row.Priority = entry.Priority
 			row.HostStatus = hostStatus(entry)

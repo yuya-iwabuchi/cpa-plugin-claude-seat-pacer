@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -21,7 +22,8 @@ import (
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded or empty")
+		"fixture scenario: full, single, stale, degraded, many or empty")
+	seats := flag.Int("seats", 6, "credential count for the many scenario")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
 		"fail status requests after this many successes; 0 fails the first, -1 never fails")
@@ -45,6 +47,11 @@ func main() {
 			AuthID: seatCID, Label: "Seat C", Provider: "claude",
 			Priority: 10, HostStatus: "active",
 		})
+	case "many":
+		// A pool the operator has grown past the point where every seat gets
+		// its own card: the naming collisions a real pool produces, and every
+		// lane state the page can draw, spread across the seats.
+		src.growTo(*seats)
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
@@ -58,11 +65,39 @@ func main() {
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           faults(web.NewHandler(src), *latency, *failAfter),
+		Handler:           faults(framed(web.NewHandler(src)), *latency, *failAfter),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("status app on http://%s/", addr)
 	log.Fatal(srv.ListenAndServe())
+}
+
+// framePage stands in for the Management Center: it frames index.html the way
+// the console does and floats a toolbar over the top-right corner of the frame,
+// which is the corner the page has to keep clear. Served at /frame.html.
+const framePage = `<!doctype html><meta charset="utf-8"><title>framed</title>
+<style>
+html,body{margin:0;height:100%;background:#eef0f4;font:13px system-ui}
+.bar{height:48px;display:flex;align-items:center;padding:0 16px;background:#fff;border-bottom:1px solid #d9dce3}
+.frame{position:relative;height:calc(100% - 48px)}
+iframe{border:0;width:100%;height:100%;display:block}
+.tools{position:absolute;top:12px;right:16px;display:flex;gap:8px}
+.tools span{width:34px;height:34px;border-radius:8px;background:#fff;border:1px solid #c9cdd6;box-shadow:0 2px 6px rgba(0,0,0,.12);display:grid;place-items:center;font-size:15px}
+</style>
+<div class="bar">Management Center · Plugins · Claude Quota Scheduler</div>
+<div class="frame"><iframe src="index.html" title="plugin"></iframe>
+<div class="tools"><span>&#8635;</span><span>&#127760;</span><span>&#9790;</span><span>&#8594;</span></div></div>
+`
+
+func framed(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/frame.html" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(framePage))
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // faults injects the transport conditions the page has to survive: a slow
@@ -204,7 +239,8 @@ func newFixture(anchor time.Time) *fixture {
 
 	f.auths = []model.AuthStatus{
 		{
-			AuthID: seatAID, Label: seatALabel, Provider: "claude", Priority: 10,
+			AuthID: seatAID, Label: seatALabel, Name: "claude-" + seatALabel + ".json", Email: seatALabel,
+			Provider: "claude", Priority: 10,
 			HostStatus: "active", Bindings: 4,
 			Cache: model.CacheStats{
 				Requests:            1412,
@@ -215,7 +251,7 @@ func newFixture(anchor time.Time) *fixture {
 			},
 		},
 		{
-			AuthID: seatBID, Label: "Seat B", Provider: "claude", Priority: 10,
+			AuthID: seatBID, Label: "Seat B", Name: "claude-seat-b.json", Provider: "claude", Priority: 10,
 			HostStatus: "active", Bindings: 2,
 			Cache: model.CacheStats{
 				Requests:            684,
@@ -285,6 +321,9 @@ func (f *fixture) rebuildWarnings() {
 			"the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", "claude"))
 	}
 	for _, a := range f.auths {
+		if a.HostStatus == "disabled" {
+			continue
+		}
 		snap, ok := f.snapshots[a.AuthID]
 		if !ok {
 			f.warnings = append(f.warnings, fmt.Sprintf(
@@ -414,6 +453,177 @@ func (f *fixture) buildDecisions() []model.Decision {
 				snaps = f.snapshotsPast
 			}
 			d.Scores = pace.Rank(f.cfg.Pace, snaps, ids, s.modelID, at)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// manySeat is one synthesized credential of the many scenario. The identity
+// fields are the shapes a real pool mixes: two files of one account, two
+// accounts whose masked addresses coincide, a host label, and files an
+// operator named after a team.
+type manySeat struct {
+	id, label, name, email  string
+	session, weekly, scoped float64
+	// state picks the exceptional condition the seat carries, "" for none.
+	state string
+}
+
+var manySeats = []manySeat{
+	{id: "claude-alice-team-a.json", name: "claude-alice-team-a.json", email: "alice@example.com", session: 0.31, weekly: 0.22, scoped: 0.18},
+	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.61, scoped: 0.70, state: "over"},
+	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.35, scoped: 0.30},
+	{id: "claude-oncall@acme.example.json", name: "claude-oncall@acme.example.json", email: "oncall@acme.example", session: 1.00, weekly: 0.58, scoped: 0.44, state: "rejected"},
+	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 0.91, scoped: 0.52, state: "cutoff"},
+	{id: "claude-quota.bot@acme-corp.example.json", name: "claude-quota.bot@acme-corp.example.json", email: "quota.bot@acme-corp.example", session: 0.05, weekly: 0.09, scoped: 0.0, state: "stale"},
+	{id: "claude-team-data.json", name: "claude-team-data.json", email: "svc.data@acme.example", session: 0.52, weekly: 0.40, scoped: 0.33, state: "error"},
+	{id: "claude-team-infra.json", name: "claude-team-infra.json", email: "svc.infra@acme.example", session: 0.0, weekly: 0.0, scoped: 0.0, state: "nosnap"},
+	{id: "claude-team-mobile.json", name: "claude-team-mobile.json", email: "svc.mobile@acme.example", session: 0.67, weekly: 0.47, scoped: 0.51},
+	{id: "claude-team-web.json", name: "claude-team-web.json", email: "svc.web@acme.example", session: 0.20, weekly: 0.15, scoped: 0.09, state: "disabled"},
+	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.81, state: "over"},
+	{id: "claude-team-qa.json", name: "claude-team-qa.json", email: "svc.qa@acme.example", session: 0.38, weekly: 0.29, scoped: 0.24},
+}
+
+// growTo replaces the fixture's credentials with n synthesized seats. Past the
+// table above, seats repeat its rows under numbered names.
+func (f *fixture) growTo(n int) {
+	f.auths = nil
+	f.snapshots = map[string]model.AuthSnapshot{}
+	f.snapshotsPast = map[string]model.AuthSnapshot{}
+	f.observedAge = map[string]time.Duration{}
+	f.bindings = nil
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		ms := manySeats[i%len(manySeats)]
+		if i >= len(manySeats) {
+			suffix := fmt.Sprintf("-%d", i/len(manySeats)+1)
+			ms.id = strings.TrimSuffix(ms.id, ".json") + suffix + ".json"
+			ms.name = ms.id
+			if ms.label != "" {
+				ms.label += suffix
+			}
+		}
+		f.addManySeat(i, ms)
+		ids = append(ids, ms.id)
+	}
+	f.decisions = f.manyDecisions(ids)
+}
+
+func (f *fixture) addManySeat(i int, ms manySeat) {
+	label := ms.label
+	if label == "" {
+		label = ms.email
+	}
+	if label == "" {
+		label = ms.name
+	}
+	a := model.AuthStatus{
+		AuthID: ms.id, Label: label, Name: ms.name, Email: ms.email,
+		Provider: "claude", Priority: 10, HostStatus: "active", Bindings: 1 + i%3,
+		Cache: model.CacheStats{
+			Requests:            int64(120 + 90*i),
+			CacheReadTokens:     int64(800_000 + 400_000*i),
+			CacheCreationTokens: int64(60_000 + 20_000*i),
+			FreshInputTokens:    int64(30_000 + 25_000*(i%5)*i),
+			OutputTokens:        int64(40_000 + 9_000*i),
+		},
+	}
+	f.observedAge[ms.id] = time.Duration(20+13*i) * time.Second
+	snap := model.AuthSnapshot{
+		AuthID: ms.id, Label: label, Source: model.SourceUsageEndpoint,
+		Windows: []model.Window{
+			{
+				Kind: model.WindowSession, Utilization: ms.session,
+				ResetsAt: f.anchor.Add(time.Duration(40+25*i) * time.Minute),
+				Duration: model.SessionDuration,
+				Status:   model.StatusAllowed, Severity: model.SeverityNormal, Active: true,
+			},
+			{
+				Kind: model.WindowWeekly, Utilization: ms.weekly,
+				ResetsAt: f.anchor.Add(time.Duration(6+11*i) * time.Hour),
+				Duration: model.WeeklyDuration,
+				Status:   model.StatusAllowed, Severity: model.SeverityNormal,
+			},
+			{
+				Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: ms.scoped,
+				ResetsAt: f.anchor.Add(time.Duration(30+9*i) * time.Hour),
+				Duration: model.WeeklyDuration,
+				Status:   model.StatusAllowed, Severity: model.SeverityNormal,
+			},
+		},
+	}
+	switch ms.state {
+	case "rejected":
+		snap.Windows[0].Status = model.StatusRejected
+		snap.Windows[0].Severity = model.SeverityCritical
+	case "cutoff":
+		snap.Windows[1].Utilization = f.cfg.Pace.HardCutoff + 0.01
+		snap.Windows[1].Status = model.StatusAllowedWarning
+		snap.Windows[1].Severity = model.SeverityWarning
+	case "stale":
+		f.observedAge[ms.id] = f.cfg.Quota.MaxStaleness + 5*time.Minute
+	case "error":
+		snap.Source = model.SourceResponseHeaders
+		snap.Err = "Get \"https://api.anthropic.com/api/oauth/usage\": context deadline exceeded"
+		snap.ErrCategory = "timeout"
+	case "disabled":
+		// The poller skips a credential the host has disabled, so it never
+		// holds a reading.
+		a.HostStatus = "disabled"
+	}
+	if ms.state != "nosnap" && ms.state != "disabled" {
+		f.snapshots[ms.id] = snap
+		f.snapshotsPast[ms.id] = withSessionUtil(snap, ms.session*0.6, model.StatusAllowed, model.SeverityNormal)
+	}
+	f.auths = append(f.auths, a)
+	for b := 0; b < a.Bindings; b++ {
+		key := fmt.Sprintf("%02x%02x0b7d4a19e83c", i, b)
+		f.bindings = append(f.bindings, model.Binding{
+			SessionKey: key, Provider: "claude", Model: []string{modelFable, modelOpus, modelSonnet}[(i+b)%3],
+			AuthID: ms.id, BoundAt: f.anchor.Add(-time.Duration(9+31*i+7*b) * time.Minute),
+			LastSeen: f.anchor.Add(-time.Duration(5+17*i+3*b) * time.Second), Hits: 3 + 41*b + 7*i,
+		})
+	}
+}
+
+// manyDecisions scripts a log in which every seat with a binding appears, with
+// a cold pick scored against the whole pool every few rows.
+func (f *fixture) manyDecisions(ids []string) []model.Decision {
+	kinds := []string{model.DecisionAffinityHit, model.DecisionAffinityHit, model.DecisionColdPick,
+		model.DecisionAffinityHit, model.DecisionFailover, model.DecisionAffinityHit, model.DecisionDeclined}
+	out := make([]model.Decision, 0, 48)
+	var bound []model.Binding
+	for i := 0; i < 48; i++ {
+		at := f.anchor.Add(-time.Duration(20+70*i) * time.Second)
+		kind := kinds[i%len(kinds)]
+		d := model.Decision{At: at, Model: modelFable, Provider: "claude", Kind: kind}
+		if i%4 == 1 {
+			d.Model = modelOpus
+		}
+		switch kind {
+		case model.DecisionDeclined:
+			d.Note = "every snapshot was older than max-staleness"
+		case model.DecisionColdPick:
+			d.Scores = pace.Rank(f.cfg.Pace, f.snapshots, ids, d.Model, at)
+			d.SessionKey = fmt.Sprintf("%08x9a35b18e", 0x6c2a90f3+i)
+			if len(d.Scores) > 0 && d.Scores[0].Eligible {
+				d.ChosenAuthID = d.Scores[0].AuthID
+			}
+		default:
+			if len(bound) == 0 {
+				bound = f.bindings
+			}
+			b := bound[i%len(bound)]
+			d.SessionKey = b.SessionKey
+			d.Model = b.Model
+			d.ChosenAuthID = b.AuthID
+			d.Subagent = i%5 == 3
+			if kind == model.DecisionFailover {
+				d.PreviousAuthID = ids[(i+1)%len(ids)]
+				d.Note = "bound credential was not among the candidates the host offered"
+				d.Scores = pace.Rank(f.cfg.Pace, f.snapshots, ids, d.Model, at)
+			}
 		}
 		out = append(out, d)
 	}
