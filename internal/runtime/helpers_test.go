@@ -122,6 +122,23 @@ func (f *fakeHost) sent(s string) bool {
 	return false
 }
 
+// methodsContaining lists, once each, the host methods whose payload contains
+// s, so a test can assert where a value was allowed to travel.
+func (f *fakeHost) methodsContaining(s string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, c := range f.calls {
+		if _, dup := seen[c.method]; dup || !strings.Contains(c.payload, s) {
+			continue
+		}
+		seen[c.method] = struct{}{}
+		out = append(out, c.method)
+	}
+	return out
+}
+
 func (f *fakeHost) count(method string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
