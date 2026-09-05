@@ -3,9 +3,14 @@
 // The host mounts these routes without authentication, so everything they
 // expose is read-only and reduced for an anonymous reader: the app issues no
 // mutating request, model.Status carries ids and labels but no credential
-// material, and serveStatus masks a label that is an account email, drops the
-// configured usage endpoint and bounds the binding list. The authenticated
-// management route serves the same status unreduced.
+// material, and serveStatus masks a label that is an account email, keeps only
+// the config block the page reads, strips URLs out of the operator warnings and
+// bounds the binding list. The authenticated management route serves the same
+// status unreduced.
+//
+// A credential's id survives the reduction whole: every table on the page
+// correlates on it, and masking is not injective, so two seats sharing a
+// domain would merge.
 //
 // The whole app — markup, styles and script — is one embedded document with no
 // external reference, so it renders on a host with no outbound network.
@@ -20,6 +25,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -170,11 +176,16 @@ func encodeStatus(status model.Status) ([]byte, error) {
 // reduceForPublic is the status as the unauthenticated route serves it. It
 // copies every slice it rewrites, so the source's own state is untouched.
 func reduceForPublic(st model.Status) model.Status {
-	// The usage endpoint is operator-configurable and may name internal
-	// infrastructure; nothing in the app reads it.
-	st.Config.Quota.UsageURL = ""
-	st.Config.Pace = finitePace(st.Config.Pace)
-	st.Warnings = append([]string(nil), st.Warnings...)
+	// The page reads the pace curve out of the config and nothing else. The
+	// rest is operator configuration, the usage endpoint above all: it is
+	// operator-set and may name internal infrastructure.
+	st.Config = model.Config{Pace: finitePace(st.Config.Pace)}
+
+	warnings := make([]string, 0, len(st.Warnings)+1)
+	for _, w := range st.Warnings {
+		warnings = append(warnings, publicWarning(w))
+	}
+	st.Warnings = warnings
 
 	auths := make([]model.AuthStatus, len(st.Auths))
 	for i, a := range st.Auths {
@@ -206,6 +217,17 @@ func reduceForPublic(st model.Status) model.Status {
 			maxStatusBindings, total))
 	}
 	return st
+}
+
+// absoluteURL matches a scheme-qualified URL, which ends at the first space or
+// quote: a warning quotes one inside a Go transport error.
+var absoluteURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']*`)
+
+// publicWarning is an operator warning with its URLs taken out. A failing poll
+// quotes the transport error whole, and that error names the usage endpoint
+// this route otherwise withholds.
+func publicWarning(w string) string {
+	return absoluteURL.ReplaceAllString(w, "…")
 }
 
 // publicLabel masks a label that is an account email. The host label falls

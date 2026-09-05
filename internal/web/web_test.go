@@ -225,10 +225,10 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v\nbody: %s", err, rec.Body.String())
 	}
-	// This route drops the configured usage endpoint; everything else travels
-	// unchanged.
+	// This route serves the pace curve for the whole config; everything else
+	// travels unchanged.
 	expect := want
-	expect.Config.Quota.UsageURL = ""
+	expect.Config = model.Config{Pace: want.Config.Pace}
 	if !reflect.DeepEqual(got, expect) {
 		t.Errorf("round trip changed the status\n got: %+v\nwant: %+v", got, expect)
 	}
@@ -396,6 +396,8 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 		}},
 	}
 	st.Config.Pace.HardCutoff = math.NaN()
+	st.Decisions[0].Scores[0].Total = math.Inf(1)
+	st.Decisions[0].Scores[0].Windows[0].Slack = math.NaN()
 
 	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
 	if rec.Code != http.StatusOK {
@@ -420,6 +422,14 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 	}
 	if raw["config"].(map[string]any)["pace"].(map[string]any)["hard_cutoff"] != nil {
 		t.Error("hard_cutoff is not null")
+	}
+	// A decision carries its own candidate scores, on the same path.
+	logged := raw["decisions"].([]any)[0].(map[string]any)["scores"].([]any)[0].(map[string]any)
+	if logged["total"] != nil {
+		t.Errorf("logged score total = %v, want null", logged["total"])
+	}
+	if logged["windows"].([]any)[0].(map[string]any)["slack"] != nil {
+		t.Error("logged window slack is not null")
 	}
 }
 
@@ -477,6 +487,59 @@ func TestEmailLabelsAreMasked(t *testing.T) {
 	}
 	if !strings.Contains(body, "q…@acme-corp.example") {
 		t.Errorf("the masked label is missing: %s", body)
+	}
+}
+
+// TestConfigIsReducedToThePaceCurve covers the config reduction: the page reads
+// the curve, and the rest of the block is operator configuration an anonymous
+// reader has no use for.
+func TestConfigIsReducedToThePaceCurve(t *testing.T) {
+	t.Parallel()
+	st := richStatus()
+	st.Config.Quota.UsageURL = "https://usage.internal.example/api/oauth/usage"
+
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	var got model.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Config.Pace != st.Config.Pace {
+		t.Errorf("pace = %+v, want %+v", got.Config.Pace, st.Config.Pace)
+	}
+	if !reflect.DeepEqual(got.Config, model.Config{Pace: st.Config.Pace}) {
+		t.Errorf("the route serves config beyond the pace curve: %+v", got.Config)
+	}
+	if strings.Contains(rec.Body.String(), "usage.internal.example") {
+		t.Errorf("the configured usage endpoint reached the body: %s", rec.Body.String())
+	}
+}
+
+// TestWarningsDropURLs covers the operator warnings: a failing poll quotes the
+// transport error, which names the endpoint the config reduction withholds.
+func TestWarningsDropURLs(t *testing.T) {
+	t.Parallel()
+	st := richStatus()
+	st.Warnings = []string{
+		`quota poll failing for auth-a (timeout): Get "https://usage.internal.example/api/oauth/usage": context deadline exceeded`,
+		"provider claude offered a single candidate; spreading cannot work",
+	}
+	original := st.Warnings[0]
+	src := &stubSource{status: st}
+
+	rec := get(t, NewHandler(src), "/api/status")
+	var got model.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := []string{
+		`quota poll failing for auth-a (timeout): Get "…": context deadline exceeded`,
+		"provider claude offered a single candidate; spreading cannot work",
+	}
+	if !reflect.DeepEqual(got.Warnings, want) {
+		t.Errorf("warnings = %q, want %q", got.Warnings, want)
+	}
+	if src.status.Warnings[0] != original {
+		t.Errorf("the source's own warning was rewritten in place: %q", src.status.Warnings[0])
 	}
 }
 
