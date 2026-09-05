@@ -285,6 +285,27 @@ plugins:
 	if len(served.Auths) != 2 || len(served.Bindings) != 2 {
 		t.Errorf("resource status = %d auths %d bindings, want the same view as the management route", len(served.Auths), len(served.Bindings))
 	}
+	// The route is unauthenticated, so it publishes a hashed credential id.
+	rows := make(map[string]bool, len(served.Auths))
+	for _, row := range served.Auths {
+		rows[row.AuthID] = true
+	}
+	for _, row := range second.Auths {
+		if quoted := `auth_id":"` + row.AuthID + `"`; bytes.Contains(raw, []byte(quoted)) {
+			t.Errorf("the unauthenticated route serves the real id %q: %s", row.AuthID, raw)
+		}
+	}
+	// The join every table on the page makes.
+	for _, b := range served.Bindings {
+		if !rows[b.AuthID] {
+			t.Errorf("binding on %q has no credential row: %v", b.AuthID, served.Auths)
+		}
+	}
+	for _, d := range served.Decisions {
+		if d.ChosenAuthID != "" && !rows[d.ChosenAuthID] {
+			t.Errorf("decision chose %q, which has no credential row: %v", d.ChosenAuthID, served.Auths)
+		}
+	}
 
 	page, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/index.html")
 	if err != nil {

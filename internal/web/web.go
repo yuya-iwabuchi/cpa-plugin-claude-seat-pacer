@@ -8,9 +8,9 @@
 // bounds the binding list. The authenticated management route serves the same
 // status unreduced.
 //
-// A credential's id survives the reduction whole: every table on the page
-// correlates on it, and masking is not injective, so two seats sharing a
-// domain would merge.
+// A credential's id is published as a truncated hash of the real one rather
+// than masked: every table on the page correlates on the id, and masking is
+// not injective, so two seats sharing a domain would merge into one row.
 //
 // The whole app — markup, styles and script — is one embedded document with no
 // external reference, so it renders on a host with no outbound network.
@@ -21,11 +21,13 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -181,28 +183,50 @@ func reduceForPublic(st model.Status) model.Status {
 	// operator-set and may name internal infrastructure.
 	st.Config = model.Config{Pace: finitePace(st.Config.Pace)}
 
+	ids := authIDReplacer(st)
+
+	// The cap applies before the rewrite, so a store running to
+	// affinity.max-sessions costs only the rows the response carries.
+	truncated := 0
+	if total := len(st.Bindings); total > maxStatusBindings {
+		truncated = total
+		st.Bindings = st.Bindings[:maxStatusBindings]
+	}
+
 	warnings := make([]string, 0, len(st.Warnings)+1)
 	for _, w := range st.Warnings {
-		warnings = append(warnings, publicWarning(w))
+		warnings = append(warnings, publicText(w, ids))
 	}
 	st.Warnings = warnings
 
 	auths := make([]model.AuthStatus, len(st.Auths))
 	for i, a := range st.Auths {
+		a.AuthID = publicID(a.AuthID)
 		a.Label = publicLabel(a.Label)
+		a.Snapshot.AuthID = publicID(a.Snapshot.AuthID)
+		// The host's runtime credential index is a digest of the credential's
+		// file path, and no view on the page reads it.
+		a.Snapshot.AuthIndex = ""
 		a.Snapshot.Label = publicLabel(a.Snapshot.Label)
+		a.Snapshot.Err = publicText(a.Snapshot.Err, ids)
 		a.Snapshot.Windows = finiteWindows(a.Snapshot.Windows)
 		a.Score = finiteScore(a.Score)
+		a.Score.AuthID = publicID(a.Score.AuthID)
 		auths[i] = a
 	}
 	st.Auths = auths
 
 	decisions := make([]model.Decision, len(st.Decisions))
 	for i, d := range st.Decisions {
+		d.ChosenAuthID = publicID(d.ChosenAuthID)
+		d.PreviousAuthID = publicID(d.PreviousAuthID)
+		d.Note = publicText(d.Note, ids)
 		if len(d.Scores) > 0 {
 			scores := make([]model.Score, len(d.Scores))
 			for j, s := range d.Scores {
-				scores[j] = finiteScore(s)
+				s = finiteScore(s)
+				s.AuthID = publicID(s.AuthID)
+				scores[j] = s
 			}
 			d.Scores = scores
 		}
@@ -210,24 +234,108 @@ func reduceForPublic(st model.Status) model.Status {
 	}
 	st.Decisions = decisions
 
-	if total := len(st.Bindings); total > maxStatusBindings {
-		st.Bindings = st.Bindings[:maxStatusBindings]
+	bindings := make([]model.Binding, len(st.Bindings))
+	for i, b := range st.Bindings {
+		b.AuthID = publicID(b.AuthID)
+		bindings[i] = b
+	}
+	st.Bindings = bindings
+
+	if truncated > 0 {
 		st.Warnings = append(st.Warnings, fmt.Sprintf(
 			"binding list truncated to %d of %d entries for this view",
-			maxStatusBindings, total))
+			maxStatusBindings, truncated))
 	}
 	return st
 }
 
+// publicIDBytes is how much of a SHA-256 a published credential id carries: 8
+// bytes, so 16 hex characters. Across the hundred credentials a pool holds at
+// the outside, the birthday bound on 64 bits stays under 1e-15, so the id is
+// injective in practice and the joins between the page's tables hold.
+const publicIDBytes = 8
+
+// publicID is the credential id this route publishes. CLIProxyAPI names a
+// Claude OAuth credential file after the account and falls back to that name
+// for the id, so the real id is routinely an email address. An empty id stays
+// empty, which is how a decision records having no previous credential.
+func publicID(authID string) string {
+	if authID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(authID))
+	return hex.EncodeToString(sum[:publicIDBytes])
+}
+
+// authIDReplacer substitutes the published id for every credential id the
+// status carries, for the free text that names a credential rather than
+// carrying it in a field: an operator warning and a decision note both quote
+// the id whole.
+//
+// Longest first, so an id that is a suffix of another does not consume it, and
+// a Replacer never rescans what it has written.
+func authIDReplacer(st model.Status) *strings.Replacer {
+	seen := make(map[string]struct{})
+	ids := make([]string, 0, len(st.Auths))
+	add := func(id string) {
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, a := range st.Auths {
+		add(a.AuthID)
+		add(a.Snapshot.AuthID)
+		add(a.Score.AuthID)
+	}
+	for _, b := range st.Bindings {
+		add(b.AuthID)
+	}
+	for _, d := range st.Decisions {
+		add(d.ChosenAuthID)
+		add(d.PreviousAuthID)
+		for _, s := range d.Scores {
+			add(s.AuthID)
+		}
+	}
+	slices.SortFunc(ids, func(a, b string) int {
+		if n := len(b) - len(a); n != 0 {
+			return n
+		}
+		return strings.Compare(a, b)
+	})
+	pairs := make([]string, 0, 2*len(ids))
+	for _, id := range ids {
+		pairs = append(pairs, id, publicID(id))
+	}
+	return strings.NewReplacer(pairs...)
+}
+
 // absoluteURL matches a scheme-qualified URL, which ends at the first space or
-// quote: a warning quotes one inside a Go transport error.
+// quote: a transport error quotes one inside its message.
 var absoluteURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']*`)
 
-// publicWarning is an operator warning with its URLs taken out. A failing poll
-// quotes the transport error whole, and that error names the usage endpoint
-// this route otherwise withholds.
-func publicWarning(w string) string {
-	return absoluteURL.ReplaceAllString(w, "…")
+// bareEmail matches an account address inside free text. A credential this
+// status no longer holds a row for is still named by a decision note that
+// outlives it, and that name is an email address.
+var bareEmail = regexp.MustCompile(`[^\s"'<>@]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
+
+// publicText is operator-facing free text with everything it quotes that this
+// route otherwise withholds taken out: URLs, because a failing poll quotes the
+// transport error and that error names the usage endpoint, and credential
+// identity, because a warning and a decision note both name the credential
+// they concern.
+func publicText(s string, ids *strings.Replacer) string {
+	if s == "" {
+		return ""
+	}
+	s = absoluteURL.ReplaceAllString(s, "…")
+	s = ids.Replace(s)
+	return bareEmail.ReplaceAllStringFunc(s, publicLabel)
 }
 
 // publicLabel masks a label that is an account email. The host label falls
