@@ -11,7 +11,6 @@
   --plane:        #f9f9f7;
   --surface-1:    #fcfcfb;
   --surface-2:    #f2f1ec;
-  --surface-3:    #e9e8e1;
   --ink-1:        #0b0b0b;
   --ink-2:        #52514e;
   --ink-3:        #6f6d67;
@@ -23,9 +22,13 @@
   --track:        #e6e5df;
   --emph:         rgba(42,120,214,.07);
 
-  --good:         #0ca30c;
+  /* The four tones a chip can take carry the non-colour encoding — glyph, bar
+     fill, meter fill — so each clears 3:1 against both the card and the
+     13%-tinted chip plate; the light plane needs darker ink than the dark one.
+     --warning rules a banner edge, which means nothing on its own. */
+  --good:         #0a7d0a;
   --info:         #2a78d6;
-  --serious:      #ec835a;
+  --serious:      #c0521f;
   --critical:     #d03b3b;
   --warning:      #fab219;
 
@@ -44,16 +47,17 @@
     --plane:      #0d0d0d;
     --surface-1:  #1a1a19;
     --surface-2:  #232320;
-    --surface-3:  #2c2c2a;
     --ink-1:      #ffffff;
     --ink-2:      #c3c2b7;
-    --ink-3:      #9b998f;
+    --ink-3:      #a9a79c;
     --rule:       #2c2c2a;
     --axis:       #383835;
     --hairline:   rgba(255,255,255,.10);
     --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.9);
     --track:      #2c2c2a;
     --emph:       rgba(57,135,229,.12);
+    --good:       #0ca30c;
+    --serious:    #ec835a;
     --info:       #3987e5;
     --seat-1:     #3987e5;
     --seat-2:     #d95926;
@@ -68,16 +72,17 @@
   --plane:      #0d0d0d;
   --surface-1:  #1a1a19;
   --surface-2:  #232320;
-  --surface-3:  #2c2c2a;
   --ink-1:      #ffffff;
   --ink-2:      #c3c2b7;
-  --ink-3:      #9b998f;
+  --ink-3:      #a9a79c;
   --rule:       #2c2c2a;
   --axis:       #383835;
   --hairline:   rgba(255,255,255,.10);
   --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.9);
   --track:      #2c2c2a;
   --emph:       rgba(57,135,229,.12);
+  --good:       #0ca30c;
+  --serious:    #ec835a;
   --info:       #3987e5;
   --seat-1:     #3987e5;
   --seat-2:     #d95926;
@@ -109,7 +114,6 @@ body {
 .wrap { max-width: 1360px; margin: 0 auto; padding: 0 28px; }
 
 .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.num  { font-variant-numeric: tabular-nums; }
 
 a { color: inherit; }
 :focus-visible {
@@ -149,11 +153,11 @@ a { color: inherit; }
   gap: 10px 34px; align-content: end;
 }
 .mast-meta div { display: flex; flex-direction: column; gap: 2px; }
-.mast-meta dt, .meta-k {
+.mast-meta dt {
   font: 600 10px/1.4 var(--mono);
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
 }
-.mast-meta dd, .meta-v { margin: 0; font: 500 14px/1.35 var(--mono); color: var(--ink-1); }
+.mast-meta dd { margin: 0; font: 500 14px/1.35 var(--mono); color: var(--ink-1); }
 
 /* --------------------------------------------------------------- controls */
 .controls {
@@ -166,13 +170,16 @@ a { color: inherit; }
   max-width: 1360px; margin: 0 auto; padding: 10px 28px;
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
 }
-.ctl { display: flex; align-items: center; gap: 8px; }
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .ctl label { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
 input[type="text"] {
   font: 500 12.5px/1 var(--mono);
   color: var(--ink-1); background: var(--surface-1);
   border: 1px solid var(--axis); border-radius: 6px;
-  padding: 7px 10px; min-width: 356px;
+  padding: 7px 10px;
+  /* Shrinkable below its preferred width: a phone viewport is narrower than
+     the field, and a sticky bar that overflows desynchronises from the page. */
+  flex: 1 1 356px; min-width: 0; max-width: 100%;
 }
 input[type="text"]::placeholder { color: var(--ink-3); }
 button {
@@ -228,7 +235,7 @@ section { margin-top: 42px; }
 }
 
 /* ----------------------------------------------------------------- seats */
-.seats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(324px, 1fr)); }
+.seats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(324px, 100%), 1fr)); }
 .seat { padding: 18px 18px 16px; position: relative; overflow: hidden; }
 .seat::before {
   content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
@@ -236,7 +243,12 @@ section { margin-top: 42px; }
 }
 .seat-top { display: flex; align-items: center; gap: 9px; margin-bottom: 3px; }
 .seat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--seat-color); flex: none; }
-.seat-name { font: 600 16px/1.2 var(--sans); margin: 0; letter-spacing: -.005em; }
+/* A label with no spaces — an account id or an address — would otherwise hold
+   the card at its own width and push the rank badge past the clipped edge. */
+.seat-name {
+  font: 600 16px/1.2 var(--sans); margin: 0; letter-spacing: -.005em;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .seat-rank {
   margin-left: auto; font: 600 10.5px/1 var(--mono); letter-spacing: .06em;
   color: var(--ink-2); border: 1px solid var(--axis); border-radius: 999px;
@@ -294,7 +306,10 @@ svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
 svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 svg.pace .t-muted { fill: var(--ink-3); }
 svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; }
-.pace-grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(220px, 320px); gap: 24px; padding: 18px; align-items: start; }
+.pace-grid {
+  display: grid; grid-template-columns: minmax(min(320px, 100%), 1fr) minmax(220px, 320px);
+  gap: 24px; padding: 18px; align-items: start; overflow-x: auto;
+}
 @media (max-width: 860px) { .pace-grid { grid-template-columns: 1fr; } }
 .pace-note { font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
 .pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
@@ -324,7 +339,14 @@ svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; 
 .dec-route .prev { color: var(--ink-3); }
 .dec-tail { display: flex; gap: 8px; align-items: center; justify-self: end; }
 .dec-note { font: 400 11.5px/1.3 var(--sans); color: var(--ink-2); font-style: italic; max-width: 34ch; }
-.dec-body { padding: 4px 16px 18px; }
+/* The candidate-scores table is wider than a phone: it scrolls in place, the
+   way the binding table does, rather than widening the page under the sticky
+   bar. */
+.dec-body { padding: 4px 16px 18px; overflow-x: auto; }
+.log-note {
+  margin: 0; padding: 11px 16px; border-top: 1px solid var(--rule);
+  font: 500 11px/1.4 var(--mono); color: var(--ink-3);
+}
 .caret { display: inline-block; width: 9px; color: var(--ink-3); font-family: var(--mono); }
 .dec[open] .caret { transform: rotate(90deg); }
 
@@ -367,7 +389,7 @@ th[aria-sort] button { color: var(--ink-1); }
 .empty p { margin: 0 auto; max-width: 52ch; color: var(--ink-2); }
 .empty strong { display: block; font: 600 17px/1.3 var(--sans); color: var(--ink-1); margin-bottom: 8px; }
 [hidden] { display: none !important; }
-main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
+main[data-stale="true"] { opacity: .62; }
 
 /* --------------------------------------------------------------- tooltip */
 #tooltip {
@@ -378,10 +400,17 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 14px 34px -12px rgba(0,0,0,.42);
   font: 500 11.5px/1.55 var(--mono);
   white-space: pre-line; opacity: 0; transform: translateY(2px);
-  transition: opacity .1s ease;
 }
 #tooltip[data-show="true"] { opacity: 1; transform: none; }
 
+/* Every animation on the page sits behind this query, including the ones that
+   only fade. */
+@media (prefers-reduced-motion: no-preference) {
+  main { transition: opacity .18s ease; }
+  #tooltip { transition: opacity .1s ease; }
+}
+
+/* Carries a value the layout has no room for to assistive technology. */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -390,7 +419,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
 </head>
 <body>
 
-<div id="tooltip" role="tooltip" aria-hidden="true"></div>
+<div id="tooltip" role="tooltip"></div>
 
 <!-- The script reads its SVG namespace off this element, so the document
      itself holds no absolute URL of any kind. -->
@@ -432,26 +461,34 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
 </div>
 
 <div class="wrap">
-  <div id="error-strip" class="banner err" role="status" hidden></div>
-  <div id="warnings" hidden></div>
+  <!-- Everything the page can show lives inside the landmark, so a document
+       that never loads still has more than a banner. -->
+  <main id="app">
 
-  <div id="loading" class="skel" style="margin-top:42px">
-    <div class="skel-row"></div>
-    <div class="skel-row"></div>
-    <div class="skel-row"></div>
-  </div>
+    <div id="error-strip" class="banner err" role="status" hidden></div>
+    <div id="warnings" role="status" hidden></div>
 
-  <div id="empty-state" class="card empty" hidden style="margin-top:42px">
-    <p><strong>No credentials reported yet.</strong>
-    The quota poller has not published a snapshot. Until it does, the scheduler
-    declines every pick and the host&rsquo;s own selector routes the traffic.</p>
-  </div>
+    <div id="loading" class="skel" style="margin-top:42px">
+      <div class="skel-row"></div>
+      <div class="skel-row"></div>
+      <div class="skel-row"></div>
+    </div>
 
-  <main id="app" hidden>
+    <div id="fail-state" class="card empty" hidden style="margin-top:42px">
+      <p><strong>The status endpoint is not answering.</strong>
+      <span id="fail-detail"></span>
+      The page keeps retrying; nothing here is stale data, because none arrived.</p>
+    </div>
 
-    <section id="sec-seats">
+    <div id="empty-state" class="card empty" hidden style="margin-top:42px">
+      <p><strong>No credentials reported yet.</strong>
+      The quota poller has not published a snapshot. Until it does, the scheduler
+      declines every pick and the host&rsquo;s own selector routes the traffic.</p>
+    </div>
+
+    <section id="sec-seats" hidden>
       <div class="sec-head">
-        <span class="sec-idx">01</span>
+        <span class="sec-idx"></span>
         <h2>Seats</h2>
         <span class="sec-sub">ranked by weighted pace slack &mdash; eligible first</span>
         <span class="sec-line"></span>
@@ -459,27 +496,25 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       <div id="seats" class="seats"></div>
     </section>
 
-    <section id="sec-timeline">
+    <section id="sec-timeline" hidden>
       <div class="sec-head">
-        <span class="sec-idx">02</span>
+        <span class="sec-idx"></span>
         <h2>Quota timeline</h2>
         <span class="sec-sub">bar spans the window on the axis; the meter is budget spent against target</span>
         <span class="sec-line"></span>
       </div>
+      <!-- The lane states come from STATE_META at render time; only the two
+           axis markers, which no script draws, are markup. -->
       <ul class="legend" id="timeline-legend">
-        <li><span class="sw" style="background:var(--good)"></span><span class="gl" style="color:var(--good)">&#9660;</span> under target</li>
-        <li><span class="sw" style="background:var(--info)"></span><span class="gl" style="color:var(--info)">&#9679;</span> on pace</li>
-        <li><span class="sw" style="background:var(--serious)"></span><span class="gl" style="color:var(--serious)">&#9650;</span> over target</li>
-        <li><span class="sw" style="background:var(--critical)"></span><span class="gl" style="color:var(--critical)">&#10005;</span> blocked / hard cutoff</li>
-        <li><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
-        <li><span class="gl">&#9474;</span> now</li>
+        <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
+        <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
       <div class="card tl-card"><div id="timeline"></div></div>
     </section>
 
-    <section id="sec-pace">
+    <section id="sec-pace" hidden>
       <div class="sec-head">
-        <span class="sec-idx">03</span>
+        <span class="sec-idx"></span>
         <h2>Pace curve</h2>
         <span class="sec-sub">where each counted window sits against its target</span>
         <span class="sec-line"></span>
@@ -490,9 +525,9 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       </div>
     </section>
 
-    <section id="sec-decisions">
+    <section id="sec-decisions" hidden>
       <div class="sec-head">
-        <span class="sec-idx">04</span>
+        <span class="sec-idx"></span>
         <h2>Routing log</h2>
         <span class="sec-sub">newest first &mdash; open a row for the candidate scores</span>
         <span class="sec-line"></span>
@@ -500,9 +535,9 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       <div class="card log" id="decisions"></div>
     </section>
 
-    <section id="sec-bindings">
+    <section id="sec-bindings" hidden>
       <div class="sec-head">
-        <span class="sec-idx">05</span>
+        <span class="sec-idx"></span>
         <h2>Bindings</h2>
         <span class="sec-sub">live conversations pinned to a seat</span>
         <span class="sec-line"></span>
@@ -519,8 +554,11 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
 
   var SVGNS = document.getElementById("svg-ns").namespaceURI;
   var REFRESH_MS = 10000;
+  var FETCH_TIMEOUT_MS = REFRESH_MS * 1.5;
+  var STALE_DIM_MS = 250;    /* a round trip faster than this never dims */
   var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
+  var MAX_BINDINGS = 200;
 
   var state = {
     model: "",
@@ -529,9 +567,21 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     error: null,
     fetchedAt: null,
     inFlight: false,
+    /* Server clock minus client clock. Every relative time on the page is
+       measured from the clock Status.Now comes from, so a seat card and a
+       timeline tooltip never disagree about the same instant. */
+    skew: 0,
+    /* Rows the operator opened, by decision key, so a poll does not shut a
+       candidate-scores table mid-read. */
+    openDecisions: Object.create(null),
+    /* Last rendered payload per region, so an unchanged region keeps its
+       DOM — and with it focus, selection and scroll. */
+    sigs: Object.create(null),
     sort: { key: "last_seen", dir: -1 },
     theme: "auto"
   };
+
+  function nowMs() { return Date.now() - state.skew; }
 
   /* ------------------------------------------------------------- helpers */
 
@@ -582,7 +632,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   function parseT(s) {
     if (!s) return null;
     var d = new Date(s);
-    if (isNaN(d.getTime()) || d.getUTCFullYear() < 1971) return null;
+    if (isNaN(d.getTime()) || d.getUTCFullYear() <= 1) return null;
     return d;
   }
 
@@ -604,41 +654,56 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     });
   }
 
+  function durText(s) {
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    if (s < 86400) {
+      var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60);
+      return mm ? hh + "h " + mm + "m" : hh + "h";
+    }
+    var dd = Math.floor(s / 86400), rh = Math.floor((s % 86400) / 3600);
+    return rh ? dd + "d " + rh + "h" : dd + "d";
+  }
+
   function relText(d, base) {
     if (!d) return "—";
     var ms = d.getTime() - base;
-    var future = ms > 0;
     var s = Math.floor(Math.abs(ms) / 1000);
-    if (s < 10) return future ? "in a moment" : "just now";
-    var out;
-    if (s < 60) out = s + "s";
-    else if (s < 3600) out = Math.floor(s / 60) + "m";
-    else if (s < 86400) {
-      var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60);
-      out = mm ? hh + "h " + mm + "m" : hh + "h";
-    } else {
-      var dd = Math.floor(s / 86400), rh = Math.floor((s % 86400) / 3600);
-      out = rh ? dd + "d " + rh + "h" : dd + "d";
-    }
-    return future ? "in " + out : out + " ago";
+    if (s < 10) return ms > 0 ? "in a moment" : "just now";
+    return ms > 0 ? "in " + durText(s) : durText(s) + " ago";
   }
 
+  /* A reset reads as a deadline, not as an observation: a passed one is
+     overdue, which is the state that says the window should have rolled. */
+  function resetText(d, base) {
+    if (!d) return "—";
+    var ms = d.getTime() - base;
+    var s = Math.floor(Math.abs(ms) / 1000);
+    if (s < 10) return ms > 0 ? "resets in a moment" : "reset just now";
+    return ms > 0 ? "resets in " + durText(s) : "overdue by " + durText(s);
+  }
+
+  var STAMP_MODES = { rel: relText, reset: resetText };
+
   /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts]. */
-  function stamp(d, cls) {
+  function stamp(d, cls, mode) {
     var e = h("time", cls || "");
     if (!d) { e.textContent = "—"; return e; }
+    var fmt = STAMP_MODES[mode] || relText;
     e.dateTime = d.toISOString();
     e.setAttribute("data-ts", String(d.getTime()));
+    if (mode) e.setAttribute("data-ts-mode", mode);
     e.title = absTime(d);
-    e.textContent = relText(d, Date.now());
+    e.textContent = fmt(d, nowMs());
     return e;
   }
 
   function tickStamps() {
-    var now = Date.now();
+    var now = nowMs();
     var nodes = document.querySelectorAll("[data-ts]");
     for (var i = 0; i < nodes.length; i++) {
-      nodes[i].textContent = relText(new Date(+nodes[i].getAttribute("data-ts")), now);
+      var fmt = STAMP_MODES[nodes[i].getAttribute("data-ts-mode")] || relText;
+      nodes[i].textContent = fmt(new Date(+nodes[i].getAttribute("data-ts")), now);
     }
   }
 
@@ -679,26 +744,37 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     return null;
   }
 
-  function blocked(w, cfg) {
-    if (w.status === "rejected" || w.severity === "critical") return true;
-    var cut = cfg && cfg.pace ? cfg.pace.hard_cutoff : 0;
-    return num(cut) && cut > 0 && w.utilization >= cut;
-  }
+  /* A window counts when the scorer gave it a weight: only a window bearing on
+     the requested model, with an open period, reaches the curve, and only
+     those gate the credential. A scoped cap for another family, or any window
+     of a snapshot the plugin declined to evaluate, has no pace verdict. */
+  function counted(ws) { return !!ws && num(ws.slack) && ws.weight > 0; }
 
   var STATE_META = {
     under:   { color: "var(--good)",     glyph: "▼", label: "under target" },
     on:      { color: "var(--info)",     glyph: "●", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "▲", label: "over target" },
-    blocked: { color: "var(--critical)", glyph: "✕", label: "blocked" }
+    blocked: { color: "var(--critical)", glyph: "✕", label: "blocked / hard cutoff" },
+    unknown: { color: "var(--ink-3)",    glyph: "?", label: "not evaluated" }
   };
 
   function laneState(w, ws, cfg) {
-    if (blocked(w, cfg)) return "blocked";
-    var slack = ws && num(ws.slack) ? ws.slack : (ws ? 0 : null);
-    if (slack === null) return "on";
-    if (slack > PACE_BAND) return "under";
-    if (slack < -PACE_BAND) return "over";
+    /* A provider rejection is a reading rather than an evaluation, so it
+       stands even where the scorer produced nothing. */
+    if (w.status === "rejected" || w.severity === "critical") return "blocked";
+    if (!counted(ws)) return "unknown";
+    var cut = cfg && cfg.pace ? cfg.pace.hard_cutoff : 0;
+    if (num(cut) && cut > 0 && num(w.utilization) && w.utilization >= cut) return "blocked";
+    if (ws.slack > PACE_BAND) return "under";
+    if (ws.slack < -PACE_BAND) return "over";
     return "on";
+  }
+
+  /* A score with no window breakdown was never computed — no snapshot, or one
+     past max-staleness — and its zero total is not a reading. */
+  function totalText(score) {
+    if (!score || !score.windows || !score.windows.length) return "—";
+    return signed(score.total);
   }
 
   function seatColor(i) {
@@ -730,10 +806,19 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   /* ------------------------------------------------------------- tooltip */
 
   var tipEl = $("tooltip");
+  /* The element the tooltip currently describes. aria-describedby lives on it
+     only while the tooltip is up, so assistive tech reads a description that
+     matches what is on screen. */
+  var tipFor = null;
 
-  function showTip(text, x, y) {
-    tipEl.textContent = text;
+  function showTip(el, x, y) {
+    tipEl.textContent = el.getAttribute("data-tip");
     tipEl.setAttribute("data-show", "true");
+    if (tipFor !== el) {
+      if (tipFor) tipFor.removeAttribute("aria-describedby");
+      el.setAttribute("aria-describedby", "tooltip");
+      tipFor = el;
+    }
     var pad = 14;
     var r = tipEl.getBoundingClientRect();
     var left = Math.min(x + pad, window.innerWidth - r.width - 8);
@@ -742,18 +827,24 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     tipEl.style.top = Math.max(8, top) + "px";
   }
 
-  function hideTip() { tipEl.removeAttribute("data-show"); }
+  function hideTip() {
+    tipEl.removeAttribute("data-show");
+    if (tipFor) {
+      tipFor.removeAttribute("aria-describedby");
+      tipFor = null;
+    }
+  }
 
   document.addEventListener("pointerover", function (ev) {
     var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
     if (!t) return;
-    showTip(t.getAttribute("data-tip"), ev.clientX, ev.clientY);
+    showTip(t, ev.clientX, ev.clientY);
   });
   document.addEventListener("pointermove", function (ev) {
     if (tipEl.getAttribute("data-show") !== "true") return;
     var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
     if (!t) { hideTip(); return; }
-    showTip(t.getAttribute("data-tip"), ev.clientX, ev.clientY);
+    showTip(t, ev.clientX, ev.clientY);
   });
   document.addEventListener("pointerout", function (ev) {
     var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
@@ -763,9 +854,12 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
     if (!t) { hideTip(); return; }
     var r = t.getBoundingClientRect();
-    showTip(t.getAttribute("data-tip"), r.left + r.width / 2, r.bottom - 6);
+    showTip(t, r.left + r.width / 2, r.bottom - 6);
   });
   document.addEventListener("focusout", hideTip);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") hideTip();
+  });
   window.addEventListener("scroll", hideTip, true);
 
   /* --------------------------------------------------------------- seats */
@@ -782,10 +876,18 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     return c;
   }
 
+  /* A value the layout has no room for: the tooltip carries it to a pointer or
+     a keyboard, the hidden span to a screen reader. */
+  function tipOnly(node, text) {
+    node.tabIndex = 0;
+    node.setAttribute("data-tip", text);
+    node.appendChild(h("span", "sr-only", text));
+    return node;
+  }
+
   function renderSeats(st, ranked) {
     var host = $("seats");
     host.textContent = "";
-    var cfg = st.config || {};
 
     ranked.forEach(function (a, i) {
       var card = h("article", "card seat");
@@ -796,7 +898,9 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       var dot = h("span", "seat-dot");
       dot.setAttribute("aria-hidden", "true");
       top.appendChild(dot);
-      top.appendChild(h("h3", "seat-name", seatLabel(a)));
+      var nameEl = h("h3", "seat-name", seatLabel(a));
+      nameEl.title = seatLabel(a);
+      top.appendChild(nameEl);
       var lead = eligible && i === 0;
       var rank = h("span", "seat-rank", lead ? "#1 next cold pick" : "#" + (i + 1));
       if (lead) rank.setAttribute("data-lead", "true");
@@ -814,19 +918,24 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
         dl.appendChild(dd);
       }
 
-      row("Host", chip(a.host_status || "unknown",
-        a.host_status === "active" ? "good" : a.host_status ? "serious" : "muted"));
+      /* "unknown" is the host's own default for a credential it has not
+         classified, so it reads as neutral rather than as a problem. */
+      var hs = a.host_status || "unknown";
+      row("Host", chip(hs, hs === "active" ? "good" : hs === "unknown" ? "muted" : "serious"));
 
       row("Eligibility", eligible
         ? chip("eligible", "good", "✓")
         : chip(a.score && a.score.reason ? a.score.reason : "ineligible", "critical", "✕"));
 
-      var scoreLine = h("span", "mono", signed(a.score ? a.score.total : NaN));
-      scoreLine.setAttribute("data-tip",
-        "weighted slack total " + signed(a.score ? a.score.total : NaN) +
-        "\nraw-utilization penalty −" + (a.score && num(a.score.raw_penalty) ? a.score.raw_penalty.toFixed(3) : "—"));
-      scoreLine.tabIndex = 0;
-      row("Score", scoreLine);
+      var scored = !!(a.score && a.score.windows && a.score.windows.length);
+      var scoreWrap = h("span", "");
+      scoreWrap.appendChild(h("span", "mono", totalText(a.score)));
+      if (scored && num(a.score.raw_penalty)) {
+        var pen = h("span", "mono", "  raw −" + a.score.raw_penalty.toFixed(3));
+        pen.style.color = "var(--ink-3)";
+        scoreWrap.appendChild(pen);
+      }
+      row("Score", scoreWrap);
 
       row("Priority", h("span", "mono", String(a.priority == null ? "—" : a.priority)));
       row("Bindings", h("span", "mono", intFmt(a.bindings) + " live"));
@@ -834,8 +943,8 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       var hr = hitRate(a.cache);
       var hrNode = h("span", "mono", hr === null ? "no traffic" : pct(hr));
       if (a.cache) {
-        hrNode.tabIndex = 0;
-        hrNode.setAttribute("data-tip",
+        hrNode.setAttribute("data-fk", "cache:" + a.auth_id);
+        tipOnly(hrNode,
           "cache read      " + intFmt(a.cache.cache_read_tokens) +
           "\ncache creation  " + intFmt(a.cache.cache_creation_tokens) +
           "\nfresh input     " + intFmt(a.cache.fresh_input_tokens) +
@@ -857,8 +966,8 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       if (snap.err || snap.err_category) {
         var errChip = chip(snap.err_category || "error", "critical", "⚠");
         if (snap.err) {
-          errChip.tabIndex = 0;
-          errChip.setAttribute("data-tip", snap.err);
+          errChip.setAttribute("data-fk", "err:" + a.auth_id);
+          tipOnly(errChip, snap.err);
         }
         row("Fetch error", errChip);
       }
@@ -872,7 +981,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
         foot.appendChild(h("span", "", "Binding window"));
         var fv = h("span", "mono", "");
         fv.appendChild(document.createTextNode(windowShort(active) + " · " + pct(active.utilization) + " · "));
-        fv.appendChild(stamp(resets, ""));
+        fv.appendChild(stamp(resets, "", "reset"));
         foot.appendChild(fv);
         card.appendChild(foot);
       }
@@ -881,22 +990,23 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     });
   }
 
-  function laneTip(a, w, ws, stt, st) {
-    var now = parseT(st.now) || new Date();
+  function laneTip(a, w, ws, stt, clipped) {
+    var now = nowMs();
     var resets = parseT(w.resets_at);
     var lines = [
       seatLabel(a) + " · " + windowName(w),
       STATE_META[stt].label,
+      stt === "unknown" ? "this window carries no weight in the score" : null,
       "utilization  " + pct(w.utilization),
       ws ? "pace target  " + pct(ws.target) : null,
       ws ? "slack        " + signed(ws.slack) : null,
-      ws ? "weight       " + (num(ws.weight) ? ws.weight.toFixed(2) : "—") +
-           (ws.weight ? "" : "  (does not count)") : null,
+      ws ? "weight       " + (num(ws.weight) ? ws.weight.toFixed(2) : "—") : null,
       ws ? "elapsed      " + pct(ws.elapsed) : null,
-      resets ? "resets       " + relText(resets, now.getTime()) + " · " + absTime(resets) : null,
+      resets ? "resets       " + relText(resets, now) + " · " + absTime(resets) : null,
       w.status ? "status       " + w.status : null,
       w.severity ? "severity     " + w.severity : null,
-      w.active ? "the provider treats this window as binding" : null
+      w.active ? "the provider treats this window as binding" : null,
+      clipped ? "the window opened before the axis begins" : null
     ];
     return lines.filter(Boolean).join("\n");
   }
@@ -904,7 +1014,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   function laneAria(a, w, ws, stt) {
     return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
       ", utilization " + pct(w.utilization) +
-      (ws ? ", target " + pct(ws.target) + ", slack " + signed(ws.slack) : "");
+      (counted(ws) ? ", target " + pct(ws.target) + ", slack " + signed(ws.slack) : "");
   }
 
   /* ------------------------------------------------------------ timeline */
@@ -912,19 +1022,42 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   var GUT = 346, PAD_R = 20, LANE_H = 26, HEAD_H = 32, GROUP_GAP = 14, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
 
+  /* The lane states are one list: the legend, the glyph, the tooltip and the
+     aria-label all read STATE_META, so they cannot drift apart. */
+  function renderStateLegend() {
+    var host = $("timeline-legend");
+    var markers = host.querySelectorAll("[data-axis-marker]");
+    host.textContent = "";
+    Object.keys(STATE_META).forEach(function (key) {
+      var meta = STATE_META[key];
+      var li = h("li", "");
+      var sw = h("span", "sw");
+      sw.style.background = meta.color;
+      var gl = h("span", "gl", meta.glyph);
+      gl.style.color = meta.color;
+      li.appendChild(sw);
+      li.appendChild(gl);
+      li.appendChild(document.createTextNode(" " + meta.label));
+      host.appendChild(li);
+    });
+    for (var i = 0; i < markers.length; i++) host.appendChild(markers[i]);
+  }
+
   function renderTimeline(st, ranked) {
     var host = $("timeline");
     host.textContent = "";
+    renderStateLegend();
     if (!ranked.length) return;
 
     var cfg = st.config || {};
-    var now = parseT(st.now) || new Date();
+    var now = new Date(nowMs());
     var width = Math.max(760, host.clientWidth || 1000);
     var plotW = width - GUT - PAD_R;
 
-    /* The axis reaches back far enough to hold every open window whole:
-       a bar cut off on the left would show its fill starting nowhere, which
-       reads as a full bar however little of the budget is spent. */
+    /* The axis runs from the earliest open window's start, floored eight days
+       back, to the latest reset. A window that opened before that floor is
+       drawn with a torn left edge, because a silently rescaled bar reads as a
+       whole one however much of it is missing. */
     var tMax = now.getTime() + 7 * 86400000;
     var earliest = now.getTime() - 86400000;
     ranked.forEach(function (a) {
@@ -1013,7 +1146,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
         tail = svgText(gGut, GUT - 14, headY, (a.score && a.score.reason) || "ineligible",
           "t-mono", { "font-size": 10.5, "text-anchor": "end", fill: "var(--critical)" });
       } else {
-        tail = svgText(gGut, GUT - 14, headY, signed(a.score ? a.score.total : NaN),
+        tail = svgText(gGut, GUT - 14, headY, totalText(a.score),
           "t-mono t-sec", { "font-size": 11 });
         tail.setAttribute("text-anchor", "end");
       }
@@ -1033,8 +1166,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
         var cy = lane.y + LANE_H / 2;
 
         var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: groupOpacity }, gBars);
-        g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-        g.setAttribute("data-tip", laneTip(a, w, ws, stt, st));
+        g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
 
         /* Gutter: name, state glyph, utilization. All three are text, so no
            value in this view depends on hovering a bar. */
@@ -1045,18 +1177,22 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
           { "font-size": 11.5, "text-anchor": "end", opacity: groupOpacity });
         /* The budget meter is a fixed width, so utilization and its target
            stay readable even where the window is a sliver on the time axis. */
-        budgetMeter(gGut, cy, w, ws, meta.color, groupOpacity);
+        budgetMeter(gGut, cy, w, ws, meta.color, groupOpacity, stt);
 
         var resets = parseT(w.resets_at);
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
         if (!resets || durMs <= 0) {
+          g.setAttribute("aria-label", laneAria(a, w, ws, stt));
+          g.setAttribute("data-tip", laneTip(a, w, ws, stt, false));
           svgText(gBars, GUT + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
           return;
         }
 
         var x0 = X(resets.getTime() - durMs), x1 = X(resets.getTime());
         var bx0 = Math.max(x0, GUT), bx1 = Math.max(Math.min(x1, GUT + plotW), bx0 + 8);
-        if (bx1 <= bx0) return;
+        var clipped = x0 < GUT - 0.5;
+        g.setAttribute("aria-label", laneAria(a, w, ws, stt));
+        g.setAttribute("data-tip", laneTip(a, w, ws, stt, clipped));
 
         var barH = 13, by = cy - barH / 2;
 
@@ -1066,19 +1202,29 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
         }, g);
         svg("rect", { x: bx0, y: by, width: bx1 - bx0, height: barH, rx: 3, fill: "var(--track)" }, g);
 
-        var fillX = x0 + (x1 - x0) * clamp(w.utilization, 0, 1);
-        var fx1 = Math.min(fillX, bx1);
+        /* Fill and target are measured against the track as drawn, not against
+           the window's true span: the track has a floor and a clamp, and a
+           fraction of the untruncated span lands somewhere else inside it. */
+        var track = bx1 - bx0;
+        var fx1 = bx0 + track * clamp(w.utilization, 0, 1);
         if (fx1 > bx0) {
-          var rounded = fillX <= bx1 + 0.5;
-          svg("path", {
-            d: roundedRight(bx0, by, fx1 - bx0, barH, rounded ? 3 : 0),
-            fill: meta.color
-          }, g);
+          svg("path", { d: roundedRight(bx0, by, fx1 - bx0, barH, 3), fill: meta.color }, g);
         }
         if (stt === "blocked") {
           svg("rect", {
-            x: bx0, y: by, width: Math.min(fx1, bx1) - bx0, height: barH, rx: 3,
+            x: bx0, y: by, width: fx1 - bx0, height: barH, rx: 3,
             fill: "url(#hatch)"
+          }, g);
+        }
+        if (clipped) {
+          /* A torn left edge: this bar begins before the axis does. */
+          svg("path", {
+            d: "M" + (bx0 + 3.5) + " " + by +
+               "L" + bx0 + " " + (by + barH * 0.3) +
+               "L" + (bx0 + 3.5) + " " + (by + barH * 0.5) +
+               "L" + bx0 + " " + (by + barH * 0.7) +
+               "L" + (bx0 + 3.5) + " " + (by + barH),
+            fill: "none", stroke: "var(--surface-1)", "stroke-width": 2, "stroke-linejoin": "round"
           }, g);
         }
         if (w.utilization > 1) {
@@ -1088,17 +1234,16 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
           }, g);
         }
         /* The pace target rides the same axis as the fill: it marks where the
-           fill should reach right now. */
-        if (ws && num(ws.target)) {
-          var tx = x0 + (x1 - x0) * clamp(ws.target, 0, 1);
-          if (tx >= bx0 - 0.5 && tx <= bx1 + 0.5) {
-            svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
-            svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
-            svg("path", {
-              d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
-              fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
-            }, g);
-          }
+           fill should reach right now. A window the scorer never evaluated has
+           no target to mark. */
+        if (stt !== "unknown" && ws && num(ws.target)) {
+          var tx = bx0 + track * clamp(ws.target, 0, 1);
+          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
+          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
+          svg("path", {
+            d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
+            fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
+          }, g);
         }
       });
     });
@@ -1120,7 +1265,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
   }
 
-  function budgetMeter(parent, cy, w, ws, color, opacity) {
+  function budgetMeter(parent, cy, w, ws, color, opacity, stt) {
     var y = cy - MET_H / 2;
     svg("rect", { x: MET_X, y: y, width: MET_W, height: MET_H, rx: MET_H / 2,
       fill: "var(--track)", opacity: opacity }, parent);
@@ -1128,7 +1273,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     if (fw > 0.5) {
       svg("path", { d: roundedRight(MET_X, y, fw, MET_H, MET_H / 2), fill: color, opacity: opacity }, parent);
     }
-    if (ws && num(ws.target)) {
+    if (stt !== "unknown" && ws && num(ws.target)) {
       var tx = MET_X + MET_W * clamp(ws.target, 0, 1);
       svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
@@ -1175,9 +1320,11 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
     var Y = function (u) { return m.t + ph - clamp(u, 0, maxY) / maxY * ph; };
 
+    /* A group, not an image: the plotted points below are their own focusable
+       stops, and a leaf role prunes them from the accessibility tree. */
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
-      role: "img",
+      role: "group",
       "aria-label": "Target utilization against elapsed window time, with every counted window plotted"
     }, host);
 
@@ -1216,6 +1363,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
         plotted++;
         var cx = X(ws.elapsed), cy = Y(ws.utilization);
         var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+        g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
         g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
           ", elapsed " + pct(ws.elapsed) + ", utilization " + pct(ws.utilization) +
           ", slack " + signed(ws.slack));
@@ -1317,12 +1465,20 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     "declined":     { tone: "muted", glyph: "–", label: "declined" }
   };
 
+  /* A decision's identity across polls. The row stays open across a refresh
+     only if the same decision comes back. */
+  function decKey(dec) {
+    return (dec.at || "") + "|" + (dec.session_key || "") + "|" + (dec.kind || "");
+  }
+
   function renderDecisions(st) {
+    if (!regionChanged("decisions", [st.decisions, seatNames(st)])) return;
     var host = $("decisions");
     host.textContent = "";
-    var list = (st.decisions || []).slice().sort(function (a, b) {
+    var all = (st.decisions || []).slice().sort(function (a, b) {
       return (parseT(b.at) || 0) - (parseT(a.at) || 0);
-    }).slice(0, MAX_DECISIONS);
+    });
+    var list = all.slice(0, MAX_DECISIONS);
 
     if (!list.length) {
       var e = h("p", "");
@@ -1340,9 +1496,20 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       return byID[id] ? seatLabel(byID[id]) : id;
     }
 
+    /* Rebuilt from the rows that came back, so a key cannot outlive the
+       decision it names. */
+    var open = Object.create(null);
+
     list.forEach(function (dec) {
       var det = h("details", "dec");
+      var key = decKey(dec);
+      det.addEventListener("toggle", function () {
+        if (det.open) state.openDecisions[key] = true;
+        else delete state.openDecisions[key];
+      });
+      if (state.openDecisions[key]) { det.open = true; open[key] = true; }
       var sum = h("summary", "");
+      sum.setAttribute("data-fk", "dec:" + key);
 
       var caret = h("span", "caret", "›");
       caret.setAttribute("aria-hidden", "true");
@@ -1381,6 +1548,12 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       det.appendChild(decisionBody(dec, name));
       host.appendChild(det);
     });
+    state.openDecisions = open;
+
+    if (all.length > list.length) {
+      host.appendChild(h("p", "log-note",
+        "showing " + list.length + " of " + all.length + " decisions the plugin retains"));
+    }
   }
 
   function decisionBody(dec, name) {
@@ -1419,9 +1592,10 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       } else {
         td0.textContent = name(s.auth_id) || "—";
       }
+      var scored = !!(s.windows && s.windows.length);
       tr.appendChild(td0);
-      tr.appendChild(h("td", "n mono", signed(s.total)));
-      tr.appendChild(h("td", "n mono", num(s.raw_penalty) ? "−" + s.raw_penalty.toFixed(3) : "—"));
+      tr.appendChild(h("td", "n mono", totalText(s)));
+      tr.appendChild(h("td", "n mono", scored && num(s.raw_penalty) ? "−" + s.raw_penalty.toFixed(3) : "—"));
 
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
@@ -1462,6 +1636,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   ];
 
   function renderBindings(st) {
+    if (!regionChanged("bindings", [st.bindings, state.sort, seatNames(st)])) return;
     var host = $("bindings");
     host.textContent = "";
     var rows = (st.bindings || []).slice();
@@ -1490,8 +1665,15 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       return String(x).localeCompare(String(y)) * dir;
     });
 
+    /* The store holds one entry per live conversation, which runs to
+       thousands; the page renders the head of the sort and says so. */
+    var total = rows.length;
+    if (total > MAX_BINDINGS) rows = rows.slice(0, MAX_BINDINGS);
+
     var tbl = h("table", "");
-    tbl.appendChild(h("caption", "", rows.length + " bound conversation" + (rows.length === 1 ? "" : "s")));
+    tbl.appendChild(h("caption", "", rows.length < total
+      ? "showing " + rows.length + " of " + total + " bound conversations"
+      : total + " bound conversation" + (total === 1 ? "" : "s")));
     var thead = h("thead", "");
     var hr = h("tr", "");
     BIND_COLS.forEach(function (c) {
@@ -1499,6 +1681,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       if (key === c.key) th.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
       var btn = h("button", "", "");
       btn.type = "button";
+      btn.setAttribute("data-fk", "sort:" + c.key);
       btn.appendChild(document.createTextNode(c.label));
       var gl = h("span", "sort-glyph", key === c.key ? (dir > 0 ? "▲" : "▼") : "↕");
       gl.setAttribute("aria-hidden", "true");
@@ -1506,7 +1689,9 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
       btn.addEventListener("click", function () {
         if (state.sort.key === c.key) state.sort.dir = -state.sort.dir;
         else state.sort = { key: c.key, dir: c.key === "session_key" || c.key === "model" ? 1 : -1 };
+        var focused = captureFocus();
         renderBindings(state.data);
+        restoreFocus(focused);
       });
       th.appendChild(btn);
       hr.appendChild(th);
@@ -1566,14 +1751,12 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     }
   }
 
-  function renderWarnings(st, ranked) {
+  /* Every warning comes from the plugin: only it sees what the host offered,
+     how the credential listing went, and whether a poll is failing. */
+  function renderWarnings(st) {
     var host = $("warnings");
     host.textContent = "";
     var msgs = (st.warnings || []).slice();
-    if (ranked.length === 1) {
-      msgs.push("Only one credential is in the pool. With a single candidate there is " +
-        "nothing to spread across, so every pick is forced and the pace scoring has no effect.");
-    }
     if (!msgs.length) { host.hidden = true; return; }
     host.hidden = false;
     var box = h("div", "banner");
@@ -1606,22 +1789,75 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     }
   }
 
+  /* Rebuilding a region destroys whatever the operator had focused, so a
+     region whose payload is unchanged keeps its DOM. */
+  function regionChanged(name, payload) {
+    var s;
+    try { s = JSON.stringify(payload); } catch (e) { s = null; }
+    if (s !== null && s === state.sigs[name]) return false;
+    state.sigs[name] = s;
+    return true;
+  }
+
+  /* The seat names a region renders alongside its own payload. */
+  function seatNames(st) {
+    return (st.auths || []).map(function (a) { return a.auth_id + "\u0000" + seatLabel(a); });
+  }
+
+  /* Focus survives a rebuild by key rather than by node: every generated stop
+     carries the same data-fk across renders. */
+  function captureFocus() {
+    var el = document.activeElement;
+    return el && el.getAttribute ? el.getAttribute("data-fk") : null;
+  }
+
+  function restoreFocus(key) {
+    if (!key || document.activeElement !== document.body) return;
+    var nodes = document.querySelectorAll("[data-fk]");
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].getAttribute("data-fk") !== key) continue;
+      if (typeof nodes[i].focus !== "function") return;
+      try { nodes[i].focus({ preventScroll: true }); } catch (e) { nodes[i].focus(); }
+      return;
+    }
+  }
+
+  /* The index counts the sections actually on screen: with no credentials the
+     first three are absent, and a routing log numbered 04 would read as three
+     sections that failed to render. */
+  function renumberSections() {
+    var secs = $("app").querySelectorAll("section");
+    var n = 0;
+    for (var i = 0; i < secs.length; i++) {
+      var idx = secs[i].querySelector(".sec-idx");
+      if (!idx) continue;
+      if (secs[i].hidden) { idx.textContent = ""; continue; }
+      n++;
+      idx.textContent = (n < 10 ? "0" : "") + n;
+    }
+  }
+
   function render() {
     var st = state.data;
     if (!st) return;
     var ranked = rankAuths(st.auths);
+    var focused = captureFocus();
+    hideTip();
 
     $("loading").hidden = true;
+    $("fail-state").hidden = true;
+    $("app").removeAttribute("aria-busy");
     renderHeader(st, ranked);
-    renderWarnings(st, ranked);
+    renderWarnings(st);
     renderModels(st);
 
     var empty = !ranked.length;
     $("empty-state").hidden = !empty;
-    $("app").hidden = false;
     $("sec-seats").hidden = empty;
     $("sec-timeline").hidden = empty;
     $("sec-pace").hidden = empty;
+    $("sec-decisions").hidden = false;
+    $("sec-bindings").hidden = false;
 
     if (!empty) {
       renderSeats(st, ranked);
@@ -1630,6 +1866,18 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     }
     renderDecisions(st);
     renderBindings(st);
+    renumberSections();
+    restoreFocus(focused);
+  }
+
+  /* With nothing ever fetched there is no content to fall back on, so the
+     skeleton gives way to the reason. */
+  function renderFailure() {
+    if (state.data) return;
+    $("loading").hidden = true;
+    $("app").removeAttribute("aria-busy");
+    $("fail-detail").textContent = state.error ? "The last attempt reported: " + state.error + "." : "";
+    $("fail-state").hidden = false;
   }
 
   function setError(err) {
@@ -1661,30 +1909,68 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     return "api/status" + (state.model ? "?model=" + encodeURIComponent(state.model) : "");
   }
 
-  function refresh() {
-    if (state.inFlight) return;
+  var inFlightCtl = null, fetchTimer = null, staleTimer = null, generation = 0;
+
+  function endFetch() {
+    if (fetchTimer) { window.clearTimeout(fetchTimer); fetchTimer = null; }
+    if (staleTimer) { window.clearTimeout(staleTimer); staleTimer = null; }
+    inFlightCtl = null;
+    state.inFlight = false;
+    $("app").removeAttribute("data-stale");
+  }
+
+  /* Every request is bounded and cancellable. A request that never settles
+     would otherwise hold the in-flight flag for good, freezing the page —
+     including the Pause button's own refresh — behind a live green dot.
+     A user-initiated refresh supersedes whatever is running, so a new model
+     takes effect at once; the superseded handlers see a stale generation and
+     leave the state alone. */
+  function refresh(userInitiated) {
+    if (state.inFlight) {
+      if (!userInitiated) return;
+      inFlightCtl.abort();
+      endFetch();
+    }
+    var gen = ++generation;
+    var ctl = new AbortController();
+    inFlightCtl = ctl;
     state.inFlight = true;
-    if (state.data) $("app").setAttribute("data-stale", "true");
+    if (state.data) {
+      staleTimer = window.setTimeout(function () {
+        $("app").setAttribute("data-stale", "true");
+      }, STALE_DIM_MS);
+    } else {
+      $("app").setAttribute("aria-busy", "true");
+    }
+    fetchTimer = window.setTimeout(function () { ctl.abort(); }, FETCH_TIMEOUT_MS);
     setLive();
 
-    fetch(statusURL(), { headers: { "Accept": "application/json" }, cache: "no-store" })
+    fetch(statusURL(), {
+      headers: { "Accept": "application/json" }, cache: "no-store", signal: ctl.signal
+    })
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
       })
       .then(function (data) {
+        if (gen !== generation) return;
         state.data = data;
-        state.fetchedAt = new Date();
+        var served = parseT(data && data.now);
+        state.skew = served ? Date.now() - served.getTime() : 0;
+        state.fetchedAt = new Date(nowMs());
         setError(null);
         render();
       })
       .catch(function (e) {
-        setError(String(e && e.message ? e.message : e));
-        $("loading").hidden = !!state.data;
+        if (gen !== generation) return;
+        setError(e && e.name === "AbortError"
+          ? "no response within " + Math.round(FETCH_TIMEOUT_MS / 1000) + "s"
+          : String(e && e.message ? e.message : e));
+        renderFailure();
       })
       .then(function () {
-        state.inFlight = false;
-        $("app").removeAttribute("data-stale");
+        if (gen !== generation) return;
+        endFetch();
         setLive();
       });
   }
@@ -1694,10 +1980,10 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
   var input = $("model-input");
   input.addEventListener("change", function () {
     state.model = input.value.trim();
-    refresh();
+    refresh(true);
   });
   input.addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter") { state.model = input.value.trim(); refresh(); }
+    if (ev.key === "Enter") { state.model = input.value.trim(); refresh(true); }
   });
 
   var toggle = $("refresh-toggle");
@@ -1706,7 +1992,7 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     toggle.setAttribute("aria-pressed", state.paused ? "true" : "false");
     toggle.textContent = state.paused ? "Resume auto-refresh" : "Pause auto-refresh";
     setLive();
-    if (!state.paused) refresh();
+    if (!state.paused) refresh(true);
   });
 
   var themeBtn = $("theme-toggle");
@@ -1737,10 +2023,10 @@ main[data-stale="true"] { opacity: .62; transition: opacity .18s ease; }
     resizeTimer = window.setTimeout(function () { if (state.data) render(); }, 160);
   });
 
-  window.setInterval(function () { if (!state.paused) refresh(); }, REFRESH_MS);
+  window.setInterval(function () { if (!state.paused) refresh(false); }, REFRESH_MS);
   window.setInterval(function () { tickStamps(); setLive(); }, 1000);
 
-  refresh();
+  refresh(false);
 })();
 </script>
 </body>
