@@ -14,7 +14,7 @@ func TestStatusFillsEveryField(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.registerManagement(t)
 	pollFixture(t, tp)
-	if err := tp.Refresh(context.Background()); err != nil {
+	if err := tp.refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	tp.pick(t, pickRequest(fableModel, "k1", "claude-a.json", "claude-b.json"))
@@ -98,8 +98,8 @@ func TestStatusFillsEveryField(t *testing.T) {
 func TestStatusBeforeAnyTrafficIsComplete(t *testing.T) {
 	tp := newTestPlugin(t, "enabled: false\n")
 	status := tp.Status(testNow, "")
-	if status.Model != DefaultStatusModel {
-		t.Errorf("Model = %q, want %q", status.Model, DefaultStatusModel)
+	if status.Model != defaultStatusModel {
+		t.Errorf("Model = %q, want %q", status.Model, defaultStatusModel)
 	}
 	if status.Auths == nil || status.Bindings == nil || status.Decisions == nil || status.Warnings == nil {
 		t.Errorf("nil slices in %+v", status)
