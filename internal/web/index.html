@@ -299,6 +299,8 @@ section { margin-top: 42px; }
   background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--surface-1) 3px 5px);
 }
 .mm-tick { position: absolute; top: -3px; bottom: -3px; width: 1.5px; margin-left: -.75px; background: var(--ink-1); box-shadow: 0 0 0 1.5px var(--surface-1); }
+/* The gate a limit window is held to: dashed, so it never reads as a pace tick. */
+.mm-cut { position: absolute; top: -3px; bottom: -3px; width: 0; margin-left: -.75px; border-left: 1.5px dashed var(--critical); }
 .mm-over { color: var(--ink-3); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0 0 14px; }
 .kv dt { font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
@@ -508,7 +510,7 @@ main[data-stale="true"] { opacity: .62; }
       <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
       <span class="stamp" id="last-updated">never</span>
     </div>
-    <button type="button" id="refresh-toggle" aria-pressed="false">Pause auto-refresh</button>
+    <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
     <button type="button" id="density-toggle">Density: auto</button>
     <button type="button" id="theme-toggle">Theme: auto</button>
   </div>
@@ -529,22 +531,22 @@ main[data-stale="true"] { opacity: .62; }
     </div>
 
     <div id="fail-state" class="card empty" hidden style="margin-top:42px">
-      <p><strong>The status endpoint is not answering.</strong>
+      <p><strong>No answer from the status endpoint.</strong>
       <span id="fail-detail"></span>
-      The page keeps retrying; nothing here is stale data, because none arrived.</p>
+      Retrying. No data has arrived yet, so there is nothing stale to show.</p>
     </div>
 
     <div id="empty-state" class="card empty" hidden style="margin-top:42px">
       <p><strong>No credentials reported yet.</strong>
-      The quota poller has not published a snapshot. Until it does, the scheduler
-      declines every pick and the host&rsquo;s own selector routes the traffic.</p>
+      The poller has not published a snapshot. Until it does the scheduler
+      declines every pick and the host&rsquo;s own selector routes traffic.</p>
     </div>
 
     <section id="sec-seats" hidden>
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub" id="seats-sub">one credential each, ranked by weighted pace slack &mdash; eligible first</span>
+        <span class="sec-sub" id="seats-sub">one per credential; eligible first, then by score</span>
         <span class="sec-line"></span>
       </div>
       <div id="seats" class="seats"></div>
@@ -554,14 +556,15 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Quota timeline</h2>
-        <span class="sec-sub">each bar is a quota window on a shared time axis; the meter by its name is budget spent, the tick where pace says it should be</span>
+        <span class="sec-sub">one bar per quota window on one time axis; the meter is utilization, the tick its pace target</span>
         <span class="sec-line"></span>
-        <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Show every seat in full</button></span>
+        <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Unfold every seat</button></span>
       </div>
       <!-- The lane states come from STATE_META at render time; only the two
            axis markers, which no script draws, are markup. -->
       <ul class="legend" id="timeline-legend">
         <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
+        <li data-axis-marker><span class="gl" style="color:var(--critical)">&#9478;</span> hard cutoff</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
       <div class="card tl-card"><div id="timeline"></div><p class="tl-note" id="timeline-note" hidden></p></div>
@@ -571,7 +574,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Pace curve</h2>
-        <span class="sec-sub">every window the score counts, plotted against the target curve for this model</span>
+        <span class="sec-sub">weighted windows against the target curve for this model</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-grid">
@@ -584,7 +587,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Routing log</h2>
-        <span class="sec-sub">newest first &mdash; open a row for the candidate scores</span>
+        <span class="sec-sub">newest first; open a row for its candidate scores</span>
         <span class="sec-line"></span>
       </div>
       <div class="card log" id="decisions"></div>
@@ -805,16 +808,29 @@ main[data-stale="true"] { opacity: .62; }
     return null;
   }
 
-  /* A window counts when the scorer gave it a weight: only a window bearing on
-     the requested model, with an open period, reaches the curve, and only
-     those gate the credential. A scoped cap for another family, or any window
-     of a snapshot the plugin declined to evaluate, has no pace verdict. */
+  /* A window is paced when the scorer gave it a weight: only a window bearing
+     on the requested model, with an open period, reaches the curve. */
   function counted(ws) { return !!ws && num(ws.slack) && ws.weight > 0; }
+
+  /* The session and all-models weekly windows bear on every model, so a score
+     entry for one of them at weight zero is a window the scorer read and
+     gates on without pacing. A scoped window at weight zero is a cap for
+     another family, and a snapshot with no breakdown was never evaluated;
+     neither has a verdict. */
+  function gatedOnly(w, ws) {
+    return !!ws && !(ws.weight > 0) && (w.kind === "five_hour" || w.kind === "seven_day");
+  }
+
+  function cutoffOf(cfg) {
+    var cut = cfg && cfg.pace ? cfg.pace.hard_cutoff : 0;
+    return num(cut) && cut > 0 ? cut : null;
+  }
 
   var STATE_META = {
     under:   { color: "var(--good)",     glyph: "▼", label: "under target" },
     on:      { color: "var(--info)",     glyph: "●", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "▲", label: "over target" },
+    limit:   { color: "var(--ink-1)",    glyph: "○", label: "gated, not paced" },
     blocked: { color: "var(--critical)", glyph: "✕", label: "blocked / hard cutoff" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not evaluated" }
   };
@@ -823,9 +839,11 @@ main[data-stale="true"] { opacity: .62; }
     /* A provider rejection is a reading rather than an evaluation, so it
        stands even where the scorer produced nothing. */
     if (w.status === "rejected" || w.severity === "critical") return "blocked";
-    if (!counted(ws)) return "unknown";
-    var cut = cfg && cfg.pace ? cfg.pace.hard_cutoff : 0;
-    if (num(cut) && cut > 0 && num(w.utilization) && w.utilization >= cut) return "blocked";
+    var paced = counted(ws), gated = gatedOnly(w, ws);
+    if (!paced && !gated) return "unknown";
+    var cut = cutoffOf(cfg);
+    if (cut !== null && num(w.utilization) && w.utilization >= cut) return "blocked";
+    if (!paced) return "limit";
     if (ws.slack > PACE_BAND) return "under";
     if (ws.slack < -PACE_BAND) return "over";
     return "on";
@@ -1027,8 +1045,8 @@ main[data-stale="true"] { opacity: .62; }
     host.textContent = "";
     var tabular = dense(ranked.length);
     $("seats-sub").textContent = tabular
-      ? "one row per credential, ranked by weighted pace slack — eligible first; each meter is budget spent, the tick where pace says it should be"
-      : "one card per credential, ranked by weighted pace slack — eligible first";
+      ? "one row per credential; eligible first, then by score. meter is utilization, tick is pace target, dashed mark is the hard cutoff"
+      : "one card per credential; eligible first, then by score";
     if (tabular) renderSeatTable(st, ranked, host);
     else renderSeatCards(st, ranked, host);
   }
@@ -1165,8 +1183,8 @@ main[data-stale="true"] { opacity: .62; }
     m.tabIndex = 0;
     m.setAttribute("role", "img");
     m.setAttribute("data-fk", "mm:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
-    m.setAttribute("data-tip", laneTip(a, w, ws, stt, false));
-    m.setAttribute("aria-label", laneAria(a, w, ws, stt));
+    m.setAttribute("data-tip", laneTip(a, w, ws, stt, cfg, false));
+    m.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
     var gl = h("span", "mm-glyph", meta.glyph);
     gl.style.color = meta.color;
     gl.setAttribute("aria-hidden", "true");
@@ -1181,7 +1199,11 @@ main[data-stale="true"] { opacity: .62; }
       if (stt === "blocked") fill.setAttribute("data-blocked", "true");
       track.appendChild(fill);
     }
-    if (stt !== "unknown" && ws && num(ws.target)) {
+    if (stt === "limit" && cutoffOf(cfg) !== null) {
+      var cutMark = h("span", "mm-cut");
+      cutMark.style.left = (clamp(cutoffOf(cfg), 0, 1) * 100).toFixed(1) + "%";
+      track.appendChild(cutMark);
+    } else if (counted(ws) && stt !== "unknown" && num(ws.target)) {
       var tick = h("span", "mm-tick");
       tick.style.left = (clamp(ws.target, 0, 1) * 100).toFixed(1) + "%";
       track.appendChild(tick);
@@ -1267,18 +1289,23 @@ main[data-stale="true"] { opacity: .62; }
     host.appendChild(tbl);
   }
 
-  function laneTip(a, w, ws, stt, clipped) {
+  /* A paced window reports its target and slack; a gated one its cutoff; an
+     unevaluated one only what the provider reported. */
+  function laneTip(a, w, ws, stt, cfg, clipped) {
     var now = nowMs();
     var resets = parseT(w.resets_at);
+    var paced = counted(ws), gated = gatedOnly(w, ws), cut = cutoffOf(cfg);
     var lines = [
       seatLabel(a) + " · " + windowName(w),
       STATE_META[stt].label,
-      stt === "unknown" ? "this window carries no weight in the score" : null,
+      stt === "unknown" ? "not scored for this model" : null,
+      gated && w.kind === "five_hour" ? "a rate limit that resets several times a day; no pace to keep" : null,
       "utilization  " + pct(w.utilization),
-      ws ? "pace target  " + pct(ws.target) : null,
-      ws ? "slack        " + signed(ws.slack) : null,
-      ws ? "weight       " + (num(ws.weight) ? ws.weight.toFixed(2) : "—") : null,
-      ws ? "elapsed      " + pct(ws.elapsed) : null,
+      gated && cut !== null ? "hard cutoff  " + pct(cut) : null,
+      paced ? "pace target  " + pct(ws.target) : null,
+      paced ? "slack        " + signed(ws.slack) : null,
+      paced ? "weight       " + ws.weight.toFixed(2) : null,
+      paced ? "elapsed      " + pct(ws.elapsed) : null,
       resets ? "resets       " + relText(resets, now) + " · " + absTime(resets) : null,
       w.status ? "status       " + w.status : null,
       w.severity ? "severity     " + w.severity : null,
@@ -1288,10 +1315,12 @@ main[data-stale="true"] { opacity: .62; }
     return lines.filter(Boolean).join("\n");
   }
 
-  function laneAria(a, w, ws, stt) {
+  function laneAria(a, w, ws, stt, cfg) {
+    var cut = cutoffOf(cfg);
     return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
       ", utilization " + pct(w.utilization) +
-      (counted(ws) ? ", target " + pct(ws.target) + ", slack " + signed(ws.slack) : "");
+      (counted(ws) ? ", target " + pct(ws.target) + ", slack " + signed(ws.slack) : "") +
+      (gatedOnly(w, ws) && cut !== null ? ", hard cutoff " + pct(cut) : "");
   }
 
   /* ------------------------------------------------------------ timeline */
@@ -1395,11 +1424,11 @@ main[data-stale="true"] { opacity: .62; }
     if (compact) {
       toggle.hidden = false;
       toggle.setAttribute("aria-pressed", state.timelineAll ? "true" : "false");
-      toggle.textContent = state.timelineAll ? "Fold ineligible seats" : "Show every seat in full";
+      toggle.textContent = state.timelineAll ? "Fold ineligible seats" : "Unfold every seat";
       note.hidden = false;
       note.textContent = folded
-        ? folded + " of " + ranked.length + " seats folded to a row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
-          ". Their windows are in the seat table above."
+        ? folded + " of " + ranked.length + " seats folded to one row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
+          ". The seat table above has their windows."
         : ranked.length + " seats, every window drawn.";
     }
 
@@ -1407,7 +1436,7 @@ main[data-stale="true"] { opacity: .62; }
       "class": "tl", width: width, height: height,
       viewBox: "0 0 " + width + " " + height,
       role: "group",
-      "aria-label": "Quota windows for every seat on a shared time axis"
+      "aria-label": "Quota windows of every seat on one time axis"
     }, host);
 
     var gGrid = svg("g", {}, root);
@@ -1480,8 +1509,8 @@ main[data-stale="true"] { opacity: .62; }
           var ws = scoreFor(a, w), stt = laneState(w, ws, cfg), meta = STATE_META[stt];
           var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: .8 }, gBars);
           g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
-          g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-          g.setAttribute("data-tip", laneTip(a, w, ws, stt, false));
+          g.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
+          g.setAttribute("data-tip", laneTip(a, w, ws, stt, cfg, false));
           var t = svgText(g, gx0, headY, meta.glyph + " " + windowShort(w) + " " + pct(w.utilization, 0),
             "t-mono t-sec", { "font-size": 10.5 });
           svg("rect", { "class": "hit", x: gx0 - 4, y: row.top, width: t.getComputedTextLength() + 8, height: geo.head, rx: 4, fill: "transparent" }, g);
@@ -1512,13 +1541,13 @@ main[data-stale="true"] { opacity: .62; }
           { "font-size": 11.5, "text-anchor": "end", opacity: groupOpacity });
         /* The budget meter is a fixed width, so utilization and its target
            stay readable even where the window is a sliver on the time axis. */
-        budgetMeter(gGut, cy, w, ws, meta.color, groupOpacity, stt);
+        budgetMeter(gGut, cy, w, ws, meta.color, groupOpacity, stt, cutoffOf(cfg));
 
         var resets = parseT(w.resets_at);
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
         if (!resets || durMs <= 0) {
-          g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-          g.setAttribute("data-tip", laneTip(a, w, ws, stt, false));
+          g.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
+          g.setAttribute("data-tip", laneTip(a, w, ws, stt, cfg, false));
           svgText(gBars, GUT + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
           return;
         }
@@ -1526,8 +1555,8 @@ main[data-stale="true"] { opacity: .62; }
         var x0 = X(resets.getTime() - durMs), x1 = X(resets.getTime());
         var bx0 = Math.max(x0, GUT), bx1 = Math.max(Math.min(x1, GUT + plotW), bx0 + 8);
         var clipped = x0 < GUT - 0.5;
-        g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-        g.setAttribute("data-tip", laneTip(a, w, ws, stt, clipped));
+        g.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
+        g.setAttribute("data-tip", laneTip(a, w, ws, stt, cfg, clipped));
 
         var barH = compact ? 11 : 13, by = cy - barH / 2;
 
@@ -1569,9 +1598,14 @@ main[data-stale="true"] { opacity: .62; }
           }, g);
         }
         /* The pace target rides the same axis as the fill: it marks where the
-           fill should reach right now. A window the scorer never evaluated has
-           no target to mark. */
-        if (stt !== "unknown" && ws && num(ws.target)) {
+           fill should reach right now. A gated window has no target; it carries
+           the cutoff it is held to instead. */
+        var cut = cutoffOf(cfg);
+        if (stt === "limit" && cut !== null) {
+          var cx = bx0 + track * clamp(cut, 0, 1);
+          svg("line", { x1: cx, x2: cx, y1: by - 3, y2: by + barH + 3, stroke: "var(--critical)",
+            "stroke-width": 1.5, "stroke-dasharray": "2 2" }, g);
+        } else if (counted(ws) && stt !== "unknown" && num(ws.target)) {
           var tx = bx0 + track * clamp(ws.target, 0, 1);
           svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
           svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
@@ -1600,7 +1634,7 @@ main[data-stale="true"] { opacity: .62; }
     svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
   }
 
-  function budgetMeter(parent, cy, w, ws, color, opacity, stt) {
+  function budgetMeter(parent, cy, w, ws, color, opacity, stt, cut) {
     var y = cy - MET_H / 2;
     svg("rect", { x: MET_X, y: y, width: MET_W, height: MET_H, rx: MET_H / 2,
       fill: "var(--track)", opacity: opacity }, parent);
@@ -1608,7 +1642,11 @@ main[data-stale="true"] { opacity: .62; }
     if (fw > 0.5) {
       svg("path", { d: roundedRight(MET_X, y, fw, MET_H, MET_H / 2), fill: color, opacity: opacity }, parent);
     }
-    if (stt !== "unknown" && ws && num(ws.target)) {
+    if (stt === "limit" && cut !== null) {
+      var cx = MET_X + MET_W * clamp(cut, 0, 1);
+      svg("line", { x1: cx, x2: cx, y1: y - 3, y2: y + MET_H + 3, stroke: "var(--critical)",
+        "stroke-width": 1.5, "stroke-dasharray": "2 2", opacity: opacity }, parent);
+    } else if (counted(ws) && stt !== "unknown" && num(ws.target)) {
       var tx = MET_X + MET_W * clamp(ws.target, 0, 1);
       svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
@@ -1633,6 +1671,8 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* ----------------------------------------------------------- pace curve */
+
+  var PT_SHAPES = { five_hour: "circle", seven_day: "square", weekly_scoped: "triangle" };
 
   function renderPace(st, ranked) {
     var host = $("pace-curve");
@@ -1660,7 +1700,7 @@ main[data-stale="true"] { opacity: .62; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Target utilization against elapsed window time, with every counted window plotted"
+      "aria-label": "Target utilization by elapsed time, with each weighted window plotted"
     }, host);
 
     var ticks = [0, 0.25, 0.5, 0.75, 1];
@@ -1673,7 +1713,7 @@ main[data-stale="true"] { opacity: .62; }
     });
     svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0), y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
     svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
-    svgText(root, m.l + pw / 2, H - 8, "elapsed through the window", "t-muted",
+    svgText(root, m.l + pw / 2, H - 8, "elapsed", "t-muted",
       { "font-size": 10.5, "text-anchor": "middle" });
     svgText(root, m.l - 38, m.t - 6, "utilization", "t-muted", { "font-size": 10.5 });
 
@@ -1689,13 +1729,13 @@ main[data-stale="true"] { opacity: .62; }
     svgText(root, X(1) - 4, Y(landing) - 10, "target", "t-muted",
       { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    var SHAPES = { five_hour: "circle", seven_day: "square", weekly_scoped: "triangle" };
-    var plotted = 0;
+    var plotted = 0, kinds = Object.create(null);
     ranked.forEach(function (a) {
       var col = seatColor(a);
       ((a.score && a.score.windows) || []).forEach(function (ws) {
         if (!(ws.weight > 0) || !num(ws.utilization) || !num(ws.elapsed)) return;
         plotted++;
+        kinds[ws.kind] = true;
         var cx = X(ws.elapsed), cy = Y(ws.utilization);
         var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
         g.setAttribute("data-seat", a.auth_id);
@@ -1710,16 +1750,16 @@ main[data-stale="true"] { opacity: .62; }
           "\nslack        " + signed(ws.slack) +
           "\nweight       " + ws.weight.toFixed(2));
         svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
-        mark(g, SHAPES[ws.kind] || "circle", cx, cy, col);
+        mark(g, PT_SHAPES[ws.kind] || "circle", cx, cy, col);
       });
     });
 
     if (!plotted) {
-      svgText(root, m.l + pw / 2, m.t + ph / 2, "no counted windows for this model",
+      svgText(root, m.l + pw / 2, m.t + ph / 2, "no weighted window for this model",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceNote(st, ranked, gamma, landing, root);
+    renderPaceNote(st, ranked, gamma, landing, root, kinds);
   }
 
   /* Pointing at a seat in the legend lifts its points out of the rest: with a
@@ -1748,19 +1788,23 @@ main[data-stale="true"] { opacity: .62; }
     }
   }
 
-  function renderPaceNote(st, ranked, gamma, landing, root) {
+  function renderPaceNote(st, ranked, gamma, landing, root, kinds) {
     var note = $("pace-note");
     note.textContent = "";
     note.appendChild(h("h3", "", "Reading this"));
 
+    var wts = (st.config && st.config.pace) || {};
     var p = h("p", "");
     p.style.marginTop = "0";
     p.appendChild(document.createTextNode("Target is "));
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
-    p.appendChild(document.createTextNode(" with landing at " + pct(landing, 0) +
-      ". A window below the curve has positive slack and pulls its seat up the ranking; " +
-      "the seat with the most weighted slack takes the next cold pick. " +
-      "Windows the scorer gave no weight for this model are not plotted."));
+    p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
+      ". Below the curve is positive slack. Score is weighted slack minus the raw " +
+      "utilization penalty; the eligible seat with the highest score takes the next cold pick. " +
+      "Only weighted windows are plotted." +
+      (wts.session_weight === 0
+        ? " The 5-hour window has no pace target. It is a rate limit that resets several times a day; it still gates a seat at the hard cutoff and feeds the raw penalty."
+        : "")));
     note.appendChild(p);
 
     var seatLeg = h("ul", "legend");
@@ -1782,19 +1826,21 @@ main[data-stale="true"] { opacity: .62; }
     });
     note.appendChild(seatLeg);
 
+    /* Only the kinds on the plot, so the legend never names a shape the chart
+       does not draw. */
     var shapeLeg = h("ul", "legend");
     shapeLeg.style.margin = "8px 0 0";
-    [["●", "5-hour session"], ["■", "7-day all models"], ["▲", "scoped weekly"]]
-      .forEach(function (pair) {
+    [["five_hour", "●", "5-hour session"], ["seven_day", "■", "7-day all models"], ["weekly_scoped", "▲", "scoped weekly"]]
+      .forEach(function (row) {
+        if (!kinds[row[0]]) return;
         var li = h("li", "");
-        var gl = h("span", "gl", pair[0]);
+        var gl = h("span", "gl", row[1]);
         li.appendChild(gl);
-        li.appendChild(document.createTextNode(pair[1]));
+        li.appendChild(document.createTextNode(row[2]));
         shapeLeg.appendChild(li);
       });
-    note.appendChild(shapeLeg);
+    if (shapeLeg.childNodes.length) note.appendChild(shapeLeg);
 
-    var wts = (st.config && st.config.pace) || {};
     var wl = h("dl", "kv");
     wl.style.marginTop = "16px";
     [["weekly", wts.weekly_weight], ["session", wts.session_weight],
@@ -1837,7 +1883,7 @@ main[data-stale="true"] { opacity: .62; }
       var e = h("p", "");
       e.style.padding = "20px 16px";
       e.style.color = "var(--ink-2)";
-      e.textContent = "No routing decisions recorded yet.";
+      e.textContent = "No routing decisions yet.";
       host.appendChild(e);
       return;
     }
@@ -1909,7 +1955,7 @@ main[data-stale="true"] { opacity: .62; }
 
     if (all.length > list.length) {
       host.appendChild(h("p", "log-note",
-        "showing " + list.length + " of " + all.length + " decisions the plugin retains"));
+        "showing " + list.length + " of " + all.length + " retained decisions"));
     }
   }
 
@@ -1919,7 +1965,7 @@ main[data-stale="true"] { opacity: .62; }
       var p = h("p", "");
       p.style.color = "var(--ink-2)";
       p.style.margin = "6px 0 0";
-      p.textContent = "No candidate scores were recorded for this decision.";
+      p.textContent = "No candidate scores recorded for this decision.";
       body.appendChild(p);
       return body;
     }
@@ -2003,7 +2049,7 @@ main[data-stale="true"] { opacity: .62; }
       var p = h("p", "");
       p.style.color = "var(--ink-2)";
       p.style.margin = "4px 0";
-      p.textContent = "No conversation is pinned to a seat right now.";
+      p.textContent = "No conversation is pinned to a seat.";
       host.appendChild(p);
       return;
     }
@@ -2238,7 +2284,7 @@ main[data-stale="true"] { opacity: .62; }
     if (state.data) return;
     $("loading").hidden = true;
     $("app").removeAttribute("aria-busy");
-    $("fail-detail").textContent = state.error ? "The last attempt reported: " + state.error + "." : "";
+    $("fail-detail").textContent = state.error ? "Last attempt: " + state.error + "." : "";
     $("fail-state").hidden = false;
   }
 
@@ -2252,7 +2298,7 @@ main[data-stale="true"] { opacity: .62; }
     strip.appendChild(head);
     var p = h("p", "");
     p.style.margin = "0";
-    p.textContent = err + (state.data ? " — showing the last good reading." : "");
+    p.textContent = err + (state.data ? "; showing the last good reading." : "");
     strip.appendChild(p);
   }
 
@@ -2352,7 +2398,7 @@ main[data-stale="true"] { opacity: .62; }
   toggle.addEventListener("click", function () {
     state.paused = !state.paused;
     toggle.setAttribute("aria-pressed", state.paused ? "true" : "false");
-    toggle.textContent = state.paused ? "Resume auto-refresh" : "Pause auto-refresh";
+    toggle.textContent = state.paused ? "Resume refresh" : "Pause refresh";
     setLive();
     if (!state.paused) refresh(true);
   });
