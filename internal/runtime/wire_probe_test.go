@@ -27,7 +27,8 @@ import (
 // fixture proxy that refuses every connection, and the credentials are
 // fabricated, so no provider is contacted and no real credential is used.
 //
-//	CPA_SOURCE_DIR=~/dev/.research-cpa/CLIProxyAPI go test ./internal/runtime -run HeaderBridge -v
+// WIRE.md carries the invocation, including the environment the host build
+// needs.
 func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
 	hostSource := strings.TrimSpace(os.Getenv("CPA_SOURCE_DIR"))
 	if hostSource == "" {
@@ -45,13 +46,9 @@ func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
 	)
 
 	// Every upstream dial lands here and is refused, so the request fails
-	// after auth selection instead of reaching a provider.
-	upstreamHits := make(chan string, 16)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case upstreamHits <- r.Method + " " + r.Host:
-		default:
-		}
+	// after auth selection instead of reaching a provider. It also answers the
+	// probe's host.http.do target, which is why the report asserts on 502.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "fixture proxy refuses upstream", http.StatusBadGateway)
 	}))
 	defer upstream.Close()
@@ -193,18 +190,27 @@ plugins:
 	for time.Now().Before(deadline) {
 		entries = readProbeState(t, statePath)
 		if countHook(entries, "scheduler.pick") > 0 {
+			// The pick that ended the wait may not be the last one the
+			// request produces, so the log settles before it is read whole.
+			time.Sleep(250 * time.Millisecond)
+			entries = readProbeState(t, statePath)
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	injected := ""
+	injected := map[string]string{}
 	for _, entry := range entries {
-		if entry["hook"] == "request.intercept_before" {
-			injected, _ = entry["marker"].(string)
+		if entry["hook"] != "request.intercept_before" {
+			continue
+		}
+		requestID, _ := entry["request_id"].(string)
+		marker, _ := entry["marker"].(string)
+		if requestID != "" && marker != "" {
+			injected[requestID] = marker
 		}
 	}
-	if injected == "" {
+	if len(injected) == 0 {
 		t.Fatalf("probe never ran request.intercept_before\nprobe state:\n%s\nserver log:\n%s", readFile(statePath), readFile(logPath))
 	}
 
@@ -214,10 +220,14 @@ plugins:
 			continue
 		}
 		picks++
+		// scheduler.pick carries no request id, so a pick is tied back to its
+		// own interceptor through the request id the marker embeds. A retry
+		// picks again for the same request, and two requests interleave.
 		seen, _ := entry["marker"].(string)
-		if seen != injected {
-			t.Fatalf("header bridge REFUTED: intercept_before injected %q, scheduler.pick saw %q\nheader keys at pick: %v\nprobe state:\n%s",
-				injected, seen, entry["header_keys"], readFile(statePath))
+		want, ok := injected[markerRequestID(seen)]
+		if !ok || seen != want {
+			t.Fatalf("header bridge REFUTED: scheduler.pick saw %q, injected markers by request %v\nheader keys at pick: %v\nprobe state:\n%s",
+				seen, injected, entry["header_keys"], readFile(statePath))
 		}
 	}
 	if picks == 0 {
@@ -233,8 +243,9 @@ plugins:
 	}
 	t.Logf("host.log lines:\n%s", strings.Join(hostLogLines, "\n"))
 
-	// The probe's management route exercises host.auth.list and host.auth.get
-	// and returns what they produced, so one call checks three shapes at once.
+	// The probe's management route exercises host.auth.list, host.auth.get and
+	// host.http.do and returns what they produced, so one call checks four
+	// shapes at once.
 	reportURL := baseURL + "/v0/management/probe/report?http_probe=" + url.QueryEscape(upstream.URL+"/probe")
 	report, err := http.NewRequest(http.MethodGet, reportURL, nil)
 	if err != nil {
@@ -250,12 +261,44 @@ plugins:
 		t.Fatalf("probe management route: status=%d body=%s\nserver log:\n%s", reportResponse.StatusCode, reportBody, readFile(logPath))
 	}
 	t.Logf("management.handle report:\n%s", reportBody)
-	if !bytes.Contains(reportBody, []byte(`"auth_list"`)) {
+
+	var observed struct {
+		AuthList      []map[string]string `json:"auth_list"`
+		AuthListError string              `json:"auth_list_error"`
+		AuthGet       struct {
+			AuthIndex  string   `json:"auth_index"`
+			JSONFields []string `json:"json_fields"`
+			Error      string   `json:"error"`
+		} `json:"auth_get"`
+		HTTPDo struct {
+			StatusCode int    `json:"status_code"`
+			Error      string `json:"error"`
+		} `json:"http_do"`
+	}
+	if err = json.Unmarshal(reportBody, &observed); err != nil {
+		t.Fatalf("decode probe report: %v\nbody: %s", err, reportBody)
+	}
+	if observed.AuthListError != "" || len(observed.AuthList) == 0 {
 		t.Errorf("host.auth.list produced no files: %s", reportBody)
 	}
-	if bytes.Contains(reportBody, []byte(`"auth_list_error"`)) {
-		t.Errorf("host.auth.list failed: %s", reportBody)
+	if observed.AuthGet.Error != "" || observed.AuthGet.AuthIndex == "" || len(observed.AuthGet.JSONFields) == 0 {
+		t.Errorf("host.auth.get returned no credential JSON: %s", reportBody)
 	}
+	// host.http.do reaches the fixture, which refuses everything with 502, so
+	// the status proves the round trip carried a real response back.
+	if observed.HTTPDo.Error != "" || observed.HTTPDo.StatusCode != http.StatusBadGateway {
+		t.Errorf("host.http.do did not round-trip: %s", reportBody)
+	}
+}
+
+// markerRequestID recovers the request id the probe embeds in a marker, which
+// it formats as probe-<n>-<request id>.
+func markerRequestID(marker string) string {
+	parts := strings.SplitN(marker, "-", 3)
+	if len(parts) != 3 {
+		return ""
+	}
+	return parts[2]
 }
 
 func grepLines(text, needle string) []string {
@@ -274,14 +317,20 @@ func readProbeState(t *testing.T, path string) []map[string]any {
 	if err != nil {
 		return nil
 	}
-	out := make([]map[string]any, 0, 8)
-	for _, line := range strings.Split(string(raw), "\n") {
+	lines := strings.Split(string(raw), "\n")
+	out := make([]map[string]any, 0, len(lines))
+	for index, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 		entry := map[string]any{}
 		if err = json.Unmarshal([]byte(line), &entry); err != nil {
+			// This runs while the probe is still appending, so the last line
+			// can be a half-written record. Any earlier one is a real defect.
+			if index == len(lines)-1 {
+				continue
+			}
 			t.Fatalf("probe wrote an unparsable state line %q: %v", line, err)
 		}
 		out = append(out, entry)

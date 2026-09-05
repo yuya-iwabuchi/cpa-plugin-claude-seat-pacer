@@ -2,13 +2,18 @@
 // sends on each hook, so the wire contract in internal/runtime/wire.go can be
 // checked against a running host rather than against the host's source alone.
 //
-// It declares request_interceptor and scheduler, injects a marker header in
-// request.intercept_before, and reports at scheduler.pick whether that marker
-// survived into SchedulerOptions.Headers. Every pick answers Handled:false, so
-// the probe can observe routing but never change it.
+// It declares request_interceptor, scheduler, usage_plugin and management_api,
+// injects a marker header in request.intercept_before, and reports at
+// scheduler.pick whether that marker survived into SchedulerOptions.Headers.
+// Every pick answers Handled:false, so the probe can observe routing but never
+// change it.
+//
+// It decodes every payload, and answers every hook the host contract shapes,
+// through the wire types in internal/runtime, so a live host exercises those
+// tags rather than a second hand-written copy of them.
 //
 // Observations are appended as JSON lines to the file named by the stateFile
-// build variable and mirrored through host.log at error level.
+// build variable and mirrored through host.log.
 package main
 
 /*
@@ -69,12 +74,18 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"net/http"
 	"os"
-	"sort"
+	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/runtime"
 )
 
 // stateFile is the observation log path, set with -ldflags -X main.stateFile=.
@@ -90,10 +101,12 @@ var captureDir string
 // merge does not rewrite the key.
 const MarkerHeader = "X-Cpa-Probe-Marker"
 
-const (
-	abiVersion    uint32 = 1
-	schemaVersion        = 1
+// logLevel is the level every mirrored observation goes out at. A host running
+// with debug:false drops anything below error, so a quieter level would make
+// the server log a blank record of the same round trip.
+const logLevel = "error"
 
+const (
 	pluginName    = "cpa-probe"
 	pluginVersion = "0.0.1"
 	pluginAuthor  = "yuya-iwabuchi"
@@ -113,7 +126,7 @@ func cliproxy_plugin_init(host *C.cliproxy_host_api, plugin *C.cliproxy_plugin_a
 		return 1
 	}
 	C.store_host_api(host)
-	plugin.abi_version = C.uint32_t(abiVersion)
+	plugin.abi_version = C.uint32_t(runtime.ABIVersion)
 	plugin.call = C.cliproxy_plugin_call_fn(C.cliproxyPluginCall)
 	plugin.free_buffer = C.cliproxy_plugin_free_fn(C.cliproxyPluginFree)
 	plugin.shutdown = C.cliproxy_plugin_shutdown_fn(C.cliproxyPluginShutdown)
@@ -171,21 +184,21 @@ func cliproxyPluginShutdown() {
 
 func handleMethod(method string, payload []byte) ([]byte, error) {
 	switch method {
-	case "plugin.register", "plugin.reconfigure":
+	case runtime.MethodPluginRegister, runtime.MethodPluginReconfigure:
 		return handleLifecycle(method, payload)
-	case "request.intercept_before":
+	case runtime.MethodRequestInterceptBefore:
 		return handleInterceptBefore(payload)
-	case "request.intercept_after":
+	case runtime.MethodRequestInterceptAfter:
 		return handleInterceptAfter(payload)
-	case "scheduler.pick":
+	case runtime.MethodSchedulerPick:
 		return handlePick(payload)
-	case "usage.handle":
+	case runtime.MethodUsageHandle:
 		return handleUsage(payload)
-	case "management.register":
+	case runtime.MethodManagementRegister:
 		return handleManagementRegister()
-	case "management.handle":
+	case runtime.MethodManagementHandle:
 		return handleManagementCall(payload)
-	case "plugin.shutdown", "plugin.quiesce":
+	case runtime.MethodPluginShutdown, runtime.MethodPluginQuiesce:
 		return okEnvelope(struct{}{})
 	default:
 		return errorEnvelope("unknown_method", "unknown method: "+method), nil
@@ -193,10 +206,7 @@ func handleMethod(method string, payload []byte) ([]byte, error) {
 }
 
 func handleLifecycle(method string, payload []byte) ([]byte, error) {
-	var req struct {
-		ConfigYAML    []byte `json:"config_yaml"`
-		SchemaVersion uint32 `json:"schema_version"`
-	}
+	var req runtime.LifecycleRequest
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, fmt.Errorf("decode lifecycle request: %w", err)
@@ -208,20 +218,20 @@ func handleLifecycle(method string, payload []byte) ([]byte, error) {
 		"config_yaml":         string(req.ConfigYAML),
 		"raw_len":             len(payload),
 	})
-	return okEnvelope(map[string]any{
-		"schema_version": schemaVersion,
-		"metadata": map[string]any{
-			"Name":             pluginName,
-			"Version":          pluginVersion,
-			"Author":           pluginAuthor,
-			"GitHubRepository": pluginRepo,
-			"ConfigFields":     []any{},
+	return okEnvelope(runtime.RegisterResult{
+		SchemaVersion: runtime.SchemaVersion,
+		Metadata: runtime.Metadata{
+			Name:             pluginName,
+			Version:          pluginVersion,
+			Author:           pluginAuthor,
+			GitHubRepository: pluginRepo,
+			ConfigFields:     []runtime.ConfigField{},
 		},
-		"capabilities": map[string]bool{
-			"request_interceptor": true,
-			"scheduler":           true,
-			"usage_plugin":        true,
-			"management_api":      true,
+		Capabilities: map[string]bool{
+			runtime.CapabilityRequestInterceptor: true,
+			runtime.CapabilityScheduler:          true,
+			runtime.CapabilityUsagePlugin:        true,
+			runtime.CapabilityManagementAPI:      true,
 		},
 	})
 }
@@ -230,12 +240,12 @@ func handleLifecycle(method string, payload []byte) ([]byte, error) {
 const ManagementPath = "/probe/report"
 
 func handleManagementRegister() ([]byte, error) {
-	record(map[string]any{"hook": "management.register"})
-	return okEnvelope(map[string]any{
-		"routes": []map[string]any{{
-			"Method":      "GET",
-			"Path":        ManagementPath,
-			"Description": "Probe observations and host-callback results.",
+	record(map[string]any{"hook": runtime.MethodManagementRegister})
+	return okEnvelope(runtime.ManagementRegistrationResponse{
+		Routes: []runtime.ManagementRoute{{
+			Method:      http.MethodGet,
+			Path:        ManagementPath,
+			Description: "Probe observations and host-callback results.",
 		}},
 	})
 }
@@ -244,19 +254,12 @@ func handleManagementRegister() ([]byte, error) {
 // reports what came back. Only identifiers and JSON key names are recorded;
 // credential values never leave the host.
 func handleManagementCall(payload []byte) ([]byte, error) {
-	var req struct {
-		Method         string              `json:"Method"`
-		Path           string              `json:"Path"`
-		Headers        map[string][]string `json:"Headers"`
-		Query          map[string][]string `json:"Query"`
-		Body           []byte              `json:"Body"`
-		HostCallbackID string              `json:"host_callback_id"`
-	}
+	var req runtime.ManagementRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("decode management request: %w", err)
 	}
 	entry := map[string]any{
-		"hook":              "management.handle",
+		"hook":              runtime.MethodManagementHandle,
 		"method":            req.Method,
 		"path":              req.Path,
 		"header_keys":       sortedKeys(req.Headers),
@@ -264,31 +267,22 @@ func handleManagementCall(payload []byte) ([]byte, error) {
 		"callback_id_empty": req.HostCallbackID == "",
 	}
 
-	listRaw, err := callHostResult("host.auth.list", map[string]any{"host_callback_id": req.HostCallbackID})
+	listRaw, err := callHostResult(runtime.MethodHostAuthList, runtime.HostAuthListRequest{HostCallbackID: req.HostCallbackID})
 	if err != nil {
 		entry["auth_list_error"] = err.Error()
 	} else {
-		var list struct {
-			Files []struct {
-				ID        string `json:"id"`
-				AuthIndex string `json:"auth_index"`
-				Name      string `json:"name"`
-				Type      string `json:"type"`
-				Provider  string `json:"provider"`
-				Status    string `json:"status"`
-			} `json:"files"`
-		}
+		var list runtime.HostAuthListResponse
 		if err = json.Unmarshal(listRaw, &list); err != nil {
 			entry["auth_list_error"] = "decode: " + err.Error()
 		} else {
-			entry["auth_list"] = list.Files
+			entry["auth_list"] = identifiersOf(list.Files)
 			if len(list.Files) > 0 {
 				entry["auth_get"] = probeAuthGet(list.Files[0].AuthIndex)
 			}
 		}
 	}
 
-	if target := firstHeader(req.Query, "http_probe"); target != "" {
+	if target := firstValue(req.Query, "http_probe"); target != "" {
 		entry["http_do"] = probeHostHTTP(req.HostCallbackID, target)
 	}
 
@@ -297,30 +291,43 @@ func handleManagementCall(payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return okEnvelope(map[string]any{
-		"StatusCode": 200,
-		"Headers":    map[string][]string{"Content-Type": {"application/json"}},
-		"Body":       body,
+	return okEnvelope(runtime.ManagementResponse{
+		StatusCode: http.StatusOK,
+		Headers:    http.Header{"Content-Type": {"application/json"}},
+		Body:       body,
 	})
+}
+
+// identifiersOf projects the auth listing down to the fields that name a
+// credential, so an email or a status message never reaches the report.
+func identifiersOf(files []runtime.HostAuthFileEntry) []map[string]string {
+	out := make([]map[string]string, 0, len(files))
+	for _, file := range files {
+		out = append(out, map[string]string{
+			"id":         file.ID,
+			"auth_index": file.AuthIndex,
+			"name":       file.Name,
+			"type":       file.Type,
+			"provider":   file.Provider,
+			"status":     file.Status,
+		})
+	}
+	return out
 }
 
 // probeHostHTTP routes one GET through the host so the host.http.do request
 // and response shapes are exercised against a real host.
 func probeHostHTTP(callbackID, target string) map[string]any {
-	raw, err := callHostResult("host.http.do", map[string]any{
-		"host_callback_id": callbackID,
-		"method":           "GET",
-		"url":              target,
-		"headers":          map[string][]string{"X-Cpa-Probe": {"host-http-do"}},
+	raw, err := callHostResult(runtime.MethodHostHTTPDo, runtime.HostHTTPRequest{
+		HostCallbackID: callbackID,
+		Method:         http.MethodGet,
+		URL:            target,
+		Headers:        http.Header{"X-Cpa-Probe": {"host-http-do"}},
 	})
 	if err != nil {
 		return map[string]any{"error": err.Error()}
 	}
-	var resp struct {
-		StatusCode int                 `json:"StatusCode"`
-		Headers    map[string][]string `json:"Headers"`
-		Body       []byte              `json:"Body"`
-	}
+	var resp runtime.HostHTTPResponse
 	if err = json.Unmarshal(raw, &resp); err != nil {
 		return map[string]any{"error": "decode: " + err.Error()}
 	}
@@ -333,31 +340,21 @@ func probeHostHTTP(callbackID, target string) map[string]any {
 
 // probeAuthGet reports the shape of a credential payload without its values.
 func probeAuthGet(authIndex string) map[string]any {
-	raw, err := callHostResult("host.auth.get", map[string]string{"auth_index": authIndex})
+	raw, err := callHostResult(runtime.MethodHostAuthGet, runtime.HostAuthGetRequest{AuthIndex: authIndex})
 	if err != nil {
 		return map[string]any{"error": err.Error()}
 	}
-	var resp struct {
-		AuthIndex string          `json:"auth_index"`
-		Name      string          `json:"name"`
-		Path      string          `json:"path"`
-		JSON      json.RawMessage `json:"json"`
-	}
+	var resp runtime.HostAuthGetResponse
 	if err = json.Unmarshal(raw, &resp); err != nil {
 		return map[string]any{"error": "decode: " + err.Error()}
 	}
 	fields := map[string]json.RawMessage{}
 	_ = json.Unmarshal(resp.JSON, &fields)
-	keys := make([]string, 0, len(fields))
-	for key := range fields {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
 	return map[string]any{
 		"auth_index":  resp.AuthIndex,
 		"name":        resp.Name,
 		"path_set":    resp.Path != "",
-		"json_fields": keys,
+		"json_fields": sortedKeys(fields),
 	}
 }
 
@@ -371,14 +368,7 @@ func callHostResult(method string, payload any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	var env struct {
-		OK     bool            `json:"ok"`
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	var env runtime.Envelope
 	if err = json.Unmarshal(raw, &env); err != nil {
 		return nil, fmt.Errorf("decode %s envelope: %w", method, err)
 	}
@@ -392,18 +382,13 @@ func callHostResult(method string, payload any) (json.RawMessage, error) {
 }
 
 func handleInterceptBefore(payload []byte) ([]byte, error) {
-	var req struct {
-		RequestID string              `json:"RequestID"`
-		Model     string              `json:"Model"`
-		Headers   map[string][]string `json:"Headers"`
-		Body      []byte              `json:"Body"`
-	}
+	var req runtime.RequestInterceptRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("decode intercept_before request: %w", err)
 	}
 	marker := "probe-" + strconv.FormatInt(markerNo.Add(1), 10) + "-" + req.RequestID
 	entry := map[string]any{
-		"hook":         "request.intercept_before",
+		"hook":         runtime.MethodRequestInterceptBefore,
 		"request_id":   req.RequestID,
 		"model":        req.Model,
 		"header_keys":  sortedKeys(req.Headers),
@@ -412,50 +397,29 @@ func handleInterceptBefore(payload []byte) ([]byte, error) {
 		"marker":       marker,
 	}
 	record(entry)
-	hostLog("error", "probe intercept_before", entry)
-	return okEnvelope(map[string]any{
-		"Headers": map[string][]string{MarkerHeader: {marker}},
+	hostLog("probe intercept_before", entry)
+	return okEnvelope(runtime.RequestInterceptResponse{
+		Headers: http.Header{MarkerHeader: {marker}},
 	})
 }
 
 func handleInterceptAfter(payload []byte) ([]byte, error) {
-	var req struct {
-		RequestID string              `json:"RequestID"`
-		ToFormat  string              `json:"ToFormat"`
-		Headers   map[string][]string `json:"Headers"`
-	}
+	var req runtime.RequestInterceptRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("decode intercept_after request: %w", err)
 	}
 	record(map[string]any{
-		"hook":        "request.intercept_after",
+		"hook":        runtime.MethodRequestInterceptAfter,
 		"request_id":  req.RequestID,
 		"to_format":   req.ToFormat,
 		"header_keys": sortedKeys(req.Headers),
-		"marker":      firstHeader(req.Headers, MarkerHeader),
+		"marker":      firstValue(req.Headers, MarkerHeader),
 	})
-	return okEnvelope(map[string]any{})
+	return okEnvelope(runtime.RequestInterceptResponse{})
 }
 
 func handlePick(payload []byte) ([]byte, error) {
-	var req struct {
-		Provider  string   `json:"Provider"`
-		Providers []string `json:"Providers"`
-		Model     string   `json:"Model"`
-		Stream    bool     `json:"Stream"`
-		Options   struct {
-			Headers  map[string][]string `json:"Headers"`
-			Metadata map[string]any      `json:"Metadata"`
-		} `json:"Options"`
-		Candidates []struct {
-			ID         string            `json:"ID"`
-			Provider   string            `json:"Provider"`
-			Priority   int               `json:"Priority"`
-			Status     string            `json:"Status"`
-			Attributes map[string]string `json:"Attributes"`
-			Metadata   map[string]any    `json:"Metadata"`
-		} `json:"Candidates"`
-	}
+	var req runtime.SchedulerPickRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("decode scheduler pick request: %w", err)
 	}
@@ -463,9 +427,9 @@ func handlePick(payload []byte) ([]byte, error) {
 	for _, candidate := range req.Candidates {
 		candidateIDs = append(candidateIDs, candidate.ID)
 	}
-	marker := firstHeader(req.Options.Headers, MarkerHeader)
+	marker := firstValue(req.Options.Headers, MarkerHeader)
 	entry := map[string]any{
-		"hook":            "scheduler.pick",
+		"hook":            runtime.MethodSchedulerPick,
 		"provider":        req.Provider,
 		"providers":       req.Providers,
 		"model":           req.Model,
@@ -473,44 +437,33 @@ func handlePick(payload []byte) ([]byte, error) {
 		"marker":          marker,
 		"marker_present":  marker != "",
 		"header_keys":     sortedKeys(req.Options.Headers),
-		"metadata_keys":   sortedAnyKeys(req.Options.Metadata),
+		"metadata_keys":   sortedKeys(req.Options.Metadata),
 		"candidate_ids":   candidateIDs,
 		"candidate_count": len(req.Candidates),
 	}
 	if len(req.Candidates) > 0 {
 		entry["candidate_priority"] = req.Candidates[0].Priority
 		entry["candidate_status"] = req.Candidates[0].Status
-		entry["candidate_attribute_keys"] = sortedStringKeys(req.Candidates[0].Attributes)
+		entry["candidate_attribute_keys"] = sortedKeys(req.Candidates[0].Attributes)
 		entry["candidate_metadata_nil"] = req.Candidates[0].Metadata == nil
 	}
 	record(entry)
-	hostLog("error", "probe scheduler_pick", entry)
+	// Blocking on a host callback inside the pick is an anti-pattern the real
+	// plugin must not copy: scheduler.pick has no timeout, so a stalled call
+	// here parks a goroutine for the process lifetime and blocks dlclose. The
+	// probe accepts that to get a second, host-side record of the round trip.
+	hostLog("probe scheduler_pick", entry)
 	// Handled:false is the only answer that cannot alter routing.
-	return okEnvelope(map[string]any{"Handled": false})
+	return okEnvelope(runtime.SchedulerPickResponse{Handled: false})
 }
 
 func handleUsage(payload []byte) ([]byte, error) {
-	var req struct {
-		AuthID  string `json:"AuthID"`
-		Model   string `json:"Model"`
-		Failed  bool   `json:"Failed"`
-		Failure struct {
-			StatusCode int    `json:"StatusCode"`
-			Body       string `json:"Body"`
-		} `json:"Failure"`
-		Detail struct {
-			InputTokens         int64 `json:"InputTokens"`
-			OutputTokens        int64 `json:"OutputTokens"`
-			CacheReadTokens     int64 `json:"CacheReadTokens"`
-			CacheCreationTokens int64 `json:"CacheCreationTokens"`
-		} `json:"Detail"`
-		ResponseHeaders map[string][]string `json:"ResponseHeaders"`
-	}
+	var req runtime.UsageRecord
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("decode usage record: %w", err)
 	}
 	record(map[string]any{
-		"hook":                  "usage.handle",
+		"hook":                  runtime.MethodUsageHandle,
 		"auth_id":               req.AuthID,
 		"model":                 req.Model,
 		"failed":                req.Failed,
@@ -525,11 +478,18 @@ func handleUsage(payload []byte) ([]byte, error) {
 // capture freezes the first raw payload seen for a method so the wire structs
 // can be checked against real host bytes. It writes only when the file does
 // not exist yet, so the earliest call wins.
+//
+// Only header credentials are redacted; request and response bodies are
+// written verbatim, so a capture is safe to keep in the repository only for a
+// run whose traffic is fixture traffic.
+//
+// plugin.reconfigure carries the same LifecycleRequest shape as
+// plugin.register, so one capture covers both.
 func capture(method string, payload []byte) {
-	if captureDir == "" || len(payload) == 0 {
+	if captureDir == "" || len(payload) == 0 || method == runtime.MethodPluginReconfigure {
 		return
 	}
-	path := captureDir + "/" + method + ".json"
+	path := filepath.Join(captureDir, method+".json")
 	stateMu.Lock()
 	defer stateMu.Unlock()
 	if _, err := os.Stat(path); err == nil {
@@ -581,7 +541,7 @@ func redactObject(object map[string]json.RawMessage) {
 			continue
 		}
 		for name := range headers {
-			if equalFold(name, "Authorization") || equalFold(name, "X-Api-Key") {
+			if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "X-Api-Key") {
 				headers[name] = []string{"REDACTED"}
 			}
 		}
@@ -611,16 +571,16 @@ func record(entry map[string]any) {
 	_, _ = file.Write(append(raw, '\n'))
 }
 
-func hostLog(level, message string, fields map[string]any) {
-	payload, err := json.Marshal(map[string]any{
-		"level":   level,
-		"message": message,
-		"fields":  fields,
+func hostLog(message string, fields map[string]any) {
+	payload, err := json.Marshal(runtime.HostLogRequest{
+		Level:   logLevel,
+		Message: message,
+		Fields:  fields,
 	})
 	if err != nil {
 		return
 	}
-	_, _ = callHost("host.log", payload)
+	_, _ = callHost(runtime.MethodHostLog, payload)
 }
 
 func callHost(method string, payload []byte) ([]byte, error) {
@@ -647,11 +607,11 @@ func callHost(method string, payload []byte) ([]byte, error) {
 	return C.GoBytes(response.ptr, C.int(response.len)), nil
 }
 
-// firstHeader looks a header up case-insensitively, so a host that delivers a
-// non-canonical key still counts as a hit.
-func firstHeader(headers map[string][]string, name string) string {
-	for key, values := range headers {
-		if len(values) == 0 || !equalFold(key, name) {
+// firstValue looks a key up case-insensitively, so a host that delivers a
+// non-canonical header key still counts as a hit.
+func firstValue[M ~map[string][]string](in M, name string) string {
+	for key, values := range in {
+		if len(values) == 0 || !strings.EqualFold(key, name) {
 			continue
 		}
 		return values[0]
@@ -659,50 +619,13 @@ func firstHeader(headers map[string][]string, name string) string {
 	return ""
 }
 
-func equalFold(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		x, y := a[i], b[i]
-		if 'A' <= x && x <= 'Z' {
-			x += 'a' - 'A'
-		}
-		if 'A' <= y && y <= 'Z' {
-			y += 'a' - 'A'
-		}
-		if x != y {
-			return false
-		}
-	}
-	return true
-}
-
-func sortedKeys(in map[string][]string) []string {
+// sortedKeys gives an observation a stable key list whatever the map's value
+// type, so two runs of the same request produce comparable records. The empty
+// result is an empty list rather than nil, so an observation of a map with no
+// keys records [] instead of null.
+func sortedKeys[M ~map[string]V, V any](in M) []string {
 	out := make([]string, 0, len(in))
-	for key := range in {
-		out = append(out, key)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedAnyKeys(in map[string]any) []string {
-	out := make([]string, 0, len(in))
-	for key := range in {
-		out = append(out, key)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedStringKeys(in map[string]string) []string {
-	out := make([]string, 0, len(in))
-	for key := range in {
-		out = append(out, key)
-	}
-	sort.Strings(out)
-	return out
+	return append(out, slices.Sorted(maps.Keys(in))...)
 }
 
 func okEnvelope(result any) ([]byte, error) {
@@ -710,13 +633,13 @@ func okEnvelope(result any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode result: %w", err)
 	}
-	return json.Marshal(map[string]any{"ok": true, "result": json.RawMessage(encoded)})
+	return json.Marshal(runtime.Envelope{OK: true, Result: encoded})
 }
 
 func errorEnvelope(code, message string) []byte {
-	raw, err := json.Marshal(map[string]any{
-		"ok":    false,
-		"error": map[string]string{"code": code, "message": message},
+	raw, err := json.Marshal(runtime.Envelope{
+		OK:    false,
+		Error: &runtime.EnvelopeError{Code: code, Message: message},
 	})
 	if err != nil {
 		return []byte(`{"ok":false,"error":{"code":"internal","message":"failed to encode error"}}`)

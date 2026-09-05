@@ -1,9 +1,10 @@
-// Package runtime holds the plugin's wire types, hook handlers, and lifecycle.
+// Package runtime implements the plugin behind the C ABI shim in main.go: the
+// wire types for the host boundary, the hook handlers, and the lifecycle.
 //
-// The JSON in this file is the contract with CLIProxyAPI, derived from host
-// v7.2.149 (tag v7.2.149, commit 2a6b87ac) and checked against a running host
-// by TestHeaderBridgeSurvivesToSchedulerPick. WIRE.md records what that run
-// proved and what is still source-derived only.
+// This file holds the wire types. Their JSON is the contract with
+// CLIProxyAPI, derived from host v7.2.149 (tag v7.2.149, commit 2a6b87ac) and
+// checked against a running host by TestHeaderBridgeSurvivesToSchedulerPick.
+// WIRE.md records which parts that check covers and which are source-derived.
 //
 // CASING IS MIXED AND LOAD-BEARING. Two conventions travel over the same
 // boundary and every struct below states which one it uses:
@@ -30,14 +31,13 @@ import (
 const ABIVersion uint32 = 1
 
 // SchemaVersion is the RPC contract this plugin declares at registration.
-// The host accepts any value up to its own (4 in v7.2.149) and treats a
-// higher one as unsupported; declaring 1 keeps the plugin loadable on older
-// hosts, because the host refuses a plugin whose schema exceeds its own.
+// The host refuses a plugin whose schema version exceeds its own (4 in
+// v7.2.149), so declaring 1 keeps the plugin loadable on older hosts.
 // Source: sdk/pluginabi/types.go:14, internal/pluginhost/rpc_client.go:69.
 const SchemaVersion uint32 = 1
 
 // Plugin methods the host calls on this library.
-// Source: sdk/pluginabi/types.go:23-91.
+// Source: sdk/pluginabi/types.go:24-76.
 const (
 	MethodPluginRegister         = "plugin.register"
 	MethodPluginReconfigure      = "plugin.reconfigure"
@@ -51,8 +51,9 @@ const (
 	MethodManagementHandle       = "management.handle"
 )
 
-// Host callbacks this plugin calls back into the host.
-// Source: sdk/pluginabi/types.go:80-91.
+// Host callbacks this plugin calls back into the host. The host declares more
+// than these four.
+// Source: sdk/pluginabi/types.go:78-92.
 const (
 	MethodHostHTTPDo   = "host.http.do"
 	MethodHostLog      = "host.log"
@@ -78,8 +79,13 @@ const (
 )
 
 // Keys observed in SchedulerOptions.Metadata and RequestInterceptRequest.Metadata.
-// The host declares them in sdk/cliproxy/executor/types.go:12-78. They are
+// The host declares them in sdk/cliproxy/executor/types.go. They are
 // host-owned and best-effort: treat every one as optional.
+//
+// The host sends four more this plugin does not read: generate, marking an
+// execution that generates rather than one that only counts tokens;
+// service_tier; session_affinity_model, empty on a mixed route; and
+// selected_auth_index, the host.auth.get key for the selected credential.
 const (
 	// MetadataRequestedModel is the client-requested model before aliasing.
 	MetadataRequestedModel = "requested_model"
@@ -91,8 +97,9 @@ const (
 	MetadataDerivedSessionID = "derived_session_id"
 	// MetadataCallerScope isolates inferred session identities per downstream caller.
 	MetadataCallerScope = "caller_scope"
-	// MetadataSelectedAuthID names the credential a previous attempt used, so
-	// it is present only on a retry pick.
+	// MetadataSelectedAuthID names the credential the scheduler chose. The
+	// host writes it once selection is done, so a pick sees it only when a
+	// previous attempt already ran, while the after-interceptor always does.
 	MetadataSelectedAuthID = "selected_auth_id"
 	// MetadataSessionAffinityProvider is the affinity namespace, literally
 	// "mixed" for a multi-provider route.
@@ -112,13 +119,23 @@ type Envelope struct {
 
 // EnvelopeError carries a machine code and human message for a failed call.
 // Casing: snake_case. Source: sdk/pluginabi/types.go:101.
+//
+// No hook here returns an error envelope. Every capability this plugin
+// declares reacts badly to one: the interceptor adapter discards the whole
+// response, usage.handle debug-logs it, management.handle becomes a fixed 502,
+// and scheduler.pick fails the request outright with no fallback selector. A
+// hook that cannot do its work answers OK with the neutral result instead.
 type EnvelopeError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-	// Retryable and HTTPStatus are host-to-plugin only; the host ignores them
-	// on a plugin response.
-	Retryable  bool `json:"retryable,omitempty"`
-	HTTPStatus int  `json:"http_status,omitempty"`
+	// Retryable is host-to-plugin only; nothing in the host reads it back off
+	// a plugin response.
+	Retryable bool `json:"retryable,omitempty"`
+	// HTTPStatus travels in both directions. The host lifts it off a plugin
+	// error into the status the failed call reports
+	// (internal/pluginhost/rpc_client.go:324), which on scheduler.pick is what
+	// classifies the request for retry.
+	HTTPStatus int `json:"http_status,omitempty"`
 }
 
 // LifecycleRequest is the plugin.register and plugin.reconfigure payload.
@@ -147,9 +164,13 @@ type RegisterResult struct {
 }
 
 // Metadata is the plugin's self-description. The host rejects the plugin when
-// Name, Version, Author, or GitHubRepository is blank. The plugin ID is not
-// declared here: the host derives it from the library filename, minus the
-// extension and an optional -v<version> suffix.
+// Name, Version, Author, or GitHubRepository is blank, and equally when the
+// registration declares no capability at all
+// (internal/pluginhost/host.go:1038). Since the host drops capability keys it
+// does not recognise, a set of misspelled keys registers as no capabilities
+// and is refused on that second check. The plugin ID is not declared here: the
+// host derives it from the library filename, minus the extension and an
+// optional -v<version> suffix.
 // Casing: PascalCase. Source: sdk/pluginapi/types.go:24,
 // internal/pluginhost/platform.go:47.
 type Metadata struct {
@@ -225,6 +246,14 @@ type RequestInterceptRequest struct {
 // removes headers before Headers is applied; Body replaces the payload only
 // when non-empty. Header keys are canonicalized by the host's merge, so a key
 // sent in non-canonical form arrives canonicalized downstream.
+//
+// A header meant to reach the pick therefore has to be named in the form
+// canonicalization produces: hyphen-separated words, each capitalized and
+// otherwise lower-cased, X-Cpa-Session-Key. Only the letter opening a
+// hyphen-separated word is upper-cased, so an underscore-separated name
+// survives half-transformed, and a key holding a byte that is not a header
+// token character is left exactly as sent. Nothing on the path from the merge
+// to the pick filters headers by name.
 type RequestInterceptResponse struct {
 	Headers      http.Header `json:"Headers,omitempty"`
 	Body         []byte      `json:"Body,omitempty"`
@@ -328,8 +357,10 @@ type UsageRecord struct {
 	AuthID string `json:"AuthID"`
 	// AuthIndex is the stable runtime credential index, the key host.auth.get
 	// takes.
-	AuthIndex       string        `json:"AuthIndex"`
-	AuthType        string        `json:"AuthType"`
+	AuthIndex string `json:"AuthIndex"`
+	AuthType  string `json:"AuthType"`
+	// Source names the account behind the credential, as the email address on
+	// the OAuth record for a Claude subscription.
 	Source          string        `json:"Source"`
 	ReasoningEffort string        `json:"ReasoningEffort"`
 	ServiceTier     string        `json:"ServiceTier"`
@@ -396,6 +427,12 @@ type ManagementRegistrationResponse struct {
 // it in itself, so the plugin must not send one.
 // Casing: PascalCase. Source: sdk/pluginapi/types.go:1286,
 // internal/pluginhost/rpc_client.go:582.
+//
+// Menu on a GET route strips the route's authentication: the host reads that
+// pair as a legacy resource declaration, registers it as a ResourceRoute under
+// /v0/resource/plugins/<plugin-id>/ instead, and never registers the
+// management route at all (internal/pluginhost/management.go:61). Leave Menu
+// empty on anything that answers with data a reader should not see.
 type ManagementRoute struct {
 	Method      string `json:"Method"`
 	Path        string `json:"Path"`
@@ -407,6 +444,12 @@ type ManagementRoute struct {
 // Resource requests are NOT management-authenticated, so a handler must never
 // emit a credential into its response.
 // Casing: PascalCase. Source: sdk/pluginapi/types.go:1300.
+//
+// Path matches exactly — the host looks the request path up in a map, with no
+// prefix or subtree serving — so every servable path is its own route:
+// /index.html and /api/status are two declarations, not one. A Path that
+// trims to empty, "/" among them, is rejected, as is one containing a space,
+// ":", "*" or "..".
 type ResourceRoute struct {
 	Path        string `json:"Path"`
 	Menu        string `json:"Menu"`
@@ -431,6 +474,13 @@ type ManagementRequest struct {
 
 // ManagementResponse answers management.handle. StatusCode zero means 200.
 // Casing: PascalCase. Source: sdk/pluginapi/types.go:1331.
+//
+// The host HTML-escapes every string value in a body it reads as JSON — by
+// content-type or by the body merely looking like JSON — before it reaches the
+// client (internal/pluginhost/management.go:343). So a management response
+// carries data, and a consumer decodes the JSON and unescapes; markup written
+// here arrives entity-encoded. A resource response is written through
+// untouched, which is what makes resources the route for HTML.
 type ManagementResponse struct {
 	StatusCode int         `json:"StatusCode"`
 	Headers    http.Header `json:"Headers,omitempty"`
@@ -448,9 +498,10 @@ type HostHTTPRequest struct {
 	Body           []byte      `json:"body,omitempty"`
 }
 
-// HostHTTPResponse is the host.http.do result member.
-// Casing: PascalCase, because the host returns the untagged pluginapi struct.
-// Source: sdk/pluginapi/types.go:790, internal/pluginhost/host_callbacks.go:142.
+// HostHTTPResponse is the host.http.do result member, the host's
+// pluginapi.HTTPResponse.
+// Casing: PascalCase, because the host returns that struct untagged.
+// Source: sdk/pluginapi HTTPResponse, internal/pluginhost/host_callbacks.go:142.
 type HostHTTPResponse struct {
 	StatusCode int         `json:"StatusCode"`
 	Headers    http.Header `json:"Headers"`
@@ -471,9 +522,9 @@ type HostAuthListResponse struct {
 }
 
 // HostAuthFileEntry describes one credential. Only the fields this plugin
-// reads are modelled; the full set is at sdk/pluginapi/types.go:676.
-// Casing: snake_case, uniquely among the pluginapi structs, because this one
-// carries explicit tags on the host side.
+// reads are modelled; the full set is at sdk/pluginapi HostAuthFileEntry.
+// Casing: snake_case, unlike the pluginapi structs the hooks carry, because
+// this one is tagged on the host side rather than left bare.
 //
 // ID is the value that matches SchedulerAuthCandidate.ID and UsageRecord.AuthID.
 // AuthIndex is the separate key host.auth.get takes.
