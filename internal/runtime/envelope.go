@@ -12,7 +12,6 @@ import (
 // not implement must answer with exactly that code.
 const (
 	codeUnknownMethod = "unknown_method"
-	codeInvalidMethod = "invalid_method"
 	codePluginError   = "plugin_error"
 	codePluginPanic   = "plugin_panic"
 )

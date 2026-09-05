@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// MenuLabel is the Management Center menu entry for the status page.
-const MenuLabel = "Quota Scheduler"
+// menuLabel is the Management Center menu entry for the status page.
+const menuLabel = "Quota Scheduler"
 
 // Resource paths under the plugin's resource prefix. The host matches a
 // resource route by exact path and rejects a bare "/" (the trailing slash is
@@ -20,8 +20,8 @@ const MenuLabel = "Quota Scheduler"
 // "api/status" relative to index.html. The host serves these without the
 // management key, so they carry read-only, credential-free content.
 const (
-	ResourceIndexPath  = "/index.html"
-	ResourceStatusPath = "/api/status"
+	resourceIndexPath  = "/index.html"
+	resourceStatusPath = "/api/status"
 )
 
 // Management routes, authenticated by the host with the management key.
@@ -74,10 +74,10 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 			{Method: http.MethodPost, Path: prefix + routeSweep, Description: "Drop session bindings idle past the affinity TTL."},
 		},
 	}
-	if p.Config().Web.Enabled {
+	if p.config().Web.Enabled {
 		resp.Resources = []ResourceRoute{
-			{Path: resourceBase + ResourceIndexPath, Menu: MenuLabel, Description: "Quota scheduler status page."},
-			{Path: resourceBase + ResourceStatusPath, Description: "Status JSON for the page."},
+			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Quota scheduler status page."},
+			{Path: resourceBase + resourceStatusPath, Description: "Status JSON for the page."},
 		}
 	}
 	return okEnvelope(resp)
@@ -141,7 +141,7 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), p.refreshTimeout())
 		defer cancel()
 		result := map[string]any{"ok": true}
-		if err := p.Refresh(ctx); err != nil {
+		if err := p.refresh(ctx); err != nil {
 			result["ok"] = false
 			result["error"] = err.Error()
 		}
@@ -163,7 +163,7 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 // refreshTimeout bounds a manual refresh by the number of credentials it has
 // to fetch.
 func (p *Plugin) refreshTimeout() time.Duration {
-	cfg := p.Config()
+	cfg := p.config()
 	p.mu.Lock()
 	n := len(p.auths)
 	p.mu.Unlock()
@@ -176,11 +176,16 @@ func (p *Plugin) refreshTimeout() time.Duration {
 // serveResource hands a resource request to the status app with the plugin
 // prefix stripped, so the app sees /index.html and /api/status. Without an
 // installed app the route answers 503 rather than 404, which tells an operator
-// the route exists and the build is missing its front end.
+// the route exists and the build is missing its front end. With web.enabled
+// off the routes are never declared, so a request that still arrives — from a
+// registration the host has not replaced yet — is a 404.
 func (p *Plugin) serveResource(req ManagementRequest, path string) ManagementResponse {
 	h := p.resource.Load()
 	if h == nil {
 		return jsonResponse(http.StatusServiceUnavailable, map[string]string{"error": "status app unavailable in this build"})
+	}
+	if !p.config().Web.Enabled {
+		return jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"})
 	}
 	return serveThrough(h.h, req, path)
 }

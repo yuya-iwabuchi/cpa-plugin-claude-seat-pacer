@@ -64,10 +64,12 @@ static void free_host_buffer(void* ptr, size_t len) {
 import "C"
 
 import (
+	"encoding/json"
 	"fmt"
 	"unsafe"
 
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/runtime"
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
 )
 
 // Plugin identity. The host rejects a plugin with any of these blank. The
@@ -92,19 +94,33 @@ var configFields = []runtime.ConfigField{
 	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page on the plugin's resource routes. Default true."},
 }
 
-var plugin = runtime.New(runtime.Options{
-	Name:         pluginName,
-	Version:      pluginVersion,
-	Author:       pluginAuthor,
-	Repository:   pluginRepo,
-	ConfigFields: configFields,
-	Host:         callHost,
-})
+var plugin = newPlugin()
+
+// newPlugin builds the runtime and installs the status app on its resource
+// routes. The app is what those routes serve; the runtime declares them only
+// while web.enabled is on.
+func newPlugin() *runtime.Plugin {
+	p := runtime.New(runtime.Options{
+		Name:         pluginName,
+		Version:      pluginVersion,
+		Author:       pluginAuthor,
+		Repository:   pluginRepo,
+		ConfigFields: configFields,
+		Host:         callHost,
+	})
+	p.SetResourceHandler(web.NewHandler(p))
+	return p
+}
 
 func main() {}
 
 //export cliproxy_plugin_init
-func cliproxy_plugin_init(host *C.cliproxy_host_api, api *C.cliproxy_plugin_api) C.int {
+func cliproxy_plugin_init(host *C.cliproxy_host_api, api *C.cliproxy_plugin_api) (rc C.int) {
+	defer func() {
+		if recover() != nil {
+			rc = 1
+		}
+	}()
 	if api == nil {
 		return 1
 	}
@@ -149,6 +165,7 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 
 //export cliproxyPluginFree
 func cliproxyPluginFree(ptr unsafe.Pointer, _ C.size_t) {
+	defer func() { _ = recover() }()
 	if ptr != nil {
 		C.free(ptr)
 	}
@@ -156,17 +173,29 @@ func cliproxyPluginFree(ptr unsafe.Pointer, _ C.size_t) {
 
 //export cliproxyPluginShutdown
 func cliproxyPluginShutdown() {
-	// The host frees the host_api struct after shutdown, so the pointer is
-	// dropped first; a callback after this point fails instead of touching
-	// freed memory. The poller is joined so no goroutine outlives dlclose.
-	C.store_host_api(nil)
+	defer func() { _ = recover() }()
+	// The runtime is joined first, so the callbacks it still has outstanding
+	// finish while the host's callback table is valid. The pointer is dropped
+	// after: a callback that outlived the join then fails instead of touching
+	// the struct the host frees as soon as this returns.
 	plugin.Shutdown()
+	C.store_host_api(nil)
 }
 
 // errorEnvelope is the shim's own failure encoding, for the paths where the
-// runtime was never reached.
+// runtime was never reached. The encoder builds it because Go quoting is not
+// JSON quoting: a message carrying a non-printable or invalid-UTF-8 byte still
+// has to survive the host's decode, and a decode failure there fails the
+// request outright instead of declining it.
 func errorEnvelope(code, message string) []byte {
-	return []byte(fmt.Sprintf(`{"ok":false,"error":{"code":%q,"message":%q}}`, code, message))
+	raw, err := json.Marshal(map[string]any{
+		"ok":    false,
+		"error": map[string]string{"code": code, "message": message},
+	})
+	if err != nil {
+		return []byte(`{"ok":false,"error":{"code":"internal","message":"failed to encode error"}}`)
+	}
+	return raw
 }
 
 func writeResponse(response *C.cliproxy_buffer, raw []byte) {

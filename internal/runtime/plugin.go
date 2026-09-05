@@ -53,20 +53,24 @@ type Plugin struct {
 	// handle dispatches one method; tests replace it to exercise the guard.
 	handle func(method string, payload []byte) ([]byte, error)
 
-	mu           sync.Mutex
-	bindings     BindingStore
-	bindingsTTL  time.Duration
-	bindingsMax  int
-	startedAt    time.Time
-	hostSchema   uint32
-	lastModel    string
-	cache        map[string]model.CacheStats
-	auths        []HostAuthFileEntry
-	polls        map[string]pollState
-	listErr      string
-	singleWarned map[string]bool
-	mgmtBase     string
-	resourceBase string
+	mu          sync.Mutex
+	bindings    BindingStore
+	bindingsTTL time.Duration
+	bindingsMax int
+	startedAt   time.Time
+	hostSchema  uint32
+	lastModel   string
+	cache       map[string]model.CacheStats
+	auths       []HostAuthFileEntry
+	polls       map[string]pollState
+	listErr     string
+	fetchErr    string
+	// singleCandidates is the candidate count each provider last offered a
+	// cold pick, and singleLogged the providers already warned about.
+	singleCandidates map[string]int
+	singleLogged     map[string]bool
+	mgmtBase         string
+	resourceBase     string
 
 	lifeMu sync.Mutex
 	poller *poller
@@ -100,14 +104,15 @@ func New(opts Options) *Plugin {
 		}
 	}
 	p := &Plugin{
-		opts:         opts,
-		host:         host{call: opts.Host},
-		now:          opts.Now,
-		quota:        quota.NewStore(),
-		cache:        make(map[string]model.CacheStats),
-		polls:        make(map[string]pollState),
-		singleWarned: make(map[string]bool),
-		startDelay:   startupGrace,
+		opts:             opts,
+		host:             newHost(opts.Host),
+		now:              opts.Now,
+		quota:            quota.NewStore(),
+		cache:            make(map[string]model.CacheStats),
+		polls:            make(map[string]pollState),
+		singleCandidates: make(map[string]int),
+		singleLogged:     make(map[string]bool),
+		startDelay:       startupGrace,
 	}
 	initial := model.Defaults()
 	initial.Enabled = false
@@ -128,8 +133,8 @@ func (p *Plugin) SetResourceHandler(h http.Handler) {
 	p.resource.Store(&resourceHandler{h: h})
 }
 
-// Config returns the live configuration.
-func (p *Plugin) Config() model.Config {
+// config returns the live configuration.
+func (p *Plugin) config() model.Config {
 	return *p.cfg.Load()
 }
 
@@ -140,8 +145,7 @@ func (p *Plugin) Config() model.Config {
 func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			raw = errorEnvelope(codePluginPanic, fmt.Sprintf("recovered: %v", r))
-			ok = false
+			raw, ok = degrade(method, codePluginPanic, fmt.Sprintf("recovered: %v", r))
 			p.host.log("error", "cpa-claude-quota-scheduler recovered from a panic", map[string]any{
 				"method": method,
 				"panic":  fmt.Sprintf("%v", r),
@@ -150,11 +154,42 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	}()
 	raw, err := p.handle(method, payload)
 	if err != nil {
-		return errorEnvelope(codePluginError, err.Error()), false
+		return degrade(method, codePluginError, err.Error())
 	}
 	var env Envelope
 	if json.Unmarshal(raw, &env) == nil && !env.OK {
 		return raw, false
+	}
+	return raw, true
+}
+
+// degrade is the answer for a method the plugin could not serve. It is per
+// method because an error envelope costs more than a decline on every hook the
+// host routes traffic through: scheduler.pick hard-fails the request with no
+// fallback to the host's own selector, the interceptors fail it downstream,
+// and management.handle turns into a 502. Only the lifecycle methods, where an
+// error is the honest answer and the host handles it, keep one.
+func degrade(method, code, message string) ([]byte, bool) {
+	var result any
+	switch method {
+	case MethodSchedulerPick:
+		result = SchedulerPickResponse{Handled: false}
+	case MethodRequestInterceptBefore:
+		// A failed interceptor still owes the pick a clean slate: without the
+		// clear a client's own bridge headers reach it.
+		result = clearBridge()
+	case MethodRequestInterceptAfter, MethodUsageHandle:
+		result = emptyResult
+	case MethodManagementHandle:
+		// The message may name plugin internals and the resource routes are
+		// unauthenticated, so the body says only that the call failed.
+		result = jsonResponse(http.StatusInternalServerError, map[string]string{"error": "plugin request failed"})
+	default:
+		return errorEnvelope(code, message), false
+	}
+	raw, err := okEnvelope(result)
+	if err != nil {
+		return errorEnvelope(code, message), false
 	}
 	return raw, true
 }

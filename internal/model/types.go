@@ -110,6 +110,23 @@ func (w Window) Blocking() bool {
 	return w.Status == StatusRejected || w.Severity == SeverityCritical
 }
 
+// BearsOn reports whether this window caps a request for a model family. The
+// session and all-models weekly windows cap every request; a scoped weekly
+// window caps only its own family, and an empty family names no scoped window,
+// so every scoped cap is another family's.
+//
+// This is the definition of "does this cap apply to this model": the scorer,
+// the pick and the status app all answer it from here.
+func (w Window) BearsOn(family string) bool {
+	switch w.Kind {
+	case WindowSession, WindowWeekly:
+		return true
+	case WindowWeeklyScoped:
+		return family != "" && FamilyOf(w.Scope) == family
+	}
+	return false
+}
+
 // Source identifies where a snapshot's readings came from.
 const (
 	// SourceUsageEndpoint is an active GET of /api/oauth/usage. It covers

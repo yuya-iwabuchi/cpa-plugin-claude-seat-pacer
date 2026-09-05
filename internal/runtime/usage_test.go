@@ -14,8 +14,8 @@ func TestUsageHandleAccumulatesCacheStatsAndMergesHeaders(t *testing.T) {
 
 	rec := UsageRecord{
 		Provider: "claude", Model: fableModel, AuthID: "seat-a", AuthIndex: "idx-a",
-		RequestedAt: testNow.Add(time.Minute),
-		Detail:      UsageDetail{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 9000, CacheCreationTokens: 500},
+		RequestedAt: testNow.Add(-time.Minute), Latency: 2 * time.Minute,
+		Detail: UsageDetail{InputTokens: 100, OutputTokens: 40, CacheReadTokens: 9000, CacheCreationTokens: 500},
 		ResponseHeaders: http.Header{
 			"Anthropic-Ratelimit-Unified-5h-Utilization":       {"0.42"},
 			"Anthropic-Ratelimit-Unified-5h-Reset":             {"1757048400"},
@@ -46,8 +46,10 @@ func TestUsageHandleAccumulatesCacheStatsAndMergesHeaders(t *testing.T) {
 	if weekly, ok := snap.Window(model.WindowWeekly, ""); !ok || weekly.Utilization != 0.04 {
 		t.Errorf("weekly window = %+v ok=%v, want the endpoint reading untouched", weekly, ok)
 	}
+	// The reading is stamped at the end of the request, RequestedAt+Latency,
+	// not at the start.
 	if !snap.ObservedAt.Equal(testNow.Add(time.Minute)) {
-		t.Errorf("ObservedAt = %v, want advanced to the response time", snap.ObservedAt)
+		t.Errorf("ObservedAt = %v, want the response time", snap.ObservedAt)
 	}
 }
 

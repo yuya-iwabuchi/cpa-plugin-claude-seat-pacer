@@ -240,6 +240,10 @@ plugins:
 	t.Logf("session one: kinds=%v auth=%s key=%s", kinds, chronological[0].ChosenAuthID, chronological[0].SessionKey)
 
 	send(sessionTwo)
+	// Credential rows come from the poll loop, whose first tick lands a couple
+	// of seconds after registration, so the routing assertions above run before
+	// there is anything to show for the credentials themselves.
+	waitForPoll(t, status, processDone, logPath)
 	second := status()
 	if len(second.Decisions) != 4 {
 		t.Fatalf("decisions after a second session = %d, want 4:\n%s", len(second.Decisions), mustIndent(t, second.Decisions))
@@ -265,15 +269,30 @@ plugins:
 	t.Logf("session two: kind=%s auth=%s key=%s; bindings=%d", newest.Kind, newest.ChosenAuthID, newest.SessionKey, len(second.Bindings))
 	t.Logf("warnings: %v", second.Warnings)
 
-	// The resource route is registered and reaches the plugin without the
-	// management key; this build installs no status app, so it answers 503.
+	// The resource routes reach the status app without the management key.
 	resource, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/api/status")
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readAll(resource)
-	if resource.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("resource route: %d %s, want 503 from the plugin", resource.StatusCode, raw)
+	if resource.StatusCode != http.StatusOK {
+		t.Fatalf("resource status route: %d %s", resource.StatusCode, raw)
+	}
+	var served model.Status
+	if err := json.Unmarshal(raw, &served); err != nil {
+		t.Fatalf("decode resource status: %v\n%s", err, raw)
+	}
+	if len(served.Auths) != 2 || len(served.Bindings) != 2 {
+		t.Errorf("resource status = %d auths %d bindings, want the same view as the management route", len(served.Auths), len(served.Bindings))
+	}
+
+	page, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, _ := readAll(page)
+	if page.StatusCode != http.StatusOK || !bytes.Contains(pageBody, []byte("<html")) {
+		t.Errorf("resource index route: %d %d bytes, want the status page", page.StatusCode, len(pageBody))
 	}
 
 	// Nothing that reached the host log carries credential material.
@@ -283,6 +302,26 @@ plugins:
 			t.Errorf("server log contains %q", secret)
 		}
 	}
+}
+
+// waitForPoll blocks until the status view carries the credentials the host
+// lists, which is what the plugin's first poll publishes.
+func waitForPoll(t *testing.T, status func() model.Status, processDone <-chan struct{}, logPath string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-processDone:
+			t.Fatalf("CLIProxyAPI exited before the first poll\nserver log:\n%s", readFile(logPath))
+		default:
+		}
+		rows := status().Auths
+		if len(rows) == 2 && rows[0].Label != "" && rows[1].Label != "" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("the plugin never polled its credentials\nserver log:\n%s", readFile(logPath))
 }
 
 func mustIndent(t *testing.T, v any) string {
