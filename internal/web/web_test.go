@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -225,10 +226,23 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v\nbody: %s", err, rec.Body.String())
 	}
-	// This route serves the pace curve for the whole config; everything else
-	// travels unchanged.
+	// This route serves the pace curve for the whole config and a hashed
+	// credential id; everything else travels unchanged.
 	expect := want
 	expect.Config = model.Config{Pace: want.Config.Pace}
+	expect.Auths = []model.AuthStatus{want.Auths[0]}
+	expect.Auths[0].AuthID = publicID("auth-a")
+	expect.Auths[0].Snapshot.AuthID = publicID("auth-a")
+	expect.Auths[0].Snapshot.AuthIndex = ""
+	expect.Auths[0].Score.AuthID = publicID("auth-a")
+	expect.Bindings = []model.Binding{want.Bindings[0]}
+	expect.Bindings[0].AuthID = publicID("auth-a")
+	expect.Decisions = []model.Decision{want.Decisions[0]}
+	expect.Decisions[0].ChosenAuthID = publicID("auth-a")
+	expect.Decisions[0].PreviousAuthID = publicID("auth-b")
+	expect.Decisions[0].Scores = []model.Score{want.Decisions[0].Scores[0]}
+	expect.Decisions[0].Scores[0].AuthID = publicID("auth-b")
+	expect.Warnings = []string{"quota poll failing for " + publicID("auth-a") + " (timeout): boom"}
 	if !reflect.DeepEqual(got, expect) {
 		t.Errorf("round trip changed the status\n got: %+v\nwant: %+v", got, expect)
 	}
@@ -532,7 +546,7 @@ func TestWarningsDropURLs(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	want := []string{
-		`quota poll failing for auth-a (timeout): Get "…": context deadline exceeded`,
+		`quota poll failing for ` + publicID("auth-a") + ` (timeout): Get "…": context deadline exceeded`,
 		"provider claude offered a single candidate; spreading cannot work",
 	}
 	if !reflect.DeepEqual(got.Warnings, want) {
@@ -596,5 +610,200 @@ func TestEmptyStatusStillServes(t *testing.T) {
 	}
 	if len(got.Auths) != 0 {
 		t.Errorf("auths = %d, want 0", len(got.Auths))
+	}
+}
+
+// seatAID and seatBID are the shape the substitution exists for: CLIProxyAPI
+// names a Claude OAuth credential file after the account and falls back to
+// that name for the id, and these two mask to one label.
+const (
+	seatAID = "alice@acme.example.json"
+	seatBID = "aaron@acme.example.json"
+)
+
+// idStatus carries seatAID and seatBID through every field of model.Status
+// that references a credential, including the two that name one in free text.
+func idStatus() model.Status {
+	base := time.Date(2026, 9, 4, 15, 4, 5, 0, time.UTC)
+	return model.Status{
+		Now:   base,
+		Model: "claude-fable-5",
+		Auths: []model.AuthStatus{{
+			AuthID: seatAID, Label: "alice@acme.example", Provider: "claude", HostStatus: "active",
+			Snapshot: model.AuthSnapshot{
+				AuthID: seatAID, AuthIndex: "3011c15be15be4ee", Label: "alice@acme.example",
+				ObservedAt: base, Source: model.SourceUsageEndpoint, Windows: []model.Window{},
+			},
+			Score: model.Score{AuthID: seatAID, Eligible: true},
+		}, {
+			AuthID: seatBID, Label: "aaron@acme.example", Provider: "claude", HostStatus: "active",
+			Snapshot: model.AuthSnapshot{
+				AuthID: seatBID, AuthIndex: "8c41f0a2b7d5e693", Label: "aaron@acme.example",
+				ObservedAt: base, Source: model.SourceResponseHeaders, Windows: []model.Window{},
+			},
+			Score: model.Score{AuthID: seatBID, Reason: model.ReasonHardCutoff},
+		}},
+		Bindings: []model.Binding{
+			{SessionKey: "5f2c0b7d", Provider: "claude", Model: "claude-fable-5", AuthID: seatAID},
+			{SessionKey: "a91d33e0", Provider: "claude", Model: "claude-fable-5", AuthID: seatBID},
+		},
+		Decisions: []model.Decision{{
+			At: base, SessionKey: "5f2c0b7d", Model: "claude-fable-5", Provider: "claude",
+			ChosenAuthID: seatAID, PreviousAuthID: seatBID, Kind: model.DecisionFailover,
+			Note: "retry after " + seatBID,
+			Scores: []model.Score{
+				{AuthID: seatAID, Eligible: true},
+				{AuthID: seatBID, Reason: model.ReasonHardCutoff},
+			},
+		}},
+		Warnings: []string{"no quota snapshot for " + seatBID + "; it is ineligible for cold picks"},
+	}
+}
+
+// TestCredentialIDsArePublished covers the correlation key: every table on the
+// page joins credentials on the id, so the published form has to be injective
+// and has to reach every field and every message that names one.
+func TestCredentialIDsArePublished(t *testing.T) {
+	t.Parallel()
+	src := &stubSource{status: idStatus()}
+	rec := get(t, NewHandler(src), "/api/status")
+
+	// The whole body, so a field added to model.Status and left carrying a
+	// real id fails here rather than at the fields this test enumerates.
+	body := rec.Body.String()
+	for _, raw := range []string{seatAID, seatBID, "alice@", "aaron@", "3011c15be15be4ee"} {
+		if strings.Contains(body, raw) {
+			t.Errorf("the unauthenticated route serves %q: %s", raw, body)
+		}
+	}
+
+	var got model.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	a, b := publicID(seatAID), publicID(seatBID)
+	if a == b {
+		t.Fatalf("two credentials share the published id %q", a)
+	}
+	shape := regexp.MustCompile(`^[0-9a-f]{` + strconv.Itoa(2*publicIDBytes) + `}$`)
+	for _, id := range []string{a, b} {
+		if !shape.MatchString(id) {
+			t.Errorf("published id %q is not %d hex characters", id, 2*publicIDBytes)
+		}
+	}
+
+	for _, c := range []struct{ where, got, want string }{
+		{"auths[0].auth_id", got.Auths[0].AuthID, a},
+		{"auths[0].snapshot.auth_id", got.Auths[0].Snapshot.AuthID, a},
+		{"auths[0].score.auth_id", got.Auths[0].Score.AuthID, a},
+		{"auths[1].auth_id", got.Auths[1].AuthID, b},
+		{"auths[1].snapshot.auth_id", got.Auths[1].Snapshot.AuthID, b},
+		{"auths[1].score.auth_id", got.Auths[1].Score.AuthID, b},
+		{"bindings[0].auth_id", got.Bindings[0].AuthID, a},
+		{"bindings[1].auth_id", got.Bindings[1].AuthID, b},
+		{"decisions[0].chosen_auth_id", got.Decisions[0].ChosenAuthID, a},
+		{"decisions[0].previous_auth_id", got.Decisions[0].PreviousAuthID, b},
+		{"decisions[0].scores[0].auth_id", got.Decisions[0].Scores[0].AuthID, a},
+		{"decisions[0].scores[1].auth_id", got.Decisions[0].Scores[1].AuthID, b},
+		{"decisions[0].note", got.Decisions[0].Note, "retry after " + b},
+		{"warnings[0]", got.Warnings[0], "no quota snapshot for " + b + "; it is ineligible for cold picks"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.where, c.got, c.want)
+		}
+	}
+	for i, row := range got.Auths {
+		if row.Snapshot.AuthIndex != "" {
+			t.Errorf("auths[%d].snapshot.auth_index = %q, want the host index withheld", i, row.Snapshot.AuthIndex)
+		}
+	}
+	if src.status.Auths[0].AuthID != seatAID || src.status.Bindings[0].AuthID != seatAID {
+		t.Error("the source's own ids were rewritten in place")
+	}
+}
+
+// TestPublishedIDsAreStable covers the operator watching the page: one seat
+// reads the same across polls, and across the process restart that empties
+// every in-memory table.
+func TestPublishedIDsAreStable(t *testing.T) {
+	t.Parallel()
+	first := get(t, NewHandler(&stubSource{status: idStatus()}), "/api/status").Body.String()
+	second := get(t, NewHandler(&stubSource{status: idStatus()}), "/api/status").Body.String()
+	if first != second {
+		t.Errorf("two responses for one state differ\nfirst:  %s\nsecond: %s", first, second)
+	}
+	if got := publicID(seatAID); got != "e70f945ee048d448" {
+		t.Errorf("publicID(%q) = %q; the published id is derived from nothing but the real id, so it survives a restart", seatAID, got)
+	}
+}
+
+// TestEveryAuthIDFieldIsPublished walks the served JSON rather than the fields
+// this package names, so a field whose key ends in auth_id and whose value is
+// not a published id fails here whenever it is added.
+func TestEveryAuthIDFieldIsPublished(t *testing.T) {
+	t.Parallel()
+	rec := get(t, NewHandler(&stubSource{status: idStatus()}), "/api/status")
+	var raw any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	published := map[string]bool{publicID(seatAID): true, publicID(seatBID): true}
+
+	var walk func(path string, v any)
+	walk = func(path string, v any) {
+		switch node := v.(type) {
+		case map[string]any:
+			for key, child := range node {
+				at := path + "." + key
+				if s, ok := child.(string); ok && strings.HasSuffix(key, "auth_id") {
+					if s != "" && !published[s] {
+						t.Errorf("%s = %q, want a published credential id", at, s)
+					}
+					continue
+				}
+				walk(at, child)
+			}
+		case []any:
+			for i, child := range node {
+				walk(fmt.Sprintf("%s[%d]", path, i), child)
+			}
+		}
+	}
+	walk("status", raw)
+}
+
+// TestSnapshotErrorDropsURLs covers the snapshot the page reads a failing poll
+// off: the transport error quotes the usage endpoint the config reduction
+// withholds.
+func TestSnapshotErrorDropsURLs(t *testing.T) {
+	t.Parallel()
+	st := idStatus()
+	st.Auths[0].Snapshot.Err = `Get "https://usage.internal.example/api/oauth/usage": context deadline exceeded`
+	st.Auths[0].Snapshot.ErrCategory = "timeout"
+
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	var got model.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if want := `Get "…": context deadline exceeded`; got.Auths[0].Snapshot.Err != want {
+		t.Errorf("snapshot err = %q, want %q", got.Auths[0].Snapshot.Err, want)
+	}
+	if got.Auths[0].Snapshot.ErrCategory != "timeout" {
+		t.Errorf("err category = %q, want it carried through", got.Auths[0].Snapshot.ErrCategory)
+	}
+}
+
+// TestFreeTextMasksAnUnlistedCredential covers the decision that outlives the
+// credential row it names: the note is retained past the poll that drops the
+// row, so the id in it no longer matches any credential the status carries.
+func TestFreeTextMasksAnUnlistedCredential(t *testing.T) {
+	t.Parallel()
+	st := idStatus()
+	st.Decisions[0].Note = "retry after removed@acme.example.json"
+
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	if strings.Contains(rec.Body.String(), "removed@") {
+		t.Errorf("an unlisted credential's address is served: %s", rec.Body.String())
 	}
 }

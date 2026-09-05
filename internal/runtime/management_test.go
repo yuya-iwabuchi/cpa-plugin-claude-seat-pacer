@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
 )
 
 const (
@@ -224,4 +226,76 @@ func TestManagementHandleToleratesGarbage(t *testing.T) {
 func mustString(t *testing.T, v any) string {
 	t.Helper()
 	return string(mustJSON(t, v))
+}
+
+// TestManagementStatusKeepsRealIDs covers the split between the two routes the
+// same status reaches: the resource route is unauthenticated and publishes a
+// hashed credential id, and the management route sits behind the host's key
+// and serves the id an operator needs for unbind.
+func TestManagementStatusKeepsRealIDs(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.registerManagement(t)
+	tp.SetResourceHandler(web.NewHandler(tp.Plugin))
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tp.pick(t, pickRequest(fableModel, "k1", "claude-a.json", "claude-b.json"))
+
+	managed := tp.manage(t, http.MethodGet, testMgmtPrefix+routeStatus, nil)
+	if managed.StatusCode != http.StatusOK {
+		t.Fatalf("management status = %d: %s", managed.StatusCode, managed.Body)
+	}
+	var full model.Status
+	if err := json.Unmarshal(managed.Body, &full); err != nil {
+		t.Fatalf("decode management status: %v", err)
+	}
+	real := make(map[string]bool)
+	for _, row := range full.Auths {
+		real[row.AuthID] = true
+	}
+	for _, id := range []string{"claude-a.json", "claude-b.json"} {
+		if !real[id] {
+			t.Errorf("management status lost the real id %q: %v", id, full.Auths)
+		}
+	}
+	if len(full.Bindings) == 0 || !real[full.Bindings[0].AuthID] {
+		t.Errorf("management bindings = %+v, want a real id", full.Bindings)
+	}
+
+	served := tp.manage(t, http.MethodGet, testResourceBase+"/api/status", nil)
+	if served.StatusCode != http.StatusOK {
+		t.Fatalf("resource status = %d: %s", served.StatusCode, served.Body)
+	}
+	// Matched as an id rather than as a substring: a credential the host
+	// gives neither a label nor an email keeps its file name as its label,
+	// and that name is the real id.
+	for id := range real {
+		if quoted := `auth_id":"` + id + `"`; strings.Contains(string(served.Body), quoted) {
+			t.Errorf("the unauthenticated route serves the real id %q: %s", id, served.Body)
+		}
+	}
+	var public model.Status
+	if err := json.Unmarshal(served.Body, &public); err != nil {
+		t.Fatalf("decode resource status: %v", err)
+	}
+	if len(public.Auths) != len(full.Auths) || len(public.Bindings) != len(full.Bindings) {
+		t.Errorf("resource view = %d auths %d bindings, want the same rows as %d and %d",
+			len(public.Auths), len(public.Bindings), len(full.Auths), len(full.Bindings))
+	}
+	// The join the page makes: every id it correlates on has a row.
+	rows := make(map[string]bool)
+	for _, row := range public.Auths {
+		rows[row.AuthID] = true
+	}
+	for _, b := range public.Bindings {
+		if !rows[b.AuthID] {
+			t.Errorf("binding on %q has no credential row: %v", b.AuthID, public.Auths)
+		}
+	}
+	for _, d := range public.Decisions {
+		if d.ChosenAuthID != "" && !rows[d.ChosenAuthID] {
+			t.Errorf("decision chose %q, which has no credential row: %v", d.ChosenAuthID, public.Auths)
+		}
+	}
 }
