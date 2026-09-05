@@ -49,7 +49,7 @@ func main() {
 		})
 	case "many":
 		// A pool the operator has grown past the point where every seat gets
-		// its own card: the naming collisions a real pool produces, and every
+		// a roomy row: the naming collisions a real pool produces, and every
 		// lane state the page can draw, spread across the seats.
 		src.growTo(*seats)
 	case "empty":
@@ -124,8 +124,8 @@ const (
 	seatCID = "claude-oauth-71c8fa"
 
 	// seatALabel is what the host reports for a credential that names no label
-	// of its own: the account address. It sits on the leading seat, whose card
-	// also carries the widest rank badge.
+	// of its own: the account address. It sits on the leading seat, whose row
+	// also carries the "next cold pick" line.
 	seatALabel = "quota.ops@acme-corp-engineering.example"
 
 	modelFable  = "claude-fable-5-20260514"

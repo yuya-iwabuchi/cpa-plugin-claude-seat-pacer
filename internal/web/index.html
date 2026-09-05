@@ -259,51 +259,13 @@ section { margin-top: 42px; }
 }
 
 /* ----------------------------------------------------------------- seats */
-.seats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(324px, 100%), 1fr)); }
-.seat { padding: 18px 18px 16px; position: relative; overflow: hidden; }
-.seat::before {
-  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
-  background: var(--seat-color, var(--ink-3));
-}
-.seat-top { display: flex; align-items: center; gap: 9px; margin-bottom: 3px; }
 .seat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--seat-color); flex: none; }
-/* A label with no spaces — an account id or an address — would otherwise hold
-   the card at its own width and push the rank badge past the clipped edge. */
-.seat-name {
-  font: 600 16px/1.2 var(--sans); margin: 0; letter-spacing: -.005em;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.seat-rank {
-  margin-left: auto; font: 600 10.5px/1 var(--mono); letter-spacing: .06em;
-  color: var(--ink-2); border: 1px solid var(--axis); border-radius: 999px;
-  padding: 5px 9px; white-space: nowrap;
-}
-.seat-rank[data-lead="true"] { color: var(--surface-1); background: var(--ink-1); border-color: var(--ink-1); }
-.seat-id { font: 400 11px/1.4 var(--mono); color: var(--ink-3); margin: 0 0 14px; word-break: break-all; }
 .seat-mark { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
 .seat-mark .seat-dot { width: 8px; height: 8px; }
 .seat-mark .seat-mark-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* One row per seat, for a pool too large to give every seat a card. */
-.seat-table td, .seat-table th { padding: 8px 8px; }
-.seat-table td { font-size: 12.5px; }
-.seat-table tr[data-eligible="false"] td:not(.keep) { opacity: .62; }
-.seat-table .seat-mark { font-weight: 600; max-width: 26ch; }
-.seat-table .seat-sub { display: block; font: 400 10.5px/1.4 var(--mono); color: var(--ink-3); }
-.seat-table .rank { font: 600 11px/1 var(--mono); color: var(--ink-2); white-space: nowrap; }
-.seat-table .rank[data-lead="true"] { color: var(--surface-1); background: var(--ink-1); border-radius: 999px; padding: 4px 7px; }
-.mm { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; font: 500 11.5px/1 var(--mono); }
-.mm-glyph { font-size: 10px; width: 10px; text-align: center; }
-.mm-track { position: relative; display: inline-block; width: 56px; height: 7px; border-radius: 4px; background: var(--track); overflow: visible; }
-.mm-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
-/* A blocked window is hatched, so the state does not ride on colour alone. */
-.mm-fill[data-blocked="true"] {
-  background-image: repeating-linear-gradient(45deg, transparent 0 3px, var(--surface-1) 3px 5px);
-}
-.mm-tick { position: absolute; top: -3px; bottom: -3px; width: 1.5px; margin-left: -.75px; background: var(--ink-1); box-shadow: 0 0 0 1.5px var(--surface-1); }
-/* The gate a limit window is held to: dashed, so it never reads as a pace tick. */
-.mm-cut { position: absolute; top: -3px; bottom: -3px; width: 0; margin-left: -.75px; border-left: 1.5px dashed var(--critical); }
-.mm-over { color: var(--ink-3); }
+/* A table names a seat in a bounded column, so a long name clips there rather
+   than widening the row; the clip is measured and hover recovers the rest. */
+td .seat-mark { max-width: 22ch; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0 0 14px; }
 .kv dt { font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
 .kv dd { margin: 0; font: 500 12.5px/1.5 var(--sans); text-align: right; }
@@ -324,15 +286,6 @@ section { margin-top: 42px; }
 .chip[data-tone="critical"] { --tone: var(--critical); }
 .chip[data-tone="muted"]    { --tone: var(--ink-3); }
 
-.seat-foot {
-  border-top: 1px solid var(--rule); margin-top: 2px; padding-top: 11px;
-  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
-}
-.seat-foot span:first-child {
-  font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
-}
-.seat-foot .mono { font-size: 12px; }
-
 /* -------------------------------------------------------------- timeline */
 .legend {
   display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
@@ -352,6 +305,12 @@ svg.tl .t-sec { fill: var(--ink-2); }
 svg.tl g.lane { cursor: default; }
 svg.tl g.lane:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; rx: 4; }
 svg.tl g.lane:hover rect.hit { fill: var(--surface-2); }
+/* The seat's gutter row is one stop: its detail is the tooltip. */
+svg.tl g.head { cursor: default; }
+svg.tl g.head:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
+svg.tl g.head:hover rect.hit { fill: var(--surface-2); }
+/* The slack label has a lane of its own, so it never meets another. */
+svg.tl text.slk { fill: var(--ink-2); }
 svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
 svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 svg.pace .t-muted { fill: var(--ink-3); }
@@ -403,7 +362,7 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk {
 .dec-time { font: 500 11.5px/1 var(--mono); color: var(--ink-2); }
 .dec-key  { font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
 .dec-model { font: 500 11.5px/1.3 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
-.dec-route { font: 500 12px/1.3 var(--sans); }
+.dec-route { font: 500 12px/1.3 var(--sans); min-width: 0; }
 .dec-route .arrow { color: var(--ink-3); font-family: var(--mono); }
 .dec-route .prev { color: var(--ink-3); }
 .dec-tail { display: flex; gap: 8px; align-items: center; justify-self: end; }
@@ -482,7 +441,7 @@ main[data-stale="true"] { opacity: .62; }
 /* Carries a value the layout has no room for to assistive technology. Every
    region that scrolls sideways is its containing block, so one placed deep in
    a wide table cannot widen the page instead of the table. */
-.tl-card, .tbl-card, .dec-body, .pace-card { position: relative; }
+.tl-card, .tbl-card, .dec-body, .pace-card, .dec > summary { position: relative; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -565,24 +524,15 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub" id="seats-sub">one per credential; eligible first, then by score</span>
-        <span class="sec-line"></span>
-      </div>
-      <div id="seats" class="seats"></div>
-    </section>
-
-    <section id="sec-timeline" hidden>
-      <div class="sec-head">
-        <span class="sec-idx"></span>
-        <h2>Quota timeline</h2>
-        <span class="sec-sub">one bar per quota window on one time axis; the meter is utilization, the tick its pace target</span>
+        <span class="sec-sub" id="seats-sub">one row per credential; eligible first, then by score</span>
         <span class="sec-line"></span>
         <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Unfold every seat</button></span>
       </div>
-      <!-- The lane states come from STATE_META at render time; only the two
+      <!-- The lane states come from STATE_META at render time; only the
            axis markers, which no script draws, are markup. -->
       <ul class="legend" id="timeline-legend">
         <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
+        <li data-axis-marker><span class="gl">&#8943;</span> slack to target</li>
         <li data-axis-marker><span class="gl" style="color:var(--critical)">&#9478;</span> hard cutoff</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
@@ -643,7 +593,7 @@ main[data-stale="true"] { opacity: .62; }
   var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
-  var DENSE_AT = 4;          /* more seats than this and density "auto" tabulates */
+  var DENSE_AT = 4;          /* more seats than this and density "auto" draws compact rows */
   var TL_FULL_ROWS = 6;      /* dense timeline: seats drawn lane by lane before the rest fold */
   var SEAT_HUES = 6;         /* --seat-1 … --seat-6; every later seat is neutral */
 
@@ -928,9 +878,7 @@ main[data-stale="true"] { opacity: .62; }
     dot.style.background = seatColor(a);
     dot.setAttribute("aria-hidden", "true");
     m.appendChild(dot);
-    var nm = h("span", "seat-mark-name", seatLabel(a));
-    nm.title = seatLabel(a);
-    m.appendChild(nm);
+    m.appendChild(h("span", "seat-mark-name clip", seatLabel(a)));
     return m;
   }
 
@@ -945,8 +893,8 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   function dense(count) {
-    if (state.density === "cards") return false;
-    if (state.density === "table") return true;
+    if (state.density === "roomy") return false;
+    if (state.density === "compact") return true;
     return count > DENSE_AT;
   }
 
@@ -982,7 +930,7 @@ main[data-stale="true"] { opacity: .62; }
     tipEl.setAttribute("data-show", "true");
     if (tipFor !== el) {
       if (tipFor) tipFor.removeAttribute("aria-describedby");
-      el.setAttribute("aria-describedby", "tooltip");
+      if (!el.hasAttribute("data-tip-visual")) el.setAttribute("aria-describedby", "tooltip");
       tipFor = el;
     }
     var pad = 14;
@@ -1042,8 +990,9 @@ main[data-stale="true"] { opacity: .62; }
     return c;
   }
 
-  /* A value the layout has no room for: the tooltip carries it to a pointer or
-     a keyboard, the hidden span to a screen reader. */
+  /* A value the layout shortens for real — the DOM holds only its head: the
+     tooltip carries the whole of it to a pointer or a keyboard, the hidden
+     span to a screen reader. */
   function tipOnly(node, text) {
     node.tabIndex = 0;
     node.setAttribute("data-tip", text);
@@ -1051,268 +1000,73 @@ main[data-stale="true"] { opacity: .62; }
     return node;
   }
 
-  function seatMetaLine(a) {
-    var parts = [];
-    if (a.email && a.email !== seatLabel(a)) parts.push(a.email);
-    if (a.auth_id) parts.push(a.auth_id);
-    if (a.provider) parts.push(a.provider);
-    return parts.join("  ·  ") || "—";
-  }
-
-  function eligibilityChip(a) {
-    var eligible = !!(a.score && a.score.eligible);
-    return eligible
-      ? chip("eligible", "good", "✓")
-      : chip(a.score && a.score.reason ? a.score.reason : "ineligible", "critical", "✕");
-  }
-
-  function renderSeats(st, ranked) {
-    var host = $("seats");
-    host.textContent = "";
-    var tabular = dense(ranked.length);
-    $("seats-sub").textContent = tabular
-      ? "one row per credential; eligible first, then by score. meter is utilization, tick is pace target, dashed mark is the hard cutoff"
-      : "one card per credential; eligible first, then by score";
-    if (tabular) renderSeatTable(st, ranked, host);
-    else renderSeatCards(st, ranked, host);
-  }
-
-  function renderSeatCards(st, ranked, host) {
-    host.className = "seats";
-    ranked.forEach(function (a, i) {
-      var card = h("article", "card seat");
-      card.style.setProperty("--seat-color", seatColor(a));
-      var eligible = !!(a.score && a.score.eligible);
-
-      var top = h("div", "seat-top");
-      var dot = h("span", "seat-dot");
-      dot.setAttribute("aria-hidden", "true");
-      top.appendChild(dot);
-      var nameEl = h("h3", "seat-name", seatLabel(a));
-      nameEl.title = seatLabel(a);
-      top.appendChild(nameEl);
-      var lead = eligible && i === 0;
-      var rank = h("span", "seat-rank", lead ? "#1 next cold pick" : "#" + (i + 1));
-      if (lead) rank.setAttribute("data-lead", "true");
-      top.appendChild(rank);
-      card.appendChild(top);
-
-      card.appendChild(h("p", "seat-id mono", seatMetaLine(a)));
-
-      var dl = h("dl", "kv");
-      function row(k, node) {
-        dl.appendChild(h("dt", "", k));
-        var dd = h("dd", "");
-        dd.appendChild(node);
-        dl.appendChild(dd);
+  /* Text an ellipsis cuts is whole in the DOM, so assistive technology already
+     has it; only a sighted reader needs the rest, and only while it is cut.
+     Measured on every render and resize, so the tooltip appears exactly when
+     the text overflows. */
+  function markClipped() {
+    var nodes = document.querySelectorAll(".clip");
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.scrollWidth > n.clientWidth) {
+        n.setAttribute("data-tip", n.textContent);
+        n.setAttribute("data-tip-visual", "true");
+        n.tabIndex = 0;
+      } else {
+        n.removeAttribute("data-tip");
+        n.removeAttribute("data-tip-visual");
+        n.removeAttribute("tabindex");
       }
-
-      /* "unknown" is the host's own default for a credential it has not
-         classified, so it reads as neutral rather than as a problem. */
-      var hs = a.host_status || "unknown";
-      row("Host", chip(hs, hs === "active" ? "good" : hs === "unknown" ? "muted" : "serious"));
-
-      row("Eligibility", eligibilityChip(a));
-
-      var scored = !!(a.score && a.score.windows && a.score.windows.length);
-      var scoreWrap = h("span", "");
-      scoreWrap.appendChild(h("span", "mono", totalText(a.score)));
-      if (scored && num(a.score.raw_penalty)) {
-        var pen = h("span", "mono", "  raw −" + a.score.raw_penalty.toFixed(3));
-        pen.style.color = "var(--ink-3)";
-        scoreWrap.appendChild(pen);
-      }
-      row("Score", scoreWrap);
-
-      row("Priority", h("span", "mono", String(a.priority == null ? "—" : a.priority)));
-      row("Bindings", h("span", "mono", intFmt(a.bindings) + " live"));
-      row("Cache hits", cacheNode(a));
-
-      var snap = a.snapshot || {};
-      var obs = parseT(snap.observed_at);
-      var snapWrap = h("span", "");
-      snapWrap.appendChild(stamp(obs, "mono"));
-      if (snap.source) {
-        snapWrap.appendChild(document.createTextNode("  "));
-        snapWrap.appendChild(chip(snap.source, "muted"));
-      }
-      row("Snapshot", snapWrap);
-
-      if (snap.err || snap.err_category) row("Fetch error", errChip(a));
-      card.appendChild(dl);
-
-      var active = null;
-      sortedWindows(snap.windows).forEach(function (w) { if (w.active) active = w; });
-      if (active) {
-        var foot = h("div", "seat-foot");
-        var resets = parseT(active.resets_at);
-        foot.appendChild(h("span", "", "Binding window"));
-        var fv = h("span", "mono", "");
-        fv.appendChild(document.createTextNode(windowShort(active) + " · " + pct(active.utilization) + " · "));
-        fv.appendChild(stamp(resets, "", "reset"));
-        foot.appendChild(fv);
-        card.appendChild(foot);
-      }
-
-      host.appendChild(card);
-    });
-  }
-
-  function cacheNode(a) {
-    var hr = hitRate(a.cache);
-    var hrNode = h("span", "mono", hr === null ? "no traffic" : pct(hr));
-    if (a.cache) {
-      hrNode.setAttribute("data-fk", "cache:" + a.auth_id);
-      tipOnly(hrNode,
-        "cache read      " + intFmt(a.cache.cache_read_tokens) +
-        "\ncache creation  " + intFmt(a.cache.cache_creation_tokens) +
-        "\nfresh input     " + intFmt(a.cache.fresh_input_tokens) +
-        "\noutput          " + intFmt(a.cache.output_tokens) +
-        "\nrequests        " + intFmt(a.cache.requests));
     }
-    return hrNode;
   }
 
-  function errChip(a) {
-    var snap = a.snapshot || {};
-    var c = chip(snap.err_category || "error", "critical", "⚠");
-    if (snap.err) {
-      c.setAttribute("data-fk", "err:" + a.auth_id);
-      tipOnly(c, snap.err);
-    }
-    return c;
+  /* The seat's whole record, behind its row in the timeline gutter. The
+     account is the masked form the status route publishes; there is no fuller
+     one on this side. */
+  function seatTip(a, rank, lead) {
+    var now = nowMs();
+    var sc = a.score || {}, snap = a.snapshot || {};
+    var eligible = !!sc.eligible;
+    var scored = !!(sc.windows && sc.windows.length);
+    var hs = a.host_status || "unknown";
+    var hr = hitRate(a.cache), c = a.cache;
+    var obs = parseT(snap.observed_at);
+    var active = null;
+    sortedWindows(snap.windows).forEach(function (w) { if (w.active) active = w; });
+    var lines = [
+      seatLabel(a),
+      "rank #" + (rank + 1) + (lead ? " · next cold pick" : ""),
+      a.email && a.email !== seatLabel(a) ? "account      " + a.email : null,
+      a.auth_id ? "id           " + a.auth_id : null,
+      a.provider ? "provider     " + a.provider : null,
+      "host         " + hs,
+      "eligibility  " + (eligible ? "eligible" : (sc.reason || "ineligible")),
+      "score        " + totalText(sc) +
+        (scored && num(sc.raw_penalty) ? " · raw −" + sc.raw_penalty.toFixed(3) : ""),
+      "priority     " + (a.priority == null ? "—" : a.priority),
+      "bindings     " + intFmt(a.bindings) + " live",
+      "cache hits   " + (hr === null ? "no traffic" : pct(hr) + " of input tokens"),
+      c && hr !== null ? "  read " + intFmt(c.cache_read_tokens) + " · creation " + intFmt(c.cache_creation_tokens) +
+        " · fresh " + intFmt(c.fresh_input_tokens) : null,
+      c && hr !== null ? "  output " + intFmt(c.output_tokens) + " · requests " + intFmt(c.requests) : null,
+      "snapshot     " + (obs ? relText(obs, now) : "none") + (snap.source ? " · " + snap.source : ""),
+      snap.err || snap.err_category ? "fetch error  " + (snap.err_category || "error") +
+        (snap.err ? ": " + snap.err : "") : null,
+      active ? "binding window  " + windowShort(active) + " · " + pct(active.utilization) + " · " +
+        resetText(parseT(active.resets_at), now) : null
+    ];
+    return lines.filter(Boolean).join("\n");
   }
 
-  /* The windows every seat is asked about, in display order, as column keys. */
-  function windowColumns(ranked) {
-    var seen = Object.create(null), cols = [];
-    ranked.forEach(function (a) {
-      sortedWindows(a.snapshot && a.snapshot.windows).forEach(function (w) {
-        var k = w.kind + "|" + (w.scope || "");
-        if (seen[k]) return;
-        seen[k] = true;
-        cols.push({ key: k, kind: w.kind, scope: w.scope || "", label: windowShort(w) });
-      });
-    });
-    return cols.sort(function (x, y) {
-      var d = windowOrder(x) - windowOrder(y);
-      return d !== 0 ? d : x.scope.localeCompare(y.scope);
-    });
-  }
-
-  /* One window, the size of a table cell: state glyph, budget meter with the
-     pace tick, and the utilization in text so nothing depends on colour. */
-  function miniMeter(a, w, ws, cfg) {
-    var stt = laneState(w, ws, cfg);
-    var meta = STATE_META[stt];
-    var m = h("span", "mm");
-    m.tabIndex = 0;
-    m.setAttribute("role", "img");
-    m.setAttribute("data-fk", "mm:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
-    m.setAttribute("data-tip", laneTip(a, w, ws, stt, cfg, false));
-    m.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
-    var gl = h("span", "mm-glyph", meta.glyph);
-    gl.style.color = meta.color;
-    gl.setAttribute("aria-hidden", "true");
-    m.appendChild(gl);
-    var track = h("span", "mm-track");
-    track.setAttribute("aria-hidden", "true");
-    var fw = clamp(num(w.utilization) ? w.utilization : 0, 0, 1);
-    if (fw > 0) {
-      var fill = h("span", "mm-fill");
-      fill.style.width = (fw * 100).toFixed(1) + "%";
-      fill.style.background = meta.color;
-      if (stt === "blocked") fill.setAttribute("data-blocked", "true");
-      track.appendChild(fill);
-    }
-    if (stt === "limit" && cutoffOf(cfg) !== null) {
-      var cutMark = h("span", "mm-cut");
-      cutMark.style.left = (clamp(cutoffOf(cfg), 0, 1) * 100).toFixed(1) + "%";
-      track.appendChild(cutMark);
-    } else if (counted(ws) && stt !== "unknown" && num(ws.target)) {
-      var tick = h("span", "mm-tick");
-      tick.style.left = (clamp(ws.target, 0, 1) * 100).toFixed(1) + "%";
-      track.appendChild(tick);
-    }
-    m.appendChild(track);
-    m.appendChild(h("span", "", pct(w.utilization, 0)));
-    if (w.utilization > 1) m.appendChild(h("span", "mm-over", "▸"));
-    return m;
-  }
-
-  function renderSeatTable(st, ranked, host) {
-    host.className = "card tbl-card";
-    var cfg = st.config || {};
-    var cols = windowColumns(ranked);
-    var tbl = h("table", "seat-table");
-    tbl.appendChild(h("caption", "", ranked.length + " credentials"));
-    var thead = h("thead", ""), hr = h("tr", "");
-    var heads = [["#", ""], ["Seat", ""], ["Eligibility", ""], ["Score", "n"]];
-    cols.forEach(function (c) { heads.push([c.label, ""]); });
-    heads.push(["Bindings", "n"], ["Cache hits", "n"], ["Snapshot", ""]);
-    heads.forEach(function (pair) { hr.appendChild(h("th", pair[1], pair[0])); });
-    thead.appendChild(hr);
-    tbl.appendChild(thead);
-
-    var tb = h("tbody", "");
-    ranked.forEach(function (a, i) {
-      var eligible = !!(a.score && a.score.eligible);
-      var tr = h("tr", "");
-      tr.setAttribute("data-eligible", eligible ? "true" : "false");
-
-      var lead = eligible && i === 0;
-      var tdR = h("td", "keep");
-      var rank = h("span", "rank", lead ? "#1 next" : "#" + (i + 1));
-      if (lead) rank.setAttribute("data-lead", "true");
-      tdR.appendChild(rank);
-      tr.appendChild(tdR);
-
-      var tdS = h("td", "keep");
-      tdS.appendChild(seatMark(a));
-      tdS.appendChild(h("span", "seat-sub", seatMetaLine(a)));
-      tr.appendChild(tdS);
-
-      /* The host's state rides with eligibility; an active credential is the
-         norm and says nothing a row needs to spend a column on. */
-      var tdE = h("td", "keep");
-      tdE.appendChild(eligibilityChip(a));
-      var hs = a.host_status || "unknown";
-      if (hs !== "active") {
-        tdE.appendChild(document.createTextNode(" "));
-        tdE.appendChild(chip("host " + hs, hs === "unknown" ? "muted" : "serious"));
-      }
-      tr.appendChild(tdE);
-
-      tr.appendChild(h("td", "n mono", totalText(a.score)));
-
-      var wins = sortedWindows(a.snapshot && a.snapshot.windows);
-      cols.forEach(function (c) {
-        var td = h("td", "");
-        var w = null;
-        wins.forEach(function (x) { if (x.kind === c.kind && (x.scope || "") === c.scope) w = x; });
-        if (w) td.appendChild(miniMeter(a, w, scoreFor(a, w), cfg));
-        else { td.textContent = "—"; td.style.color = "var(--ink-3)"; }
-        tr.appendChild(td);
-      });
-
-      tr.appendChild(h("td", "n mono", intFmt(a.bindings)));
-      var tdC = h("td", "n");
-      tdC.appendChild(cacheNode(a));
-      tr.appendChild(tdC);
-
-      var snap = a.snapshot || {};
-      var tdN = h("td", "");
-      tdN.appendChild(stamp(parseT(snap.observed_at), "mono"));
-      if (snap.err || snap.err_category) {
-        tdN.appendChild(document.createTextNode(" "));
-        tdN.appendChild(errChip(a));
-      }
-      tr.appendChild(tdN);
-
-      tb.appendChild(tr);
-    });
-    tbl.appendChild(tb);
-    host.appendChild(tbl);
+  function seatAria(a, rank, lead) {
+    var sc = a.score || {}, snap = a.snapshot || {};
+    var hs = a.host_status || "unknown";
+    return seatLabel(a) + ", rank " + (rank + 1) + (lead ? ", next cold pick" : "") +
+      ", " + (sc.eligible ? "eligible" : (sc.reason || "ineligible")) +
+      ", score " + totalText(sc) +
+      ", " + intFmt(a.bindings) + " live bindings" +
+      (hs !== "active" ? ", host " + hs : "") +
+      (snap.err || snap.err_category ? ", fetch error " + (snap.err_category || "") : "");
   }
 
   /* A paced window reports its target and slack; a gated one its cutoff; an
@@ -1351,12 +1105,15 @@ main[data-stale="true"] { opacity: .62; }
 
   /* ------------------------------------------------------------ timeline */
 
-  var GUT = 346, PAD_R = 20, AXIS_H = 40, TOP = 10;
+  var GUT = 392, PAD_R = 20, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
-  /* Row geometry, at the two densities the timeline draws. */
+  var SLK_X = MET_X + MET_W + 14;            /* the slack label, right of the meter */
+  /* Row geometry, at the two densities the timeline draws. A roomy seat row
+     has a second line for its live figures; a compact one keeps them in the
+     tooltip. */
   var TL_GEO = {
-    roomy:   { head: 32, lane: 26, gap: 14, name: 13.5 },
-    compact: { head: 26, lane: 21, gap: 8,  name: 12.5 }
+    roomy:   { head: 46, lane: 26, gap: 14, name: 13.5, sub: true },
+    compact: { head: 26, lane: 21, gap: 8,  name: 12.5, sub: false }
   };
 
   /* The lane states are one list: the legend, the glyph, the tooltip and the
@@ -1454,7 +1211,7 @@ main[data-stale="true"] { opacity: .62; }
       note.hidden = false;
       note.textContent = folded
         ? folded + " of " + ranked.length + " seats folded to one row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
-          ". The seat table above has their windows."
+          ". Each window keeps its state and utilization; its detail is in the tooltip."
         : ranked.length + " seats, every window drawn.";
     }
 
@@ -1462,7 +1219,7 @@ main[data-stale="true"] { opacity: .62; }
       "class": "tl", width: width, height: height,
       viewBox: "0 0 " + width + " " + height,
       role: "group",
-      "aria-label": "Quota windows of every seat on one time axis"
+      "aria-label": "Every seat, ranked, with its quota windows on one time axis"
     }, host);
 
     var gGrid = svg("g", {}, root);
@@ -1506,26 +1263,32 @@ main[data-stale="true"] { opacity: .62; }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
+      /* The seat's row: rank, identity, eligibility and score in the gutter,
+         its live figures on a second line where there is room, and the whole
+         record in the tooltip. The name is trimmed to the measured space, so
+         the tooltip is also where a long name is read whole. */
       var headY = row.top + (compact ? 17 : 20);
-      svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gGut);
-      var rankEl = svgText(gGut, 34, headY, "#" + (i + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
+      var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gGut);
+      gh.setAttribute("data-fk", "seat:" + a.auth_id);
+      gh.setAttribute("aria-label", seatAria(a, i, lead));
+      gh.setAttribute("data-tip", seatTip(a, i, lead));
+      svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: GUT - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
+      svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
+      var rankEl = svgText(gh, 34, headY, "#" + (i + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
       var nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
-      var nameEl = svgText(gGut, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
+      var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
       var tail;
       if (!eligible) {
-        tail = svgText(gGut, GUT - 14, headY, (a.score && a.score.reason) || "ineligible",
+        tail = svgText(gh, GUT - 14, headY, "✕ " + ((a.score && a.score.reason) || "ineligible"),
           "t-mono", { "font-size": 10.5, "text-anchor": "end", fill: "var(--critical)" });
       } else {
-        tail = svgText(gGut, GUT - 14, headY, totalText(a.score),
-          "t-mono t-sec", { "font-size": 11 });
-        tail.setAttribute("text-anchor", "end");
+        tail = svgText(gh, GUT - 14, headY, totalText(a.score),
+          "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
       }
       fitText(nameEl, GUT - nameX - tail.getComputedTextLength() - 18);
 
-      if (lead && !compact) {
-        svgText(gGut, nameX, headY + 13, "next cold pick", "t-mono t-muted", { "font-size": 9.5, "letter-spacing": ".1em" });
-      }
+      if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, lead, GUT - nameX - 14);
 
       if (row.g.fold) {
         /* A folded seat keeps its state glyphs on the axis side, so the row
@@ -1660,6 +1423,46 @@ main[data-stale="true"] { opacity: .62; }
     svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
   }
 
+  /* The second line of a roomy seat row, least important figure last, so a
+     line that overruns the gutter loses figures from the end; the tooltip
+     keeps every one. The snapshot age is a ticking stamp. */
+  function seatSubLine(parent, x, y, a, lead, maxW) {
+    var snap = a.snapshot || {};
+    var hs = a.host_status || "unknown";
+    var obs = parseT(snap.observed_at);
+    var hr = hitRate(a.cache);
+    var parts = [];
+    if (lead) parts.push({ t: "next cold pick" });
+    if (hs !== "active") parts.push({ t: "host " + hs });
+    if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "fetch error") });
+    parts.push(obs ? { age: obs } : { t: "no snapshot" });
+    parts.push({ t: intFmt(a.bindings) + " live" });
+    if (hr !== null) parts.push({ t: pct(hr, 0) + " cache hits" });
+    var el = svgText(parent, x, y, "", "t-mono t-muted", { "font-size": 10 });
+    for (var n = parts.length; n > 0; n--) {
+      el.textContent = "";
+      parts.slice(0, n).forEach(function (p, i) {
+        if (i) el.appendChild(document.createTextNode("  ·  "));
+        if (p.age) {
+          var ts = svg("tspan", { "data-ts": p.age.getTime() }, el);
+          ts.textContent = relText(p.age, nowMs());
+        } else {
+          el.appendChild(document.createTextNode(p.t));
+        }
+      });
+      if (el.getComputedTextLength() <= maxW) break;
+    }
+    return el;
+  }
+
+  /* Whether a window's meter carries a slack connector: the scorer paced it,
+     so it has a target, and the gap is outside the on-pace band, where the
+     dotted run would sit under the tick. A gated session window and a window
+     the scorer never evaluated have no target and get nothing. */
+  function slackDrawn(ws, stt) {
+    return counted(ws) && stt !== "unknown" && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND;
+  }
+
   function budgetMeter(parent, cy, w, ws, color, opacity, stt, cut) {
     var y = cy - MET_H / 2;
     svg("rect", { x: MET_X, y: y, width: MET_W, height: MET_H, rx: MET_H / 2,
@@ -1678,6 +1481,16 @@ main[data-stale="true"] { opacity: .62; }
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
       svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
         stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: opacity }, parent);
+      /* The slack is the run along the meter between where the fill ends and
+         where the target stands, dotted in ink over a halo so it reads on the
+         fill as well as on the track, and labelled with its signed value. */
+      if (slackDrawn(ws, stt)) {
+        var sx = MET_X + fw;
+        var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round", opacity: opacity };
+        svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
+        svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
+        svgText(parent, SLK_X, cy + 3.5, signed(ws.slack), "slk t-mono", { "font-size": 10, opacity: opacity });
+      }
     }
     if (w.utilization > 1) {
       svg("path", { d: "M" + (MET_X + MET_W + 3) + " " + (cy - 3.5) +
@@ -1888,7 +1701,7 @@ main[data-stale="true"] { opacity: .62; }
       "whose unspent capacity is lost at reset." +
       (wts.scoped_weight > 0
         ? " The model-family weekly window also counts toward the score at weight " + wts.scoped_weight.toFixed(2) +
-          " but is not drawn here; the quota timeline shows it with its own meter and pace tick."
+          " but is not drawn here; the seats timeline shows it with its own meter, pace tick and slack."
         : "") +
       (wts.session_weight === 0
         ? " The 5-hour window has no pace target: it is a rate limit that resets several times a day, gates a seat at the hard cutoff and feeds the raw penalty."
@@ -1978,7 +1791,9 @@ main[data-stale="true"] { opacity: .62; }
       var km = KIND_META[dec.kind] || { tone: "muted", glyph: "·", label: dec.kind || "unknown" };
       sum.appendChild(chip(km.label, km.tone, km.glyph));
 
-      sum.appendChild(h("code", "dec-key", dec.session_key ? dec.session_key.slice(0, 8) : "—"));
+      var dk = h("code", "dec-key", dec.session_key ? dec.session_key.slice(0, 8) : "—");
+      if (dec.session_key && dec.session_key.length > 8) tipOnly(dk, dec.session_key);
+      sum.appendChild(dk);
       sum.appendChild(h("span", "dec-model", dec.model || "—"));
 
       var route = h("span", "dec-route");
@@ -2153,6 +1968,7 @@ main[data-stale="true"] { opacity: .62; }
         else state.sort = { key: c.key, dir: c.key === "session_key" || c.key === "model" ? 1 : -1 };
         var focused = captureFocus();
         renderBindings(state.data);
+        markClipped();
         restoreFocus(focused);
       });
       th.appendChild(btn);
@@ -2165,8 +1981,9 @@ main[data-stale="true"] { opacity: .62; }
     rows.forEach(function (b) {
       var tr = h("tr", "");
       var k = h("td", "");
-      var code = h("code", "mono", (b.session_key || "").slice(0, 12) + ((b.session_key || "").length > 12 ? "…" : ""));
-      code.title = b.session_key || "";
+      var sk = b.session_key || "";
+      var code = h("code", "mono", sk.slice(0, 12) + (sk.length > 12 ? "…" : ""));
+      if (sk.length > 12) tipOnly(code, sk);
       k.appendChild(code);
       tr.appendChild(k);
       tr.appendChild(h("td", "", b.provider || "—"));
@@ -2316,19 +2133,18 @@ main[data-stale="true"] { opacity: .62; }
     var empty = !ranked.length;
     $("empty-state").hidden = !empty;
     $("sec-seats").hidden = empty;
-    $("sec-timeline").hidden = empty;
     $("sec-pace").hidden = empty;
     $("sec-decisions").hidden = false;
     $("sec-bindings").hidden = false;
 
     if (!empty) {
-      renderSeats(st, ranked);
       renderTimeline(st, ranked);
       renderPace(st, ranked);
     }
     renderDecisions(st);
     renderBindings(st);
     renumberSections();
+    markClipped();
     restoreFocus(focused);
   }
 
@@ -2462,7 +2278,7 @@ main[data-stale="true"] { opacity: .62; }
   if (window.self !== window.top) document.documentElement.setAttribute("data-framed", "");
 
   var densityBtn = $("density-toggle");
-  var DENSITIES = ["auto", "cards", "table"];
+  var DENSITIES = ["auto", "roomy", "compact"];
   try {
     var savedDensity = window.localStorage.getItem("cqs-density");
     if (savedDensity && DENSITIES.indexOf(savedDensity) >= 0) state.density = savedDensity;
