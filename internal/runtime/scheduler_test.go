@@ -375,6 +375,7 @@ func TestSubagentDoesNotInheritABlockedParent(t *testing.T) {
 
 func TestSingleCandidateWarningFollowsTheLatestPick(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
 	tp.seats(t)
 	tp.pick(t, pickRequest(fableModel, "k1", "seat-a"))
 	tp.pick(t, pickRequest(fableModel, "k2", "seat-a"))

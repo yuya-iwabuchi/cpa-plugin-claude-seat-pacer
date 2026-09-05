@@ -23,7 +23,7 @@ type Options struct {
 	ConfigFields []ConfigField
 
 	// Host performs host callbacks. Nil leaves every callback failing, which
-	// is how the plugin behaves after cliproxyPluginShutdown.
+	// is what a test that must not reach a host supplies.
 	Host HostFunc
 	// NewBindingStore builds the affinity table. Nil selects session.NewStore;
 	// tests supply a fake.
@@ -65,8 +65,8 @@ type Plugin struct {
 	polls       map[string]pollState
 	listErr     string
 	fetchErr    string
-	// singleCandidates is the candidate count each provider last offered a
-	// cold pick, and singleLogged the providers already warned about.
+	// singleCandidates is the candidate count each provider was last offered,
+	// and singleLogged the providers already warned about.
 	singleCandidates map[string]int
 	singleLogged     map[string]bool
 	mgmtBase         string
@@ -146,9 +146,14 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			raw, ok = degrade(method, codePluginPanic, fmt.Sprintf("recovered: %v", r))
-			p.host.log("error", "cpa-claude-quota-scheduler recovered from a panic", map[string]any{
-				"method": method,
-				"panic":  fmt.Sprintf("%v", r),
+			// The guard covers scheduler.pick, which the host gives no
+			// timeout, so the line goes out on a tracked goroutine rather
+			// than holding the request behind the host's logger.
+			p.host.spawn(func() {
+				p.host.log("error", "cpa-claude-quota-scheduler recovered from a panic", map[string]any{
+					"method": method,
+					"panic":  fmt.Sprintf("%v", r),
+				})
 			})
 		}
 	}()
@@ -198,7 +203,10 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 	switch method {
 	case MethodPluginRegister, MethodPluginReconfigure:
 		return p.configure(payload)
-	case MethodPluginQuiesce, MethodPluginShutdown:
+	case MethodPluginQuiesce:
+		p.stopPoller()
+		return okEnvelope(emptyResult)
+	case MethodPluginShutdown:
 		p.Shutdown()
 		return okEnvelope(emptyResult)
 	case MethodRequestInterceptBefore:

@@ -24,6 +24,10 @@ const (
 // once the poll loop has stopped.
 const hostDrainTimeout = 5 * time.Second
 
+// errNoGovernedCredential is the listing failure a poll records when the host
+// names no credential this plugin governs.
+const errNoGovernedCredential = "the host listed no credential this plugin governs"
+
 // poller drives the periodic poll. It is stopped and joined at plugin.quiesce
 // and plugin.shutdown; a management refresh runs the same poll inline on its
 // own goroutine instead.
@@ -45,21 +49,32 @@ func (p *Plugin) startPoller() {
 	go p.runPoller(pl)
 }
 
-// Shutdown stops the poll loop, waits for it, and then drains the host calls
-// it left outstanding. It is idempotent, and a later plugin.register starts a
-// fresh loop.
+// stopPoller stops the poll loop and waits for it. It is idempotent, and a
+// later plugin.register starts a fresh loop.
+func (p *Plugin) stopPoller() {
+	p.lifeMu.Lock()
+	defer p.lifeMu.Unlock()
+	if p.poller == nil {
+		return
+	}
+	close(p.poller.stop)
+	<-p.poller.done
+	p.poller = nil
+}
+
+// Shutdown stops the poll loop and then drains the host calls it left
+// outstanding. It is idempotent.
 //
 // The drain is what makes the unload safe: the host frees its callback table
 // and dlcloses this library as soon as cliproxy_plugin_shutdown returns, so a
-// goroutine still parked in a host call would resume in unmapped memory.
+// goroutine still parked in a host call would resume in unmapped memory. Only
+// the unload reaches it, and by then the host has waited for every in-flight
+// plugin call to return (internal/pluginhost/client_guard.go:112-122), so
+// nothing can start another callback beside it. plugin.quiesce precedes a
+// replacement rather than an unload, and runs while the host is still counting
+// its own call, so it only stops the loop.
 func (p *Plugin) Shutdown() {
-	p.lifeMu.Lock()
-	defer p.lifeMu.Unlock()
-	if p.poller != nil {
-		close(p.poller.stop)
-		<-p.poller.done
-		p.poller = nil
-	}
+	p.stopPoller()
 	p.host.drain(hostDrainTimeout)
 }
 
@@ -80,8 +95,16 @@ func (p *Plugin) runPoller(pl *poller) {
 			return
 		case <-timer.C:
 		}
-		timer.Reset(p.poll(ctx))
+		timer.Reset(p.pollOnce(ctx))
 	}
+}
+
+// pollOnce runs one background poll under the deadline a manual refresh uses,
+// so a host callback that never returns costs one poll rather than the loop.
+func (p *Plugin) pollOnce(ctx context.Context) time.Duration {
+	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
+	defer cancel()
+	return p.poll(ctx)
 }
 
 // refresh polls every governed credential now and reports the first failure:
@@ -135,15 +158,29 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 	}
 
 	governed := make([]HostAuthFileEntry, 0, len(entries))
-	listed := make(map[string]struct{}, len(entries))
-	keep := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if cfg.GovernsProvider(strings.ToLower(entry.Provider)) || cfg.GovernsProvider(strings.ToLower(entry.Type)) {
+			governed = append(governed, entry)
+		}
+	}
+	if len(governed) == 0 {
+		// The host answers a listing it cannot serve with an empty set and no
+		// error, whenever its auth manager is not wired yet or the auth dir
+		// holds no file (internal/pluginhost/auth_callbacks.go:135-151). An
+		// empty governed set is therefore an incomplete read: publishing it
+		// would prune away every snapshot the plugin routes on.
+		p.mu.Lock()
+		p.listErr = errNoGovernedCredential
+		p.mu.Unlock()
+		p.host.log("warn", "cpa-claude-quota-scheduler: "+errNoGovernedCredential, map[string]any{"listed": len(entries)})
+		return listRetryWait
+	}
+
+	listed := make(map[string]struct{}, len(governed))
+	keep := make(map[string]struct{}, len(governed))
 	fetchErr := ""
 	client := quota.NewClient(hostDoer{h: p.host}, cfg.Quota.UsageURL, cfg.Quota.RequestTimeout)
-	for _, entry := range entries {
-		if !cfg.GovernsProvider(strings.ToLower(entry.Provider)) && !cfg.GovernsProvider(strings.ToLower(entry.Type)) {
-			continue
-		}
-		governed = append(governed, entry)
+	for _, entry := range governed {
 		id := authID(entry)
 		if id != "" {
 			listed[id] = struct{}{}
@@ -181,7 +218,13 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 	if ctx.Err() != nil {
 		// The credential list was read only in part. Publishing it would drop
 		// rows the plugin is still routing on, so the previous poll's view
-		// stands and refresh reports the cut-short context.
+		// stands. The listing itself succeeded, and a fetch this same deadline
+		// aborted says nothing about the endpoint, so refresh reports the
+		// cut-short context; the per-credential outcomes the poll did record
+		// stand in the status view.
+		p.mu.Lock()
+		p.listErr, p.fetchErr = "", ""
+		p.mu.Unlock()
 		return cfg.Quota.PollInterval
 	}
 	p.quota.Prune(keep)
@@ -208,14 +251,19 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 
 // warnSingleCandidate logs once per provider that spreading cannot work: the
 // host offers only the highest priority tier, so a pool whose credentials do
-// not share one priority value collapses to a single candidate. The pick that
-// observes the condition only records it, because a host call on the pick path
-// has no timeout and would park the request's goroutine for good.
+// not share one priority value collapses to a single candidate. A provider
+// that starts offering more again is logged afresh the next time it collapses.
+// The pick that observes the condition only records it, because a host call on
+// the pick path has no timeout and would park the request's goroutine for
+// good.
 func (p *Plugin) warnSingleCandidate() {
 	p.mu.Lock()
 	pending := make([]string, 0, len(p.singleCandidates))
 	for provider, count := range p.singleCandidates {
-		if count == 1 && !p.singleLogged[provider] {
+		switch {
+		case count != 1:
+			delete(p.singleLogged, provider)
+		case !p.singleLogged[provider]:
 			p.singleLogged[provider] = true
 			pending = append(pending, provider)
 		}
