@@ -292,6 +292,60 @@ func TestStoreCountByAuth(t *testing.T) {
 	}
 }
 
+// TestStoreCountByAuthTracksEveryRemovalPath walks every way a binding leaves
+// the table, because the tally is maintained as entries move rather than
+// recomputed on demand.
+func TestStoreCountByAuthTracksEveryRemovalPath(t *testing.T) {
+	s := NewStore(10*time.Minute, 3)
+	scan := func() map[string]int {
+		t.Helper()
+		counts := make(map[string]int)
+		for _, b := range s.All() {
+			counts[b.AuthID]++
+		}
+		return counts
+	}
+	check := func(step string) {
+		t.Helper()
+		if got, want := s.CountByAuth(), scan(); !reflect.DeepEqual(got, want) {
+			t.Errorf("after %s CountByAuth = %v, want %v", step, got, want)
+		}
+	}
+
+	bind(s, "k1", "auth-1", t0)
+	bind(s, "k2", "auth-1", t0)
+	check("bind")
+
+	// Rebinding to another credential moves the entry rather than adding one.
+	bind(s, "k2", "auth-2", t0)
+	check("rebind")
+	if got := s.CountByAuth()["auth-1"]; got != 1 {
+		t.Errorf("auth-1 holds %d bindings after a rebind away from it, want 1", got)
+	}
+
+	// Over the cap, so the least recently seen goes.
+	bind(s, "k3", "auth-2", at(time.Minute))
+	bind(s, "k4", "auth-2", at(2*time.Minute))
+	check("eviction")
+	if s.Len() != 3 {
+		t.Fatalf("Len = %d, want the cap", s.Len())
+	}
+
+	// A lookup past the TTL drops the entry it touches.
+	lookup(s, "k2", at(time.Hour))
+	check("expiry on lookup")
+
+	s.Drop("claude", "opus", "k3")
+	check("Drop")
+	s.DropAuth("auth-2")
+	check("DropAuth")
+	s.Sweep(at(2 * time.Hour))
+	check("Sweep")
+	if got := s.CountByAuth(); len(got) != 0 {
+		t.Errorf("CountByAuth on an emptied store = %v, want empty", got)
+	}
+}
+
 func TestStoreSweep(t *testing.T) {
 	s := NewStore(10*time.Minute, 8)
 	bind(s, "stale-1", "auth-1", t0)
@@ -421,7 +475,9 @@ func TestStoreConcurrentAccess(t *testing.T) {
 				case 5:
 					s.DropAuth(auth)
 				case 6:
-					s.CountByAuth()
+					if counts := s.CountByAuth(); len(counts) > 4 {
+						panic(fmt.Sprintf("CountByAuth named %d credentials, want at most the 4 in play", len(counts)))
+					}
 				default:
 					s.Len()
 				}
