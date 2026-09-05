@@ -22,9 +22,10 @@
   --track:        #e6e5df;
   --emph:         rgba(42,120,214,.07);
 
-  /* Status tones carry the non-colour encoding — glyph, bar fill, meter fill —
-     so each one clears 3:1 against both the card and the 13%-tinted chip
-     plate. The light plane needs darker ink than the dark plane. */
+  /* The four tones a chip can take carry the non-colour encoding — glyph, bar
+     fill, meter fill — so each clears 3:1 against both the card and the
+     13%-tinted chip plate; the light plane needs darker ink than the dark one.
+     --warning rules a banner edge, which means nothing on its own. */
   --good:         #0a7d0a;
   --info:         #2a78d6;
   --serious:      #c0521f;
@@ -338,7 +339,10 @@ svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; 
 .dec-route .prev { color: var(--ink-3); }
 .dec-tail { display: flex; gap: 8px; align-items: center; justify-self: end; }
 .dec-note { font: 400 11.5px/1.3 var(--sans); color: var(--ink-2); font-style: italic; max-width: 34ch; }
-.dec-body { padding: 4px 16px 18px; }
+/* The candidate-scores table is wider than a phone: it scrolls in place, the
+   way the binding table does, rather than widening the page under the sticky
+   bar. */
+.dec-body { padding: 4px 16px 18px; overflow-x: auto; }
 .log-note {
   margin: 0; padding: 11px 16px; border-top: 1px solid var(--rule);
   font: 500 11px/1.4 var(--mono); color: var(--ink-3);
@@ -562,7 +566,6 @@ main[data-stale="true"] { opacity: .62; }
     data: null,              /* last good status; a failed fetch keeps it */
     error: null,
     fetchedAt: null,
-    attempted: false,        /* at least one fetch has settled */
     inFlight: false,
     /* Server clock minus client clock. Every relative time on the page is
        measured from the clock Status.Now comes from, so a seat card and a
@@ -885,7 +888,6 @@ main[data-stale="true"] { opacity: .62; }
   function renderSeats(st, ranked) {
     var host = $("seats");
     host.textContent = "";
-    var cfg = st.config || {};
 
     ranked.forEach(function (a, i) {
       var card = h("article", "card seat");
@@ -1687,7 +1689,9 @@ main[data-stale="true"] { opacity: .62; }
       btn.addEventListener("click", function () {
         if (state.sort.key === c.key) state.sort.dir = -state.sort.dir;
         else state.sort = { key: c.key, dir: c.key === "session_key" || c.key === "model" ? 1 : -1 };
+        var focused = captureFocus();
         renderBindings(state.data);
+        restoreFocus(focused);
       });
       th.appendChild(btn);
       hr.appendChild(th);
@@ -1966,7 +1970,6 @@ main[data-stale="true"] { opacity: .62; }
       })
       .then(function () {
         if (gen !== generation) return;
-        state.attempted = true;
         endFetch();
         setLive();
       });
