@@ -89,9 +89,8 @@ func (p *Plugin) managementPrefix(mgmtBase string) string {
 }
 
 // managementHandle answers management.handle for both surfaces. Failures are
-// HTTP statuses inside a success envelope: an error envelope would fail the
-// request at the host with a 502 and, for hooks, feed into its credential
-// cooldown decisions.
+// HTTP statuses inside a success envelope, because an error envelope would
+// fail the request at the host with a 502.
 //
 // The host HTML-escapes every string in a JSON body on the authenticated
 // routes (management.go:267 via htmlsanitize), so & < > " arrive escaped

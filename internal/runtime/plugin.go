@@ -171,9 +171,12 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 // degrade is the answer for a method the plugin could not serve. It is per
 // method because an error envelope costs more than a decline on every hook the
 // host routes traffic through: scheduler.pick hard-fails the request with no
-// fallback to the host's own selector, the interceptors fail it downstream,
-// and management.handle turns into a 502. Only the lifecycle methods, where an
-// error is the honest answer and the host handles it, keep one.
+// fallback to the host's own selector, an interceptor error makes the host drop
+// the whole response so the bridge headers are never cleared, and
+// management.handle turns into a 502. The default is an error envelope, which
+// the host handles for the lifecycle methods and answers for
+// management.register by skipping the plugin's routes entirely, status page
+// included (internal/pluginhost/management.go:50-52).
 func degrade(method, code, message string) ([]byte, bool) {
 	var result any
 	switch method {
