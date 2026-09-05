@@ -323,7 +323,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
 		"sec-seats", "seats", "seats-sub",
 		"sec-timeline", "timeline", "timeline-legend", "timeline-toggle", "timeline-note",
-		"sec-pace", "pace-curve", "pace-note",
+		"sec-pace", "pace-curve", "pace-legend", "pace-missing", "pace-note",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
 	}
