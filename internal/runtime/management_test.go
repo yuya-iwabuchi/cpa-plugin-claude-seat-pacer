@@ -57,7 +57,7 @@ func TestManagementRegisterDeclaresRoutesAndResources(t *testing.T) {
 	if len(out.Resources) != 2 {
 		t.Fatalf("resources = %+v, want index.html and api/status", out.Resources)
 	}
-	if out.Resources[0].Path != testResourceBase+"/index.html" || out.Resources[0].Menu != MenuLabel {
+	if out.Resources[0].Path != testResourceBase+"/index.html" || out.Resources[0].Menu != menuLabel {
 		t.Errorf("index resource = %+v", out.Resources[0])
 	}
 	if out.Resources[1].Path != testResourceBase+"/api/status" || out.Resources[1].Menu != "" {

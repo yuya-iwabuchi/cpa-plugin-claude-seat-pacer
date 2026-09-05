@@ -40,9 +40,13 @@ func (p *Plugin) usage(rec UsageRecord) {
 	if len(rec.ResponseHeaders) == 0 {
 		return
 	}
-	observed := rec.RequestedAt
-	if observed.IsZero() {
-		observed = p.now()
+	// The headers describe the response, so the reading is stamped at the end
+	// of the request: stamping it at the start would lose a long request's
+	// readings to a shorter later one and age every snapshot by the request's
+	// own duration.
+	observed := p.now()
+	if !rec.RequestedAt.IsZero() {
+		observed = rec.RequestedAt.Add(rec.Latency)
 	}
 	if windows := quota.ParseResponseHeaders(rec.ResponseHeaders, observed); len(windows) > 0 {
 		p.quota.MergeHeaders(rec.AuthID, windows, observed)

@@ -265,15 +265,30 @@ plugins:
 	t.Logf("session two: kind=%s auth=%s key=%s; bindings=%d", newest.Kind, newest.ChosenAuthID, newest.SessionKey, len(second.Bindings))
 	t.Logf("warnings: %v", second.Warnings)
 
-	// The resource route is registered and reaches the plugin without the
-	// management key; this build installs no status app, so it answers 503.
+	// The resource routes reach the status app without the management key.
 	resource, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/api/status")
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readAll(resource)
-	if resource.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("resource route: %d %s, want 503 from the plugin", resource.StatusCode, raw)
+	if resource.StatusCode != http.StatusOK {
+		t.Fatalf("resource status route: %d %s", resource.StatusCode, raw)
+	}
+	var served model.Status
+	if err := json.Unmarshal(raw, &served); err != nil {
+		t.Fatalf("decode resource status: %v\n%s", err, raw)
+	}
+	if len(served.Auths) != 2 || len(served.Bindings) != 2 {
+		t.Errorf("resource status = %d auths %d bindings, want the same view as the management route", len(served.Auths), len(served.Bindings))
+	}
+
+	page, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, _ := readAll(page)
+	if page.StatusCode != http.StatusOK || !bytes.Contains(pageBody, []byte("<html")) {
+		t.Errorf("resource index route: %d %d bytes, want the status page", page.StatusCode, len(pageBody))
 	}
 
 	// Nothing that reached the host log carries credential material.
