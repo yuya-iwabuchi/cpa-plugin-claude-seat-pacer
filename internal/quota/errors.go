@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// ErrCategory classifies a fetch failure. The status UI renders the category
-// verbatim, so the set stays small and stable.
+// ErrCategory classifies a fetch failure. Client.Fetch carries it on
+// model.AuthSnapshot.ErrCategory, so the set stays small and stable.
 type ErrCategory string
 
 const (
@@ -33,10 +33,10 @@ const (
 
 // FetchError reports a usage fetch failure and its category.
 //
-// Its message is built only from values this package authors: a category, an
-// HTTP status, and a fixed detail phrase. Response content and header values,
-// the access token among them, never reach it, because the message lands in
-// logs and in the status UI.
+// The message lands in logs and in the status UI, so it carries a category, an
+// HTTP status and a fixed detail phrase, and on a transport failure the Doer's
+// own error with the access token scrubbed out of it. Response bodies and
+// header values never reach it.
 type FetchError struct {
 	Category ErrCategory
 	// Status is the HTTP status when the failure came from a response, and 0

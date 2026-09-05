@@ -85,8 +85,8 @@ func TestClientFetchSuccess(t *testing.T) {
 	if !snap.ObservedAt.Equal(testNow) {
 		t.Errorf("observed_at = %v, want %v", snap.ObservedAt, testNow)
 	}
-	if snap.Err != "" {
-		t.Errorf("err = %q, want empty", snap.Err)
+	if snap.Err != "" || snap.ErrCategory != "" {
+		t.Errorf("err = (%q,%q), want both empty", snap.Err, snap.ErrCategory)
 	}
 
 	session, ok := snap.Window(model.WindowSession, "")
@@ -161,6 +161,9 @@ func TestClientFetchFailures(t *testing.T) {
 			if snap.Err != err.Error() {
 				t.Errorf("snapshot err = %q, want %q", snap.Err, err.Error())
 			}
+			if snap.ErrCategory != string(tc.want) {
+				t.Errorf("snapshot err_category = %q, want %q", snap.ErrCategory, tc.want)
+			}
 			if len(snap.Windows) != 0 {
 				t.Errorf("windows = %+v, want none", snap.Windows)
 			}
@@ -170,6 +173,62 @@ func TestClientFetchFailures(t *testing.T) {
 			assertNoToken(t, err.Error())
 			assertNoToken(t, snap.Err)
 		})
+	}
+}
+
+// TestClientFetchTimesOutOnADoerThatIgnoresTheContext holds the deadline the
+// poll loop depends on. The Doer here never looks at ctx, so only Fetch's own
+// wait can stop the round trip.
+func TestClientFetchTimesOutOnADoerThatIgnoresTheContext(t *testing.T) {
+	const doerDelay = 2 * time.Second
+	released := make(chan struct{})
+	client := newTestClient(doerFunc(func(context.Context, Request) (Response, error) {
+		time.Sleep(doerDelay)
+		close(released)
+		return Response{StatusCode: 200, Body: fixture(t, "usage_early_week.json")}, nil
+	}), 20*time.Millisecond)
+
+	started := time.Now()
+	snap, err := client.Fetch(context.Background(), "auth-6", "5", testToken)
+	elapsed := time.Since(started)
+
+	if err == nil {
+		t.Fatal("Fetch succeeded, want a timeout")
+	}
+	if got := Category(err); got != CategoryTimeout {
+		t.Errorf("category = %q, want %q", got, CategoryTimeout)
+	}
+	if snap.ErrCategory != string(CategoryTimeout) {
+		t.Errorf("snapshot err_category = %q, want %q", snap.ErrCategory, CategoryTimeout)
+	}
+	if len(snap.Windows) != 0 {
+		t.Errorf("windows = %+v, want none: the response arrived after the deadline", snap.Windows)
+	}
+	if elapsed >= doerDelay {
+		t.Errorf("Fetch waited %v, want it to stop at its own deadline", elapsed)
+	}
+
+	// The abandoned goroutine finishes on its own and its result is dropped.
+	<-released
+}
+
+// TestClientFetchStampsObservedAtAfterTheResponse pins the ordering Store.Put's
+// per-window recency rests on: a merge that lands mid round-trip is newer than
+// the reading the fetch brings back, not older.
+func TestClientFetchStampsObservedAtAfterTheResponse(t *testing.T) {
+	clock := testNow
+	client := NewClient(doerFunc(func(context.Context, Request) (Response, error) {
+		clock = clock.Add(30 * time.Second)
+		return Response{StatusCode: 200, Body: fixture(t, "usage_early_week.json")}, nil
+	}), "https://usage.test/api/oauth/usage", time.Second)
+	client.now = func() time.Time { return clock }
+
+	snap, err := client.Fetch(context.Background(), "auth-7", "6", testToken)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if want := testNow.Add(30 * time.Second); !snap.ObservedAt.Equal(want) {
+		t.Errorf("observed_at = %v, want %v: the reading is dated when it arrived", snap.ObservedAt, want)
 	}
 }
 

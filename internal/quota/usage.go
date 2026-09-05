@@ -18,20 +18,17 @@ type usagePayload struct {
 	Limits   []usageLimit `json:"limits"`
 }
 
-// usageWindow is one top-level window object. Utilization is a percentage in
-// 0..100 and is a pointer because 0 is a real reading and null is not: the
-// model-family windows (seven_day_opus, seven_day_sonnet and
-// friends) are null on current plans.
+// usageWindow is one top-level window object. Utilization is a pointer because
+// 0 is a real reading and null is not.
 type usageWindow struct {
 	Utilization *float64 `json:"utilization"`
 	ResetsAt    string   `json:"resets_at"`
 }
 
-// usageLimit is one limits[] entry. Percent is a percentage in 0..100 on the
-// same terms as usageWindow.Utilization.
+// usageLimit is one limits[] entry. Percent is a pointer on the same terms as
+// usageWindow.Utilization.
 type usageLimit struct {
 	Kind     string      `json:"kind"`
-	Group    string      `json:"group"`
 	Percent  *float64    `json:"percent"`
 	Severity string      `json:"severity"`
 	ResetsAt string      `json:"resets_at"`
@@ -45,7 +42,6 @@ type usageScope struct {
 		ID          string `json:"id"`
 		DisplayName string `json:"display_name"`
 	} `json:"model"`
-	Surface string `json:"surface"`
 }
 
 // limits[] kinds. An entry of any other kind is ignored so the endpoint can
@@ -61,16 +57,7 @@ const (
 // this division belongs to the endpoint path alone.
 const percentScale = 100
 
-// modelFamilies are the scope names a model-family window carries. Anthropic
-// publishes no family field, so the family is read off the scoped model's
-// display name and, failing that, its id.
-var modelFamilies = []string{"Opus", "Sonnet", "Haiku", "Fable"}
-
 // ParseUsagePayload reads an /api/oauth/usage body into windows.
-//
-// The endpoint reports utilization as a percentage in 0..100 while
-// model.Window carries a 0..1 fraction, so each reading is divided by 100
-// exactly once here.
 //
 // Model-family windows come from limits[] entries of kind weekly_scoped rather
 // than the top-level seven_day_<family> keys, because those keys are null on
@@ -154,22 +141,25 @@ func limitTarget(l usageLimit) (model.WindowKind, string, time.Duration, bool) {
 }
 
 // scopeFamily names the model family a scoped limit covers, and reports the
-// empty string for a limit with no model, which cannot be attributed to a
-// family. An unrecognized model keeps its display name, so a family Anthropic
-// adds shows up in the status UI instead of vanishing.
+// empty string only for a limit with no model at all, which cannot be
+// attributed to a family. A model naming no known family keeps its own display
+// name, or its id when the endpoint sends no display name, so a family
+// Anthropic adds shows up in the status UI instead of vanishing.
 func scopeFamily(s *usageScope) string {
 	if s == nil {
 		return ""
 	}
 	for _, candidate := range []string{s.Model.DisplayName, s.Model.ID} {
-		lower := strings.ToLower(candidate)
-		for _, family := range modelFamilies {
-			if strings.Contains(lower, strings.ToLower(family)) {
-				return family
-			}
+		if family := model.FamilyOf(candidate); family != "" {
+			return family
 		}
 	}
-	return strings.TrimSpace(s.Model.DisplayName)
+	for _, candidate := range []string{s.Model.DisplayName, s.Model.ID} {
+		if name := strings.TrimSpace(candidate); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // normalizeToken folds a provider enum value to the lower-case form the

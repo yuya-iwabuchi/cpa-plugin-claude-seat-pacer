@@ -32,8 +32,27 @@ type entry struct {
 
 func (e *entry) copy() model.AuthSnapshot {
 	out := e.snap
-	out.Windows = cloneWindows(e.snap.Windows)
+	out.Windows = slices.Clone(e.snap.Windows)
 	return out
+}
+
+// mergeHeaderReading folds a header window into a stored one. The headers
+// report no severity and may omit status, so those two fields keep whatever a
+// usage-endpoint read established and a merge cannot blank a window the
+// endpoint called critical or rejected.
+func mergeHeaderReading(dst *model.Window, src model.Window) {
+	dst.Utilization = src.Utilization
+	dst.ResetsAt = src.ResetsAt
+	dst.Active = src.Active
+	if src.Duration > 0 {
+		dst.Duration = src.Duration
+	}
+	if src.Status != "" {
+		dst.Status = src.Status
+	}
+	if src.Severity != "" {
+		dst.Severity = src.Severity
+	}
 }
 
 // NewStore returns an empty store.
@@ -45,9 +64,15 @@ func NewStore() *Store {
 // wholesale: that read covers every window, so a window missing from it is
 // gone rather than merely unobserved.
 //
+// Recency is still per window. A window the store saw more recently than the
+// snapshot's ObservedAt keeps its stored value and seen-time, so a header merge
+// that landed while the fetch was in flight is not undone by the older reading
+// the fetch brings back.
+//
 // A failed fetch — Err set and no windows — keeps the prior readings and
-// updates only the error, so one endpoint hiccup leaves routing sighted. A
-// snapshot with an empty AuthID is dropped, since nothing can address it.
+// updates only Err and ErrCategory, so one endpoint hiccup leaves routing
+// sighted. A snapshot with an empty AuthID is dropped, since nothing can
+// address it.
 func (s *Store) Put(snap model.AuthSnapshot) {
 	if snap.AuthID == "" {
 		return
@@ -59,6 +84,7 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 	prior, exists := s.entries[snap.AuthID]
 	if exists && snap.Err != "" && len(snap.Windows) == 0 {
 		prior.snap.Err = snap.Err
+		prior.snap.ErrCategory = snap.ErrCategory
 		if snap.AuthIndex != "" {
 			prior.snap.AuthIndex = snap.AuthIndex
 		}
@@ -69,7 +95,7 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 	}
 
 	stored := snap
-	stored.Windows = cloneWindows(snap.Windows)
+	stored.Windows = slices.Clone(snap.Windows)
 	if exists {
 		// Identity comes from config rather than from the endpoint, so a
 		// snapshot that omits it inherits what the store already knows.
@@ -81,10 +107,26 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 		}
 	}
 
+	observedAt := snap.ObservedAt
+	newest := observedAt
 	seenAt := make(map[windowKey]time.Time, len(stored.Windows))
-	for _, w := range stored.Windows {
-		seenAt[keyOf(w)] = stored.ObservedAt
+	for i := range stored.Windows {
+		key := keyOf(stored.Windows[i])
+		at := observedAt
+		if exists {
+			if previous, seen := prior.seenAt[key]; seen && previous.After(observedAt) {
+				if j := slices.IndexFunc(prior.snap.Windows, hasKey(key)); j >= 0 {
+					stored.Windows[i] = prior.snap.Windows[j]
+					at = previous
+				}
+			}
+		}
+		seenAt[key] = at
+		if newest.Before(at) {
+			newest = at
+		}
 	}
+	stored.ObservedAt = newest
 	s.entries[snap.AuthID] = &entry{snap: stored, seenAt: seenAt}
 }
 
@@ -92,6 +134,15 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 // snapshot. Header readings are fresher than an endpoint read but cover only
 // the windows traffic touched, so they update the windows they carry and leave
 // every other window intact, ObservedAt included.
+//
+// A window the reading carries is merged field by field, not replaced: it takes
+// the header's utilization, reset and Active flag, and keeps the severity and
+// the status the headers do not report, so an endpoint verdict of critical or
+// rejected still reaches Window.Blocking after a merge.
+//
+// At most one window is Active. A merged window that claims the flag clears it
+// on every other window in the snapshot, so the binding window the provider
+// names stays unambiguous.
 //
 // A reading older than what the store already holds for a window is dropped,
 // so responses that land out of order cannot walk a window backwards.
@@ -120,17 +171,29 @@ func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt t
 		s.entries[authID] = e
 	}
 
+	var activeKey windowKey
+	activated := false
 	for _, w := range windows {
 		key := keyOf(w)
 		if previous, seen := e.seenAt[key]; seen && observedAt.Before(previous) {
 			continue
 		}
 		e.seenAt[key] = observedAt
-		if i := indexOf(e.snap.Windows, key); i >= 0 {
-			e.snap.Windows[i] = w
-			continue
+		if i := slices.IndexFunc(e.snap.Windows, hasKey(key)); i >= 0 {
+			mergeHeaderReading(&e.snap.Windows[i], w)
+		} else {
+			e.snap.Windows = append(e.snap.Windows, w)
 		}
-		e.snap.Windows = append(e.snap.Windows, w)
+		if w.Active {
+			activeKey, activated = key, true
+		}
+	}
+	if activated {
+		for i := range e.snap.Windows {
+			if keyOf(e.snap.Windows[i]) != activeKey {
+				e.snap.Windows[i].Active = false
+			}
+		}
 	}
 
 	if e.snap.ObservedAt.Before(observedAt) {

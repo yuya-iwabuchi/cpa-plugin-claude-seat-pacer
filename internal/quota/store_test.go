@@ -142,6 +142,62 @@ func TestStorePutWithAnErrorRetainsPriorReadings(t *testing.T) {
 	}
 }
 
+// TestStorePutKeepsAWindowTheStoreSawMoreRecently covers the fetch that
+// overlaps a merge: the endpoint read observes the credential before the header
+// reading does, so the window the merge already advanced stays put and a merge
+// older than it is still refused afterwards.
+func TestStorePutKeepsAWindowTheStoreSawMoreRecently(t *testing.T) {
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.5), weeklyWindow(0.1)))
+
+	merged := testNow.Add(30 * time.Second)
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.9)}, merged)
+
+	// The fetch went out before the merge landed and reports what it saw then.
+	s.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Second), sessionWindow(0.4), weeklyWindow(0.2)))
+
+	snap := mustGet(t, s, "auth-1")
+	if got := utilizationOf(t, snap, model.WindowSession, ""); got != 0.9 {
+		t.Errorf("session utilization = %v, want the newer merged 0.9", got)
+	}
+	if got := utilizationOf(t, snap, model.WindowWeekly, ""); got != 0.2 {
+		t.Errorf("weekly utilization = %v, want the endpoint's 0.2", got)
+	}
+	if !snap.ObservedAt.Equal(merged) {
+		t.Errorf("observed_at = %v, want the newest window's %v", snap.ObservedAt, merged)
+	}
+
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.2)}, testNow.Add(20*time.Second))
+	if got := utilizationOf(t, mustGet(t, s, "auth-1"), model.WindowSession, ""); got != 0.9 {
+		t.Errorf("session utilization = %v, want the merge older than the reading to be refused", got)
+	}
+}
+
+func TestStorePutCarriesTheErrorCategory(t *testing.T) {
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.5)))
+	s.Put(model.AuthSnapshot{
+		AuthID:      "auth-1",
+		ObservedAt:  testNow.Add(time.Minute),
+		Source:      model.SourceUsageEndpoint,
+		Err:         "quota: auth (http 401): credential rejected",
+		ErrCategory: string(CategoryAuth),
+	})
+
+	snap := mustGet(t, s, "auth-1")
+	if snap.ErrCategory != string(CategoryAuth) {
+		t.Errorf("err_category = %q, want %q", snap.ErrCategory, CategoryAuth)
+	}
+	if len(snap.Windows) != 1 {
+		t.Errorf("windows = %+v, want the prior reading retained", snap.Windows)
+	}
+
+	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionWindow(0.6)))
+	if snap := mustGet(t, s, "auth-1"); snap.ErrCategory != "" {
+		t.Errorf("err_category = %q, want cleared by a successful read", snap.ErrCategory)
+	}
+}
+
 func TestStorePutWithAnErrorForAnUnknownCredential(t *testing.T) {
 	s := NewStore()
 	s.Put(model.AuthSnapshot{
@@ -213,6 +269,60 @@ func TestStoreMergeHeadersLeavesUntouchedWindowsIntact(t *testing.T) {
 	}
 }
 
+// TestStoreMergeHeadersKeepsWhatTheHeadersDoNotReport covers the merge that
+// decides eligibility: the response headers carry no severity and need not
+// carry a status, and a reading that lacks them must not clear a provider
+// verdict the usage endpoint established.
+func TestStoreMergeHeadersKeepsWhatTheHeadersDoNotReport(t *testing.T) {
+	blocked := sessionWindow(1.0)
+	blocked.Severity = model.SeverityCritical
+	blocked.Status = model.StatusRejected
+
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, blocked))
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.99)}, testNow.Add(time.Minute))
+
+	session, ok := mustGet(t, s, "auth-1").Window(model.WindowSession, "")
+	if !ok {
+		t.Fatal("no session window")
+	}
+	if session.Utilization != 0.99 {
+		t.Errorf("utilization = %v, want the merged 0.99", session.Utilization)
+	}
+	if session.Severity != model.SeverityCritical {
+		t.Errorf("severity = %q, want the endpoint's %q", session.Severity, model.SeverityCritical)
+	}
+	if session.Status != model.StatusRejected {
+		t.Errorf("status = %q, want the endpoint's %q", session.Status, model.StatusRejected)
+	}
+	if !session.Blocking() {
+		t.Error("a merge erased the provider's refusal")
+	}
+}
+
+func TestStoreMergeHeadersLeavesOneActiveWindow(t *testing.T) {
+	active := sessionWindow(0.5)
+	active.Active = true
+
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, active, weeklyWindow(0.1), fableWindow(0.2)))
+
+	promoted := weeklyWindow(0.3)
+	promoted.Active = true
+	s.MergeHeaders("auth-1", []model.Window{promoted}, testNow.Add(time.Minute))
+
+	snap := mustGet(t, s, "auth-1")
+	var activeKinds []model.WindowKind
+	for _, w := range snap.Windows {
+		if w.Active {
+			activeKinds = append(activeKinds, w.Kind)
+		}
+	}
+	if len(activeKinds) != 1 || activeKinds[0] != model.WindowWeekly {
+		t.Errorf("active windows = %v, want only %s", activeKinds, model.WindowWeekly)
+	}
+}
+
 func TestStoreMergeHeadersAppendsAnUnseenWindow(t *testing.T) {
 	s := NewStore()
 	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.5), weeklyWindow(0.1)))
@@ -266,6 +376,50 @@ func TestStoreMergeHeadersIgnoresEmptyInput(t *testing.T) {
 	s.MergeHeaders("auth-1", nil, testNow)
 	if got := s.All(); len(got) != 0 {
 		t.Errorf("All = %+v, want empty", got)
+	}
+}
+
+// TestEndpointThenHeaderReadingUpdatesTheFableWindow runs both parsers into one
+// store. The endpoint spells the family off scope.model.display_name and the
+// headers spell it off the 7d_oi suffix; the two must land on one identity, so
+// the second reading updates the Fable window instead of adding a second one.
+func TestEndpointThenHeaderReadingUpdatesTheFableWindow(t *testing.T) {
+	windows, err := ParseUsagePayload(fixture(t, "usage_late_week.json"), testNow)
+	if err != nil {
+		t.Fatalf("ParseUsagePayload: %v", err)
+	}
+
+	s := NewStore()
+	s.Put(model.AuthSnapshot{
+		AuthID:     "auth-1",
+		Windows:    windows,
+		ObservedAt: testNow,
+		Source:     model.SourceUsageEndpoint,
+	})
+
+	later := testNow.Add(time.Minute)
+	s.MergeHeaders("auth-1", ParseResponseHeaders(map[string][]string{
+		"Anthropic-Ratelimit-Unified-7d_oi-Utilization": {"0.71"},
+		"Anthropic-Ratelimit-Unified-7d_oi-Reset":       {epochDay(8, 9)},
+	}, later), later)
+
+	snap := mustGet(t, s, "auth-1")
+	scoped := 0
+	for _, w := range snap.Windows {
+		if w.Kind == model.WindowWeeklyScoped {
+			scoped++
+		}
+	}
+	if scoped != 1 {
+		t.Fatalf("scoped windows = %d in %+v, want the endpoint's one updated", scoped, snap.Windows)
+	}
+
+	fable, _ := snap.Window(model.WindowWeeklyScoped, model.FamilyFable)
+	if fable.Utilization != 0.71 {
+		t.Errorf("fable utilization = %v, want the merged 0.71", fable.Utilization)
+	}
+	if fable.Severity != model.SeverityWarning {
+		t.Errorf("fable severity = %q, want the endpoint's %q", fable.Severity, model.SeverityWarning)
 	}
 }
 

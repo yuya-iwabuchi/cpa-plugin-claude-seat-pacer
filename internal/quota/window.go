@@ -61,50 +61,37 @@ func (s *windowSet) slice() []model.Window {
 	return out
 }
 
-func cloneWindows(in []model.Window) []model.Window {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]model.Window, len(in))
-	copy(out, in)
-	return out
-}
-
-func indexOf(in []model.Window, key windowKey) int {
-	for i, w := range in {
-		if keyOf(w) == key {
-			return i
-		}
-	}
-	return -1
+// hasKey reports whether a window carries an identity, for slices.IndexFunc.
+func hasKey(key windowKey) func(model.Window) bool {
+	return func(w model.Window) bool { return keyOf(w) == key }
 }
 
 // instantLayouts covers the textual reset formats Anthropic and intermediaries
-// emit. The usage endpoint uses RFC3339 with fractional seconds; HTTP-date
-// appears on proxied responses.
+// emit. RFC3339 also accepts the fractional seconds the usage endpoint writes;
+// RFC1123 covers the HTTP-date a proxy puts on a response.
 var instantLayouts = []string{
-	time.RFC3339Nano,
 	time.RFC3339,
-	"Mon, 02 Jan 2006 15:04:05 GMT",
 	time.RFC1123,
-	time.RFC1123Z,
-	time.RFC850,
-	time.ANSIC,
 }
 
-// parseInstant reads a reset instant in any form the provider emits: unix
-// epoch seconds on the response headers, and a timestamp string on the usage
-// endpoint.
+// epochMillisCutoff tells a millisecond epoch from a second one. A
+// second-valued epoch stays below it until the year 5138 and a
+// millisecond-valued one passes it from 1973 on, so no reset instant a live
+// provider emits is ambiguous.
+const epochMillisCutoff = 1e11
+
+// parseInstant reads a reset instant in any form the provider emits: a unix
+// epoch on the response headers, and a timestamp string on the usage endpoint.
 func parseInstant(raw string) (time.Time, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return time.Time{}, false
 	}
-	if secs, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return time.Unix(secs, 0).UTC(), true
-	}
-	if secs, err := strconv.ParseFloat(s, 64); err == nil {
-		return time.UnixMilli(int64(secs * 1000)).UTC(), true
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n >= epochMillisCutoff {
+			return time.UnixMilli(n).UTC(), true
+		}
+		return time.Unix(n, 0).UTC(), true
 	}
 	for _, layout := range instantLayouts {
 		if t, err := time.Parse(layout, s); err == nil {
@@ -122,9 +109,6 @@ func windowReset(raw string, now time.Time, d time.Duration) time.Time {
 	t, ok := parseInstant(raw)
 	if !ok {
 		return time.Time{}
-	}
-	if d <= 0 {
-		return t
 	}
 	if t.Before(now.Add(-resetTolerance)) || t.After(now.Add(d+resetTolerance)) {
 		return time.Time{}

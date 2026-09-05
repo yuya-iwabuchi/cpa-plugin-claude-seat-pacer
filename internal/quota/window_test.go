@@ -15,7 +15,7 @@ func TestParseInstant(t *testing.T) {
 		ok   bool
 	}{
 		{name: "epoch seconds", raw: epoch(21, 0), want: "2026-09-04T21:00:00Z", ok: true},
-		{name: "fractional epoch seconds", raw: epoch(21, 0) + ".500", want: "2026-09-04T21:00:00.5Z", ok: true},
+		{name: "epoch milliseconds", raw: epochMillis(21, 0), want: "2026-09-04T21:00:00Z", ok: true},
 		{name: "rfc3339", raw: "2026-09-04T21:00:00Z", want: "2026-09-04T21:00:00Z", ok: true},
 		{name: "rfc3339 with fraction", raw: "2026-09-04T21:00:00.123456Z", want: "2026-09-04T21:00:00.123456Z", ok: true},
 		{name: "rfc3339 with offset", raw: "2026-09-04T17:00:00-04:00", want: "2026-09-04T21:00:00Z", ok: true},
@@ -25,6 +25,7 @@ func TestParseInstant(t *testing.T) {
 		{name: "empty", raw: "", ok: false},
 		{name: "blank", raw: "   ", ok: false},
 		{name: "prose", raw: "next tuesday", ok: false},
+		{name: "decimal", raw: "1788555600.5", ok: false},
 	}
 
 	for _, tc := range tests {
@@ -93,10 +94,10 @@ func TestWindowReset(t *testing.T) {
 			want:     time.Time{},
 		},
 		{
-			name:     "no duration to check against",
-			raw:      epochDay(30, 0),
-			duration: 0,
-			want:     day(30, 0),
+			name:     "millisecond epoch inside the session window",
+			raw:      epochMillis(20, 0),
+			duration: model.SessionDuration,
+			want:     at(20, 0),
 		},
 	}
 
