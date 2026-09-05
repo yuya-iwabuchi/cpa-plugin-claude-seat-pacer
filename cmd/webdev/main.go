@@ -20,7 +20,7 @@ import (
 
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
-	scenario := flag.String("scenario", "full", "fixture scenario: full, single or empty")
+	scenario := flag.String("scenario", "full", "fixture scenario: full, single, stale or empty")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", 0, "if positive, fail status requests after this many successes")
 	flag.Parse()
@@ -29,15 +29,19 @@ func main() {
 	switch *scenario {
 	case "single":
 		src.auths = src.auths[:1]
+	case "stale":
+		// Past quota.max-staleness the plugin declines to evaluate the
+		// credential at all, which is the state the lanes render as unknown.
+		src.observedAge[seatBID] = src.cfg.Quota.MaxStaleness + 5*time.Minute
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
 		src.decisions = nil
-		src.warnings = nil
 	case "full":
 	default:
 		log.Fatalf("unknown scenario %q", *scenario)
 	}
+	src.rebuildWarnings()
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	srv := &http.Server{
@@ -83,6 +87,10 @@ type fixture struct {
 	cfg       model.Config
 	plugin    model.PluginInfo
 	snapshots map[string]model.AuthSnapshot
+	// observedAge is how far behind the request each credential's reading is.
+	// Status stamps ObservedAt from it, so a harness left open overnight keeps
+	// serving fresh snapshots the way a working poller does.
+	observedAge map[string]time.Duration
 	// snapshotsPast holds the readings that were current earlier in the log.
 	snapshotsPast map[string]model.AuthSnapshot
 	auths         []model.AuthStatus
@@ -107,19 +115,18 @@ func newFixture(anchor time.Time) *fixture {
 			HostSchemaVersion: 1,
 			StartedAt:         anchor.Add(-6*time.Hour - 13*time.Minute),
 		},
-		warnings: []string{
-			"routing.session-affinity is enabled on the host. This plugin owns affinity; " +
-				"leaving the host's cache on double-pins conversations and hides failovers.",
+		observedAge: map[string]time.Duration{
+			seatAID: 42 * time.Second,
+			seatBID: 3*time.Minute + 10*time.Second,
 		},
 	}
 
 	f.snapshots = map[string]model.AuthSnapshot{
 		seatAID: {
-			AuthID:     seatAID,
-			AuthIndex:  "0",
-			Label:      "Seat A",
-			ObservedAt: anchor.Add(-42 * time.Second),
-			Source:     model.SourceUsageEndpoint,
+			AuthID:    seatAID,
+			AuthIndex: "0",
+			Label:     "Seat A",
+			Source:    model.SourceUsageEndpoint,
 			Windows: []model.Window{
 				{
 					Kind: model.WindowSession, Utilization: 0.80,
@@ -145,7 +152,6 @@ func newFixture(anchor time.Time) *fixture {
 			AuthID:      seatBID,
 			AuthIndex:   "1",
 			Label:       "Seat B",
-			ObservedAt:  anchor.Add(-3*time.Minute - 10*time.Second),
 			Source:      model.SourceResponseHeaders,
 			Err:         "Get \"/api/oauth/usage\": context deadline exceeded",
 			ErrCategory: "timeout",
@@ -237,6 +243,35 @@ func withSessionUtil(s model.AuthSnapshot, util float64, status, severity string
 	return out
 }
 
+// rebuildWarnings restates the warnings runtime.Status emits for whichever
+// credentials the scenario keeps. Nothing warns about the host's own
+// routing.session-affinity: no signal the plugin receives distinguishes it.
+func (f *fixture) rebuildWarnings() {
+	f.warnings = nil
+	if len(f.auths) == 1 {
+		f.warnings = append(f.warnings, fmt.Sprintf("provider %s offered a single candidate; "+
+			"spreading cannot work until every credential in the pool shares one priority value", "claude"))
+	}
+	for _, a := range f.auths {
+		snap := f.snapshots[a.AuthID]
+		if snap.Err == "" {
+			continue
+		}
+		f.warnings = append(f.warnings, fmt.Sprintf("quota poll failing for %s (%s): %s",
+			a.AuthID, snap.ErrCategory, snap.Err))
+	}
+}
+
+// scoreWithStaleness mirrors the gate internal/runtime applies before scoring:
+// a reading older than quota.max-staleness is not evaluated at all, and the
+// score carries the reason instead of a window breakdown.
+func scoreWithStaleness(cfg model.Config, snap model.AuthSnapshot, modelID string, now time.Time) model.Score {
+	if snap.Stale(now, cfg.Quota.MaxStaleness) {
+		return model.Score{AuthID: snap.AuthID, Reason: model.ReasonStale}
+	}
+	return pace.ScoreAuth(cfg.Pace, snap, modelID, now)
+}
+
 // Status evaluates both fixture credentials for modelID at now.
 func (f *fixture) Status(now time.Time, modelID string) model.Status {
 	if modelID == "" {
@@ -245,8 +280,9 @@ func (f *fixture) Status(now time.Time, modelID string) model.Status {
 	auths := make([]model.AuthStatus, 0, len(f.auths))
 	for _, a := range f.auths {
 		snap := f.snapshots[a.AuthID]
+		snap.ObservedAt = now.Add(-f.observedAge[a.AuthID])
 		a.Snapshot = snap
-		a.Score = pace.ScoreAuth(f.cfg.Pace, snap, modelID, now)
+		a.Score = scoreWithStaleness(f.cfg, snap, modelID, now)
 		a.Score.AuthID = a.AuthID
 		auths = append(auths, a)
 	}

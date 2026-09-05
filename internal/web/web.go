@@ -1,17 +1,26 @@
 // Package web serves the plugin's embedded status app.
 //
-// The host mounts these routes without authentication, so every view is
-// read-only: the app issues no mutating request and model.Status carries ids
-// and labels but no credential material. The whole app — markup, styles and
-// script — is one embedded document with no external reference, so it renders
-// on a host with no outbound network.
+// The host mounts these routes without authentication, so everything they
+// expose is read-only and reduced for an anonymous reader: the app issues no
+// mutating request, model.Status carries ids and labels but no credential
+// material, and serveStatus masks a label that is an account email, drops the
+// configured usage endpoint and bounds the binding list. The authenticated
+// management route serves the same status unreduced.
+//
+// The whole app — markup, styles and script — is one embedded document with no
+// external reference, so it renders on a host with no outbound network.
 package web
 
 import (
 	"bytes"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
@@ -20,17 +29,38 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
-// contentSecurityPolicy confines the page to the inline style and script of
-// this document. No directive names a remote origin, and connect-src 'self'
-// is what lets the page reach its own api/status.
-const contentSecurityPolicy = "default-src 'none'; " +
-	"script-src 'unsafe-inline'; " +
+// maxStatusBindings caps the binding rows one status response carries. The
+// store holds up to affinity.max-sessions entries, far more than a page reads,
+// and this route re-encodes the list on every poll.
+const maxStatusBindings = 500
+
+// contentSecurityPolicy confines script execution to the one inline block of
+// this document, named by hash. No directive names a remote origin, and
+// connect-src 'self' is what lets the page reach its own api/status. Inline
+// style attributes in the markup keep style-src on 'unsafe-inline', which a
+// hash cannot cover.
+var contentSecurityPolicy = "default-src 'none'; " +
+	"script-src " + inlineScriptSource(indexHTML) + "; " +
 	"style-src 'unsafe-inline'; " +
-	"img-src data:; " +
 	"connect-src 'self'; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +
 	"frame-ancestors 'none'"
+
+// inlineScriptSource is the script-src expression covering the document's
+// inline block: its SHA-256 hash, or 'unsafe-inline' for a document whose
+// script block cannot be located, so the page still runs. TestHeaders holds
+// the shipped policy to the hash.
+func inlineScriptSource(page []byte) string {
+	const openTag, closeTag = "<script>", "</script>"
+	i := bytes.Index(page, []byte(openTag))
+	j := bytes.Index(page, []byte(closeTag))
+	if i < 0 || j < i+len(openTag) {
+		return "'unsafe-inline'"
+	}
+	sum := sha256.Sum256(page[i+len(openTag) : j])
+	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+}
 
 // Source supplies the state the app renders.
 type Source interface {
@@ -40,7 +70,9 @@ type Source interface {
 }
 
 // NewHandler serves the app. The caller mounts it with the URL prefix already
-// stripped, so it sees "/", "/index.html", and "/api/status".
+// stripped, so it sees "/index.html" and "/api/status". A bare "/" reaches it
+// only from cmd/webdev: the host matches a resource route by exact path and
+// refuses an empty one (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -91,14 +123,12 @@ func servePage(w http.ResponseWriter) {
 }
 
 func serveStatus(w http.ResponseWriter, r *http.Request, src Source) {
-	status := src.Status(time.Now(), r.URL.Query().Get("model"))
+	status := reduceForPublic(src.Status(time.Now(), r.URL.Query().Get("model")))
 
 	// The body is built before any header is written so an encoding failure
 	// can still produce a 500 rather than a truncated 200.
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(true)
-	if err := enc.Encode(status); err != nil {
+	body, err := encodeStatus(status)
+	if err != nil {
 		setCommonHeaders(w)
 		http.Error(w, "status encode failed", http.StatusInternalServerError)
 		return
@@ -107,5 +137,137 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source) {
 	setCommonHeaders(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
+	_, _ = w.Write(body)
+}
+
+// nonFiniteSentinel stands in for a float64 that JSON has no literal for. A
+// utilization reading never reaches it, and the encoder renders it as one
+// exact literal, which encodeStatus rewrites to null so the page reads the
+// value as absent rather than as zero.
+const nonFiniteSentinel = -math.MaxFloat64
+
+// nonFiniteLiteral is how encoding/json renders nonFiniteSentinel.
+// TestNonFiniteSurvivesEncoding holds the two together.
+var nonFiniteLiteral = []byte("-1.7976931348623157e+308")
+
+var jsonNull = []byte("null")
+
+func encodeStatus(status model.Status) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(true)
+	if err := enc.Encode(status); err != nil {
+		return nil, err
+	}
+	return bytes.ReplaceAll(buf.Bytes(), nonFiniteLiteral, jsonNull), nil
+}
+
+// reduceForPublic is the status as the unauthenticated route serves it. It
+// copies every slice it rewrites, so the source's own state is untouched.
+func reduceForPublic(st model.Status) model.Status {
+	// The usage endpoint is operator-configurable and may name internal
+	// infrastructure; nothing in the app reads it.
+	st.Config.Quota.UsageURL = ""
+	st.Config.Pace = finitePace(st.Config.Pace)
+	st.Warnings = append([]string(nil), st.Warnings...)
+
+	auths := make([]model.AuthStatus, len(st.Auths))
+	for i, a := range st.Auths {
+		a.Label = publicLabel(a.Label)
+		a.Snapshot.Label = publicLabel(a.Snapshot.Label)
+		a.Snapshot.Windows = finiteWindows(a.Snapshot.Windows)
+		a.Score = finiteScore(a.Score)
+		auths[i] = a
+	}
+	st.Auths = auths
+
+	decisions := make([]model.Decision, len(st.Decisions))
+	for i, d := range st.Decisions {
+		if len(d.Scores) > 0 {
+			scores := make([]model.Score, len(d.Scores))
+			for j, s := range d.Scores {
+				scores[j] = finiteScore(s)
+			}
+			d.Scores = scores
+		}
+		decisions[i] = d
+	}
+	st.Decisions = decisions
+
+	if total := len(st.Bindings); total > maxStatusBindings {
+		st.Bindings = st.Bindings[:maxStatusBindings]
+		st.Warnings = append(st.Warnings, fmt.Sprintf(
+			"binding list truncated to %d of %d entries for this view",
+			maxStatusBindings, total))
+	}
+	return st
+}
+
+// publicLabel masks a label that is an account email. The host label falls
+// back to the credential's email address, which this route would otherwise
+// hand to anyone who can reach the port; the domain still tells the operator
+// which organization a seat belongs to.
+func publicLabel(label string) string {
+	at := strings.LastIndex(label, "@")
+	if at <= 0 || at == len(label)-1 {
+		return label
+	}
+	local, domain := label[:at], label[at+1:]
+	if !strings.Contains(domain, ".") || strings.ContainsAny(domain, " \t") {
+		return label
+	}
+	first := []rune(local)[0]
+	return string(first) + "…@" + domain
+}
+
+// finite replaces a value JSON cannot express with the sentinel encodeStatus
+// turns into null.
+func finite(f float64) float64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nonFiniteSentinel
+	}
+	return f
+}
+
+func finiteWindows(windows []model.Window) []model.Window {
+	if len(windows) == 0 {
+		return windows
+	}
+	out := make([]model.Window, len(windows))
+	for i, w := range windows {
+		w.Utilization = finite(w.Utilization)
+		out[i] = w
+	}
+	return out
+}
+
+func finiteScore(s model.Score) model.Score {
+	s.Total = finite(s.Total)
+	s.RawPenalty = finite(s.RawPenalty)
+	if len(s.Windows) == 0 {
+		return s
+	}
+	out := make([]model.WindowScore, len(s.Windows))
+	for i, ws := range s.Windows {
+		ws.Elapsed = finite(ws.Elapsed)
+		ws.Target = finite(ws.Target)
+		ws.Utilization = finite(ws.Utilization)
+		ws.Slack = finite(ws.Slack)
+		ws.Weight = finite(ws.Weight)
+		out[i] = ws
+	}
+	s.Windows = out
+	return s
+}
+
+func finitePace(p model.PaceConfig) model.PaceConfig {
+	p.CurveExponent = finite(p.CurveExponent)
+	p.LandingTarget = finite(p.LandingTarget)
+	p.WeeklyWeight = finite(p.WeeklyWeight)
+	p.SessionWeight = finite(p.SessionWeight)
+	p.ScopedWeight = finite(p.ScopedWeight)
+	p.RawWeight = finite(p.RawWeight)
+	p.HysteresisMargin = finite(p.HysteresisMargin)
+	p.HardCutoff = finite(p.HardCutoff)
+	return p
 }
