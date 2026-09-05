@@ -2,6 +2,7 @@ package model
 
 import (
 	"math"
+	"strings"
 	"time"
 )
 
@@ -168,6 +169,8 @@ func (c *Config) Normalize() {
 	if len(c.Providers) == 0 {
 		c.Providers = d.Providers
 	}
+	c.Providers = foldKeys(c.Providers)
+	c.Models = foldKeys(c.Models)
 	if c.Affinity.TTL <= 0 {
 		c.Affinity.TTL = d.Affinity.TTL
 	}
@@ -203,7 +206,26 @@ func (c *Config) Normalize() {
 	}
 }
 
+// foldKeys lowercases and trims every entry and drops the blanks. Provider and
+// model keys are case-insensitive identifiers, and the callers that match
+// against them compare lowercase, so a config written "Claude" has to fold to
+// the key the host uses or it matches nothing.
+func foldKeys(in []string) []string {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // GovernsProvider reports whether the plugin should decide for a provider.
+// The argument is a lowercase provider key, matching what Normalize folded
+// Providers to.
 func (c Config) GovernsProvider(provider string) bool {
 	for _, p := range c.Providers {
 		if p == provider {
@@ -215,12 +237,13 @@ func (c Config) GovernsProvider(provider string) bool {
 
 // GovernsModel reports whether the plugin should decide for a model. An empty
 // Models list governs every model.
-func (c Config) GovernsModel(model string) bool {
+func (c Config) GovernsModel(modelID string) bool {
 	if len(c.Models) == 0 {
 		return true
 	}
+	modelID = strings.ToLower(strings.TrimSpace(modelID))
 	for _, m := range c.Models {
-		if m == model {
+		if m == modelID {
 			return true
 		}
 	}

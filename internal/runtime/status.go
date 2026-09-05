@@ -10,13 +10,13 @@ import (
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
 )
 
-// DefaultStatusModel is the model the status view scores for before any
+// defaultStatusModel is the model the status view scores for before any
 // request has been routed.
-const DefaultStatusModel = "claude-opus-5"
+const defaultStatusModel = "claude-opus-5"
 
 // Status assembles the complete state the status app renders. modelID selects
 // the model every credential is scored for; empty means the most recently
-// routed model, or DefaultStatusModel before the first pick.
+// routed model, or defaultStatusModel before the first pick.
 //
 // The result carries labels and ids only. Nothing here reads a credential
 // file, and the poller stores no token, so there is none to leak even though
@@ -27,7 +27,7 @@ const DefaultStatusModel = "claude-opus-5"
 // (sdk/cliproxy/auth/conductor_selection.go:1474, :1730, :1790, :1902), so
 // nothing the plugin receives distinguishes the two states.
 func (p *Plugin) Status(now time.Time, modelID string) model.Status {
-	cfg := p.Config()
+	cfg := p.config()
 
 	p.mu.Lock()
 	info := model.PluginInfo{
@@ -47,9 +47,13 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	}
 	lastModel := p.lastModel
 	listErr := p.listErr
-	single := make([]string, 0, len(p.singleWarned))
-	for provider := range p.singleWarned {
-		single = append(single, provider)
+	// Only providers whose latest cold pick was still down to one candidate,
+	// so the warning clears once the pool's priority values are fixed.
+	single := make([]string, 0, len(p.singleCandidates))
+	for provider, count := range p.singleCandidates {
+		if count == 1 {
+			single = append(single, provider)
+		}
 	}
 	p.mu.Unlock()
 	sort.Strings(single)
@@ -58,7 +62,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		modelID = lastModel
 	}
 	if modelID == "" {
-		modelID = DefaultStatusModel
+		modelID = defaultStatusModel
 	}
 
 	bindings := p.bindingStore()
@@ -68,9 +72,11 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		snapshots[snap.AuthID] = snap
 	}
 
-	// One row per credential the host lists, plus any credential only a
-	// snapshot or usage record knows about, so nothing routed disappears from
-	// view between polls.
+	// One row per credential the host lists, plus any the quota store still
+	// holds a reading for, so a credential the host stops listing keeps its
+	// row until the next poll prunes it. Usage counters only fill a row one of
+	// those two produced: a usage record carries an id and nothing else, so on
+	// its own it renders a row with no label, provider, priority or status.
 	entries := make(map[string]HostAuthFileEntry, len(auths))
 	ids := make(map[string]struct{})
 	for _, entry := range auths {
@@ -79,9 +85,6 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		ids[id] = struct{}{}
 	}
 	for id := range snapshots {
-		ids[id] = struct{}{}
-	}
-	for id := range cache {
 		ids[id] = struct{}{}
 	}
 	ordered := make([]string, 0, len(ids))

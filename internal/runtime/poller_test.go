@@ -59,8 +59,8 @@ func TestPollFetchesGovernedOAuthCredentials(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
 
-	if err := tp.Refresh(context.Background()); err != nil {
-		t.Fatalf("Refresh: %v", err)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
 	}
 
 	snaps := tp.quota.All()
@@ -82,10 +82,12 @@ func TestPollFetchesGovernedOAuthCredentials(t *testing.T) {
 	if tp.host.count(MethodHostHTTPDo) != 2 {
 		t.Errorf("host.http.do called %d times, want 2", tp.host.count(MethodHostHTTPDo))
 	}
-	if tp.host.sent("SECRET-TOKEN") && tp.host.count(MethodHostHTTPDo) == 0 {
-		t.Fatal("token appeared without a fetch")
-	}
 	// The token travels only inside host.http.do's Authorization header.
+	for _, method := range tp.host.methodsContaining("SECRET-TOKEN") {
+		if method != MethodHostHTTPDo {
+			t.Errorf("the access token reached %s", method)
+		}
+	}
 	for _, l := range tp.host.logs() {
 		if raw, _ := json.Marshal(l); strings.Contains(string(raw), "SECRET") || strings.Contains(string(raw), "rt-a") {
 			t.Errorf("credential material reached host.log: %s", raw)
@@ -109,7 +111,7 @@ func TestPollFetchesGovernedOAuthCredentials(t *testing.T) {
 func TestPollRecordsFailuresAndPrunesRemovedCredentials(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
-	if err := tp.Refresh(context.Background()); err != nil {
+	if err := tp.refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -118,8 +120,10 @@ func TestPollRecordsFailuresAndPrunesRemovedCredentials(t *testing.T) {
 	tp.host.files = tp.host.files[:1]
 	tp.host.mu.Unlock()
 	tp.host.http = func(HostHTTPRequest) (HostHTTPResponse, error) { return HostHTTPResponse{StatusCode: 429}, nil }
-	if err := tp.Refresh(context.Background()); err != nil {
-		t.Fatal(err)
+	// A refresh whose every usage fetch failed reports it, so an operator
+	// debugging a dead poller does not read a green light.
+	if err := tp.refresh(context.Background()); err == nil {
+		t.Error("refresh reported success with every usage fetch failing")
 	}
 
 	snaps := tp.quota.All()
@@ -139,8 +143,8 @@ func TestPollRecordsFailuresAndPrunesRemovedCredentials(t *testing.T) {
 	tp.host.mu.Lock()
 	tp.host.listErr = errors.New("core auth manager unavailable")
 	tp.host.mu.Unlock()
-	if err := tp.Refresh(context.Background()); err == nil || !strings.Contains(err.Error(), "auth manager") {
-		t.Errorf("Refresh error = %v, want the list failure", err)
+	if err := tp.refresh(context.Background()); err == nil || !strings.Contains(err.Error(), "auth manager") {
+		t.Errorf("refresh error = %v, want the list failure", err)
 	}
 	if len(tp.quota.All()) != 1 {
 		t.Error("a list failure pruned the store")
@@ -150,9 +154,53 @@ func TestPollRecordsFailuresAndPrunesRemovedCredentials(t *testing.T) {
 func TestPollSkipsWhenDisabled(t *testing.T) {
 	tp := newTestPlugin(t, "enabled: false\n")
 	pollFixture(t, tp)
-	_ = tp.Refresh(context.Background())
+	_ = tp.refresh(context.Background())
 	if tp.host.count(MethodHostAuthList) != 0 {
 		t.Error("a disabled plugin polled the host")
+	}
+}
+
+func TestDisabledPollClearsAStaleListFailure(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.host.mu.Lock()
+	tp.host.listErr = errors.New("core auth manager unavailable")
+	tp.host.mu.Unlock()
+	if err := tp.refresh(context.Background()); err == nil {
+		t.Fatal("refresh hid the list failure")
+	}
+
+	tp.register(t, MethodPluginReconfigure, "enabled: false\n")
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Errorf("refresh on a disabled plugin = %v, want the stale failure cleared", err)
+	}
+	if w := tp.Status(testNow, ""); len(w.Warnings) != 1 || !strings.Contains(w.Warnings[0], "disabled") {
+		t.Errorf("warnings = %v, want only the disabled notice", w.Warnings)
+	}
+}
+
+func TestPollCutShortKeepsThePreviousView(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before := len(tp.Status(testNow, "").Auths)
+
+	// A refresh whose deadline expires part-way must not publish the half-read
+	// credential list.
+	tp.host.httpGate = make(chan struct{})
+	defer close(tp.host.httpGate)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := tp.refresh(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("refresh error = %v, want the deadline", err)
+	}
+	if got := len(tp.Status(testNow, "").Auths); got != before {
+		t.Errorf("status rows = %d, want the %d from the last complete poll", got, before)
+	}
+	if len(tp.quota.All()) != 2 {
+		t.Errorf("snapshots = %d, want both kept", len(tp.quota.All()))
 	}
 }
 
@@ -160,7 +208,7 @@ func TestHostDoerHonoursContext(t *testing.T) {
 	h := newFakeHost()
 	h.httpGate = make(chan struct{})
 	defer close(h.httpGate)
-	d := hostDoer{h: host{call: h.call}}
+	d := hostDoer{h: newHost(h.call)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
@@ -174,6 +222,55 @@ func TestHostDoerHonoursContext(t *testing.T) {
 	}
 }
 
+func TestShutdownWaitsForAnAbandonedHostCall(t *testing.T) {
+	h := newFakeHost()
+	h.httpGate = make(chan struct{})
+	hst := newHost(h.call)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := (hostDoer{h: hst}).Do(ctx, quota.Request{Method: "GET", URL: model.DefaultUsageURL}); err == nil {
+		t.Fatal("Do waited for the wedged host")
+	}
+
+	// The call is still parked in the host, so the drain does not return until
+	// it does: after this point the host frees its callback table and unloads
+	// the library.
+	drained := make(chan struct{})
+	go func() {
+		hst.drain(2 * time.Second)
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		t.Fatal("drain returned while a host call was still outstanding")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(h.httpGate)
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		t.Fatal("drain did not return after the host answered")
+	}
+}
+
+func TestDrainGivesUpOnAHostThatNeverAnswers(t *testing.T) {
+	h := newFakeHost()
+	h.httpGate = make(chan struct{})
+	defer close(h.httpGate)
+	hst := newHost(h.call)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, _ = (hostDoer{h: hst}).Do(ctx, quota.Request{Method: "GET", URL: model.DefaultUsageURL})
+
+	start := time.Now()
+	hst.drain(50 * time.Millisecond)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("drain took %v, want it bounded by its deadline", elapsed)
+	}
+}
+
 func TestHostDoerTranslatesResponse(t *testing.T) {
 	h := newFakeHost()
 	var seen HostHTTPRequest
@@ -181,7 +278,7 @@ func TestHostDoerTranslatesResponse(t *testing.T) {
 		seen = req
 		return HostHTTPResponse{StatusCode: 200, Headers: http.Header{"X-Test": {"1"}}, Body: []byte(`{}`)}, nil
 	}
-	d := hostDoer{h: host{call: h.call}}
+	d := hostDoer{h: newHost(h.call)}
 	resp, err := d.Do(context.Background(), quota.Request{Method: "GET", URL: "https://u", Header: map[string]string{"Authorization": "Bearer x"}})
 	if err != nil || resp.StatusCode != 200 || resp.Header["X-Test"][0] != "1" || string(resp.Body) != "{}" {
 		t.Errorf("resp = %+v err = %v", resp, err)

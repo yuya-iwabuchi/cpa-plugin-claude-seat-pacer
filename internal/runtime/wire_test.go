@@ -2,19 +2,18 @@ package runtime
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // testdata/host-payloads holds request payloads captured from CLIProxyAPI
 // v7.2.149 by the probe. Decoding them here fails the moment a tag in wire.go
-// is "normalised" away from the casing the host actually sends.
-//
-// Refresh them with:
-//
-//	CPA_SOURCE_DIR=<checkout> CPA_CAPTURE_DIR=$PWD/internal/runtime/testdata/host-payloads \
-//	  go test ./internal/runtime -run HeaderBridge -count=1
+// is "normalised" away from the casing the host actually sends. Every capture
+// in that directory is decoded by a test in this file. WIRE.md carries the
+// command that refreshes them.
 func hostPayload(t *testing.T, method string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "host-payloads", method+".json"))
@@ -32,10 +31,11 @@ func TestLifecycleRequestDecodesHostPayload(t *testing.T) {
 	if req.SchemaVersion == 0 {
 		t.Error("schema_version did not decode")
 	}
-	// config_yaml travels base64-encoded and carries the host-injected keys.
+	// config_yaml travels base64-encoded and decodes to the plugin's own YAML
+	// block.
 	if got := string(req.ConfigYAML); got == "" {
 		t.Fatal("config_yaml did not decode")
-	} else if want := "enabled: true"; !contains(got, want) {
+	} else if want := "enabled: true"; !strings.Contains(got, want) {
 		t.Errorf("config_yaml = %q, want it to contain %q", got, want)
 	}
 }
@@ -65,6 +65,25 @@ func TestRequestInterceptRequestDecodesHostPayload(t *testing.T) {
 	}
 	if req.HostCallbackID == "" {
 		t.Error("host_callback_id did not decode; host callbacks would lose request scope")
+	}
+}
+
+func TestRequestInterceptAfterDecodesHostPayload(t *testing.T) {
+	var req RequestInterceptRequest
+	if err := json.Unmarshal(hostPayload(t, MethodRequestInterceptAfter), &req); err != nil {
+		t.Fatal(err)
+	}
+	// The after hook runs once the upstream format is settled, which is what
+	// separates it from the before hook when one handler serves both.
+	if req.ToFormat == "" {
+		t.Error("ToFormat = empty, want the resolved upstream format after auth")
+	}
+	// The header an interceptor injected before auth is still on the request.
+	if req.Headers.Get("X-Cpa-Probe-Marker") == "" {
+		t.Errorf("injected marker is absent from Headers: %v", req.Headers)
+	}
+	if _, ok := req.Metadata[MetadataSelectedAuthID]; !ok {
+		t.Errorf("Metadata has no %s: %v", MetadataSelectedAuthID, req.Metadata)
 	}
 }
 
@@ -167,36 +186,60 @@ func TestManagementRequestDecodesHostPayload(t *testing.T) {
 	if registration.BasePath == "" || registration.ResourceBasePath == "" {
 		t.Errorf("registration paths did not decode: %+v", registration)
 	}
+	// The host echoes the plugin's own metadata back on this hook.
+	if registration.Plugin.Name == "" || registration.Plugin.GitHubRepository == "" {
+		t.Errorf("registration plugin metadata did not decode: %+v", registration.Plugin)
+	}
 }
 
-// TestResponseEncodingKeeps the exact keys the host decodes. The host reads
-// registration capabilities and route lists under lowercase keys while their
-// members stay PascalCase, so this asserts both halves of that split.
+// TestResponseEncodingUsesHostKeys keeps the exact keys the host decodes. The
+// host reads registration capabilities and route lists under lowercase keys
+// while their members stay PascalCase, so this asserts both halves of that
+// split.
 func TestResponseEncodingUsesHostKeys(t *testing.T) {
 	registerJSON, err := json.Marshal(RegisterResult{
 		SchemaVersion: SchemaVersion,
-		Metadata:      Metadata{Name: "n", Version: "v", Author: "a", GitHubRepository: "r"},
-		Capabilities:  map[string]bool{CapabilityScheduler: true},
+		Metadata: Metadata{
+			Name: "n", Version: "v", Author: "a", GitHubRepository: "r",
+			Logo:         "data:image/svg+xml;base64,PC9zdmc+",
+			ConfigFields: []ConfigField{{Name: "spread", Type: "enum", EnumValues: []string{"off"}, Description: "d"}},
+		},
+		Capabilities: map[string]bool{CapabilityScheduler: true},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"schema_version"`, `"metadata"`, `"capabilities"`, `"Name"`, `"GitHubRepository"`, `"scheduler"`} {
-		if !contains(string(registerJSON), want) {
+	for _, want := range []string{
+		`"schema_version"`, `"metadata"`, `"capabilities"`, `"Name"`, `"GitHubRepository"`, `"scheduler"`,
+		`"Logo"`, `"ConfigFields"`, `"Type"`, `"EnumValues"`, `"Description"`,
+	} {
+		if !strings.Contains(string(registerJSON), want) {
 			t.Errorf("register result %s is missing %s", registerJSON, want)
 		}
 	}
 
+	// ManagementRoute and ResourceRoute share three member names, so the two
+	// lists are compared whole rather than searched for keys.
 	routesJSON, err := json.Marshal(ManagementRegistrationResponse{
-		Routes: []ManagementRoute{{Method: "GET", Path: "/x"}},
+		Routes:    []ManagementRoute{{Method: http.MethodGet, Path: "/api/status", Description: "d"}},
+		Resources: []ResourceRoute{{Path: "/index.html", Menu: "Quota", Description: "d"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"routes"`, `"Method"`, `"Path"`} {
-		if !contains(string(routesJSON), want) {
-			t.Errorf("management registration %s is missing %s", routesJSON, want)
-		}
+	const wantRoutes = `{"routes":[{"Method":"GET","Path":"/api/status","Description":"d"}],` +
+		`"resources":[{"Path":"/index.html","Menu":"Quota","Description":"d"}]}`
+	if string(routesJSON) != wantRoutes {
+		t.Errorf("management registration = %s, want %s", routesJSON, wantRoutes)
+	}
+	// Both lists drop out when empty, so a plugin with no resources does not
+	// send an empty one.
+	emptyRoutesJSON, err := json.Marshal(ManagementRegistrationResponse{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(emptyRoutesJSON) != `{}` {
+		t.Errorf("empty management registration = %s", emptyRoutesJSON)
 	}
 
 	pickJSON, err := json.Marshal(SchedulerPickResponse{Handled: false})
@@ -215,6 +258,43 @@ func TestResponseEncodingUsesHostKeys(t *testing.T) {
 	}
 	if string(interceptJSON) != `{"Headers":{"X-Test":["1"]}}` {
 		t.Errorf("intercept response = %s", interceptJSON)
+	}
+
+	// StatusCode has no omitempty because the host reads a zero as 200, so an
+	// explicit zero and an absent key have to encode the same way.
+	managementJSON, err := json.Marshal(ManagementResponse{
+		StatusCode: http.StatusOK,
+		Headers:    http.Header{"Content-Type": {"application/json"}},
+		Body:       []byte("{}"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(managementJSON) != `{"StatusCode":200,"Headers":{"Content-Type":["application/json"]},"Body":"e30="}` {
+		t.Errorf("management response = %s", managementJSON)
+	}
+	emptyManagementJSON, err := json.Marshal(ManagementResponse{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(emptyManagementJSON) != `{"StatusCode":0}` {
+		t.Errorf("empty management response = %s", emptyManagementJSON)
+	}
+
+	// Every result above travels inside this envelope, in both directions.
+	okJSON, err := json.Marshal(Envelope{OK: true, Result: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(okJSON) != `{"ok":true,"result":{}}` {
+		t.Errorf("ok envelope = %s", okJSON)
+	}
+	failedJSON, err := json.Marshal(Envelope{Error: &EnvelopeError{Code: "c", Message: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(failedJSON) != `{"ok":false,"error":{"code":"c","message":"m"}}` {
+		t.Errorf("error envelope = %s", failedJSON)
 	}
 }
 
@@ -235,7 +315,7 @@ func TestHostCallbackRequestsUseSnakeCase(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, want := range testCase.want {
-			if !contains(string(raw), want) {
+			if !strings.Contains(string(raw), want) {
 				t.Errorf("%s request %s is missing %s", testCase.name, raw, want)
 			}
 		}
@@ -258,13 +338,4 @@ func TestHostCallbackRequestsUseSnakeCase(t *testing.T) {
 	if httpResponse.StatusCode != 502 || string(httpResponse.Body) != "xy" {
 		t.Errorf("host http response decoded to %+v", httpResponse)
 	}
-}
-
-func contains(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

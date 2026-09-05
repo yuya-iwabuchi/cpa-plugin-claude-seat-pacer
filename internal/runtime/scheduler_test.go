@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -219,11 +220,10 @@ func TestRetryPickTreatsFailedCredentialAsNotOffered(t *testing.T) {
 	if d.Kind != model.DecisionFailover || d.PreviousAuthID != "seat-b" || !strings.Contains(d.Note, "retry after seat-b") {
 		t.Errorf("decision = %+v", d)
 	}
-	// A retry pick with one remaining candidate is not a single-candidate pool.
-	for _, l := range tp.host.logs() {
-		if strings.Contains(l.Message, "single candidate") {
-			t.Error("retry pick raised the single-candidate warning")
-		}
+	// A retry pick has the failed credential removed, so its one remaining
+	// candidate says nothing about the pool.
+	if hasWarning(tp.Status(testNow, ""), "single candidate") {
+		t.Error("retry pick raised the single-candidate warning")
 	}
 }
 
@@ -353,49 +353,122 @@ func TestSubagentPinsToParent(t *testing.T) {
 	}
 }
 
-func TestSingleCandidateWarnsOnce(t *testing.T) {
+func TestSubagentDoesNotInheritABlockedParent(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	blocked := seatA(t)
+	blocked.Windows[1].Status = model.StatusRejected
+	tp.quota.Put(blocked)
+	tp.quota.Put(seatB(t))
+	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
+
+	req := pickRequest(fableModel, "child", "seat-a", "seat-b")
+	req.Options.Headers[HeaderSessionParent] = []string{"parent"}
+	req.Options.Headers[HeaderSubagent] = []string{"1"}
+	resp := tp.pick(t, req)
+	if resp.AuthID != "seat-b" {
+		t.Fatalf("response = %+v, want the child routed away from the rejected seat-a", resp)
+	}
+	if b, _ := tp.bindings.Lookup("claude", fableModel, "child", testNow); b.AuthID != "seat-b" {
+		t.Errorf("child binding = %+v, want seat-b", b)
+	}
+}
+
+func TestSingleCandidateWarningFollowsTheLatestPick(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)
 	tp.pick(t, pickRequest(fableModel, "k1", "seat-a"))
 	tp.pick(t, pickRequest(fableModel, "k2", "seat-a"))
-	warned := 0
-	for _, l := range tp.host.logs() {
-		if l.Level == "warn" && strings.Contains(l.Message, "single candidate") {
-			warned++
+	if !hasWarning(tp.Status(testNow, ""), "single candidate") {
+		t.Error("status warnings lack the single-candidate warning")
+	}
+
+	// The log line rides the poll goroutine, because a host call on the pick
+	// path has no timeout to unwind it.
+	if warned := countWarnings(tp, "single candidate"); warned != 0 {
+		t.Errorf("the pick itself logged %d time(s)", warned)
+	}
+	for i := 0; i < 2; i++ {
+		if err := tp.refresh(context.Background()); err != nil {
+			t.Fatalf("refresh: %v", err)
 		}
 	}
-	if warned != 1 {
+	if warned := countWarnings(tp, "single candidate"); warned != 1 {
 		t.Errorf("single-candidate warning logged %d time(s), want once", warned)
 	}
-	status := tp.Status(testNow, "")
-	found := false
-	for _, w := range status.Warnings {
-		found = found || strings.Contains(w, "single candidate")
+
+	// A pool that offers more than one candidate again clears the warning.
+	tp.pick(t, pickRequest(fableModel, "k3", "seat-a", "seat-b"))
+	if hasWarning(tp.Status(testNow, ""), "single candidate") {
+		t.Error("the warning outlived the condition it describes")
 	}
-	if !found {
-		t.Errorf("status warnings = %v, want the single-candidate warning", status.Warnings)
+}
+
+func TestPinnedRequestIsNotASingleCandidatePool(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	req := pickRequest(fableModel, "k", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	tp.pick(t, req)
+	if hasWarning(tp.Status(testNow, ""), "single candidate") {
+		t.Error("a pinned request, which is offered one candidate by design, raised the warning")
 	}
 }
 
 func TestPickIsSafeUnderConcurrency(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)
+	// testing only allows Fatalf on the test goroutine, so the workers report
+	// through the channel and the assertions run after the join.
+	failures := make(chan string, 8)
 	done := make(chan struct{})
 	for i := 0; i < 8; i++ {
 		go func(i int) {
 			defer func() { done <- struct{}{} }()
 			key := []string{"k1", "k2", "k3", ""}[i%4]
+			payload, err := json.Marshal(pickRequest(fableModel, key, "seat-a", "seat-b"))
+			if err != nil {
+				failures <- err.Error()
+				return
+			}
 			for j := 0; j < 50; j++ {
-				tp.pick(t, pickRequest(fableModel, key, "seat-a", "seat-b"))
+				if raw, ok := tp.Call(MethodSchedulerPick, payload); !ok {
+					failures <- "pick returned an error envelope: " + string(raw)
+					return
+				}
 			}
 		}(i)
 	}
 	for i := 0; i < 8; i++ {
 		<-done
 	}
+	close(failures)
+	for msg := range failures {
+		t.Error(msg)
+	}
 	if got := tp.bindings.Len(); got != 3 {
 		t.Errorf("bindings = %d, want one per keyed session", got)
 	}
+}
+
+// hasWarning reports whether any status warning contains substring.
+func hasWarning(status model.Status, substring string) bool {
+	for _, w := range status.Warnings {
+		if strings.Contains(w, substring) {
+			return true
+		}
+	}
+	return false
+}
+
+// countWarnings counts the warn lines whose message contains substring.
+func countWarnings(tp *testPlugin, substring string) int {
+	n := 0
+	for _, l := range tp.host.logs() {
+		if l.Level == "warn" && strings.Contains(l.Message, substring) {
+			n++
+		}
+	}
+	return n
 }
 
 func mustJSON(t *testing.T, v any) []byte {

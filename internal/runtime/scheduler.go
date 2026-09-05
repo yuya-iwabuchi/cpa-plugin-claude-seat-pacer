@@ -78,7 +78,7 @@ func (in pickInput) scoreOf(authID string) model.Score {
 //     (lowest id on a tie) takes it, so the conversation still gets one
 //     stable home.
 func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
-	cfg := p.Config()
+	cfg := p.config()
 	now := p.now()
 	in := pickInput{req: req, cfg: cfg, now: now, identity: readBridge(req.Options.Headers)}
 	in.retryOf = metadataString(req.Options.Metadata, MetadataSelectedAuthID)
@@ -114,8 +114,11 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	if len(in.candidates) == 0 {
 		return decline("no candidates for " + in.provider)
 	}
-	if len(in.candidates) == 1 && in.retryOf == "" {
-		p.warnSingleCandidate(in.provider, in.candidates[0])
+	// A retry pick has the failed credential removed and a pinned request is
+	// offered exactly one candidate by design, so neither says anything about
+	// the pool's priority values.
+	if _, pinned := req.Options.Metadata[MetadataPinnedAuthID]; !pinned && in.retryOf == "" {
+		p.observeCandidates(in.provider, len(in.candidates))
 	}
 
 	in.snaps = make(map[string]model.AuthSnapshot, len(in.candidates))
@@ -150,7 +153,11 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 	id := in.identity
 
 	if in.cfg.Affinity.Subagents && id.subagent && id.parent != "" {
-		if parent, ok := bindings.Lookup(in.provider, in.req.Model, id.parent, in.now); ok && in.isCandidate(parent.AuthID) {
+		parent, ok := bindings.Lookup(in.provider, in.req.Model, id.parent, in.now)
+		// A credential the provider has already rejected for this model is no
+		// better a home for the child than for the parent, and a host allowed
+		// one pick per request has no retry to recover on.
+		if ok && in.isCandidate(parent.AuthID) && !blockedFor(in.snaps[parent.AuthID], in.req.Model) {
 			bindings.Bind(in.provider, in.req.Model, id.key, parent.AuthID, in.now)
 			return p.decide(in, model.Decision{
 				ChosenAuthID: parent.AuthID,
@@ -287,21 +294,12 @@ func rankWithStaleness(cfg model.Config, snaps map[string]model.AuthSnapshot, ca
 }
 
 // blockedFor reports whether the provider has already refused a window that
-// bears on the requested model: the session and all-models weekly windows
-// always do, a family cap only for its own family.
+// bears on the requested model.
 func blockedFor(snap model.AuthSnapshot, modelID string) bool {
 	family := model.FamilyOf(modelID)
 	for _, w := range snap.Windows {
-		if !w.Blocking() {
-			continue
-		}
-		switch w.Kind {
-		case model.WindowSession, model.WindowWeekly:
+		if w.Blocking() && w.BearsOn(family) {
 			return true
-		case model.WindowWeeklyScoped:
-			if family != "" && model.FamilyOf(w.Scope) == family {
-				return true
-			}
 		}
 	}
 	return false
@@ -332,20 +330,12 @@ func joinNotes(a, b string) string {
 	}
 }
 
-// warnSingleCandidate logs once per provider that spreading cannot work: the
-// host offers only the highest priority tier, so a pool whose credentials do
-// not share one priority value collapses to a single candidate.
-func (p *Plugin) warnSingleCandidate(provider, authID string) {
+// observeCandidates records how many candidates a provider was last offered
+// for a cold pick. A count of one means the host capped the pool at a single
+// priority tier and spreading cannot work; the status view warns for as long
+// as that holds, and the poller carries the log line.
+func (p *Plugin) observeCandidates(provider string, count int) {
 	p.mu.Lock()
-	warned := p.singleWarned[provider]
-	p.singleWarned[provider] = true
+	p.singleCandidates[provider] = count
 	p.mu.Unlock()
-	if warned {
-		return
-	}
-	p.host.log("warn", "cpa-claude-quota-scheduler: a single candidate was offered; spreading cannot work", map[string]any{
-		"provider": provider,
-		"auth_id":  authID,
-		"hint":     "every credential in the pool must share one priority value",
-	})
 }
