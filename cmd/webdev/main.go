@@ -20,9 +20,11 @@ import (
 
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
-	scenario := flag.String("scenario", "full", "fixture scenario: full, single, stale or empty")
+	scenario := flag.String("scenario", "full",
+		"fixture scenario: full, single, stale, degraded or empty")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
-	failAfter := flag.Int("fail-after", 0, "if positive, fail status requests after this many successes")
+	failAfter := flag.Int("fail-after", -1,
+		"fail status requests after this many successes; 0 fails the first, -1 never fails")
 	flag.Parse()
 
 	src := newFixture(time.Now())
@@ -33,6 +35,16 @@ func main() {
 		// Past quota.max-staleness the plugin declines to evaluate the
 		// credential at all, which is the state the lanes render as unknown.
 		src.observedAge[seatBID] = src.cfg.Quota.MaxStaleness + 5*time.Minute
+	case "degraded":
+		// The warnings a healthy pool never raises: the plugin switched off,
+		// the credential listing failing, and a credential the poller has
+		// never published a reading for.
+		src.cfg.Enabled = false
+		src.listErr = "read auth dir: permission denied"
+		src.auths = append(src.auths, model.AuthStatus{
+			AuthID: seatCID, Label: "Seat C", Provider: "claude",
+			Priority: 10, HostStatus: "active",
+		})
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
@@ -62,7 +74,7 @@ func faults(h http.Handler, latency time.Duration, failAfter int) http.Handler {
 			if latency > 0 {
 				time.Sleep(latency)
 			}
-			if failAfter > 0 && served.Add(1) > int64(failAfter) {
+			if failAfter >= 0 && served.Add(1) > int64(failAfter) {
 				http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
 				return
 			}
@@ -74,6 +86,12 @@ func faults(h http.Handler, latency time.Duration, failAfter int) http.Handler {
 const (
 	seatAID = "claude-oauth-a4f1c2"
 	seatBID = "claude-oauth-9b30de"
+	seatCID = "claude-oauth-71c8fa"
+
+	// seatALabel is what the host reports for a credential that names no label
+	// of its own: the account address. It sits on the leading seat, whose card
+	// also carries the widest rank badge.
+	seatALabel = "quota.ops@acme-corp-engineering.example"
 
 	modelFable  = "claude-fable-5-20260514"
 	modelOpus   = "claude-opus-4-6-20260212"
@@ -96,11 +114,17 @@ type fixture struct {
 	auths         []model.AuthStatus
 	bindings      []model.Binding
 	decisions     []model.Decision
-	warnings      []string
+	// listErr is the host credential listing's last failure, empty while it
+	// succeeds.
+	listErr  string
+	warnings []string
 }
 
 func newFixture(anchor time.Time) *fixture {
 	cfg := model.Defaults()
+	// Defaults leave the plugin off, and a status view of a plugin that routes
+	// nothing is a different page.
+	cfg.Enabled = true
 	// A conservative curve: the target trails elapsed early and lands short of
 	// full, which separates the pace tick from the now line in the timeline.
 	cfg.Pace.CurveExponent = 1.35
@@ -125,7 +149,7 @@ func newFixture(anchor time.Time) *fixture {
 		seatAID: {
 			AuthID:    seatAID,
 			AuthIndex: "0",
-			Label:     "Seat A",
+			Label:     seatALabel,
 			Source:    model.SourceUsageEndpoint,
 			Windows: []model.Window{
 				{
@@ -153,7 +177,7 @@ func newFixture(anchor time.Time) *fixture {
 			AuthIndex:   "1",
 			Label:       "Seat B",
 			Source:      model.SourceResponseHeaders,
-			Err:         "Get \"/api/oauth/usage\": context deadline exceeded",
+			Err:         "Get \"https://api.anthropic.com/api/oauth/usage\": context deadline exceeded",
 			ErrCategory: "timeout",
 			Windows: []model.Window{
 				{
@@ -180,7 +204,7 @@ func newFixture(anchor time.Time) *fixture {
 
 	f.auths = []model.AuthStatus{
 		{
-			AuthID: seatAID, Label: "Seat A", Provider: "claude", Priority: 10,
+			AuthID: seatAID, Label: seatALabel, Provider: "claude", Priority: 10,
 			HostStatus: "active", Bindings: 4,
 			Cache: model.CacheStats{
 				Requests:            1412,
@@ -243,30 +267,46 @@ func withSessionUtil(s model.AuthSnapshot, util float64, status, severity string
 	return out
 }
 
-// rebuildWarnings restates the warnings runtime.Status emits for whichever
-// credentials the scenario keeps. Nothing warns about the host's own
-// routing.session-affinity: no signal the plugin receives distinguishes it.
+// rebuildWarnings restates every warning runtime.Status emits, for whichever
+// credentials and config the scenario leaves in place. Nothing warns about the
+// host's own routing.session-affinity: no signal the plugin receives
+// distinguishes it.
 func (f *fixture) rebuildWarnings() {
 	f.warnings = nil
+	if !f.cfg.Enabled {
+		f.warnings = append(f.warnings,
+			"plugin is disabled by configuration; the host's own selector routes every request")
+	}
+	if f.listErr != "" {
+		f.warnings = append(f.warnings, "credential listing is failing: "+f.listErr)
+	}
 	if len(f.auths) == 1 {
 		f.warnings = append(f.warnings, fmt.Sprintf("provider %s offered a single candidate; "+
 			"spreading cannot work until every credential in the pool shares one priority value", "claude"))
 	}
 	for _, a := range f.auths {
-		snap := f.snapshots[a.AuthID]
-		if snap.Err == "" {
+		snap, ok := f.snapshots[a.AuthID]
+		if !ok {
+			f.warnings = append(f.warnings, fmt.Sprintf(
+				"no quota snapshot for %s; it is ineligible for cold picks", a.AuthID))
 			continue
 		}
-		f.warnings = append(f.warnings, fmt.Sprintf("quota poll failing for %s (%s): %s",
-			a.AuthID, snap.ErrCategory, snap.Err))
+		if snap.Err != "" {
+			f.warnings = append(f.warnings, fmt.Sprintf("quota poll failing for %s (%s): %s",
+				a.AuthID, snap.ErrCategory, snap.Err))
+		}
 	}
 }
 
-// scoreWithStaleness mirrors the gate internal/runtime applies before scoring:
-// a reading older than quota.max-staleness is not evaluated at all, and the
-// score carries the reason instead of a window breakdown.
-func scoreWithStaleness(cfg model.Config, snap model.AuthSnapshot, modelID string, now time.Time) model.Score {
-	if snap.Stale(now, cfg.Quota.MaxStaleness) {
+// scoreWithStaleness mirrors the gates internal/runtime applies before scoring:
+// a credential with no reading, or one older than quota.max-staleness, is not
+// evaluated at all, and the score carries the reason instead of a window
+// breakdown.
+func scoreWithStaleness(cfg model.Config, snap model.AuthSnapshot, hasSnap bool, modelID string, now time.Time) model.Score {
+	switch {
+	case !hasSnap:
+		return model.Score{AuthID: snap.AuthID, Reason: model.ReasonNoSnapshot}
+	case snap.Stale(now, cfg.Quota.MaxStaleness):
 		return model.Score{AuthID: snap.AuthID, Reason: model.ReasonStale}
 	}
 	return pace.ScoreAuth(cfg.Pace, snap, modelID, now)
@@ -279,10 +319,13 @@ func (f *fixture) Status(now time.Time, modelID string) model.Status {
 	}
 	auths := make([]model.AuthStatus, 0, len(f.auths))
 	for _, a := range f.auths {
-		snap := f.snapshots[a.AuthID]
-		snap.ObservedAt = now.Add(-f.observedAge[a.AuthID])
+		snap, ok := f.snapshots[a.AuthID]
+		snap.AuthID = a.AuthID
+		if ok {
+			snap.ObservedAt = now.Add(-f.observedAge[a.AuthID])
+		}
 		a.Snapshot = snap
-		a.Score = scoreWithStaleness(f.cfg, snap, modelID, now)
+		a.Score = scoreWithStaleness(f.cfg, snap, ok, modelID, now)
 		a.Score.AuthID = a.AuthID
 		auths = append(auths, a)
 	}
@@ -335,7 +378,7 @@ func (f *fixture) buildDecisions() []model.Decision {
 		{ago: 16 * time.Minute, kind: model.DecisionAffinityHit, key: "c4408b1ef6d92a70", modelID: modelOpus, chosen: seatBID, subagent: true},
 		{ago: 18 * time.Minute, kind: model.DecisionAffinityHit, key: "5f2c0b7d4a19e83c", modelID: modelFable, chosen: seatAID},
 		{ago: 20 * time.Minute, kind: model.DecisionFailover, key: "3b7fa1c05e29d846", modelID: modelFable, chosen: seatAID, previous: seatBID,
-			note: "Seat B rejected the 5-hour window", scored: true},
+			note: "the bound credential rejected the 5-hour window", scored: true},
 		{ago: 22 * time.Minute, kind: model.DecisionAffinityHit, key: "77b0fe4c1a8d6392", modelID: modelFable, chosen: seatBID},
 		{ago: 24 * time.Minute, kind: model.DecisionColdPick, key: "d2f8410ba36c7e15", modelID: modelFable, chosen: seatBID, scored: true},
 		{ago: 26 * time.Minute, kind: model.DecisionAffinityHit, key: "a91d33e0c7b45f28", modelID: modelFable, chosen: seatAID, subagent: true},
