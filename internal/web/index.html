@@ -193,6 +193,9 @@ a { color: inherit; }
 .pick .seat-mark { flex: 1 1 auto; min-width: 0; }
 .pick-fam { color: var(--ink-3); font-weight: 600; flex: none; }
 .pick-none { color: var(--ink-2); }
+/* The exhausted line is prose, not a seat name: it wraps rather than running
+   past the card on a narrow viewport. */
+.pick-wrap { white-space: normal; }
 
 /* --------------------------------------------------------------- controls */
 .controls {
@@ -372,6 +375,9 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) line.tick 
 .dec-route { font: 500 12px/1.3 var(--sans); min-width: 0; }
 .dec-route .arrow { color: var(--ink-3); font-family: var(--mono); }
 .dec-route .prev { color: var(--ink-3); }
+/* A credential outside this plugin's governance carries no quota data, so it
+   reads as what it is rather than as a seat. */
+.ungoverned { color: var(--ink-3); font-style: italic; }
 .dec-tail { display: flex; gap: 8px; align-items: center; justify-self: end; }
 .dec-note { font: 400 11.5px/1.3 var(--sans); color: var(--ink-2); font-style: italic; max-width: 34ch; }
 /* The candidate-scores table is wider than a phone: it scrolls in place, the
@@ -994,6 +1000,25 @@ main[data-stale="true"] { opacity: .62; }
     return m;
   }
 
+  /* A credential the host routed to that this plugin does not govern: the
+     poller reads only credentials with a backing file, so an overflow key has
+     no seat row, no snapshot and no score, and there is nothing to rank. Its
+     published id is the tooltip; the row says what it is. */
+  function overflowMark(id) {
+    var m = h("span", "ungoverned", "overflow key · not governed by this plugin");
+    return id ? tipOnly(m, id) : m;
+  }
+
+  /* Whether the log carries traffic on a credential with no seat row, which
+     is what "no seat can serve" looks like while requests keep succeeding. */
+  function overflowInLog(st) {
+    var seated = Object.create(null);
+    (st.auths || []).forEach(function (a) { seated[a.auth_id] = true; });
+    return (st.decisions || []).some(function (d) {
+      return d.chosen_auth_id && !seated[d.chosen_auth_id];
+    });
+  }
+
   /* Free text from the plugin names a seat by id; the page names it the way
      the cards do. */
   function nameIDs(text) {
@@ -1067,12 +1092,41 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* The seat's rank: one figure when every family agrees, else one per
-     family. An unknown ranking reads as a question. */
+     family. An unknown ranking reads as a question.
+
+     Only the families the seat can still take a conversation in are ranked:
+     a place in a queue a seat cannot serve from is noise. A seat eligible in
+     none carries no rank at all, and one ranked in some of them names which,
+     so a bare "#1" never stands for a family the seat is out of. */
   function rankText(a, ranks) {
-    return pairText(ranks.fams, function (fam) {
+    var fams = ranks.fams.filter(function (fam) {
+      var sc = famScore(a, fam);
+      return !sc || sc.eligible;
+    });
+    function textOf(fam) {
       var r = ranks.byFam[fam][a.auth_id];
       return r === undefined ? "#?" : "#" + (r + 1);
-    }, true);
+    }
+    if (!fams.length) return "";
+    if (fams.length < ranks.fams.length) {
+      return fams.map(function (fam) { return rankLabel(fam, true) + " " + textOf(fam); }).join(" · ");
+    }
+    return pairText(fams, textOf, true);
+  }
+
+  /* The window whose rejection keeps a family off this seat, soonest reset
+     first: what an operator watching an exhausted seat is waiting on. Null
+     where nothing bearing on the family is rejected. */
+  function blockingWindow(a, fam) {
+    var out = null;
+    ((a.snapshot && a.snapshot.windows) || []).forEach(function (w) {
+      if (w.status !== "rejected" && w.severity !== "critical") return;
+      if (w.kind === "weekly_scoped" && (w.scope || "") !== fam) return;
+      var r = parseT(w.resets_at);
+      if (!r) return;
+      if (!out || r < parseT(out.resets_at)) out = w;
+    });
+    return out;
   }
 
   function hitRate(c) {
@@ -1202,7 +1256,7 @@ main[data-stale="true"] { opacity: .62; }
     var fams = ranks.fams, one = fams.length === 1;
     var lines = [
       seatLabel(a),
-      "rank " + rankText(a, ranks) + (lead ? " · " + lead : ""),
+      "rank " + (rankText(a, ranks) || "unranked; eligible for nothing") + (lead ? " · " + lead : ""),
       a.email && a.email !== seatLabel(a) ? "account      " + a.email : null,
       a.auth_id ? "id           " + a.auth_id : null,
       a.provider ? "provider     " + a.provider : null,
@@ -1231,7 +1285,7 @@ main[data-stale="true"] { opacity: .62; }
     var sc = a.score || {}, snap = a.snapshot || {};
     var hs = a.host_status || "unknown";
     var lead = leadText(leadsOf(a, ranks), ranks.fams);
-    return seatLabel(a) + ", rank " + rankText(a, ranks) + (lead ? ", " + lead : "") +
+    return seatLabel(a) + ", rank " + (rankText(a, ranks) || "unranked") + (lead ? ", " + lead : "") +
       ", " + pairText(ranks.fams, function (fam) { return eligText(famScore(a, fam)); }) +
       ", weekly " + weeklySlackText(sc) +
       ", score " + pairText(ranks.fams, function (fam) { return totalText(famScore(a, fam)); }) +
@@ -1462,12 +1516,19 @@ main[data-stale="true"] { opacity: .62; }
       gh.setAttribute("data-tip", seatTip(a, ranks));
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: GUT - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
-      var rankEl = svgText(gh, 34, headY, rankText(a, ranks), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
-      var nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
+      var rank = rankText(a, ranks);
+      var nameX = 34;
+      if (rank) {
+        var rankEl = svgText(gh, 34, headY, rank, "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
+        nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
+      }
       var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
       /* Eligible everywhere: the weekly slack. Ineligible somewhere: a
-         verdict per family that says so, with the ones it can still take. */
+         verdict per family that says so, with the ones it can still take.
+         A family the provider has rejected leads with the reset of the
+         window holding it back, which is the next thing to happen to the
+         seat; the stamp ticks with the rest of the page. */
       var tail;
       var verdicts = fams.map(function (fam) { return eligText(famScore(a, fam)); });
       var agree = allSame(verdicts);
@@ -1480,8 +1541,15 @@ main[data-stale="true"] { opacity: .62; }
           var sc = famScore(a, fam), ok = !!(sc && sc.eligible);
           if (i) tail.appendChild(document.createTextNode(" · "));
           var ts = svg("tspan", { fill: ok ? "var(--good)" : "var(--critical)" }, tail);
-          ts.textContent = (ok ? "✓" : "✕") + (agree ? "" : " " + rankLabel(fam)) +
-            (ok ? "" : (agree ? " " : ": ") + eligText(sc));
+          var head = (ok ? "✓" : "✕") + (agree ? "" : " " + rankLabel(fam));
+          var blocking = ok ? null : blockingWindow(a, fam);
+          ts.textContent = head + (ok ? "" : (agree ? " " : ": ") +
+            (blocking ? "rate-limited" : eligText(sc)));
+          if (!blocking) return;
+          tail.appendChild(document.createTextNode(" · "));
+          var resets = parseT(blocking.resets_at);
+          var rt = svg("tspan", { "data-ts": resets.getTime(), "data-ts-mode": "reset" }, tail);
+          rt.textContent = resetText(resets, nowMs());
         });
       }
       fitText(nameEl, GUT - nameX - tail.getComputedTextLength() - 18);
@@ -2102,11 +2170,12 @@ main[data-stale="true"] { opacity: .62; }
     var byID = {};
     (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
     var fams = scopedFamilies(st);
-    /* A seat mark for a credential the status still lists, its bare id for
-       one a retained decision outlives. */
+    /* A seat mark for a credential the status still lists; a credential with
+       no seat row is one this plugin does not govern, named as that rather
+       than as a hash. */
     function name(id) {
       if (!id) return h("span", "", "—");
-      return byID[id] ? seatMark(byID[id]) : h("span", "mono", id);
+      return byID[id] ? seatMark(byID[id]) : overflowMark(id);
     }
 
     /* Rebuilt from the rows that came back, so a key cannot outlive the
@@ -2409,19 +2478,24 @@ main[data-stale="true"] { opacity: .62; }
 
   /* Where the next new conversation lands, per request family. A family
      whose ranking is unknown this refresh reads as unknown, never as the
-     last answer. */
+     last answer. With no seat left to take the family and the log showing
+     traffic on an ungoverned credential, the requests are landing on that
+     overflow tier rather than failing, and the line says so. */
   function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
     var byID = Object.create(null);
     (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    var overflow = overflowInLog(st);
     ranks.fams.forEach(function (fam) {
       var span = h("span", "pick");
       if (ranks.fams.length > 1) span.appendChild(h("span", "pick-fam", rankLabel(fam) + ":"));
       var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
       if (!known && (st.auths || []).length) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
-      else span.appendChild(h("span", "pick-none", (st.auths || []).length ? "none eligible" : "—"));
+      else if ((st.auths || []).length && overflow) {
+        span.appendChild(h("span", "pick-none pick-wrap", "seats exhausted · traffic on overflow key"));
+      } else span.appendChild(h("span", "pick-none", (st.auths || []).length ? "none eligible" : "—"));
       next.appendChild(span);
     });
   }
