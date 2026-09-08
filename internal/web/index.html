@@ -41,6 +41,14 @@
   --seat-5:       #e04b83;
   --seat-6:       #4a3aa7;
   --seat-x:       #898781;
+  /* The same hues darkened to 4.5:1 on the card, for text set in a seat's colour. */
+  --seat-1-text:  #2873cd;
+  --seat-2-text:  #c94714;
+  --seat-3-text:  #14825b;
+  --seat-4-text:  #9a6800;
+  --seat-5-text:  #c54173;
+  --seat-6-text:  #4a3aa7;
+  --seat-x-text:  #74726d;
 
   --pos-text:     #006300;
   --neg-text:     #b8332f;
@@ -71,6 +79,13 @@
     --seat-4:     #c98500;
     --seat-5:     #d55181;
     --seat-6:     #9085e9;
+    --seat-1-text: #3987e5;
+    --seat-2-text: #d95c2a;
+    --seat-3-text: #199e70;
+    --seat-4-text: #c98500;
+    --seat-5-text: #d65786;
+    --seat-6-text: #9085e9;
+    --seat-x-text: #898781;
     --pos-text:   #0ca30c;
     --neg-text:   #e66767;
     --focus:      #3987e5;
@@ -100,6 +115,13 @@
   --seat-4:     #c98500;
   --seat-5:     #d55181;
   --seat-6:     #9085e9;
+  --seat-1-text: #3987e5;
+  --seat-2-text: #d95c2a;
+  --seat-3-text: #199e70;
+  --seat-4-text: #c98500;
+  --seat-5-text: #d65786;
+  --seat-6-text: #9085e9;
+  --seat-x-text: #898781;
   --pos-text:   #0ca30c;
   --neg-text:   #e66767;
   --focus:      #3987e5;
@@ -329,6 +351,15 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) line.tick 
    as the present; the completed cycle before a reset is dashed and paler. */
 svg.pace path.hist { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
 svg.pace path.hist-prev { fill: none; stroke-width: 1.1; stroke-linejoin: round; stroke-linecap: round; opacity: .7; stroke-dasharray: 3 3; }
+/* A stretch reconstructed from token spend is an estimate: dashed and paler
+   than the observed stretch, whichever cycle it is in. */
+svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .5; stroke-dasharray: 2 3; }
+svg.pace path.hist-prev.hist-est { stroke-width: 1.1; opacity: .4; }
+/* A weighted mark's label yields to the full-weight one beside it. */
+svg.pace text.slk.slk-half { font-size: 9px; opacity: .72; }
+/* The seat's score, at the head of its weekly line, in the seat's text hue. */
+svg.pace text.score { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
+svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.score { visibility: hidden; }
 svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
 svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
@@ -543,7 +574,7 @@ main[data-stale="true"] { opacity: .62; }
            axis markers, which no script draws, are markup. -->
       <ul class="legend" id="timeline-legend">
         <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
-        <li data-axis-marker><span class="gl">&#8943;</span> slack: gap to the pace target, in points of the budget</li>
+        <li data-axis-marker><span class="gl">&#8943;</span> slack: gap to the pace target, in points of the budget · + over pace, − under</li>
         <li data-axis-marker><span class="gl" style="color:var(--critical)">&#9478;</span> hard cutoff</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
@@ -574,7 +605,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>5-hour window</h2>
-        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization by hours into its own window, with the cycle before it</span>
+        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization against the target curve, by hours into its own window · headroom here does not affect routing</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -736,14 +767,33 @@ main[data-stale="true"] { opacity: .62; }
     return v.toFixed(2) + "×";
   }
 
-  /* Slack is a distance from the pace target, so it carries a direction word
-     rather than a sign: positive slack is a seat behind pace, with budget
-     still to spend. The compact form fits a chart label; the full form is
-     for prose, tooltips and names. */
+  /* Slack is target minus utilization: positive is a seat under pace, with
+     budget still to spend. The full form says so in words, for prose and
+     tooltips. The compact form is one signed number for chart labels and
+     table cells, and its sign is the reader's: + is over pace (utilization
+     above target), − is under, so it is −slack to one decimal. Every legend
+     that shows the compact form states the convention once. */
   function slackText(v, compact) {
     if (!num(v)) return "—";
-    var dir = v >= 0 ? "under" : "over";
-    return compact ? (Math.abs(v) * 100).toFixed(1) + " " + dir : pts(v) + " " + dir + " pace";
+    if (compact) return signedOver(v);
+    return pts(v) + " " + (v >= 0 ? "under" : "over") + " pace";
+  }
+
+  /* The compact form of a slack: the amount over the target, signed. A slack
+     inside a twentieth of a point of zero reads as 0.0 with no sign. */
+  function signedOver(slack) {
+    var over = -slack * 100;
+    if (Math.abs(over) < 0.05) return "0.0";
+    return (over > 0 ? "+" : "−") + Math.abs(over).toFixed(1);
+  }
+
+  /* The 5-hour window's compact form, in the same sign convention: + over
+     the curve, − headroom. The full form names the headroom rather than a
+     pace, because the scheduler keeps no pace on this window. */
+  function headroomText(v, compact) {
+    if (!num(v)) return "—";
+    if (compact) return signedOver(v);
+    return pts(v) + (v >= 0 ? " headroom under the curve" : " over the curve");
   }
 
   /* A score is a composite, not a slack, so it keeps its sign. */
@@ -1353,7 +1403,7 @@ main[data-stale="true"] { opacity: .62; }
   var GUT = 420, PAD_R = 20, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
   /* The slack label, right of the meter; the gutter leaves it room for
-     "100.0 under" before the plot begins. */
+     "+100.0" before the plot begins. */
   var SLK_X = MET_X + MET_W + 14;
   /* Row geometry, at the two densities the timeline draws. A roomy seat row
      has a second line for its live figures; a compact one keeps them in the
@@ -1822,11 +1872,87 @@ main[data-stale="true"] { opacity: .62; }
   var PT_D = 6;
   /* Slack labels: a 10px monospace line, its box and the gap it keeps from
      its leader. Past LABEL_DENSE labels the chart is dense: a label shows only
-     for the seat pointed at or focused, so no two are up at once. */
-  var LABEL_H = 12, LABEL_GAP = 9, LABEL_DENSE = 12;
+     for the seat pointed at or focused, so no two are up at once. A plot has
+     room for about one label per LABEL_PX of width before that. */
+  var LABEL_H = 12, LABEL_GAP = 9, LABEL_DENSE = 12, LABEL_PX = 35;
 
   /* A scoped weight, as every label that carries one writes it. */
   function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
+
+  /* Whether a sample of a cycle is an estimate reconstructed from token
+     spend: every sample of a cycle flagged estimated, or every sample at or
+     before the cycle's estimated_until instant. */
+  function estimatedAt(cycle, s) {
+    if (!cycle) return false;
+    if (cycle.estimated) return true;
+    var until = parseT(cycle.estimated_until);
+    return !!until && s.t <= until.getTime();
+  }
+
+  /* Draws one cycle's samples as a line under parent, the estimated stretch
+     dashed and pale and the observed stretch solid; the two share the sample
+     at the boundary so the line has no gap. tail, if given, is a path
+     segment to the present mark, which is always an observed reading, so it
+     is drawn solid. Returns the count of estimated samples. */
+  function historyLine(parent, cycle, samples, xOf, Y, col, prev, tail) {
+    var est = [], obs = [];
+    samples.forEach(function (s) { (estimatedAt(cycle, s) ? est : obs).push(s); });
+    if (est.length && obs.length) obs.unshift(est[est.length - 1]);
+    var base = prev ? "hist-prev" : "hist";
+    if (est.length >= 2) svg("path", { "class": base + " hist-est", d: pathOf(est, xOf, Y), stroke: col }, parent);
+    if (!obs.length && est.length && tail) obs.push(est[est.length - 1]);
+    if (obs.length >= 2 || (obs.length === 1 && tail)) {
+      svg("path", { "class": base, d: pathOf(obs, xOf, Y) + (tail || ""), stroke: col }, parent);
+    }
+    return est.length;
+  }
+
+  /* The dotted vertical leader between a mark and the target at its own
+     elapsed, and the compact label at its midpoint, queued for placeLabels. */
+  function leader(g, labels, a, cx, cy, ty, text, cls) {
+    var col = seatColor(a);
+    svg("line", {
+      x1: cx, x2: cx, y1: cy, y2: ty, stroke: col,
+      "stroke-width": 1.5, "stroke-dasharray": "1 3.5", "stroke-linecap": "round"
+    }, g);
+    var t = svgText(g, cx, (cy + ty) / 2 + 3.5, text, "slk t-mono" + (cls ? " " + cls : ""), { "font-size": 10 });
+    labels.push({ el: t, g: g, cx: cx, my: (cy + ty) / 2, up: cy > ty, col: col, w: t.getComputedTextLength() + 2 });
+  }
+
+  /* Sets each queued label where placeLabels put it, with a tick back to the
+     leader for one that had to move more than a line away. */
+  function settleLabels(labels, plot, root) {
+    placeLabels(labels, plot);
+    labels.forEach(function (l) {
+      l.el.setAttribute("x", String(l.x));
+      l.el.setAttribute("y", String(l.yc + 3.5));
+      l.el.setAttribute("text-anchor", l.right ? "start" : "end");
+      if (Math.abs(l.yc - l.my) > LABEL_H) {
+        var tx = l.right ? l.x - 2 : l.x + 2;
+        svg("line", {
+          "class": "tick", x1: l.cx, y1: l.my, x2: tx, y2: l.yc,
+          stroke: l.col, "stroke-width": 1, opacity: .7
+        }, l.g);
+      }
+    });
+    if (labels.length > Math.min(LABEL_DENSE, Math.floor((plot.x1 - plot.x0) / LABEL_PX))) root.setAttribute("data-dense", "true");
+  }
+
+  /* The seat's colour token as its text-safe variant. */
+  function seatTextColor(a) { return seatColor(a).replace(/\)$/, "-text)"); }
+
+  /* A legend row: a swatch styled by css text, then a caption. */
+  function legendRow(leg, swatchCss, caption) {
+    var li = h("li", "");
+    var sw = h("span", "sw");
+    sw.style.cssText = swatchCss;
+    li.appendChild(sw);
+    li.appendChild(document.createTextNode(caption));
+    leg.appendChild(li);
+    return li;
+  }
+  var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
+  var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
   function dayText(elapsed) {
     return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS + " days";
@@ -1995,7 +2121,7 @@ main[data-stale="true"] { opacity: .62; }
        drawn, so no two meet. The cap's label carries its weight in the
        score; the weekly window counts whole. The group's role="img" keeps
        the label out of the accessibility tree; the slack is in its name. */
-    var labels = [];
+    var labels = [], anyEst = false;
     var SLOPE_SPAN_MS = 6 * 3600000;
     function point(a, ws, weighted) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
@@ -2003,13 +2129,14 @@ main[data-stale="true"] { opacity: .62; }
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
          alone. x is the sample's own elapsed fraction of this window. */
-      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null;
+      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0;
       if (resets && hist) {
         var start = resets.getTime() - PACE_DAYS * 86400000;
-        var cur = samplesOf(splitCycles(hist, resets).cur);
+        var cycle = splitCycles(hist, resets).cur, cur = samplesOf(cycle);
         if (cur.length >= 2) {
           var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
-          svg("path", { "class": "hist", d: pathOf(cur, xOf, Y) + "L" + cx.toFixed(1) + " " + cy.toFixed(1), stroke: col }, g);
+          est = historyLine(g, cycle, cur, xOf, Y, col, false, "L" + cx.toFixed(1) + " " + cy.toFixed(1));
+          anyEst = anyEst || est > 0;
           line = cur;
           slope = recentSlope(cur, SLOPE_SPAN_MS);
         }
@@ -2018,28 +2145,29 @@ main[data-stale="true"] { opacity: .62; }
          two rates read side by side. */
       var targetSlope = landing * gamma * Math.pow(Math.max(ws.elapsed, 1e-6), gamma - 1) * 100 / (PACE_DAYS * 24);
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
-        var ty = Y(ws.target);
-        svg("line", {
-          x1: cx, x2: cx, y1: cy, y2: ty, stroke: col,
-          "stroke-width": 1.5, "stroke-dasharray": "1 3.5", "stroke-linecap": "round"
-        }, g);
-        var t = svgText(g, cx, (cy + ty) / 2 + 3.5,
-          slackText(ws.slack, true) + (weighted ? " " + weightMark(ws) : ""), "slk t-mono", { "font-size": 10 });
-        labels.push({ el: t, g: g, cx: cx, my: (cy + ty) / 2, up: cy > ty, col: col, w: t.getComputedTextLength() + 2 });
+        leader(g, labels, a, cx, cy, Y(ws.target), slackText(ws.slack, true), weighted ? "slk-half" : null);
+      }
+      /* The score ranks the seat, so it sits once at the head of the weekly
+         line, in the seat's colour, and moves with the other labels. */
+      if (!weighted && scored(a.score)) {
+        var sc = svgText(g, cx, cy + 3.5, "score " + signedOver(-a.score.total), "score", { "font-size": 10.5 });
+        sc.style.fill = seatTextColor(a);
+        labels.push({ el: sc, g: g, cx: cx, my: cy, up: !(num(ws.slack) && ws.slack < 0), col: col, w: sc.getComputedTextLength() + 2 });
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
         ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the " + windowName(ws) + " budget spent" +
-        ", " + slackText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the score" : ""));
+        ", " + slackText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the score" : ", score " + totalText(a.score)));
       g.setAttribute("data-tip", seatLabel(a) + " · " + windowName(ws) +
         "\nday          " + dayText(ws.elapsed) + " (" + pct(ws.elapsed, 0) + ")" +
         "\nspent        " + pct(ws.utilization) + " of the " + windowName(ws) + " budget" +
         "\npace target  " + pct(ws.target) +
         "\nslack        " + slackText(ws.slack) +
-        (weighted ? "\nin score     " + weightMark(ws) : "") +
+        (weighted ? "\nin score     " + weightMark(ws) : "\nscore        " + totalText(a.score)) +
         (line ? "\nlast 6h      " + rateText(slope) + " · target " + rateText(targetSlope) +
-          "\nrecorded     " + line.length + " readings this window" : "\nrecorded     no path yet this window"));
+          "\nrecorded     " + line.length + " readings this window" +
+          (est ? ", " + est + " estimated from token spend" : "") : "\nrecorded     no path yet this window"));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       if (weighted) {
         svg("path", {
@@ -2057,27 +2185,14 @@ main[data-stale="true"] { opacity: .62; }
       s.caps.forEach(function (c) { if (!c.gap) point(s.auth, c.ws, true); });
     });
 
-    placeLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph });
-    labels.forEach(function (l) {
-      l.el.setAttribute("x", String(l.x));
-      l.el.setAttribute("y", String(l.yc + 3.5));
-      l.el.setAttribute("text-anchor", l.right ? "start" : "end");
-      if (Math.abs(l.yc - l.my) > LABEL_H) {
-        var tx = l.right ? l.x - 2 : l.x + 2;
-        svg("line", {
-          "class": "tick", x1: l.cx, y1: l.my, x2: tx, y2: l.yc,
-          stroke: l.col, "stroke-width": 1, opacity: .7
-        }, l.g);
-      }
-    });
-    if (labels.length > LABEL_DENSE) root.setAttribute("data-dense", "true");
+    settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has a paced weekly window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, fams);
+    renderPaceLegend(series, root, fams, anyEst);
     renderPaceNote(st, gamma, landing);
   }
 
@@ -2095,24 +2210,16 @@ main[data-stale="true"] { opacity: .62; }
 
   /* Every seat is named: plotted ones in the legend, the rest with the reason
      they have no point, so a seat never vanishes from the chart unexplained. */
-  function renderPaceLegend(series, root, fams) {
+  function renderPaceLegend(series, root, fams, anyEst) {
     var leg = $("pace-legend");
     leg.textContent = "";
     /* With two marks per seat the legend names the marks before the seats. */
     if (fams.length) {
-      var circ = h("li", "");
-      var csw = h("span", "sw");
-      csw.style.cssText = "background:var(--ink-2);border-radius:50%;width:10px;height:10px";
-      circ.appendChild(csw);
-      circ.appendChild(document.createTextNode("7-day all models (Standard)"));
-      leg.appendChild(circ);
-      var dia = h("li", "");
-      var dsw = h("span", "sw");
-      dsw.style.cssText = "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px";
-      dia.appendChild(dsw);
-      dia.appendChild(document.createTextNode(fams.join(", ") + " weekly cap"));
-      leg.appendChild(dia);
+      legendRow(leg, "background:var(--ink-2);border-radius:50%;width:10px;height:10px", "7-day all models (Standard)");
+      legendRow(leg, "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px", fams.join(", ") + " weekly cap");
     }
+    legendRow(leg, SW_SIGN, "+ over pace · − under");
+    if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
@@ -2158,10 +2265,13 @@ main[data-stale="true"] { opacity: .62; }
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
     p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
       ". A point below the curve is under pace, with budget still to spend; the dotted leader is that seat's " +
-      "slack, in percentage points of the weekly budget. The thin line behind a mark is that seat's recorded " +
-      "path from the start of its window: steeper than the target curve is spending faster than pace, flatter is " +
-      "slower; the tooltip gives both rates over the last six hours. This is the window the plugin paces against, " +
-      "and the one whose unspent capacity is lost at reset."));
+      "slack, in percentage points of the weekly budget, labelled with the sign a reader expects: + is over pace, " +
+      "− is under. The bold figure by the circle is the seat's score, the number that ranks it. The thin line " +
+      "behind a mark is that seat's recorded path from the start of its window: steeper than the target curve is " +
+      "spending faster than pace, flatter is slower; the tooltip gives both rates over the last six hours. A dashed, " +
+      "paler stretch of that line is an estimate reconstructed from token spend rather than a reading; the mark " +
+      "itself is always a reading. This is the window the plugin paces against, and the one whose unspent " +
+      "capacity is lost at reset."));
     note.appendChild(p);
 
     var q = h("p", "");
@@ -2174,7 +2284,7 @@ main[data-stale="true"] { opacity: .62; }
       (wts.weekly_weight === 1 ? "weekly slack" : share(wts.weekly_weight) + " of weekly slack") + scopedTerm +
       ", minus a fullness penalty of " + share(wts.raw_utilization_weight) + " of the seat's fullest window." +
       (wts.session_weight === 0
-        ? " The 5-hour window has no pace target: it is a rate limit that resets several times a day; it counts toward fullness and gates a seat at the hard cutoff."
+        ? " The 5-hour window carries no weight: it is a rate limit that resets several times a day, so its gap to the curve is headroom that never enters a score; it counts toward fullness and gates a seat at the hard cutoff."
         : "") +
       " The eligible seat with the highest score takes the next new conversation" +
       (fams.length ? " of its family, so the page ranks every seat once per family" : "") +
@@ -2188,12 +2298,15 @@ main[data-stale="true"] { opacity: .62; }
 
   /* ---------------------------------------------------------- 5-hour chart */
 
-  /* The 5-hour window is a rate limit: no pace target, no slack, no verdict.
-     The chart draws each seat's recorded utilization by hours into its own
-     window, the completed cycle before it faintly, and the hard cutoff as the
-     one reference line. Spend is measured per seat, so the conversations a
-     stretch of the line names are the ones the routing log shows active on
-     that seat then, not the ones that spent the tokens. */
+  /* The 5-hour window is a rate limit, and its chart is the weekly chart's
+     construction on a 5-hour axis: the same target curve, each seat's mark
+     with a leader to the curve, the recorded line behind it and the completed
+     cycle before it faintly. The gap to the curve is headroom, not a verdict:
+     the scorer gives this window no weight, so nothing here moves a routing
+     decision, and the hard cutoff is the one line that gates. Spend is
+     measured per seat, so the conversations a stretch of the line names are
+     the ones the routing log shows active on that seat then, not the ones
+     that spent the tokens. */
   var SESSION_HOURS = 5;
   var SESSION_MS = SESSION_HOURS * 3600000;
   var SEG_MS = 15 * 60000;   /* one hoverable stretch of a seat's line */
@@ -2244,6 +2357,9 @@ main[data-stale="true"] { opacity: .62; }
     var focusEl = $("session-focus");
     focusEl.textContent = SESSION_IDLE;
     var cut = cutoffOf(st.config);
+    var paceCfg = (st.config && st.config.pace) || {};
+    var gamma = num(paceCfg.curve_exponent) && paceCfg.curve_exponent > 0 ? paceCfg.curve_exponent : 1;
+    var landing = num(paceCfg.landing_target) && paceCfg.landing_target > 0 ? paceCfg.landing_target : 1;
 
     var W = Math.max(280, host.clientWidth || 480);
     var H = Math.round(clamp(W * 0.3, 220, 340));
@@ -2255,10 +2371,16 @@ main[data-stale="true"] { opacity: .62; }
       var w = null;
       ((a.snapshot && a.snapshot.windows) || []).forEach(function (x) { if (x.kind === "five_hour") w = x; });
       var resets = w ? parseT(w.resets_at) : null;
-      var entry = { auth: a, w: w, resets: resets, gap: sessionGap(a, w, resets), cur: [], prev: [] };
+      /* The scorer's own target and gap for this window, with Weight 0; a
+         seat it never evaluated draws its line with no leader. */
+      var ws = scoreFor(a, { kind: "five_hour" });
+      var entry = { auth: a, w: w, ws: ws && num(ws.target) && num(ws.slack) ? ws : null, resets: resets,
+        gap: sessionGap(a, w, resets), cur: [], prev: [], curCycle: null, prevCycle: null };
       if (!entry.gap) {
         var hist = historyFor(a, "five_hour", "");
         var parts = splitCycles(hist, resets);
+        entry.curCycle = parts.cur;
+        entry.prevCycle = parts.prev;
         entry.cur = samplesOf(parts.cur);
         entry.prev = samplesOf(parts.prev);
         entry.start = resets.getTime() - SESSION_MS;
@@ -2286,9 +2408,9 @@ main[data-stale="true"] { opacity: .62; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Each seat's 5-hour window utilization by hours into its own window, one line per seat" +
+      "aria-label": "Each seat's 5-hour window utilization by hours into its own window against the target curve, one mark per seat with the recorded line behind it and a leader to the curve labelled with its headroom" +
         (withPrev ? ", with the completed cycle before it drawn faintly to the left of the reset" : "") +
-        "; the hard cutoff is the only reference line"
+        "; headroom here does not affect routing; the hard cutoff is the line that gates"
     }, host);
 
     [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
@@ -2312,14 +2434,25 @@ main[data-stale="true"] { opacity: .62; }
       : "hours into each seat's own 5-hour window", "t-muted",
       { "font-size": 10.5, "text-anchor": "middle" });
     svgText(root, m.l - 38, m.t - 6, "% of the 5-hour window used", "t-muted", { "font-size": 10.5 });
+    /* The same curve as the weekly chart, over the current window only: the
+       cycle before is complete, and its shape is compared with the line. */
+    var curve = [];
+    for (var i = 0; i <= 60; i++) {
+      var e = i / 60;
+      curve.push((i ? "L" : "M") + X(e * SESSION_HOURS).toFixed(2) + " " + Y(landing * Math.pow(e, gamma)).toFixed(2));
+    }
+    svg("path", { d: curve.join(" "), fill: "none", stroke: "var(--ink-1)", "stroke-width": 2, "stroke-linecap": "round", opacity: .78 }, root);
+    svgText(root, X(SESSION_HOURS) - 4, Y(landing) - 10, "target curve", "t-muted",
+      { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
     if (cut !== null) {
       var cy0 = Y(cut);
       svg("line", { x1: m.l, x2: m.l + pw, y1: cy0, y2: cy0, stroke: "var(--critical)", "stroke-width": 1.5, "stroke-dasharray": "2 4" }, root);
-      svgText(root, X(SESSION_HOURS) - 4, cy0 - 5, "hard cutoff " + pct(cut, 0), "t-muted",
-        { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
+      /* Below the line, left end: the target label holds the right end. */
+      svgText(root, m.l + 6, cy0 + 12, "hard cutoff " + pct(cut, 0), "t-muted",
+        { "font-size": 10.5, "font-weight": 600 });
     }
 
-    var plotted = 0;
+    var plotted = 0, labels = [], anyEst = false;
     series.forEach(function (s) {
       if (s.gap) return;
       plotted++;
@@ -2327,19 +2460,22 @@ main[data-stale="true"] { opacity: .62; }
       var hoursOf = function (t) { return (t - start) / 3600000; };
       var xOf = function (t) { return X(hoursOf(t)); };
       if (withPrev && s.prev.length >= 2) {
-        svg("path", { "class": "hist-prev", d: pathOf(s.prev, xOf, Y), stroke: col }, root);
+        anyEst = historyLine(root, s.prevCycle, s.prev, xOf, Y, col, true, null) > 0 || anyEst;
       }
-      var cx = X(hoursOf(now)), cy = Y(s.w.utilization);
+      var cx = X(hoursOf(now)), cy = Y(s.w.utilization), ws = s.ws;
+      var estCur = 0;
       var headTip = seatLabel(a) + " · 5-hour session" +
         "\nelapsed      " + clamp(hoursOf(now), 0, SESSION_HOURS).toFixed(1) + " of " + SESSION_HOURS + " hours" +
         "\nused         " + pct(s.w.utilization) +
+        (ws ? "\ncurve        " + pct(ws.target) + "\nvs curve     " + headroomText(ws.slack) : "") +
         (cut !== null ? "\nhard cutoff  " + pct(cut) : "") +
         "\nresets       " + relText(s.resets, now) +
         "\nlast hour    " + rateText(recentSlope(s.cur, 3600000)) +
         (s.prev.length ? "\nlast cycle   ended at " + pct(s.prev[s.prev.length - 1].u) : "") +
-        "\na rate limit: no pace target, no slack";
+        "\na rate limit: headroom here does not affect routing";
       if (s.cur.length >= 2) {
-        svg("path", { "class": "hist", d: pathOf(s.cur, xOf, Y) + "L" + cx.toFixed(1) + " " + cy.toFixed(1), stroke: col }, root);
+        estCur = historyLine(root, s.curCycle, s.cur, xOf, Y, col, false, "L" + cx.toFixed(1) + " " + cy.toFixed(1));
+        anyEst = anyEst || estCur > 0;
         /* One focusable stretch per SEG_MS of the line, carrying the
            conversations the log shows on the seat in that stretch. */
         var from = start, i = 0, k = 0;
@@ -2354,9 +2490,11 @@ main[data-stale="true"] { opacity: .62; }
             var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, root);
             g.setAttribute("data-seat", a.auth_id);
             g.setAttribute("data-fk", "seg:" + a.auth_id + ":" + k);
+            var estHere = pts.some(function (p) { return estimatedAt(s.curCycle, p); });
             var head = seatLabel(a) + " · " + clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) +
               "\nused         " + pct(pts[0].u) + " → " + pct(pts[pts.length - 1].u) +
-              "\nrate         " + rateText(dh > 0 ? du * 100 / dh : null);
+              "\nrate         " + rateText(dh > 0 ? du * 100 / dh : null) +
+              (estHere ? "\nestimated from token spend, not a reading" : "");
             var convo = conversationLines(act);
             g.setAttribute("data-tip", head + "\n" + (act.list.length
               ? "on this seat " + act.list.length + (act.list.length === 1 ? " conversation" : " conversations") + ", " + act.requests + (act.requests === 1 ? " request" : " requests") + "\n"
@@ -2386,24 +2524,33 @@ main[data-stale="true"] { opacity: .62; }
       var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
       hg.setAttribute("data-seat", a.auth_id);
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
-      hg.setAttribute("data-tip", headTip);
+      hg.setAttribute("data-tip", headTip + (estCur ? "\nrecorded     " + s.cur.length + " readings, " + estCur + " estimated from token spend" : ""));
       hg.setAttribute("aria-label", headTip.replace(/\n/g, ", ").replace(/\s+/g, " "));
+      /* The leader is the gap to the curve at this seat's own elapsed, as on
+         the weekly chart; the present reading is always observed. */
+      if (ws && Math.abs(ws.slack) >= PACE_BAND) {
+        leader(hg, labels, a, cx, cy, Y(ws.target), headroomText(ws.slack, true), null);
+      }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
       svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col, stroke: "var(--surface-1)", "stroke-width": 2 }, hg);
     });
+
+    settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has an open 5-hour window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(series, root, withPrev);
-    renderSessionNote(st, cut, withPrev);
+    renderSessionLegend(series, root, withPrev, anyEst);
+    renderSessionNote(st, cut, withPrev, gamma, landing);
   }
 
-  function renderSessionLegend(series, root, withPrev) {
+  function renderSessionLegend(series, root, withPrev, anyEst) {
     var leg = $("session-legend");
     leg.textContent = "";
+    legendRow(leg, SW_SIGN, "+ over the curve · − headroom");
+    if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
@@ -2419,14 +2566,7 @@ main[data-stale="true"] { opacity: .62; }
       li.addEventListener("pointerleave", function () { focusSeat(root, null); });
       leg.appendChild(li);
     });
-    if (withPrev) {
-      var prev = h("li", "");
-      var psw = h("span", "sw");
-      psw.style.cssText = "height:0;border-top:2px dashed var(--ink-3)";
-      prev.appendChild(psw);
-      prev.appendChild(document.createTextNode("the cycle before, left of the reset"));
-      leg.appendChild(prev);
-    }
+    if (withPrev) legendRow(leg, "height:0;border-top:2px dashed var(--ink-3)", "the cycle before, left of the reset");
     leg.hidden = !leg.childNodes.length;
 
     var gap = $("session-missing");
@@ -2438,16 +2578,21 @@ main[data-stale="true"] { opacity: .62; }
     }
   }
 
-  function renderSessionNote(st, cut, withPrev) {
+  function renderSessionNote(st, cut, withPrev, gamma, landing) {
     var note = $("session-note");
     note.textContent = "";
     var p = h("p", "");
-    p.appendChild(document.createTextNode("Each line is one seat's rolling 5-hour window: how far into the window " +
-      "it is, against how much of the window is used, from the window's start to the newest reading. This is a " +
-      "rate limit, not a budget: unused capacity is not carried, the window resets several times a day, and the " +
-      "plugin sets no pace for it, so there is no target curve, no slack and no verdict here. The only reference is " +
+    p.appendChild(document.createTextNode("Each mark is one seat's rolling 5-hour window: how far into the window " +
+      "it is, against how much of the window is used, with its recorded line from the window's start behind it. " +
+      "The curve is the weekly chart's, "));
+    p.appendChild(h("code", "", "landing × elapsed^" + gamma));
+    p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) + ", drawn over five hours; the dotted leader is the " +
+      "seat's gap to it, labelled + over the curve or − headroom. Read it as headroom only. This is a rate limit, not a " +
+      "budget: unused capacity vanishes at reset, the window resets several times a day, and the scorer gives this " +
+      "window no weight, so the gap here never moves a routing decision. What does gate is " +
       (cut !== null ? "the hard cutoff at " + pct(cut, 0) + ", past which a seat cannot take a new conversation" : "the top of the window") +
-      (withPrev ? ". Left of the reset line, dashed, is the cycle that ended when the window last reset, on the same scale, so the shape can be compared with the one under way." : ".")));
+      (withPrev ? ". Left of the reset line, dashed, is the cycle that ended when the window last reset, on the same scale, so the shape can be compared with the one under way." : ".") +
+      " A dashed, paler stretch of a seat's line is an estimate reconstructed from token spend rather than a reading; the mark is always a reading."));
     note.appendChild(p);
     var q = h("p", "");
     q.appendChild(document.createTextNode("Spend is measured per seat: the host reports each request's tokens against the " +
@@ -2588,7 +2733,7 @@ main[data-stale="true"] { opacity: .62; }
     tbl.appendChild(h("caption", "", "Candidate scores"));
     var thead = h("thead", "");
     var hr = h("tr", "");
-    ["Seat", "Score", "Fullness penalty", "Eligibility", "Slack by window"].forEach(function (c, i) {
+    ["Seat", "Score", "Fullness penalty", "Eligibility", "By window (+ over pace · − under)"].forEach(function (c, i) {
       var th = h("th", i === 1 || i === 2 ? "n" : "", c);
       hr.appendChild(th);
     });
