@@ -266,9 +266,6 @@ section { margin-top: 42px; }
 /* A table names a seat in a bounded column, so a long name clips there rather
    than widening the row; the clip is measured and hover recovers the rest. */
 td .seat-mark { max-width: 22ch; }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0 0 14px; }
-.kv dt { font: 600 9.5px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
-.kv dd { margin: 0; font: 500 12.5px/1.5 var(--sans); text-align: right; }
 /* Chip text stays in ink so it always clears contrast; the glyph and the
    plate carry the tone. */
 .chip {
@@ -337,11 +334,9 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk {
 .pace-more > summary::before { content: "\25B8"; font-size: 11px; }
 .pace-more[open] > summary::before { content: "\25BE"; }
 .pace-more > summary:hover { color: var(--ink-1); }
-.pace-note { display: grid; grid-template-columns: minmax(0, 66ch) auto; gap: 8px 40px; align-items: start; padding-top: 6px; }
-@media (max-width: 860px) { .pace-note { grid-template-columns: 1fr; } }
+.pace-note { display: grid; gap: 8px; max-width: 72ch; padding-top: 6px; }
 .pace-note p { margin: 0; font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
 .pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
-.pace-note .kv { margin: 0; }
 
 /* -------------------------------------------------------------- decisions */
 .log { padding: 4px 0; }
@@ -465,7 +460,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="brand-rule"></div>
     </div>
     <dl class="mast-meta">
-      <div><dt>Next cold pick</dt><dd id="next-pick">&mdash;</dd></div>
+      <div><dt>Next new conversation</dt><dd id="next-pick">&mdash;</dd></div>
       <div><dt>Plugin</dt><dd id="plugin-name">&mdash;</dd></div>
       <div><dt>Version</dt><dd id="plugin-version">&mdash;</dd></div>
       <div><dt>Host schema</dt><dd id="host-schema">&mdash;</dd></div>
@@ -524,7 +519,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub" id="seats-sub">one row per credential; eligible first, then by score</span>
+        <span class="sec-sub" id="seats-sub">one row per seat, ranked; the top eligible seat takes the next new conversation</span>
         <span class="sec-line"></span>
         <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Unfold every seat</button></span>
       </div>
@@ -532,7 +527,7 @@ main[data-stale="true"] { opacity: .62; }
            axis markers, which no script draws, are markup. -->
       <ul class="legend" id="timeline-legend">
         <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
-        <li data-axis-marker><span class="gl">&#8943;</span> slack to target</li>
+        <li data-axis-marker><span class="gl">&#8943;</span> slack: gap to the pace target, in points of the budget</li>
         <li data-axis-marker><span class="gl" style="color:var(--critical)">&#9478;</span> hard cutoff</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
@@ -543,7 +538,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Pace curve</h2>
-        <span class="sec-sub">each seat's weekly all-models window against the pace target</span>
+        <span class="sec-sub">each seat's weekly budget against the pace target, by days into its own week</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -563,7 +558,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Routing log</h2>
-        <span class="sec-sub">newest first; open a row for its candidate scores</span>
+        <span class="sec-sub">newest first; open a decision to see how every seat scored</span>
         <span class="sec-line"></span>
       </div>
       <div class="card log" id="decisions"></div>
@@ -681,10 +676,45 @@ main[data-stale="true"] { opacity: .62; }
     return (v * 100).toFixed(digits === undefined ? 1 : digits) + "%";
   }
 
-  function signed(v, digits) {
+  /* Fractions of a window's budget read as percentage points: one decimal
+     for a measured figure, none where a round config value would carry a
+     false one. */
+  function pts(v, digits) {
     if (!num(v)) return "—";
-    var d = digits === undefined ? 3 : digits;
-    return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
+    var d = digits === undefined ? 1 : digits;
+    return (Math.abs(v) * 100).toFixed(d) + " pts";
+  }
+
+  function ptsRound(v) {
+    if (!num(v)) return "—";
+    var n = Math.round(v * 1000) / 10;
+    return (n % 1 === 0 ? String(n) : n.toFixed(1)) + " pts";
+  }
+
+  /* A weight is a ratio, not a distance: "half" reads where "0.50" would ask
+     for arithmetic. */
+  function share(v) {
+    if (!num(v)) return "—";
+    if (v === 1) return "all";
+    if (v === 0.5) return "half";
+    if (v === 0.25) return "a quarter";
+    return v.toFixed(2) + "×";
+  }
+
+  /* Slack is a distance from the pace target, so it carries a direction word
+     rather than a sign: positive slack is a seat behind pace, with budget
+     still to spend. The compact form fits a chart label; the full form is
+     for prose, tooltips and names. */
+  function slackText(v, compact) {
+    if (!num(v)) return "—";
+    var dir = v >= 0 ? "under" : "over";
+    return compact ? (Math.abs(v) * 100).toFixed(1) + " " + dir : pts(v) + " " + dir + " pace";
+  }
+
+  /* A score is a composite, not a slack, so it keeps its sign. */
+  function signedPts(v) {
+    if (!num(v)) return "—";
+    return (v < 0 ? "−" : "") + pts(v);
   }
 
   function absTime(d) {
@@ -827,10 +857,43 @@ main[data-stale="true"] { opacity: .62; }
 
   /* A score with no window breakdown was never computed — no snapshot, or one
      past max-staleness — and its zero total is not a reading. */
+  function scored(score) { return !!(score && score.windows && score.windows.length); }
+
   function totalText(score) {
-    if (!score || !score.windows || !score.windows.length) return "—";
-    return signed(score.total);
+    return scored(score) ? signedPts(score.total) : "—";
   }
+
+  /* The paced window of a kind in a score's breakdown; null where the scorer
+     gave it no weight. */
+  function pacedWindow(score, kind) {
+    var list = (score && score.windows) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === kind && counted(list[i])) return list[i];
+    }
+    return null;
+  }
+
+  /* The seat's headline figure: weekly slack, which is the rank almost every
+     time. The score is a composite and lives in the tooltip. */
+  function weeklySlackText(score) {
+    var ws = pacedWindow(score, PACE_KIND);
+    return ws ? slackText(ws.slack) : "—";
+  }
+
+  /* How the score was built, in the units the page uses everywhere: weekly
+     slack, the fullness penalty (RawWeight × the fullest window, subtracted),
+     and the scoped slack at its weight when the model's family has a cap. */
+  function scoreBreakdown(score) {
+    if (!scored(score)) return "score        —";
+    var weekly = pacedWindow(score, PACE_KIND), scoped = pacedWindow(score, "weekly_scoped");
+    var parts = [];
+    if (weekly) parts.push("weekly " + slackText(weekly.slack, true) +
+      (weekly.weight !== 1 ? " ×" + weekly.weight.toFixed(2) : ""));
+    if (scoped) parts.push("scoped " + slackText(scoped.slack, true) + " ×" + scoped.weight.toFixed(2));
+    if (num(score.raw_penalty)) parts.push("fullness −" + pts(score.raw_penalty));
+    return "score        " + [totalText(score)].concat(parts).join(" · ");
+  }
+
 
   /* Seat identity, indexed once per payload.
 
@@ -1027,7 +1090,6 @@ main[data-stale="true"] { opacity: .62; }
     var now = nowMs();
     var sc = a.score || {}, snap = a.snapshot || {};
     var eligible = !!sc.eligible;
-    var scored = !!(sc.windows && sc.windows.length);
     var hs = a.host_status || "unknown";
     var hr = hitRate(a.cache), c = a.cache;
     var obs = parseT(snap.observed_at);
@@ -1035,14 +1097,13 @@ main[data-stale="true"] { opacity: .62; }
     sortedWindows(snap.windows).forEach(function (w) { if (w.active) active = w; });
     var lines = [
       seatLabel(a),
-      "rank #" + (rank + 1) + (lead ? " · next cold pick" : ""),
+      "rank #" + (rank + 1) + (lead ? " · takes the next new conversation" : ""),
       a.email && a.email !== seatLabel(a) ? "account      " + a.email : null,
       a.auth_id ? "id           " + a.auth_id : null,
       a.provider ? "provider     " + a.provider : null,
       "host         " + hs,
       "eligibility  " + (eligible ? "eligible" : (sc.reason || "ineligible")),
-      "score        " + totalText(sc) +
-        (scored && num(sc.raw_penalty) ? " · raw −" + sc.raw_penalty.toFixed(3) : ""),
+      scoreBreakdown(sc),
       "priority     " + (a.priority == null ? "—" : a.priority),
       "bindings     " + intFmt(a.bindings) + " live",
       "cache hits   " + (hr === null ? "no traffic" : pct(hr) + " of input tokens"),
@@ -1061,8 +1122,9 @@ main[data-stale="true"] { opacity: .62; }
   function seatAria(a, rank, lead) {
     var sc = a.score || {}, snap = a.snapshot || {};
     var hs = a.host_status || "unknown";
-    return seatLabel(a) + ", rank " + (rank + 1) + (lead ? ", next cold pick" : "") +
+    return seatLabel(a) + ", rank " + (rank + 1) + (lead ? ", takes the next new conversation" : "") +
       ", " + (sc.eligible ? "eligible" : (sc.reason || "ineligible")) +
+      ", weekly " + weeklySlackText(sc) +
       ", score " + totalText(sc) +
       ", " + intFmt(a.bindings) + " live bindings" +
       (hs !== "active" ? ", host " + hs : "") +
@@ -1083,9 +1145,9 @@ main[data-stale="true"] { opacity: .62; }
       "utilization  " + pct(w.utilization),
       gated && cut !== null ? "hard cutoff  " + pct(cut) : null,
       paced ? "pace target  " + pct(ws.target) : null,
-      paced ? "slack        " + signed(ws.slack) : null,
-      paced ? "weight       " + ws.weight.toFixed(2) : null,
-      paced ? "elapsed      " + pct(ws.elapsed) : null,
+      paced ? "slack        " + slackText(ws.slack) : null,
+      paced ? "in score     ×" + ws.weight.toFixed(2) : null,
+      paced ? "elapsed      " + pct(ws.elapsed, 0) + " of the window" : null,
       resets ? "resets       " + relText(resets, now) + " · " + absTime(resets) : null,
       w.status ? "status       " + w.status : null,
       w.severity ? "severity     " + w.severity : null,
@@ -1099,15 +1161,17 @@ main[data-stale="true"] { opacity: .62; }
     var cut = cutoffOf(cfg);
     return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
       ", utilization " + pct(w.utilization) +
-      (counted(ws) ? ", target " + pct(ws.target) + ", slack " + signed(ws.slack) : "") +
+      (counted(ws) ? ", target " + pct(ws.target) + ", " + slackText(ws.slack) : "") +
       (gatedOnly(w, ws) && cut !== null ? ", hard cutoff " + pct(cut) : "");
   }
 
   /* ------------------------------------------------------------ timeline */
 
-  var GUT = 392, PAD_R = 20, AXIS_H = 40, TOP = 10;
+  var GUT = 420, PAD_R = 20, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
-  var SLK_X = MET_X + MET_W + 14;            /* the slack label, right of the meter */
+  /* The slack label, right of the meter; the gutter leaves it room for
+     "100.0 under" before the plot begins. */
+  var SLK_X = MET_X + MET_W + 14;
   /* Row geometry, at the two densities the timeline draws. A roomy seat row
      has a second line for its live figures; a compact one keeps them in the
      tooltip. */
@@ -1140,7 +1204,7 @@ main[data-stale="true"] { opacity: .62; }
   /* Which seats fold to a single row in the dense timeline: one with nothing
      to draw — no lane the scorer evaluated — and, past TL_FULL_ROWS, every
      seat that is not eligible. An eligible seat always keeps its lanes,
-     because it is one the next cold pick can land on. */
+     because it is one the next new conversation can land on. */
   function foldSeat(a, wins, cfg, rank, compact) {
     if (!compact || state.timelineAll) return false;
     var eligible = !!(a.score && a.score.eligible);
@@ -1263,7 +1327,7 @@ main[data-stale="true"] { opacity: .62; }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: rank, identity, eligibility and score in the gutter,
+      /* The seat's row: rank, identity, eligibility and weekly slack in the gutter,
          its live figures on a second line where there is room, and the whole
          record in the tooltip. The name is trimmed to the measured space, so
          the tooltip is also where a long name is read whole. */
@@ -1283,7 +1347,7 @@ main[data-stale="true"] { opacity: .62; }
         tail = svgText(gh, GUT - 14, headY, "✕ " + ((a.score && a.score.reason) || "ineligible"),
           "t-mono", { "font-size": 10.5, "text-anchor": "end", fill: "var(--critical)" });
       } else {
-        tail = svgText(gh, GUT - 14, headY, totalText(a.score),
+        tail = svgText(gh, GUT - 14, headY, weeklySlackText(a.score),
           "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
       }
       fitText(nameEl, GUT - nameX - tail.getComputedTextLength() - 18);
@@ -1432,7 +1496,7 @@ main[data-stale="true"] { opacity: .62; }
     var obs = parseT(snap.observed_at);
     var hr = hitRate(a.cache);
     var parts = [];
-    if (lead) parts.push({ t: "next cold pick" });
+    if (lead) parts.push({ t: "takes the next new conversation" });
     if (hs !== "active") parts.push({ t: "host " + hs });
     if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "fetch error") });
     parts.push(obs ? { age: obs } : { t: "no snapshot" });
@@ -1483,13 +1547,13 @@ main[data-stale="true"] { opacity: .62; }
         stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: opacity }, parent);
       /* The slack is the run along the meter between where the fill ends and
          where the target stands, dotted in ink over a halo so it reads on the
-         fill as well as on the track, and labelled with its signed value. */
+         fill as well as on the track, and labelled in points with its direction. */
       if (slackDrawn(ws, stt)) {
         var sx = MET_X + fw;
         var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round", opacity: opacity };
         svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
         svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
-        svgText(parent, SLK_X, cy + 3.5, signed(ws.slack), "slk t-mono", { "font-size": 10, opacity: opacity });
+        svgText(parent, SLK_X, cy + 3.5, slackText(ws.slack, true), "slk t-mono", { "font-size": 10, opacity: opacity });
       }
     }
     if (w.utilization > 1) {
@@ -1516,6 +1580,11 @@ main[data-stale="true"] { opacity: .62; }
      here. The scoped weekly window keeps its meter and pace tick on the
      timeline; the session window has no pace target. */
   var PACE_KIND = "seven_day";
+  var PACE_DAYS = 7;
+
+  function dayText(elapsed) {
+    return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS + " days";
+  }
 
   /* Why a seat has no point: the scorer's own reason where it never evaluated
      the seat, otherwise what the weekly entry lacks. Null means plottable. */
@@ -1560,22 +1629,27 @@ main[data-stale="true"] { opacity: .62; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Weekly utilization by elapsed time against the pace target, one point per seat"
+      "aria-label": "Share of the weekly budget spent by days into each seat's own week, against the pace target, one point per seat"
     }, host);
 
-    var ticks = [0, 0.25, 0.5, 0.75, 1];
-    ticks.forEach(function (t) {
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
       var gy = Y(t);
       svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
       svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
-      var gx = X(t);
-      svgText(root, gx, H - 26, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "middle" });
     });
+    /* The window is exactly PACE_DAYS long, so elapsed and days are one axis;
+       days are the tick the reader can place a seat on. Each seat's week
+       starts at its own wall-clock time, so the axis is not a calendar. */
+    for (var d = 0; d <= PACE_DAYS; d++) {
+      var gx = X(d / PACE_DAYS);
+      svg("line", { x1: gx, x2: gx, y1: Y(0), y2: Y(0) + 4, stroke: "var(--axis)", "stroke-width": 1 }, root);
+      svgText(root, gx, H - 26, String(d), "t-mono t-muted", { "font-size": 10, "text-anchor": "middle" });
+    }
     svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0), y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
     svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
-    svgText(root, m.l + pw / 2, H - 8, "elapsed", "t-muted",
+    svgText(root, m.l + pw / 2, H - 8, "days into each seat's own week", "t-muted",
       { "font-size": 10.5, "text-anchor": "middle" });
-    svgText(root, m.l - 38, m.t - 6, "utilization", "t-muted", { "font-size": 10.5 });
+    svgText(root, m.l - 38, m.t - 6, "% of weekly budget spent", "t-muted", { "font-size": 10.5 });
 
     var pts = [];
     for (var i = 0; i <= 60; i++) {
@@ -1613,19 +1687,19 @@ main[data-stale="true"] { opacity: .62; }
           "stroke-width": 1.5, "stroke-dasharray": "1 3.5", "stroke-linecap": "round"
         }, g);
         var right = cx < m.l + pw * 0.82;
-        svgText(g, cx + (right ? 9 : -9), (cy + ty) / 2 + 3.5, signed(ws.slack), "slk t-mono",
+        svgText(g, cx + (right ? 9 : -9), (cy + ty) / 2 + 3.5, slackText(ws.slack, true), "slk t-mono",
           { "font-size": 10, "text-anchor": right ? "start" : "end" });
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
-        ", elapsed " + pct(ws.elapsed) + ", utilization " + pct(ws.utilization) +
-        ", slack " + signed(ws.slack));
+        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the weekly budget spent" +
+        ", " + slackText(ws.slack));
       g.setAttribute("data-tip", seatLabel(a) + " · " + windowName(ws) +
-        "\nelapsed      " + pct(ws.elapsed) +
-        "\nutilization  " + pct(ws.utilization) +
-        "\ntarget       " + pct(ws.target) +
-        "\nslack        " + signed(ws.slack));
+        "\nday          " + dayText(ws.elapsed) + " (" + pct(ws.elapsed, 0) + ")" +
+        "\nspent        " + pct(ws.utilization) + " of the weekly budget" +
+        "\npace target  " + pct(ws.target) +
+        "\nslack        " + slackText(ws.slack));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       svg("circle", { cx: cx, cy: cy, r: 4.6, fill: seatColor(a), stroke: "var(--surface-1)", "stroke-width": 2 }, g);
     });
@@ -1692,41 +1766,40 @@ main[data-stale="true"] { opacity: .62; }
     var wts = (st.config && st.config.pace) || {};
 
     var p = h("p", "");
-    p.appendChild(document.createTextNode("Each point is one seat's 7-day all-models window: how much of " +
-      "the week has elapsed against how much of the weekly budget is used. Target is "));
+    p.appendChild(document.createTextNode("Each point is one seat's 7-day all-models window: how many days " +
+      "into that seat's own week it is, against how much of its weekly budget is spent. Every seat's week " +
+      "starts at its own time, so the axis is elapsed time, not the calendar. The target curve is "));
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
     p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
-      ". Below the curve is positive slack; the dotted leader from a point to the curve is that seat's slack, " +
-      "labelled with its sign. This is the window the plugin paces against, and the one " +
-      "whose unspent capacity is lost at reset." +
-      (wts.scoped_weight > 0
-        ? " The model-family weekly window also counts toward the score at weight " + wts.scoped_weight.toFixed(2) +
-          " but is not drawn here; the seats timeline shows it with its own meter, pace tick and slack."
-        : "") +
-      (wts.session_weight === 0
-        ? " The 5-hour window has no pace target: it is a rate limit that resets several times a day, gates a seat at the hard cutoff and feeds the raw penalty."
-        : "") +
-      " Score is weighted slack minus the raw utilization penalty; the eligible seat with the highest score takes the next cold pick."));
+      ". A point below the curve is under pace, with budget still to spend; the dotted leader is that seat's " +
+      "slack, in percentage points of the weekly budget. This is the window the plugin paces against, and the " +
+      "one whose unspent capacity is lost at reset."));
     note.appendChild(p);
 
-    var wl = h("dl", "kv");
-    [["weekly", wts.weekly_weight], ["session", wts.session_weight],
-     ["scoped", wts.scoped_weight], ["raw penalty", wts.raw_utilization_weight],
-     ["hysteresis", wts.hysteresis_margin], ["hard cutoff", wts.hard_cutoff]]
-      .forEach(function (pair) {
-        wl.appendChild(h("dt", "", pair[0]));
-        var dd = h("dd", "");
-        dd.appendChild(h("span", "mono", num(pair[1]) ? pair[1].toFixed(2) : "—"));
-        wl.appendChild(dd);
-      });
-    note.appendChild(wl);
+    var q = h("p", "");
+    var scopedTerm = wts.scoped_weight > 0
+      ? ", plus " + share(wts.scoped_weight) + " of the slack on the model-family weekly window when the " +
+        "requested model's family has its own cap (not drawn here; the seats timeline shows it)"
+      : "";
+    q.appendChild(document.createTextNode("Seats rank by score, in the same points: " +
+      (wts.weekly_weight === 1 ? "weekly slack" : share(wts.weekly_weight) + " of weekly slack") + scopedTerm +
+      ", minus a fullness penalty of " + share(wts.raw_utilization_weight) + " of the seat's fullest window." +
+      (wts.session_weight === 0
+        ? " The 5-hour window has no pace target: it is a rate limit that resets several times a day; it counts toward fullness and gates a seat at the hard cutoff."
+        : "") +
+      " The eligible seat with the highest score takes the next new conversation" +
+      (num(wts.hysteresis_margin)
+        ? "; a challenger must lead by " + ptsRound(wts.hysteresis_margin) + " to take a session already bound to another seat."
+        : ".") +
+      (num(wts.hard_cutoff) ? " A seat with any window it bears on at or past " + pct(wts.hard_cutoff, 0) + " is ineligible." : "")));
+    note.appendChild(q);
   }
 
   /* ------------------------------------------------------------ decisions */
 
   var KIND_META = {
-    "affinity-hit": { tone: "good", glyph: "↻", label: "affinity hit" },
-    "cold-pick":    { tone: "info", glyph: "◆", label: "cold pick" },
+    "affinity-hit": { tone: "good", glyph: "↻", label: "kept seat" },
+    "cold-pick":    { tone: "info", glyph: "◆", label: "new pick" },
     "failover":     { tone: "serious", glyph: "↱", label: "failover" },
     "declined":     { tone: "muted", glyph: "–", label: "declined" }
   };
@@ -1842,7 +1915,7 @@ main[data-stale="true"] { opacity: .62; }
     tbl.appendChild(h("caption", "", "Candidate scores"));
     var thead = h("thead", "");
     var hr = h("tr", "");
-    ["Auth", "Total", "Raw penalty", "Eligibility", "Per-window slack"].forEach(function (c, i) {
+    ["Seat", "Score", "Fullness penalty", "Eligibility", "Slack by window"].forEach(function (c, i) {
       var th = h("th", i === 1 || i === 2 ? "n" : "", c);
       hr.appendChild(th);
     });
@@ -1865,10 +1938,9 @@ main[data-stale="true"] { opacity: .62; }
       } else {
         td0.appendChild(name(s.auth_id));
       }
-      var scored = !!(s.windows && s.windows.length);
       tr.appendChild(td0);
       tr.appendChild(h("td", "n mono", totalText(s)));
-      tr.appendChild(h("td", "n mono", scored && num(s.raw_penalty) ? "−" + s.raw_penalty.toFixed(3) : "—"));
+      tr.appendChild(h("td", "n mono", scored(s) && num(s.raw_penalty) ? "−" + pts(s.raw_penalty) : "—"));
 
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
@@ -1876,15 +1948,20 @@ main[data-stale="true"] { opacity: .62; }
       tr.appendChild(tdE);
 
       var tdW = h("td", "");
+      /* A window the scorer gave no weight has no pace target for this
+         model, so it carries no slack figure here. */
       var span = h("span", "wslack");
       (s.windows || []).forEach(function (ws) {
         var item = h("span", "");
         item.appendChild(document.createTextNode(windowShort(ws) + " "));
-        var b = h("b", "", signed(ws.slack));
-        if (ws.weight > 0) b.style.color = ws.slack >= 0 ? "var(--pos-text)" : "var(--neg-text)";
-        else item.style.opacity = ".55";
-        item.appendChild(b);
-        if (!(ws.weight > 0)) item.appendChild(document.createTextNode(" (0w)"));
+        if (counted(ws)) {
+          var b = h("b", "", slackText(ws.slack, true));
+          b.style.color = ws.slack >= 0 ? "var(--pos-text)" : "var(--neg-text)";
+          item.appendChild(b);
+        } else {
+          item.style.opacity = ".55";
+          item.appendChild(document.createTextNode("not paced"));
+        }
         span.appendChild(item);
       });
       tdW.appendChild(span);
