@@ -36,13 +36,23 @@ type ring struct {
 	cycles []model.Cycle
 }
 
-// record appends one reading. A reading whose reset instant differs from the
-// current cycle's by more than resetTolerance opens a new cycle; one whose
-// utilization matches the last two samples extends the flat run by moving its
-// end forward; one within historyFineStep of the last sample replaces it.
-// Readings out of order, with no instant or with a non-finite utilization are
-// dropped.
+// record appends one observed reading. A reading whose reset instant differs
+// from the current cycle's by more than resetTolerance opens a new cycle; one
+// whose utilization matches the last two samples extends the flat run by
+// moving its end forward; one within historyFineStep of the last sample
+// replaces it. Readings out of order, with no instant or with a non-finite
+// utilization are dropped.
 func (r *ring) record(at time.Time, w model.Window) {
+	r.put(at, w, false)
+}
+
+// put records one reading, observed or estimated. An estimated reading opens
+// or extends an estimated cycle. The first observed reading into an estimated
+// cycle is appended whole, never merged into the estimate, and moves the cycle
+// from Estimated to EstimatedUntil at the last estimated sample. An estimated
+// reading behind an observed one in the same cycle is recorded as observed:
+// the estimate is only ever a prefix.
+func (r *ring) put(at time.Time, w model.Window, estimated bool) {
 	if at.IsZero() || math.IsNaN(w.Utilization) || math.IsInf(w.Utilization, 0) {
 		return
 	}
@@ -50,7 +60,7 @@ func (r *ring) record(at time.Time, w model.Window) {
 
 	n := len(r.cycles)
 	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) {
-		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}})
+		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
 		r.compact()
 		return
 	}
@@ -62,6 +72,10 @@ func (r *ring) record(at time.Time, w model.Window) {
 	switch {
 	case !s.At.After(last.At):
 		return
+	case c.Estimated && !estimated:
+		until := last.At
+		c.Estimated, c.EstimatedUntil = false, &until
+		c.Samples = append(c.Samples, s)
 	case s.At.Sub(last.At) < historyFineStep:
 		*last = s
 	case len(c.Samples) >= 2 && last.Utilization == s.Utilization && c.Samples[len(c.Samples)-2].Utilization == s.Utilization:
@@ -107,6 +121,9 @@ func (r *ring) compact() {
 		total -= drop
 		if len(c.Samples) == 0 {
 			r.cycles = r.cycles[1:]
+		} else if c.EstimatedUntil != nil && c.Samples[0].At.After(*c.EstimatedUntil) {
+			// Every estimated sample is gone; what remains is observed.
+			c.EstimatedUntil = nil
 		}
 	}
 }
@@ -150,17 +167,18 @@ func (r *ring) export(kind model.WindowKind, scope string, max int) model.Window
 				kept = append(kept, s)
 			}
 		}
-		out.Cycles = append(out.Cycles, model.Cycle{ResetsAt: c.ResetsAt, Samples: kept})
+		out.Cycles = append(out.Cycles, model.Cycle{ResetsAt: c.ResetsAt, Samples: kept, Estimated: c.Estimated, EstimatedUntil: c.EstimatedUntil})
 	}
 	return out
 }
 
-// replay records every sample of a stored history in order, so a ring loaded
-// from disk obeys the same spacing, tiering and cap as one built live.
+// replay records every sample of a stored history in order, each as the
+// estimate or observation its cycle marks it, so a ring loaded from disk obeys
+// the same spacing, tiering and cap as one built live.
 func (r *ring) replay(h model.WindowHistory) {
 	for _, c := range h.Cycles {
 		for _, s := range c.Samples {
-			r.record(s.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: s.Utilization, ResetsAt: c.ResetsAt})
+			r.put(s.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: s.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(s))
 		}
 	}
 }
