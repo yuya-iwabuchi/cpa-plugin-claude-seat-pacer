@@ -89,7 +89,7 @@ var configFields = []runtime.ConfigField{
 	{Name: "affinity.ttl", Type: "string", Description: "Idle time before a conversation's credential binding expires. Default 1h."},
 	{Name: "pace.curve-exponent", Type: "number", Description: "Target curve exponent; 1.0 spends evenly, above 1.0 holds back early. Default 1.0."},
 	{Name: "pace.landing-target", Type: "number", Description: "Utilization the curve aims for at window end. Default 1.0."},
-	{Name: "pace.hard-cutoff", Type: "number", Description: "Utilization at or above which a credential is ineligible for a cold pick. Default 0.98."},
+	{Name: "pace.hard-cutoff", Type: "number", Description: "Utilization at or above which a credential cannot take a new conversation. Default 0.98."},
 	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m, minimum 30s."},
 	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page on the plugin's resource routes. Default true."},
 }

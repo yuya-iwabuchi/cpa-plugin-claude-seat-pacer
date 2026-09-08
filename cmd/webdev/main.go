@@ -327,7 +327,7 @@ func (f *fixture) rebuildWarnings() {
 		snap, ok := f.snapshots[a.AuthID]
 		if !ok {
 			f.warnings = append(f.warnings, fmt.Sprintf(
-				"no quota snapshot for %s; it is ineligible for cold picks", a.AuthID))
+				"no quota snapshot for %s; it cannot take a new conversation", a.AuthID))
 			continue
 		}
 		if snap.Err != "" {

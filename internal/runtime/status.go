@@ -138,7 +138,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", id, state.category, state.err))
 		}
 		if _, ok := snapshots[id]; !ok {
-			warnings = append(warnings, fmt.Sprintf("no quota snapshot for %s; it is ineligible for cold picks", id))
+			warnings = append(warnings, fmt.Sprintf("no quota snapshot for %s; it cannot take a new conversation", id))
 		}
 	}
 
