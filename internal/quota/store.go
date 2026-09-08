@@ -15,6 +15,13 @@ import (
 type Store struct {
 	mu      sync.RWMutex
 	entries map[string]*entry
+	// pending holds imported histories for credentials without an entry yet;
+	// the entry adopts them when its first reading arrives, so an import never
+	// opens a row the host has not listed.
+	pending map[string][]model.WindowHistory
+	// history counts every change to the recorded histories, so a writer can
+	// tell an unchanged store from one worth flushing.
+	history uint64
 }
 
 // entry pairs a snapshot with the instant each of its windows was observed.
@@ -28,6 +35,26 @@ type Store struct {
 type entry struct {
 	snap   model.AuthSnapshot
 	seenAt map[windowKey]time.Time
+	// history holds every window's recorded utilization, in the order the
+	// windows were first seen so exports are stable.
+	history map[windowKey]*ring
+	order   []windowKey
+}
+
+// observe records one accepted reading in the window's history.
+func (e *entry) observe(at time.Time, w model.Window) {
+	key := keyOf(w)
+	r, ok := e.history[key]
+	if !ok {
+		r = &ring{}
+		e.history[key] = r
+		e.order = append(e.order, key)
+	}
+	r.record(at, w)
+}
+
+func newEntry(snap model.AuthSnapshot, n int) *entry {
+	return &entry{snap: snap, seenAt: make(map[windowKey]time.Time, n), history: make(map[windowKey]*ring, n)}
 }
 
 func (e *entry) copy() model.AuthSnapshot {
@@ -57,7 +84,23 @@ func mergeHeaderReading(dst *model.Window, src model.Window) {
 
 // NewStore returns an empty store.
 func NewStore() *Store {
-	return &Store{entries: make(map[string]*entry)}
+	return &Store{entries: make(map[string]*entry), pending: make(map[string][]model.WindowHistory)}
+}
+
+// adopt seeds a new entry's history from a pending import.
+func (s *Store) adopt(id string, e *entry) {
+	hs, ok := s.pending[id]
+	if !ok {
+		return
+	}
+	delete(s.pending, id)
+	for _, h := range hs {
+		key := windowKey{kind: h.Kind, scope: h.Scope}
+		r := &ring{}
+		r.replay(h)
+		e.history[key] = r
+		e.order = append(e.order, key)
+	}
 }
 
 // Put records a usage-endpoint snapshot, replacing the credential's window set
@@ -109,25 +152,36 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 
 	observedAt := snap.ObservedAt
 	newest := observedAt
-	seenAt := make(map[windowKey]time.Time, len(stored.Windows))
+	e := newEntry(stored, len(stored.Windows))
+	if exists {
+		e.history, e.order = prior.history, prior.order
+	} else {
+		s.adopt(snap.AuthID, e)
+	}
 	for i := range stored.Windows {
 		key := keyOf(stored.Windows[i])
 		at := observedAt
+		kept := false
 		if exists {
 			if previous, seen := prior.seenAt[key]; seen && previous.After(observedAt) {
 				if j := slices.IndexFunc(prior.snap.Windows, hasKey(key)); j >= 0 {
 					stored.Windows[i] = prior.snap.Windows[j]
 					at = previous
+					kept = true
 				}
 			}
 		}
-		seenAt[key] = at
+		e.seenAt[key] = at
+		if !kept {
+			e.observe(at, stored.Windows[i])
+		}
 		if newest.Before(at) {
 			newest = at
 		}
 	}
-	stored.ObservedAt = newest
-	s.entries[snap.AuthID] = &entry{snap: stored, seenAt: seenAt}
+	e.snap.ObservedAt = newest
+	s.history++
+	s.entries[snap.AuthID] = e
 }
 
 // MergeHeaders folds a response-header observation into a credential's
@@ -161,15 +215,11 @@ func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt t
 
 	e, exists := s.entries[authID]
 	if !exists {
-		e = &entry{
-			snap: model.AuthSnapshot{
-				AuthID: authID,
-				Source: model.SourceResponseHeaders,
-			},
-			seenAt: make(map[windowKey]time.Time, len(windows)),
-		}
+		e = newEntry(model.AuthSnapshot{AuthID: authID, Source: model.SourceResponseHeaders}, len(windows))
+		s.adopt(authID, e)
 		s.entries[authID] = e
 	}
+	s.history++
 
 	var activeKey windowKey
 	activated := false
@@ -184,6 +234,7 @@ func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt t
 		} else {
 			e.snap.Windows = append(e.snap.Windows, w)
 		}
+		e.observe(observedAt, w)
 		if w.Active {
 			activeKey, activated = key, true
 		}
@@ -239,6 +290,92 @@ func (s *Store) Prune(keep map[string]struct{}) {
 	for id := range s.entries {
 		if _, ok := keep[id]; !ok {
 			delete(s.entries, id)
+			s.history++
 		}
 	}
+	for id := range s.pending {
+		if _, ok := keep[id]; !ok {
+			delete(s.pending, id)
+		}
+	}
+}
+
+// History reports a credential's recorded utilization, one entry per window
+// in the order the windows were first seen, thinned to at most max samples
+// per window. Nil for an unknown credential.
+func (s *Store) History(authID string, max int) []model.WindowHistory {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	e, ok := s.entries[authID]
+	if !ok {
+		return nil
+	}
+	out := make([]model.WindowHistory, 0, len(e.order))
+	for _, key := range e.order {
+		out = append(out, e.history[key].export(key.kind, key.scope, max))
+	}
+	return out
+}
+
+// HistoryVersion counts the changes made to the recorded histories so far.
+func (s *Store) HistoryVersion() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.history
+}
+
+// ExportHistory copies every credential's whole recorded history, keyed by
+// credential id, which is the form the history file holds.
+func (s *Store) ExportHistory() map[string][]model.WindowHistory {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make(map[string][]model.WindowHistory, len(s.entries))
+	for id, e := range s.entries {
+		hs := make([]model.WindowHistory, 0, len(e.order))
+		for _, key := range e.order {
+			hs = append(hs, e.history[key].export(key.kind, key.scope, 0))
+		}
+		out[id] = hs
+	}
+	return out
+}
+
+// ImportHistory holds stored histories for the readings still to come. A
+// credential the store already holds keeps its live samples and gains the
+// stored ones behind them; one it does not hold yet adopts its history when
+// its first reading arrives, so an import never opens a row the host has not
+// listed. Every replayed sample passes through the same spacing, tiering and
+// cap a live reading does.
+func (s *Store) ImportHistory(saved map[string][]model.WindowHistory) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, hs := range saved {
+		if id == "" {
+			continue
+		}
+		e, exists := s.entries[id]
+		if !exists {
+			s.pending[id] = hs
+			continue
+		}
+		for _, h := range hs {
+			key := windowKey{kind: h.Kind, scope: h.Scope}
+			r := &ring{}
+			r.replay(h)
+			if live, has := e.history[key]; has {
+				for _, c := range live.cycles {
+					for _, smp := range c.Samples {
+						r.record(smp.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: smp.Utilization, ResetsAt: c.ResetsAt})
+					}
+				}
+			} else {
+				e.order = append(e.order, key)
+			}
+			e.history[key] = r
+		}
+	}
+	s.history++
 }

@@ -101,6 +101,10 @@ type QuotaConfig struct {
 	MaxStaleness time.Duration `yaml:"max-staleness" json:"max_staleness"`
 	// UsageURL is the endpoint read for per-window utilization.
 	UsageURL string `yaml:"usage-url" json:"usage_url"`
+	// PersistHistory writes the utilization history to disk between polls,
+	// so a chart survives a host restart. The file holds utilization by
+	// credential id and nothing else.
+	PersistHistory bool `yaml:"persist-history" json:"persist_history"`
 }
 
 // WebConfig governs the built-in status app.
@@ -141,6 +145,7 @@ func Defaults() Config {
 			RequestTimeout: 10 * time.Second,
 			MaxStaleness:   15 * time.Minute,
 			UsageURL:       DefaultUsageURL,
+			PersistHistory: true,
 		},
 		Web: WebConfig{
 			Enabled:      true,

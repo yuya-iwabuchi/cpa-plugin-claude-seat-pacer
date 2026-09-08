@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -140,5 +142,87 @@ func TestDecisionLogRingAndResize(t *testing.T) {
 	l.add(model.Decision{Note: "6"})
 	if got := l.newestFirst(); len(got) != 3 || got[0].Note != "6" || got[2].Note != "4" {
 		t.Errorf("after grow = %+v", got)
+	}
+}
+
+func TestStatusPublishesUtilizationHistory(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	tp.now = func() time.Time { return testNow.Add(2 * time.Minute) }
+	tp.callOK(t, MethodUsageHandle, mustJSON(t, UsageRecord{
+		AuthID: "claude-a.json", Model: fableModel, RequestedAt: testNow.Add(2 * time.Minute),
+		ResponseHeaders: map[string][]string{
+			"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.42"},
+			"Anthropic-Ratelimit-Unified-5h-Reset":       {strconv.FormatInt(testNow.Add(3*time.Hour).Unix(), 10)},
+		},
+	}), nil)
+
+	status := tp.Status(testNow.Add(3*time.Minute), "")
+	for _, row := range status.Auths {
+		if row.History == nil {
+			t.Errorf("row %s has nil history; the page expects an array", row.AuthID)
+		}
+		if row.AuthID != "claude-a.json" {
+			continue
+		}
+		var session *model.WindowHistory
+		for i := range row.History {
+			if row.History[i].Kind == model.WindowSession {
+				session = &row.History[i]
+			}
+		}
+		if session == nil || session.Samples() != 2 {
+			t.Fatalf("session history = %+v, want the poll and the header reading", row.History)
+		}
+		if got := session.Cycles[len(session.Cycles)-1].Samples[1].Utilization; got != 0.42 {
+			t.Errorf("newest sample = %v, want the header's 0.42", got)
+		}
+	}
+}
+
+func TestHistoryFileIsWrittenAfterAPollAndReadAtStart(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(tp.opts.HistoryFile)
+	if err != nil {
+		t.Fatalf("history file after a poll: %v", err)
+	}
+	if !strings.Contains(string(body), `"claude-a.json"`) || strings.Contains(string(body), secretToken) {
+		t.Errorf("history file = %s", body)
+	}
+
+	// A second plugin on the same file sees the first run's samples once its
+	// own poll lands, behind the new reading.
+	again := &testPlugin{host: tp.host}
+	again.Plugin = New(Options{
+		Name: "cpa-claude-quota-scheduler", Version: "0.0.0-test", Author: "a", Repository: "https://example.invalid/repo",
+		Host: tp.host.call, HistoryFile: tp.opts.HistoryFile,
+		Now: func() time.Time { return testNow.Add(2 * time.Minute) },
+	})
+	again.startDelay = time.Hour
+	t.Cleanup(again.Shutdown)
+	again.register(t, MethodPluginRegister, testConfigYAML)
+	if err := again.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	row := again.Status(testNow.Add(3*time.Minute), "").Auths[0]
+	if row.AuthID != "claude-a.json" || len(row.History) == 0 || row.History[0].Samples() != 2 {
+		t.Errorf("history after reload = %+v, want the saved sample and the new one", row.History)
+	}
+
+	// Persistence off writes nothing.
+	off := newTestPlugin(t, testConfigYAML+"quota:\n  persist-history: false\n")
+	pollFixture(t, off)
+	if err := off.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(off.opts.HistoryFile); !os.IsNotExist(err) {
+		t.Errorf("history file exists with persistence off: %v", err)
 	}
 }

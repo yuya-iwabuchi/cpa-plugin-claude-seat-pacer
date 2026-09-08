@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -275,6 +276,8 @@ func newTestPlugin(t *testing.T, configYAML string) *testPlugin {
 		Repository: "https://example.invalid/repo",
 		Host:       tp.host.call,
 		Now:        func() time.Time { return testNow },
+		// A real home directory must never be read or written by a test.
+		HistoryFile: filepath.Join(t.TempDir(), "history.json"),
 		NewBindingStore: func(ttl time.Duration, max int) BindingStore {
 			tp.built++
 			tp.bindings = newFakeBindings(ttl, max)

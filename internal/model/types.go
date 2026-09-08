@@ -4,6 +4,10 @@
 package model
 
 import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -125,6 +129,64 @@ func (w Window) BearsOn(family string) bool {
 		return family != "" && FamilyOf(w.Scope) == family
 	}
 	return false
+}
+
+// Sample is one utilization observation of one window. It travels as the
+// two-element array [unix_seconds, utilization], which is a third of the size
+// of an object with two keys over the thousands of samples a status response
+// carries.
+type Sample struct {
+	At          time.Time
+	Utilization float64
+}
+
+// MarshalJSON writes [unix_seconds, utilization].
+func (s Sample) MarshalJSON() ([]byte, error) {
+	if math.IsNaN(s.Utilization) || math.IsInf(s.Utilization, 0) {
+		return nil, fmt.Errorf("sample utilization %v is not finite", s.Utilization)
+	}
+	return []byte("[" + strconv.FormatInt(s.At.Unix(), 10) + "," + strconv.FormatFloat(s.Utilization, 'g', -1, 64) + "]"), nil
+}
+
+// UnmarshalJSON reads the array MarshalJSON writes. The instant is UTC at
+// second precision, which is the precision the array carries.
+func (s *Sample) UnmarshalJSON(b []byte) error {
+	var raw [2]float64
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	s.At = time.Unix(int64(raw[0]), 0).UTC()
+	s.Utilization = raw[1]
+	return nil
+}
+
+// Cycle is one pass through a window: the samples observed while the window
+// carried one reset instant. A window that rolls over starts a new cycle, so
+// the boundary between two cycles is where a chart breaks its line rather than
+// drawing utilization falling back to zero. ResetsAt is zero for a cycle whose
+// readings never carried a reset.
+type Cycle struct {
+	ResetsAt time.Time `json:"resets_at"`
+	Samples  []Sample  `json:"samples"`
+}
+
+// WindowHistory is the recorded utilization of one window of one credential,
+// oldest cycle first and oldest sample first within a cycle. It carries no
+// identity beyond the window's own, so the unauthenticated status route can
+// publish it as is.
+type WindowHistory struct {
+	Kind   WindowKind `json:"kind"`
+	Scope  string     `json:"scope,omitempty"`
+	Cycles []Cycle    `json:"cycles"`
+}
+
+// Samples counts the samples across every cycle.
+func (h WindowHistory) Samples() int {
+	n := 0
+	for _, c := range h.Cycles {
+		n += len(c.Samples)
+	}
+	return n
 }
 
 // Source identifies where a snapshot's readings came from.
@@ -325,6 +387,9 @@ type AuthStatus struct {
 	// Bindings counts live conversations pinned to this credential.
 	Bindings int        `json:"bindings"`
 	Cache    CacheStats `json:"cache"`
+	// History is the recorded utilization of each window, thinned to what a
+	// chart can draw. Utilization only: no identity travels in it.
+	History []WindowHistory `json:"history"`
 }
 
 // Status is the complete state the status app renders. It carries no
