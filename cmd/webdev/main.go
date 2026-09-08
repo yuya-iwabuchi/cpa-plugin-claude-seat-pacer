@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
 )
 
@@ -372,6 +374,10 @@ func (f *fixture) Status(now time.Time, modelID string) model.Status {
 		a.Snapshot = snap
 		a.Score = scoreWithStaleness(f.cfg, snap, ok, modelID, now)
 		a.Score.AuthID = a.AuthID
+		a.History = []model.WindowHistory{}
+		if ok {
+			a.History = f.history(snap, now)
+		}
 		auths = append(auths, a)
 	}
 	return model.Status{
@@ -665,4 +671,59 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 		out = append(out, d)
 	}
 	return out
+}
+
+// history synthesizes the utilization record the poller would have built for
+// a snapshot, through a real quota store so it is thinned the way the plugin
+// thins: every window climbs from the start of its current cycle to its
+// present reading, with the completed cycle before it landing somewhere of its
+// own. The seat's id shapes the curves so a pool does not draw the same line
+// twelve times; a third of the seats get a steep last forty minutes on the
+// 5-hour window, which is the case the chart's conversation markers exist for.
+func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.WindowHistory {
+	seed := 0
+	for _, c := range snap.AuthID {
+		seed = (seed*31 + int(c)) % 997
+	}
+	shape := 0.8 + float64(seed%9)/10
+	store := quota.NewStore()
+	for _, w := range snap.Windows {
+		if w.Duration <= 0 || w.ResetsAt.IsZero() {
+			continue
+		}
+		step := 2 * time.Minute
+		if w.Duration > 24*time.Hour {
+			step = 20 * time.Minute
+		}
+		start := w.ResetsAt.Add(-w.Duration)
+		prevLanding := 0.55 + float64(seed%46)/100
+		if w.Kind == model.WindowSession {
+			prevLanding = 0.3 + float64(seed%60)/100
+		}
+		put := func(at time.Time, util float64, resets time.Time) {
+			r := w
+			r.Utilization, r.ResetsAt = util, resets
+			store.Put(model.AuthSnapshot{AuthID: snap.AuthID, ObservedAt: at, Source: model.SourceUsageEndpoint, Windows: []model.Window{r}})
+		}
+		for t := start.Add(-w.Duration); t.Before(start); t = t.Add(step) {
+			e := 1 - start.Sub(t).Seconds()/w.Duration.Seconds()
+			put(t, prevLanding*math.Pow(e, shape), start)
+		}
+		span := now.Sub(start).Seconds()
+		steep := w.Kind == model.WindowSession && seed%3 == 0
+		knee := 1 - (40*time.Minute).Seconds()/span
+		for t := start; !t.After(now); t = t.Add(step) {
+			frac := t.Sub(start).Seconds() / span
+			u := w.Utilization * math.Pow(frac, shape)
+			if steep && knee > 0 {
+				if frac < knee {
+					u = w.Utilization * 0.35 * frac / knee
+				} else {
+					u = w.Utilization * (0.35 + 0.65*(frac-knee)/(1-knee))
+				}
+			}
+			put(t, u, w.ResetsAt)
+		}
+	}
+	return store.History(snap.AuthID, quota.HistoryPublishMax)
 }
