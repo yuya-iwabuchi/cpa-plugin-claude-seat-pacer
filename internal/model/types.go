@@ -165,9 +165,23 @@ func (s *Sample) UnmarshalJSON(b []byte) error {
 // the boundary between two cycles is where a chart breaks its line rather than
 // drawing utilization falling back to zero. ResetsAt is zero for a cycle whose
 // readings never carried a reset.
+//
+// A sample reconstructed from a token log rather than read from the provider
+// is an estimate: its shape is exact and its level fitted. Estimated marks a
+// cycle whose every sample is one. A cycle that holds estimated samples ahead
+// of observed ones carries EstimatedUntil instead, the instant of its last
+// estimated sample; every sample at or before it is an estimate. A cycle with
+// neither is observed throughout.
 type Cycle struct {
-	ResetsAt time.Time `json:"resets_at"`
-	Samples  []Sample  `json:"samples"`
+	ResetsAt       time.Time  `json:"resets_at"`
+	Samples        []Sample   `json:"samples"`
+	Estimated      bool       `json:"estimated,omitempty"`
+	EstimatedUntil *time.Time `json:"estimated_until,omitempty"`
+}
+
+// SampleEstimated reports whether a sample of the cycle is an estimate.
+func (c Cycle) SampleEstimated(s Sample) bool {
+	return c.Estimated || (c.EstimatedUntil != nil && !s.At.After(*c.EstimatedUntil))
 }
 
 // WindowHistory is the recorded utilization of one window of one credential,

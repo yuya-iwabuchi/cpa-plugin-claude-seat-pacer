@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -276,5 +277,74 @@ func TestImportBehindLiveReadings(t *testing.T) {
 	}
 	if v := live.HistoryVersion(); v == 0 {
 		t.Error("version did not advance")
+	}
+}
+
+// An estimated cycle is one reconstructed from a token log. The first observed
+// reading into it clears the flag and records where the estimate ends; both
+// forms survive a save and a load, and a file that predates the fields loads
+// as observed throughout.
+func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
+	resets := testNow.Add(3 * time.Hour)
+	s := NewStore()
+	s.ImportHistory(map[string][]model.WindowHistory{"auth-1": {{
+		Kind: model.WindowSession,
+		Cycles: []model.Cycle{{ResetsAt: resets, Estimated: true, Samples: []model.Sample{
+			{At: testNow, Utilization: 0.3}, {At: testNow.Add(5 * time.Minute), Utilization: 0.4},
+		}}},
+	}}})
+	// The estimate is adopted as one, ahead of any observation.
+	s.Put(endpointSnapshot("auth-1", testNow.Add(5*time.Minute+20*time.Second), sessionAt(0.41, resets)))
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	c := h.Cycles[0]
+	if c.Estimated || c.EstimatedUntil == nil || !c.EstimatedUntil.Equal(testNow.Add(5*time.Minute)) {
+		t.Fatalf("cycle after the first observation = %+v, want the estimate ending at its last sample", c)
+	}
+	// The observation stands on its own, never folded into the estimate's
+	// last sample even inside the fine step.
+	if len(c.Samples) != 3 || c.SampleEstimated(c.Samples[2]) || !c.SampleEstimated(c.Samples[1]) {
+		t.Errorf("samples = %+v, want two estimated then one observed", c.Samples)
+	}
+
+	path := filepath.Join(t.TempDir(), "history.json")
+	if err := s.SaveHistory(path); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Put(endpointSnapshot("auth-1", testNow.Add(8*time.Minute), sessionAt(0.45, resets)))
+	got := historyOf(t, fresh, "auth-1", model.WindowSession).Cycles[0]
+	if got.Estimated || got.EstimatedUntil == nil || !got.EstimatedUntil.Equal(*c.EstimatedUntil) || len(got.Samples) != 4 {
+		t.Errorf("reloaded cycle = %+v, want the boundary kept and the new reading appended", got)
+	}
+
+	// A wholly estimated cycle round-trips with its flag; a file with neither
+	// field is observed throughout.
+	est := NewStore()
+	est.ImportHistory(map[string][]model.WindowHistory{"auth-1": {{
+		Kind:   model.WindowSession,
+		Cycles: []model.Cycle{{ResetsAt: resets, Estimated: true, Samples: []model.Sample{{At: testNow, Utilization: 0.3}}}},
+	}}})
+	// The seat's reading opens a new cycle, so the estimated one stays whole.
+	est.Put(endpointSnapshot("auth-1", testNow.Add(4*time.Hour), sessionAt(0.02, resets.Add(model.SessionDuration))))
+	if err := est.SaveHistory(path); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := readFile(path)
+	if !strings.Contains(body, `"estimated":true`) || strings.Contains(body, "estimated_until") {
+		t.Errorf("saved file = %s, want the flag and no boundary", body)
+	}
+	plain := NewStore()
+	if err := writeFile(path, `{"version":1,"seats":{"auth-1":[{"kind":"five_hour","cycles":[{"resets_at":"`+resets.Format(time.RFC3339)+`","samples":[[`+epoch(17, 30)+`,0.3]]}]}]}}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := plain.LoadHistory(path); err != nil {
+		t.Fatal(err)
+	}
+	plain.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionAt(0.31, resets)))
+	if pc := historyOf(t, plain, "auth-1", model.WindowSession).Cycles[0]; pc.Estimated || pc.EstimatedUntil != nil {
+		t.Errorf("a file without the fields loaded as estimated: %+v", pc)
 	}
 }
