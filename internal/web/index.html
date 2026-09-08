@@ -152,9 +152,19 @@ a { color: inherit; }
 :root[data-framed] .controls-inner { padding-right: max(28px, min(250px, 38vw)); }
 .brand { min-width: 0; }
 .brand-eyebrow {
-  font: 600 10.5px/1 var(--mono);
+  font: 600 10.5px/1.6 var(--mono);
   letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3);
-  display: block; margin-bottom: 10px;
+  display: block; margin-bottom: 6px;
+}
+/* Build facts trail the id in their own case: a version string reads as
+   written, not shouted. */
+.brand-facts { text-transform: none; letter-spacing: .04em; font-weight: 500; }
+.brand-facts:not(:empty)::before { content: "\A0\B7\A0"; letter-spacing: .18em; }
+/* On a phone the facts take a line of their own, so the separator never
+   opens one. */
+@media (max-width: 720px) {
+  .brand-facts { display: block; }
+  .brand-facts::before { content: none !important; }
 }
 .brand-name {
   font-family: var(--cond);
@@ -176,6 +186,13 @@ a { color: inherit; }
 }
 .mast-meta dd { margin: 0; font: 500 13.5px/1.35 var(--mono); color: var(--ink-1); overflow-wrap: anywhere; }
 .mast-meta dd .seat-dot { display: inline-block; margin-right: 7px; vertical-align: 1px; }
+/* One pick per request family; a family and its seat stay on one line, and
+   the picks wrap between families. */
+#next-pick { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.pick { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; max-width: 100%; }
+.pick .seat-mark { flex: 1 1 auto; min-width: 0; }
+.pick-fam { color: var(--ink-3); font-weight: 600; flex: none; }
+.pick-none { color: var(--ink-2); }
 
 /* --------------------------------------------------------------- controls */
 .controls {
@@ -331,7 +348,9 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk {
 .pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
 /* -------------------------------------------------------------- decisions */
-.log { padding: 4px 0; }
+/* About ten rows at default density, then the log scrolls inside its card;
+   the reader's place in it is kept across a refresh. */
+.log { padding: 4px 0; max-height: 380px; overflow-y: auto; }
 .dec { border-bottom: 1px solid var(--rule); }
 .dec:last-child { border-bottom: 0; }
 .dec > summary {
@@ -360,6 +379,7 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk {
 .dec-body { padding: 4px 16px 18px; overflow-x: auto; }
 .log-note {
   margin: 0; padding: 11px 16px; border-top: 1px solid var(--rule);
+  position: sticky; bottom: 0; background: var(--surface-1);
   font: 500 11px/1.4 var(--mono); color: var(--ink-3);
 }
 .caret { display: inline-block; width: 9px; color: var(--ink-3); font-family: var(--mono); }
@@ -447,16 +467,14 @@ main[data-stale="true"] { opacity: .62; }
 <header class="mast">
   <div class="mast-inner">
     <div class="brand">
-      <span class="brand-eyebrow">cpa-claude-quota-scheduler &middot; CLIProxyAPI plugin</span>
+      <span class="brand-eyebrow">cpa-claude-quota-scheduler &middot; CLIProxyAPI plugin<span class="brand-facts" id="plugin-facts"></span></span>
       <h1 class="brand-name">Claude quota</h1>
       <div class="brand-rule"></div>
     </div>
     <dl class="mast-meta">
       <div><dt>Next new conversation</dt><dd id="next-pick">&mdash;</dd></div>
-      <div><dt>Plugin</dt><dd id="plugin-name">&mdash;</dd></div>
-      <div><dt>Version</dt><dd id="plugin-version">&mdash;</dd></div>
-      <div><dt>Host schema</dt><dd id="host-schema">&mdash;</dd></div>
-      <div><dt>Started</dt><dd id="started-at">&mdash;</dd></div>
+      <div><dt>Seats</dt><dd id="seat-count">&mdash;</dd></div>
+      <div><dt>Newest snapshot</dt><dd id="snapshot-age">&mdash;</dd></div>
     </dl>
   </div>
 </header>
@@ -512,7 +530,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub" id="seats-sub">one row per seat, ranked; the top eligible seat takes the next new conversation</span>
+        <span class="sec-sub" id="seats-sub">one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation</span>
         <span class="sec-line"></span>
         <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Unfold every seat</button></span>
       </div>
@@ -531,7 +549,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Pace curve</h2>
-        <span class="sec-sub">each seat's weekly budget against the pace target, by days into its own week</span>
+        <span class="sec-sub" id="pace-sub">each seat's weekly budget against the pace target, by days into its own week</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -547,16 +565,6 @@ main[data-stale="true"] { opacity: .62; }
       </div>
     </section>
 
-    <section id="sec-decisions" hidden>
-      <div class="sec-head">
-        <span class="sec-idx"></span>
-        <h2>Routing log</h2>
-        <span class="sec-sub">newest first; open a decision to see how every seat scored</span>
-        <span class="sec-line"></span>
-      </div>
-      <div class="card log" id="decisions"></div>
-    </section>
-
     <section id="sec-bindings" hidden>
       <div class="sec-head">
         <span class="sec-idx"></span>
@@ -565,6 +573,16 @@ main[data-stale="true"] { opacity: .62; }
         <span class="sec-line"></span>
       </div>
       <div class="card tbl-card" id="bindings"></div>
+    </section>
+
+    <section id="sec-decisions" hidden>
+      <div class="sec-head">
+        <span class="sec-idx"></span>
+        <h2>Routing log</h2>
+        <span class="sec-sub">newest first; open a decision to see how every seat scored</span>
+        <span class="sec-line"></span>
+      </div>
+      <div class="card log" id="decisions"></div>
     </section>
 
   </main>
@@ -600,6 +618,10 @@ main[data-stale="true"] { opacity: .62; }
        measured from the clock Status.Now comes from, so a seat card and a
        timeline tooltip never disagree about the same instant. */
     skew: 0,
+    /* The #1 eligible seat for every request family other than the one the
+       page is ranked for, from the side fetches of the current refresh:
+       {ok, id, auth}, or absent while the fetch is in flight. */
+    picks: Object.create(null),
     /* Rows the operator opened, by decision key, so a poll does not shut a
        candidate-scores table mid-read. */
     openDecisions: Object.create(null),
@@ -750,7 +772,12 @@ main[data-stale="true"] { opacity: .62; }
     return ms > 0 ? "resets in " + durText(s) : "overdue by " + durText(s);
   }
 
-  var STAMP_MODES = { rel: relText, reset: resetText };
+  /* A start time reads as how long the plugin has been up. */
+  function upText(d, base) {
+    return durText(Math.max(0, Math.floor((base - d.getTime()) / 1000)));
+  }
+
+  var STAMP_MODES = { rel: relText, reset: resetText, up: upText };
 
   /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts]. */
   function stamp(d, cls, mode) {
@@ -966,6 +993,18 @@ main[data-stale="true"] { opacity: .62; }
       if ((a.total || 0) !== (b.total || 0)) return (b.total || 0) - (a.total || 0);
       return String(x.auth_id).localeCompare(String(y.auth_id));
     });
+  }
+
+  /* Seats in id order: the order colours are assigned in, and the one every
+     per-seat view keeps so a change of ranking moves badges, not rows. */
+  function stableAuths(auths) {
+    return (auths || []).slice().sort(function (x, y) {
+      return String(x.auth_id).localeCompare(String(y.auth_id));
+    });
+  }
+
+  function firstEligible(ranked) {
+    return ranked.filter(function (a) { return a.score && a.score.eligible; })[0] || null;
   }
 
   function hitRate(c) {
@@ -1210,7 +1249,7 @@ main[data-stale="true"] { opacity: .62; }
     return rank >= TL_FULL_ROWS && !eligible;
   }
 
-  function renderTimeline(st, ranked) {
+  function renderTimeline(st, seats, rankOf) {
     var host = $("timeline");
     host.textContent = "";
     renderStateLegend();
@@ -1218,10 +1257,10 @@ main[data-stale="true"] { opacity: .62; }
     var toggle = $("timeline-toggle");
     note.hidden = true;
     toggle.hidden = true;
-    if (!ranked.length) return;
+    if (!seats.length) return;
 
     var cfg = st.config || {};
-    var compact = dense(ranked.length);
+    var compact = dense(seats.length);
     var geo = compact ? TL_GEO.compact : TL_GEO.roomy;
     var now = new Date(nowMs());
     var width = Math.max(760, host.clientWidth || 1000);
@@ -1233,7 +1272,7 @@ main[data-stale="true"] { opacity: .62; }
        whole one however much of it is missing. */
     var tMax = now.getTime() + 7 * 86400000;
     var earliest = now.getTime() - 86400000;
-    ranked.forEach(function (a) {
+    seats.forEach(function (a) {
       sortedWindows(a.snapshot && a.snapshot.windows).forEach(function (w) {
         var r = parseT(w.resets_at);
         if (!r) return;
@@ -1248,9 +1287,9 @@ main[data-stale="true"] { opacity: .62; }
     var X = function (t) { return GUT + (t - t0) / (t1 - t0) * plotW; };
 
     var folded = 0;
-    var groups = ranked.map(function (a, i) {
+    var groups = seats.map(function (a) {
       var wins = sortedWindows(a.snapshot && a.snapshot.windows);
-      var fold = foldSeat(a, wins, cfg, i, compact);
+      var fold = foldSeat(a, wins, cfg, rankOf[a.auth_id], compact);
       if (fold) folded++;
       return { a: a, wins: wins, fold: fold };
     });
@@ -1271,16 +1310,16 @@ main[data-stale="true"] { opacity: .62; }
       toggle.textContent = state.timelineAll ? "Fold ineligible seats" : "Unfold every seat";
       note.hidden = false;
       note.textContent = folded
-        ? folded + " of " + ranked.length + " seats folded to one row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
+        ? folded + " of " + seats.length + " seats folded to one row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
           ". Each window keeps its state and utilization; its detail is in the tooltip."
-        : ranked.length + " seats, every window drawn.";
+        : seats.length + " seats, every window drawn.";
     }
 
     var root = svg("svg", {
       "class": "tl", width: width, height: height,
       viewBox: "0 0 " + width + " " + height,
       role: "group",
-      "aria-label": "Every seat, ranked, with its quota windows on one time axis"
+      "aria-label": "Every seat, in a fixed order with its rank, with its quota windows on one time axis"
     }, host);
 
     var gGrid = svg("g", {}, root);
@@ -1310,10 +1349,11 @@ main[data-stale="true"] { opacity: .62; }
       "t-muted", { "font-size": 10 });
 
     /* Rows. */
-    layout.forEach(function (row, i) {
+    layout.forEach(function (row) {
       var a = row.g.a;
+      var rank = rankOf[a.auth_id];
       var eligible = !!(a.score && a.score.eligible);
-      var lead = eligible && i === 0;
+      var lead = eligible && rank === 0;
       var col = seatColor(a);
 
       if (lead) {
@@ -1331,11 +1371,11 @@ main[data-stale="true"] { opacity: .62; }
       var headY = row.top + (compact ? 17 : 20);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gGut);
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
-      gh.setAttribute("aria-label", seatAria(a, i, lead));
-      gh.setAttribute("data-tip", seatTip(a, i, lead));
+      gh.setAttribute("aria-label", seatAria(a, rank, lead));
+      gh.setAttribute("data-tip", seatTip(a, rank, lead));
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: GUT - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
-      var rankEl = svgText(gh, 34, headY, "#" + (i + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
+      var rankEl = svgText(gh, 34, headY, "#" + (rank + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
       var nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
       var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
@@ -1573,11 +1613,17 @@ main[data-stale="true"] { opacity: .62; }
   /* ----------------------------------------------------------- pace curve */
 
   /* The weekly all-models window is the budget the plugin paces against and
-     the one whose unspent capacity is lost at reset, so it is the one series
-     here. The scoped weekly window keeps its meter and pace tick on the
-     timeline; the session window has no pace target. */
+     the one whose unspent capacity is lost at reset, so it is the series every
+     ranking draws. The family cap the ranking is for is a second 7-day window
+     with a pace target on the same axes, so it draws beside it at its own
+     weight; the session window has no pace target and never draws. */
   var PACE_KIND = "seven_day";
   var PACE_DAYS = 7;
+  var PT_R = 4.6;            /* the weekly point's radius; the cap's diamond matches its area */
+  var PT_D = 6;
+
+  /* A scoped weight, as every label that carries one writes it. */
+  function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
 
   function dayText(elapsed) {
     return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS + " days";
@@ -1594,9 +1640,23 @@ main[data-stale="true"] { opacity: .62; }
     return null;
   }
 
-  function renderPace(st, ranked) {
+  /* Why a seat has no point for the selected family's cap, once it has a
+     score: what its entry for that window lacks. Null means plottable. */
+  function scopedGap(fam, ws) {
+    if (!ws) return "no " + fam + " weekly reading";
+    if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + fam + " reading";
+    if (!(ws.weight > 0)) return fam + " window not paced";
+    return null;
+  }
+
+  function renderPace(st, seats) {
     var host = $("pace-curve");
     host.textContent = "";
+    var fam = state.rankFor;
+    var capDrawn = fam !== STANDARD;
+    $("pace-sub").textContent = capDrawn
+      ? "each seat's weekly budget and the " + fam + " cap against the pace target, by days into its own week"
+      : "each seat's weekly budget against the pace target, by days into its own week";
     var pace = (st.config && st.config.pace) || {};
     var gamma = num(pace.curve_exponent) && pace.curve_exponent > 0 ? pace.curve_exponent : 1;
     var landing = num(pace.landing_target) && pace.landing_target > 0 ? pace.landing_target : 1;
@@ -1608,14 +1668,22 @@ main[data-stale="true"] { opacity: .62; }
     var m = { l: 46, r: 22, t: 18, b: 46 };
     var pw = W - m.l - m.r, ph = H - m.t - m.b;
 
-    var series = ranked.map(function (a) {
+    var series = seats.map(function (a) {
       var ws = scoreFor(a, { kind: PACE_KIND });
-      return { auth: a, ws: ws, gap: paceGap(a, ws) };
+      var entry = { auth: a, ws: ws, gap: paceGap(a, ws), cap: null };
+      /* A seat the scorer never evaluated has one reason, already given for
+         its weekly point. */
+      if (capDrawn && scored(a.score)) {
+        var cws = scoreFor(a, { kind: "weekly_scoped", scope: fam });
+        entry.cap = { ws: cws, gap: scopedGap(fam, cws) };
+      }
+      return entry;
     });
 
     var maxY = 1.05;
     series.forEach(function (s) {
       if (!s.gap) maxY = Math.max(maxY, s.ws.utilization + 0.05);
+      if (s.cap && !s.cap.gap) maxY = Math.max(maxY, s.cap.ws.utilization + 0.05);
     });
 
     var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
@@ -1626,7 +1694,8 @@ main[data-stale="true"] { opacity: .62; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Share of the weekly budget spent by days into each seat's own week, against the pace target, one point per seat"
+      "aria-label": "Share of the weekly budget spent by days into each seat's own week, against the pace target, one point per seat" +
+        (capDrawn ? ", and a second point per seat for its " + fam + " cap" : "")
     }, host);
 
     [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
@@ -1665,50 +1734,64 @@ main[data-stale="true"] { opacity: .62; }
        label shows only for the seat pointed at or focused. */
     var labelBudget = Math.min(SEAT_HUES, Math.max(2, Math.floor(pw / 90)));
 
-    var plotted = 0;
-    series.forEach(function (s) {
-      if (s.gap) return;
-      var a = s.auth, ws = s.ws;
-      plotted++;
-      var cx = X(ws.elapsed), cy = Y(ws.utilization);
+    /* One point: a filled circle for the weekly window, a filled diamond for
+       the family cap, in the seat's colour. The leader is the slack itself:
+       the vertical gap at this seat's own elapsed between its point and the
+       scorer's target, never the shortest distance to the curve. Inside the
+       on-pace band it would sit under the mark, so the mark alone says "on
+       pace". The cap's label carries its weight in the score; the weekly
+       window counts whole. The group's role="img" keeps the label out of the
+       accessibility tree; the slack is in its name. */
+    function point(a, ws, weighted) {
+      var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
-      /* The leader is the slack itself: the vertical gap at this seat's own
-         elapsed between its point and the scorer's target, never the shortest
-         distance to the curve. Inside the on-pace band it would sit under the
-         dot, so the dot alone says "on pace". The group's role="img" keeps the
-         label out of the accessibility tree; the slack is in its name. */
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
         var ty = Y(ws.target);
         svg("line", {
-          x1: cx, x2: cx, y1: cy, y2: ty, stroke: seatColor(a),
+          x1: cx, x2: cx, y1: cy, y2: ty, stroke: col,
           "stroke-width": 1.5, "stroke-dasharray": "1 3.5", "stroke-linecap": "round"
         }, g);
         var right = cx < m.l + pw * 0.82;
-        svgText(g, cx + (right ? 9 : -9), (cy + ty) / 2 + 3.5, slackText(ws.slack, true), "slk t-mono",
+        svgText(g, cx + (right ? 9 : -9), (cy + ty) / 2 + 3.5,
+          slackText(ws.slack, true) + (weighted ? " " + weightMark(ws) : ""), "slk t-mono",
           { "font-size": 10, "text-anchor": right ? "start" : "end" });
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
-        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the weekly budget spent" +
-        ", " + slackText(ws.slack));
+        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the " + windowName(ws) + " budget spent" +
+        ", " + slackText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the score" : ""));
       g.setAttribute("data-tip", seatLabel(a) + " · " + windowName(ws) +
         "\nday          " + dayText(ws.elapsed) + " (" + pct(ws.elapsed, 0) + ")" +
-        "\nspent        " + pct(ws.utilization) + " of the weekly budget" +
+        "\nspent        " + pct(ws.utilization) + " of the " + windowName(ws) + " budget" +
         "\npace target  " + pct(ws.target) +
-        "\nslack        " + slackText(ws.slack));
+        "\nslack        " + slackText(ws.slack) +
+        (weighted ? "\nin score     " + weightMark(ws) : ""));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
-      svg("circle", { cx: cx, cy: cy, r: 4.6, fill: seatColor(a), stroke: "var(--surface-1)", "stroke-width": 2 }, g);
+      if (weighted) {
+        svg("path", {
+          d: "M" + cx + " " + (cy - PT_D) + "L" + (cx + PT_D) + " " + cy + "L" + cx + " " + (cy + PT_D) + "L" + (cx - PT_D) + " " + cy + "Z",
+          fill: col, stroke: "var(--surface-1)", "stroke-width": 2, "stroke-linejoin": "round"
+        }, g);
+      } else {
+        svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col, stroke: "var(--surface-1)", "stroke-width": 2 }, g);
+      }
+    }
+
+    var plotted = 0, caps = 0;
+    series.forEach(function (s) {
+      if (!s.gap) { plotted++; point(s.auth, s.ws, false); }
+      if (s.cap && !s.cap.gap) { caps++; point(s.auth, s.cap.ws, true); }
     });
 
-    if (plotted > labelBudget) root.setAttribute("data-dense", "true");
+    if (plotted + caps > labelBudget) root.setAttribute("data-dense", "true");
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has a paced weekly window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root);
+    renderPaceLegend(series, root, capDrawn ? fam : null);
     renderPaceNote(st, gamma, landing);
   }
 
@@ -1726,13 +1809,29 @@ main[data-stale="true"] { opacity: .62; }
 
   /* Every seat is named: plotted ones in the legend, the rest with the reason
      they have no point, so a seat never vanishes from the chart unexplained. */
-  function renderPaceLegend(series, root) {
+  function renderPaceLegend(series, root, fam) {
     var leg = $("pace-legend");
     leg.textContent = "";
+    /* With two marks per seat the legend names the marks before the seats. */
+    if (fam) {
+      var circ = h("li", "");
+      var csw = h("span", "sw");
+      csw.style.cssText = "background:var(--ink-2);border-radius:50%;width:10px;height:10px";
+      circ.appendChild(csw);
+      circ.appendChild(document.createTextNode("7-day all models"));
+      leg.appendChild(circ);
+      var dia = h("li", "");
+      var dsw = h("span", "sw");
+      dsw.style.cssText = "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px";
+      dia.appendChild(dsw);
+      dia.appendChild(document.createTextNode(fam + " weekly cap"));
+      leg.appendChild(dia);
+    }
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
       if (s.gap) { missing.push(seatLabel(a) + ": " + s.gap); return; }
+      if (s.cap && s.cap.gap) missing.push(seatLabel(a) + " (" + fam + "): " + s.cap.gap);
       var li = h("li", "");
       li.setAttribute("data-seat", a.auth_id);
       var sw = h("span", "sw");
@@ -1763,9 +1862,12 @@ main[data-stale="true"] { opacity: .62; }
     var wts = (st.config && st.config.pace) || {};
 
     var p = h("p", "");
-    p.appendChild(document.createTextNode("Each point is one seat's 7-day all-models window: how many days " +
-      "into that seat's own week it is, against how much of its weekly budget is spent. Every seat's week " +
-      "starts at its own time, so the axis is elapsed time, not the calendar. The target curve is "));
+    p.appendChild(document.createTextNode("Each circle is one seat's 7-day all-models window: how many days " +
+      "into that seat's own week it is, against how much of its weekly budget is spent." +
+      (state.rankFor === STANDARD ? "" : " Each diamond is the same seat's " + state.rankFor +
+        " weekly cap, a 7-day window with the same pace target that counts at " + share(wts.scoped_weight) +
+        " weight in the score.") +
+      " Every seat's week starts at its own time, so the axis is elapsed time, not the calendar. The target curve is "));
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
     p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
       ". A point below the curve is under pace, with budget still to spend; the dotted leader is that seat's " +
@@ -1781,7 +1883,7 @@ main[data-stale="true"] { opacity: .62; }
         ? ", plus " + share(wts.scoped_weight) + " of the slack on a model-family weekly window when the request's " +
           "family has its own cap — none does for Standard requests, so that term is zero in the ranking shown"
         : ", plus " + share(wts.scoped_weight) + " of the slack on the " + state.rankFor + " weekly window, the cap " +
-          "the ranking shown is for (not drawn here; the seats timeline shows it)";
+          "the ranking shown is for (the diamonds)";
     }
     q.appendChild(document.createTextNode("Seats rank by score, in the same points: " +
       (wts.weekly_weight === 1 ? "weekly slack" : share(wts.weekly_weight) + " of weekly slack") + scopedTerm +
@@ -1815,6 +1917,9 @@ main[data-stale="true"] { opacity: .62; }
   function renderDecisions(st) {
     if (!regionChanged("decisions", [st.decisions, seatNames(st)])) return;
     var host = $("decisions");
+    /* The list scrolls inside its card; a rebuild puts the reader back where
+       they were. */
+    var scrollTop = host.scrollTop;
     host.textContent = "";
     var all = (st.decisions || []).slice().sort(function (a, b) {
       return (parseT(b.at) || 0) - (parseT(a.at) || 0);
@@ -1901,6 +2006,7 @@ main[data-stale="true"] { opacity: .62; }
       host.appendChild(h("p", "log-note",
         "showing " + list.length + " of " + all.length + " retained decisions"));
     }
+    host.scrollTop = scrollTop;
   }
 
   function decisionBody(dec, name) {
@@ -2085,37 +2191,81 @@ main[data-stale="true"] { opacity: .62; }
 
   /* --------------------------------------------------------------- shell */
 
+  /* The build facts sit under the id, in one muted line; the header row
+     carries only what bears on a routing decision. */
   function renderHeader(st, ranked) {
     var p = st.plugin || {};
-    $("plugin-name").textContent = p.name || "—";
-    $("plugin-version").textContent = p.version || "—";
-    $("host-schema").textContent = p.host_schema_version != null ? "v" + p.host_schema_version : "—";
-
-    var startedCell = $("started-at");
-    startedCell.textContent = "";
-    startedCell.appendChild(stamp(parseT(p.started_at), ""));
-
-    var next = $("next-pick");
-    next.textContent = "";
-    var lead = ranked.filter(function (a) { return a.score && a.score.eligible; })[0];
-    if (lead) {
-      next.appendChild(seatMark(lead));
-    } else {
-      next.textContent = ranked.length ? "none eligible" : "—";
+    var facts = $("plugin-facts");
+    facts.textContent = "";
+    var parts = [];
+    if (p.version) parts.push("v" + String(p.version).replace(/^v/, ""));
+    if (p.host_schema_version != null) parts.push("host schema v" + p.host_schema_version);
+    parts.forEach(function (t, i) {
+      facts.appendChild(document.createTextNode((i ? " · " : "") + t));
+    });
+    var started = parseT(p.started_at);
+    if (started) {
+      facts.appendChild(document.createTextNode((parts.length ? " · " : "") + "up "));
+      facts.appendChild(stamp(started, "", "up"));
     }
+
+    var eligible = ranked.filter(function (a) { return a.score && a.score.eligible; }).length;
+    $("seat-count").textContent = ranked.length
+      ? ranked.length + (ranked.length === 1 ? " seat" : " seats") + " · " + eligible + " eligible"
+      : "—";
+
+    var newest = null;
+    ranked.forEach(function (a) {
+      var obs = parseT(a.snapshot && a.snapshot.observed_at);
+      if (obs && (!newest || obs > newest)) newest = obs;
+    });
+    var age = $("snapshot-age");
+    age.textContent = "";
+    if (newest) age.appendChild(stamp(newest, ""));
+    else age.textContent = ranked.length ? "none" : "—";
+
+    renderPicks(st, ranked);
 
     /* The ranking on the page is for one request kind; the sub-line names
        it, and says so when it is not the kind live traffic is routed by. */
     var families = scopedFamilies(st);
-    var sub = "one row per seat, ranked; the top eligible seat takes the next new conversation";
+    var sub = "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
     if (families.length) {
       var liveID = liveModel(st), live = familyOf(liveID, families);
-      sub = "one row per seat, ranked for " + rankLabel(state.rankFor) + " requests; the top eligible seat takes the next new " +
+      sub = "one row per seat, in a fixed order, ranked for " + rankLabel(state.rankFor) + " requests; the #1 eligible seat takes the next new " +
         rankLabel(state.rankFor) + " conversation" +
         (state.rankPinned && live !== state.rankFor && liveID
           ? " (live traffic is " + rankLabel(live) + ": " + liveID + ")" : "");
     }
     $("seats-sub").textContent = sub;
+  }
+
+  /* Where the next new conversation lands, per request family: the ranking
+     shown answers for its own family, the side fetches for the rest. A
+     family whose fetch failed reads as unknown, never as the last answer. */
+  function renderPicks(st, ranked) {
+    var next = $("next-pick");
+    next.textContent = "";
+    var families = scopedFamilies(st);
+    var lead = { ok: true, auth: firstEligible(ranked) };
+    if (!families.length) { next.appendChild(pickNode(null, lead, ranked.length)); return; }
+    var byID = Object.create(null);
+    ranked.forEach(function (a) { byID[a.auth_id] = a; });
+    [STANDARD].concat(families).forEach(function (fam) {
+      var pick = fam === state.rankFor ? lead : state.picks[fam];
+      if (pick && pick.ok && pick.id) pick = { ok: true, auth: byID[pick.id] || pick.auth };
+      next.appendChild(pickNode(fam, pick, ranked.length));
+    });
+  }
+
+  function pickNode(fam, pick, count) {
+    var span = h("span", "pick");
+    if (fam !== null) span.appendChild(h("span", "pick-fam", rankLabel(fam) + ":"));
+    if (!pick) span.appendChild(h("span", "pick-none", "…"));
+    else if (!pick.ok) span.appendChild(h("span", "pick-none", "unknown"));
+    else if (pick.auth) span.appendChild(seatMark(pick.auth));
+    else span.appendChild(h("span", "pick-none", count ? "none eligible" : "—"));
+    return span;
   }
 
   /* Every warning comes from the plugin: only it sees what the host offered,
@@ -2307,7 +2457,7 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* The index counts the sections actually on screen: with no credentials the
-     first three are absent, and a routing log numbered 04 would read as three
+     first two are absent, and a bindings table numbered 03 would read as two
      sections that failed to render. */
   function renumberSections() {
     var secs = $("app").querySelectorAll("section");
@@ -2326,6 +2476,9 @@ main[data-stale="true"] { opacity: .62; }
     if (!st) return;
     indexSeats(st);
     var ranked = rankAuths(st.auths);
+    var seats = stableAuths(st.auths);
+    var rankOf = Object.create(null);
+    ranked.forEach(function (a, i) { rankOf[a.auth_id] = i; });
     var focused = captureFocus();
     hideTip();
 
@@ -2344,8 +2497,8 @@ main[data-stale="true"] { opacity: .62; }
     $("sec-bindings").hidden = false;
 
     if (!empty) {
-      renderTimeline(st, ranked);
-      renderPace(st, ranked);
+      renderTimeline(st, seats, rankOf);
+      renderPace(st, seats);
     }
     renderDecisions(st);
     renderBindings(st);
@@ -2392,8 +2545,37 @@ main[data-stale="true"] { opacity: .62; }
      An unpinned page sends no model and is scored for the last routed one. */
   function statusURL() {
     if (!state.rankPinned) return "api/status";
-    var rep = representativeModel(state.rankFor, state.data, scopedFamilies(state.data || {}));
+    return familyURL(state.rankFor, state.data);
+  }
+
+  function familyURL(fam, st) {
+    var rep = representativeModel(fam, st, scopedFamilies(st || {}));
     return "api/status?model=" + encodeURIComponent(rep);
+  }
+
+  function fetchJSON(url, signal) {
+    return fetch(url, { headers: { "Accept": "application/json" }, cache: "no-store", signal: signal })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      });
+  }
+
+  /* The request families other than the one the page is ranked for, as the
+     payload reports them. */
+  function sideFamilies(st) {
+    return scopedFamilies(st || {}).concat([STANDARD]).filter(function (f) { return f !== state.rankFor; });
+  }
+
+  /* One side fetch: the ranking for another family, kept only for its #1
+     eligible seat. A failure is a pick of its own, so the header can say so. */
+  function fetchPick(fam, st, signal) {
+    return fetchJSON(familyURL(fam, st), signal)
+      .then(function (data) {
+        var lead = firstEligible(rankAuths(data && data.auths));
+        return { fam: fam, pick: { ok: true, id: lead ? lead.auth_id : "", auth: lead } };
+      })
+      .catch(function () { return { fam: fam, pick: { ok: false } }; });
   }
 
   var inFlightCtl = null, fetchTimer = null, staleTimer = null, generation = 0;
@@ -2410,8 +2592,14 @@ main[data-stale="true"] { opacity: .62; }
      would otherwise hold the in-flight flag for good, freezing the page —
      including the Pause button's own refresh — behind a live green dot.
      A user-initiated refresh supersedes whatever is running, so a new rank
-     selection takes effect at once; the superseded handlers see a stale generation and
-     leave the state alone. */
+     selection takes effect at once; the superseded handlers see a stale
+     generation and leave the state alone.
+
+     One refresh is one status fetch per request family, in parallel: the
+     selected family's payload is the page, the others yield the header's
+     picks. The families come from the last payload; a family that payload
+     did not name (the first load, or a cap that just appeared) is fetched
+     once the main payload arrives, and the header fills in. */
   function refresh(userInitiated) {
     if (state.inFlight) {
       if (!userInitiated) return;
@@ -2432,21 +2620,33 @@ main[data-stale="true"] { opacity: .62; }
     fetchTimer = window.setTimeout(function () { ctl.abort(); }, FETCH_TIMEOUT_MS);
     setLive();
 
-    fetch(statusURL(), {
-      headers: { "Accept": "application/json" }, cache: "no-store", signal: ctl.signal
-    })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      })
-      .then(function (data) {
+    var prior = state.data;
+    var sides = sideFamilies(prior).map(function (fam) { return fetchPick(fam, prior, ctl.signal); });
+
+    Promise.all([fetchJSON(statusURL(), ctl.signal)].concat(sides))
+      .then(function (results) {
         if (gen !== generation) return;
+        var data = results[0];
         state.data = data;
         var served = parseT(data && data.now);
         state.skew = served ? Date.now() - served.getTime() : 0;
         state.fetchedAt = new Date(nowMs());
+        state.picks = Object.create(null);
+        results.slice(1).forEach(function (r) { state.picks[r.fam] = r.pick; });
         setError(null);
         render();
+
+        var late = sideFamilies(data).filter(function (fam) { return !state.picks[fam]; });
+        if (!late.length) return;
+        return Promise.all(late.map(function (fam) { return fetchPick(fam, data, ctl.signal); }))
+          .then(function (more) {
+            if (gen !== generation) return;
+            more.forEach(function (r) { state.picks[r.fam] = r.pick; });
+            var focused = captureFocus();
+            renderPicks(state.data, rankAuths(state.data.auths));
+            markClipped();
+            restoreFocus(focused);
+          });
       })
       .catch(function (e) {
         if (gen !== generation) return;
