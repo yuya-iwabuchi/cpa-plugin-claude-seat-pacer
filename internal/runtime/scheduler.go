@@ -55,6 +55,25 @@ func (in pickInput) scoreOf(authID string) model.Score {
 	return model.Score{AuthID: authID, Reason: model.ReasonNotCandidate}
 }
 
+// hasAlternativeHome reports whether some candidate other than authID is
+// worth moving to: one the pace curve rates eligible, or one whose state
+// leaves open that it can serve. A candidate the provider has already rejected
+// for this model is neither.
+func (in pickInput) hasAlternativeHome(authID string) bool {
+	for _, id := range in.candidates {
+		if id == authID {
+			continue
+		}
+		if in.scoreOf(id).Eligible {
+			return true
+		}
+		if snap, ok := in.snaps[id]; !ok || !blockedFor(snap, in.req.Model) {
+			return true
+		}
+	}
+	return false
+}
+
 // pick is the routing decision. It performs in-memory reads only: the host
 // gives it no timeout, so any blocking call here would park a goroutine for
 // good and block dlclose.
@@ -70,7 +89,8 @@ func (in pickInput) scoreOf(authID string) model.Score {
 //     session's own binding is honoured under those same two conditions, even
 //     when its pace score trails (OverrideThreshold), unless OverrideThreshold
 //     is off and the pace winner beats it by the hysteresis margin. A binding
-//     that fails any of those fails over to the cold pick.
+//     that fails any of those fails over to the cold pick, except that a
+//     rejected binding stands when every other candidate is rejected too.
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
 //     ineligible; the pace winner takes the session. When nothing is eligible
 //     but a session key exists, the candidate with the fewest live bindings
@@ -179,8 +199,19 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 
 	// A window the provider has already rejected for this model makes the
 	// binding no home at all, whether or not another candidate outscores it: a
-	// host allowed one pick per request has no retry to recover on.
+	// host allowed one pick per request has no retry to recover on. With every
+	// other candidate rejected too the move buys nothing and costs a cross-org
+	// cache miss, and least-bound alternates seats request by request, so the
+	// binding stands until somewhere better exists.
 	if blockedFor(in.snaps[bound.AuthID], in.req.Model) {
+		if !in.hasAlternativeHome(bound.AuthID) {
+			return p.decide(in, model.Decision{
+				ChosenAuthID: bound.AuthID,
+				Kind:         model.DecisionAffinityHit,
+				Note:         "binding kept; every seat is rate-limited for this model",
+				Scores:       in.scores,
+			}), true
+		}
 		return p.pickCold(in, bound.AuthID, "bound credential is rate-limited for this model"), true
 	}
 	best, hasBest := pace.Best(in.scores)

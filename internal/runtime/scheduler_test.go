@@ -244,6 +244,31 @@ func TestBoundCredentialBlockedForModelFailsOver(t *testing.T) {
 	}
 }
 
+func TestEverySeatRejectedKeepsTheBinding(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	for _, snap := range []model.AuthSnapshot{seatA(t), seatB(t)} {
+		snap.Windows[1].Status = model.StatusRejected
+		tp.quota.Put(snap)
+	}
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+	// Failing over between two rejected seats costs a cross-org cache miss
+	// per request and serves none of them, so the seat holds across requests.
+	for i := 0; i < 3; i++ {
+		resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+		if resp.AuthID != "seat-a" {
+			t.Fatalf("pick %d = %+v, want the binding kept on seat-a", i, resp)
+		}
+		d := tp.lastDecision(t)
+		if d.Kind != model.DecisionAffinityHit || !strings.Contains(d.Note, "every seat is rate-limited") {
+			t.Fatalf("decision %d = %+v", i, d)
+		}
+	}
+	if b, _ := tp.bindings.Lookup("claude", fableModel, "k", testNow); b.AuthID != "seat-a" {
+		t.Errorf("binding = %+v, want seat-a", b)
+	}
+}
+
 func TestBoundCredentialBlockedForAnotherFamilyIsKept(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	a := seatA(t)
@@ -373,23 +398,26 @@ func TestSubagentDoesNotInheritABlockedParent(t *testing.T) {
 	}
 }
 
-// TestBoundCredentialRejectedForTheModelIsNotAPlainAffinityHit covers a
-// binding whose credential is the only one offered: with no challenger to
-// compare it against, the provider's own rejection is still what decides.
-func TestBoundCredentialRejectedForTheModelIsNotAPlainAffinityHit(t *testing.T) {
+// TestSoleRejectedCandidateKeepsTheBindingAndNamesTheRejection covers a
+// binding whose credential is the only one offered: there is nowhere to move
+// to, so the seat holds, and the provider's own rejection is what the log
+// reads rather than a bare keep.
+func TestSoleRejectedCandidateKeepsTheBindingAndNamesTheRejection(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	blocked := seatA(t)
 	blocked.Windows[1].Status = model.StatusRejected
 	tp.quota.Put(blocked)
 	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
 
-	tp.pick(t, pickRequest(fableModel, "k", "seat-a"))
-	d := tp.lastDecision(t)
-	if d.Kind == model.DecisionAffinityHit {
-		t.Errorf("decision kind = %q, want the rejected window to break the affinity hit", d.Kind)
+	if resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a")); !resp.Handled || resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want the binding kept on seat-a", resp)
 	}
+	d := tp.lastDecision(t)
 	if !strings.Contains(d.Note, "rate-limited for this model") {
 		t.Errorf("note = %q, want the rejection named", d.Note)
+	}
+	if d.Kind != model.DecisionAffinityHit {
+		t.Errorf("decision kind = %q, want %q", d.Kind, model.DecisionAffinityHit)
 	}
 }
 

@@ -22,7 +22,7 @@ import (
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many, collide or empty")
+		"fixture scenario: full, single, stale, degraded, many, collide, exhausted or empty")
 	seats := flag.Int("seats", 6, "credential count for the many scenario")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
@@ -58,6 +58,11 @@ func main() {
 		// one of them is at its Fable cap with its weekly window fine, so it
 		// is eligible for Standard requests and not for Fable ones.
 		src.collide()
+	case "exhausted":
+		// Every seat past its 5-hour window, with the host falling through to
+		// the priority tier below: an API-key credential the poller never
+		// reads, which takes the traffic until a seat resets.
+		src.exhausted()
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
@@ -133,6 +138,12 @@ const (
 	// of its own: the account address. It sits on the leading seat, whose row
 	// also carries the "next cold pick" line.
 	seatALabel = "quota.ops@acme-corp-engineering.example"
+
+	// overflowKeyID is the runtime-only credential the host falls through to
+	// when every seat is in cooldown. It has no file behind it, so the poller
+	// skips it and the plugin holds no reading, no score and no seat row for
+	// it.
+	overflowKeyID = "claude:apikey:0f2c8ab41d7e"
 
 	modelFable  = "claude-fable-5-20260514"
 	modelOpus   = "claude-opus-4-6-20260212"
@@ -461,6 +472,73 @@ func (f *fixture) buildDecisions() []model.Decision {
 			d.Scores = pace.Rank(f.cfg.Pace, snaps, ids, s.modelID, at)
 		}
 		out = append(out, d)
+	}
+	return out
+}
+
+// exhausted puts both seats past their 5-hour window and moves the log onto
+// the overflow tier: the state where no seat can take a new conversation while
+// every request is still being answered.
+func (f *fixture) exhausted() {
+	resets := map[string]time.Duration{
+		seatAID: 4*time.Hour + 28*time.Minute,
+		seatBID: 1*time.Hour + 6*time.Minute,
+	}
+	for id, in := range resets {
+		snap := f.snapshots[id]
+		snap.Source = model.SourceUsageEndpoint
+		snap.Err, snap.ErrCategory = "", ""
+		snap.Windows = append([]model.Window(nil), snap.Windows...)
+		for i := range snap.Windows {
+			w := &snap.Windows[i]
+			if w.Kind != model.WindowSession {
+				continue
+			}
+			w.Utilization, w.ResetsAt = 1.00, f.anchor.Add(in)
+			w.Status, w.Severity, w.Active = model.StatusRejected, model.SeverityCritical, true
+		}
+		f.snapshots[id] = snap
+		f.snapshotsPast[id] = withSessionUtil(snap, 0.93, model.StatusAllowedWarning, model.SeverityWarning)
+	}
+	f.observedAge[seatBID] = 51 * time.Second
+	f.decisions = f.exhaustedDecisions()
+}
+
+// exhaustedDecisions scripts the log the exhausted pool produces: a run of
+// requests on the overflow key, and behind it the seats holding their bindings
+// while the host still offered them.
+func (f *fixture) exhaustedDecisions() []model.Decision {
+	keys := []string{"5f2c0b7d4a19e83c", "a91d33e0c7b45f28", "c4408b1ef6d92a70", "77b0fe4c1a8d6392"}
+	models := []string{modelFable, modelOpus, modelSonnet}
+	out := make([]model.Decision, 0, 30)
+	for i := 0; i < 22; i++ {
+		d := model.Decision{
+			At:           f.anchor.Add(-time.Duration(8+17*i) * time.Second),
+			SessionKey:   keys[i%len(keys)],
+			Model:        models[i%len(models)],
+			Provider:     "claude",
+			ChosenAuthID: overflowKeyID,
+			Kind:         model.DecisionAffinityHit,
+			Subagent:     i%7 == 3,
+		}
+		if i%9 == 4 {
+			// The host offers the overflow key alone, so it is the only
+			// candidate a cold pick has to score.
+			d.Kind = model.DecisionColdPick
+			d.Note = "no eligible candidate; least-bound fallback"
+			d.Scores = []model.Score{{AuthID: overflowKeyID, Reason: model.ReasonNoSnapshot}}
+		}
+		out = append(out, d)
+	}
+	ids := []string{seatAID, seatBID}
+	for i, seat := range []string{seatAID, seatBID, seatAID} {
+		at := f.anchor.Add(-time.Duration(9+4*i) * time.Minute)
+		out = append(out, model.Decision{
+			At: at, SessionKey: keys[i], Model: modelFable, Provider: "claude",
+			ChosenAuthID: seat, Kind: model.DecisionAffinityHit,
+			Note:   "binding kept; every seat is rate-limited for this model",
+			Scores: pace.Rank(f.cfg.Pace, f.snapshots, ids, modelFable, at),
+		})
 	}
 	return out
 }
