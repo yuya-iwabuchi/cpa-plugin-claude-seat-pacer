@@ -317,13 +317,22 @@ svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
 svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 svg.pace .t-muted { fill: var(--ink-3); }
 svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; }
-svg.pace[data-focus] g.pt:not([data-focused]) { opacity: .16; }
+svg.pace[data-focus] g.pt:not([data-focused]), svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .16; }
 /* The slack label reads in ink over the curve and grid; the leader beside it
    carries the seat's colour. In a dense chart labels wait for the seat to be
    pointed at or focused, in the legend or on the point. */
 svg.pace text.slk { fill: var(--ink-2); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk,
 svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) line.tick { visibility: hidden; }
+/* The recorded path up to the mark is a hairline in the seat's colour at full
+   strength, so it keeps the mark's contrast and the ringed mark still reads
+   as the present; the completed cycle before a reset is dashed and paler. */
+svg.pace path.hist { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+svg.pace path.hist-prev { fill: none; stroke-width: 1.1; stroke-linejoin: round; stroke-linecap: round; opacity: .7; stroke-dasharray: 3 3; }
+svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
+svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
+.sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
+.sess-focus b { font-weight: 600; color: var(--ink-1); }
 .tl-note { margin: 10px 8px 2px; font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .pace-card { padding: 18px 18px 14px; overflow-x: auto; }
 .pace-card .legend { margin: 12px 0 0; }
@@ -560,6 +569,25 @@ main[data-stale="true"] { opacity: .62; }
         <details class="pace-more">
           <summary>Reading this</summary>
           <div class="pace-note" id="pace-note"></div>
+        </details>
+      </div>
+    </section>
+
+    <section id="sec-session" hidden>
+      <div class="sec-head">
+        <span class="sec-idx"></span>
+        <h2>5-hour window</h2>
+        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization by hours into its own window, with the cycle before it</span>
+        <span class="sec-line"></span>
+      </div>
+      <div class="card pace-card">
+        <div id="session-chart"></div>
+        <ul class="legend" id="session-legend" aria-label="Seats plotted"></ul>
+        <p class="pace-missing" id="session-missing" hidden></p>
+        <p class="sess-focus" id="session-focus" role="status" aria-live="polite"></p>
+        <details class="pace-more">
+          <summary>Reading this</summary>
+          <div class="pace-note" id="session-note"></div>
         </details>
       </div>
     </section>
@@ -1775,6 +1803,79 @@ main[data-stale="true"] { opacity: .62; }
       "h" + (-(w - r)) + "Z";
   }
 
+
+  /* ------------------------------------------------------- history lines */
+
+  /* A seat's recorded utilization for one window: cycles oldest first, each
+     a reset instant and [unix seconds, utilization] samples. Null where the
+     payload holds none. */
+  function historyFor(a, kind, scope) {
+    var list = (a && a.history) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === kind && (list[i].scope || "") === (scope || "")) return list[i];
+    }
+    return null;
+  }
+
+  /* The cycle whose reset is the window's present one, and the completed
+     cycle before it. A cycle's reset matches within the two minutes the
+     server allows for clock skew; a window whose reset no cycle carries has
+     no path yet, and the newest cycle is then the one before it. */
+  function splitCycles(hist, resetsAt) {
+    var out = { cur: null, prev: null };
+    if (!hist || !hist.cycles || !hist.cycles.length) return out;
+    var cycles = hist.cycles, target = resetsAt ? resetsAt.getTime() : null, idx = -1;
+    for (var i = cycles.length - 1; i >= 0; i--) {
+      var r = parseT(cycles[i].resets_at);
+      if (target === null ? !r : (r && Math.abs(r.getTime() - target) <= 2 * 60000)) { idx = i; break; }
+    }
+    if (idx < 0) { out.prev = cycles[cycles.length - 1]; return out; }
+    out.cur = cycles[idx];
+    if (idx > 0) out.prev = cycles[idx - 1];
+    return out;
+  }
+
+  /* Samples as {t: ms, u} in order, dropping any the encoder nulled. */
+  function samplesOf(cycle) {
+    var out = [];
+    ((cycle && cycle.samples) || []).forEach(function (s) {
+      if (s && num(s[0]) && num(s[1])) out.push({ t: s[0] * 1000, u: s[1] });
+    });
+    return out;
+  }
+
+  /* An SVG path through samples on a chart whose x is time and y is
+     utilization, given the mapping of a sample's instant to x. */
+  function pathOf(samples, xOf, Y) {
+    var d = "";
+    samples.forEach(function (s, i) {
+      d += (i ? "L" : "M") + xOf(s.t).toFixed(1) + " " + Y(s.u).toFixed(1);
+    });
+    return d;
+  }
+
+  /* Change in utilization over the newest span of a cycle, in percentage
+     points per hour, or null with fewer than two samples in the span. */
+  function recentSlope(samples, spanMs) {
+    if (samples.length < 2) return null;
+    var last = samples[samples.length - 1], from = last.t - spanMs, first = null;
+    for (var i = samples.length - 1; i >= 0; i--) {
+      if (samples[i].t <= from) { first = samples[i]; break; }
+      first = samples[i];
+    }
+    if (!first || first === last || last.t - first.t < 60000) return null;
+    return (last.u - first.u) * 100 / ((last.t - first.t) / 3600000);
+  }
+
+  function rateText(ptsPerHour) {
+    if (!num(ptsPerHour)) return "—";
+    return (Math.abs(ptsPerHour) < 0.05 ? "0.0" : ptsPerHour.toFixed(1)) + " pts/h";
+  }
+
+  function clockText(ms) {
+    return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
   /* ----------------------------------------------------------- pace curve */
 
   /* The weekly all-models window is the budget the plugin paces against and
@@ -1918,7 +2019,7 @@ main[data-stale="true"] { opacity: .62; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Share of the weekly budget spent by days into each seat's own week, against the pace target, one point per seat" +
+      "aria-label": "Share of the weekly budget spent by days into each seat's own week, against the pace target, one point per seat with the recorded path behind it" +
         (fams.length ? ", and one more per seat for its " + fams.join(" and ") + " cap" : "")
     }, host);
 
@@ -1963,9 +2064,27 @@ main[data-stale="true"] { opacity: .62; }
        score; the weekly window counts whole. The group's role="img" keeps
        the label out of the accessibility tree; the slack is in its name. */
     var labels = [];
+    var SLOPE_SPAN_MS = 6 * 3600000;
     function point(a, ws, weighted) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+      /* The recorded path from the window's start to the present reading,
+         under the mark; a seat with one sample this window draws the mark
+         alone. x is the sample's own elapsed fraction of this window. */
+      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null;
+      if (resets && hist) {
+        var start = resets.getTime() - PACE_DAYS * 86400000;
+        var cur = samplesOf(splitCycles(hist, resets).cur);
+        if (cur.length >= 2) {
+          var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
+          svg("path", { "class": "hist", d: pathOf(cur, xOf, Y) + "L" + cx.toFixed(1) + " " + cy.toFixed(1), stroke: col }, g);
+          line = cur;
+          slope = recentSlope(cur, SLOPE_SPAN_MS);
+        }
+      }
+      /* The target's own slope at this elapsed, in the same units, so the
+         two rates read side by side. */
+      var targetSlope = landing * gamma * Math.pow(Math.max(ws.elapsed, 1e-6), gamma - 1) * 100 / (PACE_DAYS * 24);
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
         var ty = Y(ws.target);
         svg("line", {
@@ -1986,7 +2105,9 @@ main[data-stale="true"] { opacity: .62; }
         "\nspent        " + pct(ws.utilization) + " of the " + windowName(ws) + " budget" +
         "\npace target  " + pct(ws.target) +
         "\nslack        " + slackText(ws.slack) +
-        (weighted ? "\nin score     " + weightMark(ws) : ""));
+        (weighted ? "\nin score     " + weightMark(ws) : "") +
+        (line ? "\nlast 6h      " + rateText(slope) + " · target " + rateText(targetSlope) +
+          "\nrecorded     " + line.length + " readings this window" : "\nrecorded     no path yet this window"));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       if (weighted) {
         svg("path", {
@@ -2033,7 +2154,7 @@ main[data-stale="true"] { opacity: .62; }
   function focusSeat(root, id) {
     if (!id) { root.removeAttribute("data-focus"); }
     else { root.setAttribute("data-focus", id); }
-    var pts = root.querySelectorAll("g.pt");
+    var pts = root.querySelectorAll("g.pt, g.seg");
     for (var i = 0; i < pts.length; i++) {
       if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
       else pts[i].removeAttribute("data-focused");
@@ -2105,8 +2226,10 @@ main[data-stale="true"] { opacity: .62; }
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
     p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
       ". A point below the curve is under pace, with budget still to spend; the dotted leader is that seat's " +
-      "slack, in percentage points of the weekly budget. This is the window the plugin paces against, and the " +
-      "one whose unspent capacity is lost at reset."));
+      "slack, in percentage points of the weekly budget. The thin line behind a mark is that seat's recorded " +
+      "path from the start of its window: steeper than the target curve is spending faster than pace, flatter is " +
+      "slower; the tooltip gives both rates over the last six hours. This is the window the plugin paces against, " +
+      "and the one whose unspent capacity is lost at reset."));
     note.appendChild(p);
 
     var q = h("p", "");
@@ -2128,6 +2251,278 @@ main[data-stale="true"] { opacity: .62; }
         : ".") +
       (num(wts.hard_cutoff) ? " A seat with any window bearing on the request at or past " + pct(wts.hard_cutoff, 0) +
         " is ineligible for it" + (fams.length ? ": a seat at its " + fams.join(" or ") + " cap can still take a Standard request." : ".") : "")));
+    note.appendChild(q);
+  }
+
+  /* ---------------------------------------------------------- 5-hour chart */
+
+  /* The 5-hour window is a rate limit: no pace target, no slack, no verdict.
+     The chart draws each seat's recorded utilization by hours into its own
+     window, the completed cycle before it faintly, and the hard cutoff as the
+     one reference line. Spend is measured per seat, so the conversations a
+     stretch of the line names are the ones the routing log shows active on
+     that seat then, not the ones that spent the tokens. */
+  var SESSION_HOURS = 5;
+  var SESSION_MS = SESSION_HOURS * 3600000;
+  var SEG_MS = 15 * 60000;   /* one hoverable stretch of a seat's line */
+  var SESSION_IDLE = "point at a stretch of a line to list the conversations the routing log shows on that seat then";
+
+  /* Why a seat draws no 5-hour line. Null means plottable. */
+  function sessionGap(a, w, resets) {
+    if (!a.snapshot || !a.snapshot.windows) return "no snapshot";
+    if (!w) return "no 5-hour reading";
+    if (!num(w.utilization)) return "bad reading";
+    if (!resets) return "no window open";
+    return null;
+  }
+
+  /* The conversations the routing log places on a seat inside [from, to]:
+     distinct session keys with their request counts, newest first, and
+     whether the log reaches back to from at all. */
+  function activeOn(st, authID, from, to) {
+    var seen = Object.create(null), out = [], oldest = null, n = 0;
+    (st.decisions || []).forEach(function (d) {
+      var at = parseT(d.at);
+      if (!at) return;
+      if (oldest === null || at.getTime() < oldest) oldest = at.getTime();
+      if (d.chosen_auth_id !== authID || !d.session_key) return;
+      if (at.getTime() < from || at.getTime() > to) return;
+      n++;
+      if (!seen[d.session_key]) { seen[d.session_key] = { key: d.session_key, n: 0, model: d.model, last: at.getTime() }; out.push(seen[d.session_key]); }
+      seen[d.session_key].n++;
+      if (at.getTime() > seen[d.session_key].last) seen[d.session_key].last = at.getTime();
+    });
+    out.sort(function (x, y) { return y.last - x.last; });
+    return { list: out, requests: n, covered: oldest !== null && oldest <= from };
+  }
+
+  function conversationLines(act) {
+    if (!act.covered && !act.list.length) return ["routing log does not reach back this far"];
+    if (!act.list.length) return ["no request routed to this seat in this stretch"];
+    var lines = act.list.slice(0, 6).map(function (c) {
+      return "  " + c.key.slice(0, 8) + "  " + c.n + (c.n === 1 ? " request" : " requests") + (c.model ? "  " + c.model : "");
+    });
+    if (act.list.length > 6) lines.push("  and " + (act.list.length - 6) + " more");
+    return lines;
+  }
+
+  function renderSession(st, seats) {
+    var host = $("session-chart");
+    host.textContent = "";
+    var focusEl = $("session-focus");
+    focusEl.textContent = SESSION_IDLE;
+    var cut = cutoffOf(st.config);
+
+    var W = Math.max(280, host.clientWidth || 480);
+    var H = Math.round(clamp(W * 0.3, 220, 340));
+    var m = { l: 46, r: 22, t: 18, b: 46 };
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    var now = nowMs();
+
+    var series = seats.map(function (a) {
+      var w = null;
+      ((a.snapshot && a.snapshot.windows) || []).forEach(function (x) { if (x.kind === "five_hour") w = x; });
+      var resets = w ? parseT(w.resets_at) : null;
+      var entry = { auth: a, w: w, resets: resets, gap: sessionGap(a, w, resets), cur: [], prev: [] };
+      if (!entry.gap) {
+        var hist = historyFor(a, "five_hour", "");
+        var parts = splitCycles(hist, resets);
+        entry.cur = samplesOf(parts.cur);
+        entry.prev = samplesOf(parts.prev);
+        entry.start = resets.getTime() - SESSION_MS;
+      }
+      return entry;
+    });
+
+    var maxY = 1.05;
+    series.forEach(function (s) {
+      if (s.gap) return;
+      maxY = Math.max(maxY, s.w.utilization + 0.05);
+      s.cur.concat(s.prev).forEach(function (p) { maxY = Math.max(maxY, p.u + 0.05); });
+    });
+    /* The axis runs from the start of the completed cycle before this one to
+       the end of the current window: -5 to 5 hours, the boundary at 0 being
+       the reset. A phone's width holds only the current window. */
+    var withPrev = pw >= 560;
+    var X = function (hrs) {
+      return withPrev
+        ? m.l + clamp((hrs + SESSION_HOURS) / (2 * SESSION_HOURS), 0, 1) * pw
+        : m.l + clamp(hrs / SESSION_HOURS, 0, 1) * pw;
+    };
+    var Y = function (u) { return m.t + ph - clamp(u, 0, maxY) / maxY * ph; };
+
+    var root = svg("svg", {
+      "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
+      role: "group",
+      "aria-label": "Each seat's 5-hour window utilization by hours into its own window, one line per seat" +
+        (withPrev ? ", with the completed cycle before it drawn faintly to the left of the reset" : "") +
+        "; the hard cutoff is the only reference line"
+    }, host);
+
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      var gy = Y(t);
+      svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
+      svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+    });
+    for (var hr = withPrev ? -SESSION_HOURS : 0; hr <= SESSION_HOURS; hr++) {
+      var gx = X(hr);
+      svg("line", { x1: gx, x2: gx, y1: Y(0), y2: Y(0) + 4, stroke: "var(--axis)", "stroke-width": 1 }, root);
+      svgText(root, gx, H - 26, String(hr), "t-mono t-muted", { "font-size": 10, "text-anchor": "middle" });
+    }
+    svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0), y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
+    svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
+    if (withPrev) {
+      svg("line", { x1: X(0), x2: X(0), y1: m.t, y2: Y(0), stroke: "var(--ink-3)", "stroke-width": 1, "stroke-dasharray": "3 3" }, root);
+      svgText(root, X(0) + 5, m.t + 8, "reset", "t-muted", { "font-size": 10, "font-weight": 600 });
+    }
+    svgText(root, m.l + pw / 2, H - 8, withPrev
+      ? "hours into each seat's own 5-hour window · left of 0, the cycle before"
+      : "hours into each seat's own 5-hour window", "t-muted",
+      { "font-size": 10.5, "text-anchor": "middle" });
+    svgText(root, m.l - 38, m.t - 6, "% of the 5-hour window used", "t-muted", { "font-size": 10.5 });
+    if (cut !== null) {
+      var cy0 = Y(cut);
+      svg("line", { x1: m.l, x2: m.l + pw, y1: cy0, y2: cy0, stroke: "var(--critical)", "stroke-width": 1.5, "stroke-dasharray": "2 4" }, root);
+      svgText(root, X(SESSION_HOURS) - 4, cy0 - 5, "hard cutoff " + pct(cut, 0), "t-muted",
+        { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
+    }
+
+    var plotted = 0;
+    series.forEach(function (s) {
+      if (s.gap) return;
+      plotted++;
+      var a = s.auth, col = seatColor(a), start = s.start;
+      var hoursOf = function (t) { return (t - start) / 3600000; };
+      var xOf = function (t) { return X(hoursOf(t)); };
+      if (withPrev && s.prev.length >= 2) {
+        svg("path", { "class": "hist-prev", d: pathOf(s.prev, xOf, Y), stroke: col }, root);
+      }
+      var cx = X(hoursOf(now)), cy = Y(s.w.utilization);
+      var headTip = seatLabel(a) + " · 5-hour session" +
+        "\nelapsed      " + clamp(hoursOf(now), 0, SESSION_HOURS).toFixed(1) + " of " + SESSION_HOURS + " hours" +
+        "\nused         " + pct(s.w.utilization) +
+        (cut !== null ? "\nhard cutoff  " + pct(cut) : "") +
+        "\nresets       " + relText(s.resets, now) +
+        "\nlast hour    " + rateText(recentSlope(s.cur, 3600000)) +
+        (s.prev.length ? "\nlast cycle   ended at " + pct(s.prev[s.prev.length - 1].u) : "") +
+        "\na rate limit: no pace target, no slack";
+      if (s.cur.length >= 2) {
+        svg("path", { "class": "hist", d: pathOf(s.cur, xOf, Y) + "L" + cx.toFixed(1) + " " + cy.toFixed(1), stroke: col }, root);
+        /* One focusable stretch per SEG_MS of the line, carrying the
+           conversations the log shows on the seat in that stretch. */
+        var from = start, i = 0, k = 0;
+        while (from < now && i < s.cur.length) {
+          var to = Math.min(from + SEG_MS, now), pts = [];
+          for (; i < s.cur.length && s.cur[i].t <= to; i++) pts.push(s.cur[i]);
+          if (i > 0 && i < s.cur.length) { pts.push(s.cur[i]); }
+          if (pts.length >= 2) {
+            var d = pathOf(pts, xOf, Y);
+            var du = pts[pts.length - 1].u - pts[0].u, dh = (pts[pts.length - 1].t - pts[0].t) / 3600000;
+            var act = activeOn(st, a.auth_id, pts[0].t, pts[pts.length - 1].t);
+            var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, root);
+            g.setAttribute("data-seat", a.auth_id);
+            g.setAttribute("data-fk", "seg:" + a.auth_id + ":" + k);
+            var head = seatLabel(a) + " · " + clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) +
+              "\nused         " + pct(pts[0].u) + " → " + pct(pts[pts.length - 1].u) +
+              "\nrate         " + rateText(dh > 0 ? du * 100 / dh : null);
+            var convo = conversationLines(act);
+            g.setAttribute("data-tip", head + "\n" + (act.list.length
+              ? "on this seat " + act.list.length + (act.list.length === 1 ? " conversation" : " conversations") + ", " + act.requests + (act.requests === 1 ? " request" : " requests") + "\n"
+              : "") + convo.join("\n"));
+            g.setAttribute("aria-label", head.replace(/\n/g, ", ").replace(/\s+/g, " ") + "; " + convo.join("; ").replace(/\s+/g, " "));
+            svg("path", { "class": "hit", d: d, fill: "none", stroke: "transparent", "stroke-width": 14 }, g);
+            (function (g, s, act, pts) {
+              var summary = function () {
+                focusEl.textContent = "";
+                focusEl.appendChild(h("b", "", seatLabel(s.auth) + " " + clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) + ": "));
+                focusEl.appendChild(document.createTextNode(
+                  act.list.length
+                    ? act.list.map(function (c) { return c.key.slice(0, 8) + " ×" + c.n; }).join(" · ") + " — shown by activity on the seat, not by tokens"
+                    : (act.covered ? "no request routed to this seat in this stretch" : "routing log does not reach back this far")));
+              };
+              var reset = function () { focusEl.textContent = SESSION_IDLE; };
+              g.addEventListener("pointerenter", summary);
+              g.addEventListener("focus", summary);
+              g.addEventListener("pointerleave", reset);
+              g.addEventListener("blur", reset);
+            })(g, s, act, pts);
+            k++;
+          }
+          from = to;
+        }
+      }
+      var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+      hg.setAttribute("data-seat", a.auth_id);
+      hg.setAttribute("data-fk", "sh:" + a.auth_id);
+      hg.setAttribute("data-tip", headTip);
+      hg.setAttribute("aria-label", headTip.replace(/\n/g, ", ").replace(/\s+/g, " "));
+      svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
+      svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col, stroke: "var(--surface-1)", "stroke-width": 2 }, hg);
+    });
+
+    if (!plotted) {
+      svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has an open 5-hour window",
+        "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
+    }
+
+    renderSessionLegend(series, root, withPrev);
+    renderSessionNote(st, cut, withPrev);
+  }
+
+  function renderSessionLegend(series, root, withPrev) {
+    var leg = $("session-legend");
+    leg.textContent = "";
+    var missing = [];
+    series.forEach(function (s) {
+      var a = s.auth;
+      if (s.gap) { missing.push(seatLabel(a) + ": " + s.gap); return; }
+      var li = h("li", "");
+      li.setAttribute("data-seat", a.auth_id);
+      var sw = h("span", "sw");
+      sw.style.background = seatColor(a);
+      sw.style.height = "3px";
+      li.appendChild(sw);
+      li.appendChild(document.createTextNode(seatLabel(a)));
+      li.addEventListener("pointerenter", function () { focusSeat(root, a.auth_id); });
+      li.addEventListener("pointerleave", function () { focusSeat(root, null); });
+      leg.appendChild(li);
+    });
+    if (withPrev) {
+      var prev = h("li", "");
+      var psw = h("span", "sw");
+      psw.style.cssText = "height:0;border-top:2px dashed var(--ink-3)";
+      prev.appendChild(psw);
+      prev.appendChild(document.createTextNode("the cycle before, left of the reset"));
+      leg.appendChild(prev);
+    }
+    leg.hidden = !leg.childNodes.length;
+
+    var gap = $("session-missing");
+    gap.textContent = "";
+    gap.hidden = !missing.length;
+    if (missing.length) {
+      gap.appendChild(h("b", "", "not plotted  "));
+      gap.appendChild(document.createTextNode(missing.join(" · ")));
+    }
+  }
+
+  function renderSessionNote(st, cut, withPrev) {
+    var note = $("session-note");
+    note.textContent = "";
+    var p = h("p", "");
+    p.appendChild(document.createTextNode("Each line is one seat's rolling 5-hour window: how far into the window " +
+      "it is, against how much of the window is used, from the window's start to the newest reading. This is a " +
+      "rate limit, not a budget: unused capacity is not carried, the window resets several times a day, and the " +
+      "plugin sets no pace for it, so there is no target curve, no slack and no verdict here. The only reference is " +
+      (cut !== null ? "the hard cutoff at " + pct(cut, 0) + ", past which a seat cannot take a new conversation" : "the top of the window") +
+      (withPrev ? ". Left of the reset line, dashed, is the cycle that ended when the window last reset, on the same scale, so the shape can be compared with the one under way." : ".")));
+    note.appendChild(p);
+    var q = h("p", "");
+    q.appendChild(document.createTextNode("Spend is measured per seat: the host reports each request's tokens against the " +
+      "credential that served it, not the conversation, so no line here belongs to one conversation. Pointing at a " +
+      "stretch of a line lists the conversations the routing log placed on that seat in that quarter hour, by " +
+      "request count; a steep stretch with one conversation on it is that conversation, a steep stretch with several " +
+      "is a set to look at. The log is bounded, so an older stretch may fall outside it."));
     note.appendChild(q);
   }
 
@@ -2648,12 +3043,14 @@ main[data-stale="true"] { opacity: .62; }
     $("empty-state").hidden = !empty;
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
+    $("sec-session").hidden = empty;
     $("sec-decisions").hidden = false;
     $("sec-bindings").hidden = false;
 
     if (!empty) {
       renderTimeline(st, seats, ranks);
       renderPace(st, seats);
+      renderSession(st, seats);
     }
     renderDecisions(st);
     renderBindings(st);

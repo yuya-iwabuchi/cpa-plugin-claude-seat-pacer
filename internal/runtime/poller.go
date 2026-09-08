@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -49,6 +51,60 @@ func (p *Plugin) startPoller() {
 	go p.runPoller(pl)
 }
 
+// defaultHistoryFile is the history file's location when the config names
+// none: under the host's own state directory, in a directory of the plugin's
+// name. Empty when no home directory is known, which turns persistence off.
+func defaultHistoryFile() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".cli-proxy-api", "plugins", "cpa-claude-quota-scheduler", "history.json")
+}
+
+// loadHistory reads the history file once, ahead of the first poll, so the
+// charts show the previous run's samples from the first status response. It
+// runs on the poll goroutine, never on the pick path.
+func (p *Plugin) loadHistory(cfg model.Config) {
+	p.mu.Lock()
+	done := p.historyLoaded
+	p.historyLoaded = true
+	p.mu.Unlock()
+	if done || !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
+		return
+	}
+	if err := p.quota.LoadHistory(p.opts.HistoryFile); err != nil {
+		p.host.log("warn", "cpa-claude-quota-scheduler could not read the utilization history", map[string]any{"error": err.Error()})
+		return
+	}
+	p.mu.Lock()
+	p.historySaved = p.quota.HistoryVersion()
+	p.mu.Unlock()
+}
+
+// saveHistory writes the history file when the store has changed since the
+// last write. It runs after a poll and at stop, on the poll goroutine or the
+// lifecycle call, never on the pick path.
+func (p *Plugin) saveHistory(cfg model.Config) {
+	if !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
+		return
+	}
+	version := p.quota.HistoryVersion()
+	p.mu.Lock()
+	unchanged := version == p.historySaved || !p.historyLoaded
+	p.mu.Unlock()
+	if unchanged {
+		return
+	}
+	if err := p.quota.SaveHistory(p.opts.HistoryFile); err != nil {
+		p.host.log("warn", "cpa-claude-quota-scheduler could not write the utilization history", map[string]any{"error": err.Error()})
+		return
+	}
+	p.mu.Lock()
+	p.historySaved = version
+	p.mu.Unlock()
+}
+
 // stopPoller stops the poll loop and waits for it. It is idempotent, and a
 // later plugin.register starts a fresh loop.
 func (p *Plugin) stopPoller() {
@@ -60,6 +116,7 @@ func (p *Plugin) stopPoller() {
 	close(p.poller.stop)
 	<-p.poller.done
 	p.poller = nil
+	p.saveHistory(p.config())
 }
 
 // Shutdown stops the poll loop and then drains the host calls it left
@@ -89,6 +146,7 @@ func (p *Plugin) runPoller(pl *poller) {
 
 	timer := time.NewTimer(p.startDelay)
 	defer timer.Stop()
+	p.loadHistory(p.config())
 	for {
 		select {
 		case <-pl.stop:
@@ -146,6 +204,8 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		p.mu.Unlock()
 		return cfg.Quota.PollInterval
 	}
+	p.loadHistory(cfg)
+	defer p.saveHistory(cfg)
 	p.warnSingleCandidate()
 
 	entries, err := p.host.authList(ctx)

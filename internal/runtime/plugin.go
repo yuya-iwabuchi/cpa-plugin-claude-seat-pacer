@@ -30,6 +30,10 @@ type Options struct {
 	NewBindingStore NewBindingStore
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// HistoryFile is where the utilization history is kept between runs when
+	// quota.persist-history is on. Empty selects the default beside the
+	// host's plugin directory.
+	HistoryFile string
 }
 
 // Plugin owns every piece of runtime state and answers every host method.
@@ -78,6 +82,10 @@ type Plugin struct {
 	// startDelay is the wait before the first poll; tests push it out so a
 	// poll cannot race their assertions.
 	startDelay time.Duration
+	// historyLoaded marks the one-time read of the history file, and
+	// historySaved the store version the file last held.
+	historyLoaded bool
+	historySaved  uint64
 }
 
 // resourceHandler wraps an http.Handler so it fits an atomic.Pointer.
@@ -113,6 +121,9 @@ func New(opts Options) *Plugin {
 		singleCandidates: make(map[string]int),
 		singleLogged:     make(map[string]bool),
 		startDelay:       startupGrace,
+	}
+	if p.opts.HistoryFile == "" {
+		p.opts.HistoryFile = defaultHistoryFile()
 	}
 	initial := model.Defaults()
 	initial.Enabled = false

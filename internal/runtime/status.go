@@ -8,6 +8,7 @@ import (
 
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
 )
 
 // defaultStatusModel is the model the status view scores for before any
@@ -107,6 +108,10 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			Score:    scoreWithStaleness(cfg, snap, hasSnap, id, modelID, now),
 			Bindings: counts[id],
 			Cache:    cache[id],
+			History:  p.quota.History(id, quota.HistoryPublishMax),
+		}
+		if row.History == nil {
+			row.History = []model.WindowHistory{}
 		}
 		if listed {
 			row.Label = authLabel(entry)

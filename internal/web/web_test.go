@@ -85,6 +85,13 @@ func richStatus() model.Status {
 				Requests: 1412, CacheReadTokens: 9600000,
 				CacheCreationTokens: 250000, FreshInputTokens: 150000, OutputTokens: 318400,
 			},
+			History: []model.WindowHistory{{
+				Kind: model.WindowSession,
+				Cycles: []model.Cycle{{
+					ResetsAt: base.Add(2 * time.Hour),
+					Samples:  []model.Sample{{At: base.Add(-time.Hour), Utilization: 0.5}, {At: base.Add(-time.Minute), Utilization: 0.8}},
+				}},
+			}},
 		}},
 		Bindings: []model.Binding{{
 			SessionKey: "5f2c0b7d", Provider: "claude", Model: "claude-fable-5",
@@ -324,6 +331,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"sec-seats", "seats-sub",
 		"timeline", "timeline-legend", "timeline-toggle", "timeline-note",
 		"sec-pace", "pace-sub", "pace-curve", "pace-legend", "pace-missing", "pace-note",
+		"sec-session", "session-sub", "session-chart", "session-legend", "session-missing", "session-focus", "session-note",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
 	}
