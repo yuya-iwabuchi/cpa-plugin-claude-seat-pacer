@@ -35,10 +35,10 @@
   /* Six hues, in an order whose adjacent pairs stay apart under colour-vision
      deficiency; a seventh seat is neutral and its name carries the identity. */
   --seat-1:       #2a78d6;
-  --seat-2:       #eb6834;
-  --seat-3:       #1baf7a;
-  --seat-4:       #eda100;
-  --seat-5:       #e87ba4;
+  --seat-2:       #e55117;
+  --seat-3:       #179468;
+  --seat-4:       #b07700;
+  --seat-5:       #e04b83;
   --seat-6:       #4a3aa7;
   --seat-x:       #898781;
 
@@ -333,7 +333,6 @@ svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
 svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
 .sess-focus b { font-weight: 600; color: var(--ink-1); }
-.tl-note { margin: 10px 8px 2px; font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .pace-card { padding: 18px 18px 14px; overflow-x: auto; }
 .pace-card .legend { margin: 12px 0 0; }
 .pace-missing { margin: 8px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-3); }
@@ -503,7 +502,6 @@ main[data-stale="true"] { opacity: .62; }
       <span class="stamp" id="last-updated">never</span>
     </div>
     <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
-    <button type="button" id="density-toggle">Density: auto</button>
     <button type="button" id="theme-toggle">Theme: auto</button>
   </div>
 </div>
@@ -540,7 +538,6 @@ main[data-stale="true"] { opacity: .62; }
         <h2>Seats</h2>
         <span class="sec-sub" id="seats-sub">one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation</span>
         <span class="sec-line"></span>
-        <span class="sec-tools"><button type="button" id="timeline-toggle" aria-pressed="false" hidden>Unfold every seat</button></span>
       </div>
       <!-- The lane states come from STATE_META at render time; only the
            axis markers, which no script draws, are markup. -->
@@ -550,7 +547,7 @@ main[data-stale="true"] { opacity: .62; }
         <li data-axis-marker><span class="gl" style="color:var(--critical)">&#9478;</span> hard cutoff</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
-      <div class="card tl-card"><div id="timeline"></div><p class="tl-note" id="timeline-note" hidden></p></div>
+      <div class="card tl-card"><div id="timeline"></div></div>
     </section>
 
     <section id="sec-pace" hidden>
@@ -626,8 +623,7 @@ main[data-stale="true"] { opacity: .62; }
   var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
-  var DENSE_AT = 4;          /* more seats than this and density "auto" draws compact rows */
-  var TL_FULL_ROWS = 6;      /* dense timeline: seats drawn lane by lane before the rest fold */
+  var DENSE_AT = 4;          /* more seats than this and the rows draw compact */
   var SEAT_HUES = 6;         /* --seat-1 … --seat-6; every later seat is neutral */
 
   var state = {
@@ -652,9 +648,7 @@ main[data-stale="true"] { opacity: .62; }
     sigs: Object.create(null),
     sort: { key: "last_seen", dir: -1 },
     theme: "auto",
-    density: "auto",
     /* Whether the dense timeline draws every seat lane by lane. */
-    timelineAll: false
   };
 
   function nowMs() { return Date.now() - state.skew; }
@@ -1058,8 +1052,6 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   function dense(count) {
-    if (state.density === "roomy") return false;
-    if (state.density === "compact") return true;
     return count > DENSE_AT;
   }
 
@@ -1392,37 +1384,10 @@ main[data-stale="true"] { opacity: .62; }
     for (var i = 0; i < markers.length; i++) host.appendChild(markers[i]);
   }
 
-  /* Which seats fold to a single row in the dense timeline: one with nothing
-     to draw — no lane the scorer evaluated — and, past TL_FULL_ROWS, every
-     seat that is not eligible. An eligible seat always keeps its lanes,
-     because it is one the next new conversation can land on. */
-  function foldSeat(a, wins, cfg, ranks, compact) {
-    if (!compact || state.timelineAll) return false;
-    var eligible = anyEligible(a, ranks.fams);
-    var evaluated = wins.some(function (w) { return laneState(w, scoreFor(a, w), cfg) !== "unknown"; });
-    if (!evaluated && !eligible) return true;
-    return bestRank(a, ranks) >= TL_FULL_ROWS && !eligible;
-  }
-
-  /* The seat's best rank across the families; past every seat where no
-     family ranks it. */
-  function bestRank(a, ranks) {
-    var best = Infinity;
-    ranks.fams.forEach(function (fam) {
-      var r = ranks.byFam[fam][a.auth_id];
-      if (r !== undefined && r < best) best = r;
-    });
-    return best;
-  }
-
   function renderTimeline(st, seats, ranks) {
     var host = $("timeline");
     host.textContent = "";
     renderStateLegend();
-    var note = $("timeline-note");
-    var toggle = $("timeline-toggle");
-    note.hidden = true;
-    toggle.hidden = true;
     if (!seats.length) return;
 
     var cfg = st.config || {};
@@ -1452,34 +1417,19 @@ main[data-stale="true"] { opacity: .62; }
     var t1 = Math.ceil((tMax + 2 * 3600000) / 3600000) * 3600000;
     var X = function (t) { return GUT + (t - t0) / (t1 - t0) * plotW; };
 
-    var folded = 0;
     var groups = seats.map(function (a) {
-      var wins = sortedWindows(a.snapshot && a.snapshot.windows);
-      var fold = foldSeat(a, wins, cfg, ranks, compact);
-      if (fold) folded++;
-      return { a: a, wins: wins, fold: fold };
+      return { a: a, wins: sortedWindows(a.snapshot && a.snapshot.windows) };
     });
     var y = TOP, layout = [];
     groups.forEach(function (g) {
       var top = y;
       y += geo.head;
-      var lanes = g.fold ? [] : g.wins.map(function (w) { var ly = y; y += geo.lane; return { w: w, y: ly }; });
+      var lanes = g.wins.map(function (w) { var ly = y; y += geo.lane; return { w: w, y: ly }; });
       layout.push({ g: g, top: top, bottom: y, lanes: lanes });
       y += geo.gap;
     });
     var plotH = y - geo.gap + 6;
     var height = plotH + AXIS_H;
-
-    if (compact) {
-      toggle.hidden = false;
-      toggle.setAttribute("aria-pressed", state.timelineAll ? "true" : "false");
-      toggle.textContent = state.timelineAll ? "Fold ineligible seats" : "Unfold every seat";
-      note.hidden = false;
-      note.textContent = folded
-        ? folded + " of " + seats.length + " seats folded to one row: not evaluated, or ineligible past rank " + TL_FULL_ROWS +
-          ". Each window keeps its state and utilization; its detail is in the tooltip."
-        : seats.length + " seats, every window drawn.";
-    }
 
     var root = svg("svg", {
       "class": "tl", width: width, height: height,
@@ -1584,24 +1534,6 @@ main[data-stale="true"] { opacity: .62; }
 
       if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, leadText(leads, fams), GUT - nameX - 14);
 
-      if (row.g.fold) {
-        /* A folded seat keeps its state glyphs on the axis side, so the row
-           still says what every window is doing without a lane each. */
-        var gx0 = GUT + 6;
-        row.g.wins.forEach(function (w) {
-          var ws = scoreFor(a, w), stt = laneState(w, ws, cfg), meta = STATE_META[stt];
-          var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: .8 }, gBars);
-          g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
-          g.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
-          g.setAttribute("data-tip", laneTip(a, w, ws, stt, cfg, false));
-          var t = svgText(g, gx0, headY, meta.glyph + " " + windowShort(w) + " " + pct(w.utilization, 0),
-            "t-mono t-sec", { "font-size": 10.5 });
-          svg("rect", { "class": "hit", x: gx0 - 4, y: row.top, width: t.getComputedTextLength() + 8, height: geo.head, rx: 4, fill: "transparent" }, g);
-          g.appendChild(t);
-          gx0 += t.getComputedTextLength() + 18;
-        });
-        return;
-      }
 
       var groupOpacity = eligible ? 1 : 0.62;
 
@@ -3232,27 +3164,6 @@ main[data-stale="true"] { opacity: .62; }
      clear of the console's floating toolbar. */
   if (window.self !== window.top) document.documentElement.setAttribute("data-framed", "");
 
-  var densityBtn = $("density-toggle");
-  var DENSITIES = ["auto", "roomy", "compact"];
-  try {
-    var savedDensity = window.localStorage.getItem("cqs-density");
-    if (savedDensity && DENSITIES.indexOf(savedDensity) >= 0) state.density = savedDensity;
-  } catch (e) { /* storage may be blocked; auto is a fine default */ }
-  function applyDensity() {
-    densityBtn.textContent = "Density: " + state.density;
-    try { window.localStorage.setItem("cqs-density", state.density); } catch (e) { /* ignored */ }
-  }
-  densityBtn.addEventListener("click", function () {
-    state.density = DENSITIES[(DENSITIES.indexOf(state.density) + 1) % DENSITIES.length];
-    applyDensity();
-    if (state.data) render();
-  });
-  applyDensity();
-
-  $("timeline-toggle").addEventListener("click", function () {
-    state.timelineAll = !state.timelineAll;
-    if (state.data) render();
-  });
 
   var themeBtn = $("theme-toggle");
   var THEMES = ["auto", "light", "dark"];

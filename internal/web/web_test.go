@@ -325,11 +325,11 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	ids := []string{
 		"tooltip", "svg-ns",
 		"plugin-facts", "next-pick", "seat-count", "snapshot-age",
-		"refresh-toggle", "density-toggle", "theme-toggle",
+		"refresh-toggle", "theme-toggle",
 		"live-dot", "last-updated",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
 		"sec-seats", "seats-sub",
-		"timeline", "timeline-legend", "timeline-toggle", "timeline-note",
+		"timeline", "timeline-legend",
 		"sec-pace", "pace-sub", "pace-curve", "pace-legend", "pace-missing", "pace-note",
 		"sec-session", "session-sub", "session-chart", "session-legend", "session-missing", "session-focus", "session-note",
 		"sec-decisions", "decisions",
