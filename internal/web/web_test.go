@@ -317,13 +317,13 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 
 	ids := []string{
 		"tooltip", "svg-ns",
-		"plugin-name", "plugin-version", "host-schema", "started-at", "next-pick",
+		"plugin-facts", "next-pick", "seat-count", "snapshot-age",
 		"rank-ctl", "rank-label", "rank-for", "refresh-toggle", "density-toggle", "theme-toggle",
 		"live-dot", "last-updated",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
 		"sec-seats", "seats-sub",
 		"timeline", "timeline-legend", "timeline-toggle", "timeline-note",
-		"sec-pace", "pace-curve", "pace-legend", "pace-missing", "pace-note",
+		"sec-pace", "pace-sub", "pace-curve", "pace-legend", "pace-missing", "pace-note",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
 	}
