@@ -189,21 +189,13 @@ a { color: inherit; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-/* The model field grows with the bar: a dated model id runs past thirty
-   characters and a field that cannot hold it clips its own value. */
-.ctl-model { flex: 1 1 360px; }
-.ctl-hint { font: 500 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
-.ctl label { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
-input[type="text"] {
-  font: 500 12.5px/1 var(--mono);
-  color: var(--ink-1); background: var(--surface-1);
-  border: 1px solid var(--axis); border-radius: 6px;
-  padding: 7px 10px;
-  /* Shrinkable below its preferred width: a phone viewport is narrower than
-     the field, and a sticky bar that overflows desynchronises from the page. */
-  flex: 1 1 240px; min-width: 0; max-width: 100%;
-}
-input[type="text"]::placeholder { color: var(--ink-3); }
+.ctl-label { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+/* Segmented radios: one bordered strip, the checked segment filled. */
+.seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 8px 12px; }
+.seg button + button { border-left: 1px solid var(--axis); }
+.seg button[aria-checked="true"] { background: var(--ink-1); color: var(--surface-1); }
+.seg button:focus-visible { outline-offset: -3px; }
 button {
   font: 600 11.5px/1 var(--sans);
   color: var(--ink-1); background: var(--surface-1);
@@ -471,12 +463,13 @@ main[data-stale="true"] { opacity: .62; }
 
 <div class="controls">
   <div class="controls-inner">
-    <div class="ctl ctl-model">
-      <label for="model-input">Model</label>
-      <input type="text" id="model-input" list="model-list" spellcheck="false"
-             autocomplete="off" placeholder="source default">
-      <datalist id="model-list"></datalist>
-      <span class="ctl-hint" id="model-hint"></span>
+    <!-- Which kind of request the ranking is shown for. Scoring differs by
+         model family only, so the options are Standard plus one per family
+         cap the seats report; a pool with no family cap has one outcome and
+         no control. The buttons are generated from the payload. -->
+    <div class="ctl" id="rank-ctl" role="radiogroup" aria-labelledby="rank-label" hidden>
+      <span class="ctl-label" id="rank-label">Rank for</span>
+      <div class="seg" id="rank-for"></div>
     </div>
     <div class="spacer"></div>
     <div class="ctl">
@@ -593,7 +586,11 @@ main[data-stale="true"] { opacity: .62; }
   var SEAT_HUES = 6;         /* --seat-1 … --seat-6; every later seat is neutral */
 
   var state = {
-    model: "",
+    /* The request kind the ranking is shown for: a scoped family name, or
+       "" for Standard. Pinned once the operator chooses; otherwise it
+       follows the last routed model. */
+    rankFor: "",
+    rankPinned: false,
     paused: false,
     data: null,              /* last good status; a failed fetch keeps it */
     error: null,
@@ -1777,10 +1774,15 @@ main[data-stale="true"] { opacity: .62; }
     note.appendChild(p);
 
     var q = h("p", "");
-    var scopedTerm = wts.scoped_weight > 0
-      ? ", plus " + share(wts.scoped_weight) + " of the slack on the model-family weekly window when the " +
-        "requested model's family has its own cap (not drawn here; the seats timeline shows it)"
-      : "";
+    var fams = scopedFamilies(st);
+    var scopedTerm = "";
+    if (wts.scoped_weight > 0 && fams.length) {
+      scopedTerm = state.rankFor === STANDARD
+        ? ", plus " + share(wts.scoped_weight) + " of the slack on a model-family weekly window when the request's " +
+          "family has its own cap — none does for Standard requests, so that term is zero in the ranking shown"
+        : ", plus " + share(wts.scoped_weight) + " of the slack on the " + state.rankFor + " weekly window, the cap " +
+          "the ranking shown is for (not drawn here; the seats timeline shows it)";
+    }
     q.appendChild(document.createTextNode("Seats rank by score, in the same points: " +
       (wts.weekly_weight === 1 ? "weekly slack" : share(wts.weekly_weight) + " of weekly slack") + scopedTerm +
       ", minus a fullness penalty of " + share(wts.raw_utilization_weight) + " of the seat's fullest window." +
@@ -2101,6 +2103,19 @@ main[data-stale="true"] { opacity: .62; }
     } else {
       next.textContent = ranked.length ? "none eligible" : "—";
     }
+
+    /* The ranking on the page is for one request kind; the sub-line names
+       it, and says so when it is not the kind live traffic is routed by. */
+    var families = scopedFamilies(st);
+    var sub = "one row per seat, ranked; the top eligible seat takes the next new conversation";
+    if (families.length) {
+      var liveID = liveModel(st), live = familyOf(liveID, families);
+      sub = "one row per seat, ranked for " + rankLabel(state.rankFor) + " requests; the top eligible seat takes the next new " +
+        rankLabel(state.rankFor) + " conversation" +
+        (state.rankPinned && live !== state.rankFor && liveID
+          ? " (live traffic is " + rankLabel(live) + ": " + liveID + ")" : "");
+    }
+    $("seats-sub").textContent = sub;
   }
 
   /* Every warning comes from the plugin: only it sees what the host offered,
@@ -2120,29 +2135,143 @@ main[data-stale="true"] { opacity: .62; }
     host.appendChild(box);
   }
 
-  function renderModels(st) {
-    var dl = $("model-list");
-    dl.textContent = "";
-    var seen = Object.create(null);
-    function add(m) {
-      if (!m || seen[m]) return;
-      seen[m] = true;
-      var o = document.createElement("option");
-      o.value = m;
-      dl.appendChild(o);
-    }
-    add(st.model);
-    (st.decisions || []).forEach(function (d) { add(d.model); });
-    (st.bindings || []).forEach(function (b) { add(b.model); });
+  /* ------------------------------------------------------------- rank for */
 
-    /* The placeholder is the id alone, so a dated model id fits the field;
-       the hint beside it says where the default came from. */
-    var input = $("model-input");
-    if (document.activeElement !== input && !state.model) {
-      input.placeholder = st.model || "source default";
-    }
-    $("model-hint").textContent = state.model ? "pinned" : (st.model ? "source default" : "");
+  var STANDARD = "";
+  var RANK_KEY = "cqs-rank-for";
+
+  /* Every distinct family cap the seats report, sorted. Scoring differs by
+     family, not by model: a scoped weekly window bears on a request only
+     when the request's family matches its scope, so every model outside
+     these families scores the same way — Standard. */
+  function scopedFamilies(st) {
+    var seen = Object.create(null), out = [];
+    (st.auths || []).forEach(function (a) {
+      var wins = a.snapshot && a.snapshot.windows || [];
+      wins.forEach(function (w) {
+        if (w.kind !== "weekly_scoped" || !w.scope || seen[w.scope]) return;
+        seen[w.scope] = true;
+        out.push(w.scope);
+      });
+    });
+    return out.sort();
   }
+
+  /* The observed family a model id belongs to, or STANDARD. Mirrors the
+     server's FamilyOf: a case-insensitive substring match on the family
+     token, restricted to the families that have a cap in this payload,
+     which are the only ones a ranking can differ by. */
+  function familyOf(modelID, families) {
+    var lower = String(modelID || "").toLowerCase();
+    for (var i = 0; i < families.length; i++) {
+      if (lower.indexOf(families[i].toLowerCase()) >= 0) return families[i];
+    }
+    return STANDARD;
+  }
+
+  /* The model live traffic is routed by: the newest routed decision, as the
+     plugin's own default. Status.model is the model the scores were
+     evaluated for, which is the queried one once the control is pinned, so
+     it is only the fallback before any decision. A decline routed nothing. */
+  function liveModel(st) {
+    var decs = (st && st.decisions) || [];
+    for (var i = 0; i < decs.length; i++) {
+      if (decs[i].model && decs[i].kind !== "declined") return decs[i].model;
+    }
+    return (st && st.model) || "";
+  }
+
+  function payloadModels(st) {
+    var out = [];
+    if (st) {
+      out.push(st.model);
+      (st.decisions || []).forEach(function (d) { out.push(d.model); });
+      (st.bindings || []).forEach(function (b) { out.push(b.model); });
+    }
+    return out.filter(function (m) { return !!m; });
+  }
+
+  /* The model id the status route is asked to score for a selection. The
+     route takes a model, not a family, and scores it by family, so any id
+     resolving to the selected family yields that family's ranking. A model
+     seen in traffic is preferred; the synthetic fallback claude-<family>
+     resolves to the family by the same substring rule. For Standard the id
+     must resolve to no observed family: a model of a family without a cap
+     scores as Standard (Opus while only Fable is capped), and the fallback
+     claude-standard carries no family token at all. Ids from the payload
+     are checked against the observed set rather than trusted by name, so
+     a family that gains a cap stops serving as the Standard sample. */
+  function representativeModel(family, st, families) {
+    var models = payloadModels(st);
+    for (var i = 0; i < models.length; i++) {
+      if (familyOf(models[i], families) === family) return models[i];
+    }
+    return family === STANDARD ? "claude-standard" : "claude-" + family.toLowerCase();
+  }
+
+  function rankLabel(family) { return family === STANDARD ? "Standard" : family; }
+
+  /* The control follows live traffic until the operator pins it, and a
+     pinned family the seats no longer report unpins. */
+  function resolveRankFor(st, families) {
+    if (state.rankPinned && (state.rankFor === STANDARD || families.indexOf(state.rankFor) >= 0)) return;
+    if (state.rankPinned) { try { window.localStorage.removeItem(RANK_KEY); } catch (e) { /* ignored */ } }
+    state.rankPinned = false;
+    state.rankFor = familyOf(liveModel(st), families);
+  }
+
+  function pinRankFor(family) {
+    state.rankFor = family;
+    state.rankPinned = true;
+    try { window.localStorage.setItem(RANK_KEY, family); } catch (e) { /* ignored */ }
+    renderRankFor(state.data);
+    refresh(true);
+  }
+
+  function renderRankFor(st) {
+    var families = scopedFamilies(st);
+    resolveRankFor(st, families);
+    var ctl = $("rank-ctl"), seg = $("rank-for");
+    ctl.hidden = !families.length;
+    if (!families.length) { seg.textContent = ""; return; }
+
+    var options = [STANDARD].concat(families);
+    var sig = options.join("\u0000");
+    if (seg.getAttribute("data-options") !== sig) {
+      seg.textContent = "";
+      seg.setAttribute("data-options", sig);
+      options.forEach(function (fam) {
+        var b = h("button", "", rankLabel(fam));
+        b.type = "button";
+        b.setAttribute("role", "radio");
+        b.setAttribute("data-family", fam);
+        b.setAttribute("data-fk", "rank:" + fam);
+        b.addEventListener("click", function () { if (state.rankFor !== fam) pinRankFor(fam); });
+        seg.appendChild(b);
+      });
+    }
+    var btns = seg.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute("data-family") === state.rankFor;
+      btns[i].setAttribute("aria-checked", on ? "true" : "false");
+      btns[i].tabIndex = on ? 0 : -1;
+    }
+  }
+
+  /* Arrow keys move the selection within the group, as in a native radio. */
+  $("rank-for").addEventListener("keydown", function (ev) {
+    var step = ev.key === "ArrowRight" || ev.key === "ArrowDown" ? 1
+      : ev.key === "ArrowLeft" || ev.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    var btns = this.querySelectorAll("button");
+    if (!btns.length) return;
+    var at = 0;
+    for (var i = 0; i < btns.length; i++) if (btns[i] === document.activeElement) at = i;
+    var next = btns[(at + step + btns.length) % btns.length];
+    ev.preventDefault();
+    next.focus();
+    pinRankFor(next.getAttribute("data-family"));
+  });
 
   /* Rebuilding a region destroys whatever the operator had focused, so a
      region whose payload is unchanged keeps its DOM. */
@@ -2203,9 +2332,9 @@ main[data-stale="true"] { opacity: .62; }
     $("loading").hidden = true;
     $("fail-state").hidden = true;
     $("app").removeAttribute("aria-busy");
+    renderRankFor(st);
     renderHeader(st, ranked);
     renderWarnings(st);
-    renderModels(st);
 
     var empty = !ranked.length;
     $("empty-state").hidden = !empty;
@@ -2259,9 +2388,12 @@ main[data-stale="true"] { opacity: .62; }
     s.appendChild(stamp(state.fetchedAt, ""));
   }
 
-  /* Relative fetch: the mount prefix is chosen by the host and unknown here. */
+  /* Relative fetch: the mount prefix is chosen by the host and unknown here.
+     An unpinned page sends no model and is scored for the last routed one. */
   function statusURL() {
-    return "api/status" + (state.model ? "?model=" + encodeURIComponent(state.model) : "");
+    if (!state.rankPinned) return "api/status";
+    var rep = representativeModel(state.rankFor, state.data, scopedFamilies(state.data || {}));
+    return "api/status?model=" + encodeURIComponent(rep);
   }
 
   var inFlightCtl = null, fetchTimer = null, staleTimer = null, generation = 0;
@@ -2277,8 +2409,8 @@ main[data-stale="true"] { opacity: .62; }
   /* Every request is bounded and cancellable. A request that never settles
      would otherwise hold the in-flight flag for good, freezing the page —
      including the Pause button's own refresh — behind a live green dot.
-     A user-initiated refresh supersedes whatever is running, so a new model
-     takes effect at once; the superseded handlers see a stale generation and
+     A user-initiated refresh supersedes whatever is running, so a new rank
+     selection takes effect at once; the superseded handlers see a stale generation and
      leave the state alone. */
   function refresh(userInitiated) {
     if (state.inFlight) {
@@ -2332,14 +2464,10 @@ main[data-stale="true"] { opacity: .62; }
 
   /* --------------------------------------------------------------- wiring */
 
-  var input = $("model-input");
-  input.addEventListener("change", function () {
-    state.model = input.value.trim();
-    refresh(true);
-  });
-  input.addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter") { state.model = input.value.trim(); refresh(true); }
-  });
+  try {
+    var savedRank = window.localStorage.getItem(RANK_KEY);
+    if (savedRank !== null) { state.rankFor = savedRank; state.rankPinned = true; }
+  } catch (e) { /* storage may be blocked; following traffic is a fine default */ }
 
   var toggle = $("refresh-toggle");
   toggle.addEventListener("click", function () {

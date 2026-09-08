@@ -318,7 +318,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	ids := []string{
 		"tooltip", "svg-ns",
 		"plugin-name", "plugin-version", "host-schema", "started-at", "next-pick",
-		"model-input", "model-list", "model-hint", "refresh-toggle", "density-toggle", "theme-toggle",
+		"rank-ctl", "rank-label", "rank-for", "refresh-toggle", "density-toggle", "theme-toggle",
 		"live-dot", "last-updated",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
 		"sec-seats", "seats-sub",
@@ -335,7 +335,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	for _, frag := range []string{
 		`prefers-color-scheme: dark`,
 		`aria-pressed`,
-		`<datalist`,
+		`role="radiogroup"`,
 	} {
 		if !strings.Contains(page, frag) {
 			t.Errorf("page is missing %q", frag)
