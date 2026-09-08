@@ -758,6 +758,11 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 // own. The seat's id shapes the curves so a pool does not draw the same line
 // twelve times; a third of the seats get a steep last forty minutes on the
 // 5-hour window, which is the case the chart's conversation markers exist for.
+//
+// The completed cycle is an estimate reconstructed from a token log, as a
+// backfilled file holds it. Seats with seed%3 == 1 also start the current
+// cycle as an estimate over its first 45%, so the chart shows a mixed cycle:
+// estimated, then observed from the plugin's first reading.
 func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.WindowHistory {
 	seed := 0
 	for _, c := range snap.AuthID {
@@ -765,6 +770,7 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 	}
 	shape := 0.8 + float64(seed%9)/10
 	store := quota.NewStore()
+	var saved []model.WindowHistory
 	for _, w := range snap.Windows {
 		if w.Duration <= 0 || w.ResetsAt.IsZero() {
 			continue
@@ -778,18 +784,25 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 		if w.Kind == model.WindowSession {
 			prevLanding = 0.3 + float64(seed%60)/100
 		}
-		put := func(at time.Time, util float64, resets time.Time) {
-			r := w
-			r.Utilization, r.ResetsAt = util, resets
-			store.Put(model.AuthSnapshot{AuthID: snap.AuthID, ObservedAt: at, Source: model.SourceUsageEndpoint, Windows: []model.Window{r}})
-		}
+		var prev, cur model.Cycle
+		prev.ResetsAt, prev.Estimated = start, true
+		cur.ResetsAt = w.ResetsAt
 		for t := start.Add(-w.Duration); t.Before(start); t = t.Add(step) {
 			e := 1 - start.Sub(t).Seconds()/w.Duration.Seconds()
-			put(t, prevLanding*math.Pow(e, shape), start)
+			prev.Samples = append(prev.Samples, model.Sample{At: t, Utilization: prevLanding * math.Pow(e, shape)})
 		}
 		span := now.Sub(start).Seconds()
 		steep := w.Kind == model.WindowSession && seed%3 == 0
 		knee := 1 - (40*time.Minute).Seconds()/span
+		mixedUntil := start.Add(-time.Second)
+		if seed%3 == 1 {
+			mixedUntil = start.Add(time.Duration(0.45 * float64(now.Sub(start))))
+		}
+		put := func(at time.Time, util float64) {
+			r := w
+			r.Utilization = util
+			store.Put(model.AuthSnapshot{AuthID: snap.AuthID, ObservedAt: at, Source: model.SourceUsageEndpoint, Windows: []model.Window{r}})
+		}
 		for t := start; !t.After(now); t = t.Add(step) {
 			frac := t.Sub(start).Seconds() / span
 			u := w.Utilization * math.Pow(frac, shape)
@@ -800,8 +813,21 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 					u = w.Utilization * (0.35 + 0.65*(frac-knee)/(1-knee))
 				}
 			}
-			put(t, u, w.ResetsAt)
+			if !t.After(mixedUntil) {
+				cur.Samples = append(cur.Samples, model.Sample{At: t, Utilization: u})
+				continue
+			}
+			if len(cur.Samples) > 0 {
+				cur.Estimated = true
+			}
+			put(t, u)
 		}
+		h := model.WindowHistory{Kind: w.Kind, Scope: w.Scope, Cycles: []model.Cycle{prev}}
+		if len(cur.Samples) > 0 {
+			h.Cycles = append(h.Cycles, cur)
+		}
+		saved = append(saved, h)
 	}
+	store.ImportHistory(map[string][]model.WindowHistory{snap.AuthID: saved})
 	return store.History(snap.AuthID, quota.HistoryPublishMax)
 }
