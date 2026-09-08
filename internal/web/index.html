@@ -206,13 +206,6 @@ a { color: inherit; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.ctl-label { font: 600 9.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
-/* Segmented radios: one bordered strip, the checked segment filled. */
-.seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 6px; overflow: hidden; }
-.seg button { border: 0; border-radius: 0; padding: 8px 12px; }
-.seg button + button { border-left: 1px solid var(--axis); }
-.seg button[aria-checked="true"] { background: var(--ink-1); color: var(--surface-1); }
-.seg button:focus-visible { outline-offset: -3px; }
 button {
   font: 600 11.5px/1 var(--sans);
   color: var(--ink-1); background: var(--surface-1);
@@ -326,7 +319,8 @@ svg.pace[data-focus] g.pt:not([data-focused]) { opacity: .16; }
    carries the seat's colour. In a dense chart labels wait for the seat to be
    pointed at or focused, in the legend or on the point. */
 svg.pace text.slk { fill: var(--ink-2); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk { visibility: hidden; }
+svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk,
+svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) line.tick { visibility: hidden; }
 .tl-note { margin: 10px 8px 2px; font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .pace-card { padding: 18px 18px 14px; overflow-x: auto; }
 .pace-card .legend { margin: 12px 0 0; }
@@ -368,6 +362,13 @@ svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk {
 .dec-time { font: 500 11.5px/1 var(--mono); color: var(--ink-2); }
 .dec-key  { font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
 .dec-model { font: 500 11.5px/1.3 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+/* The request family a decision was scored for, so the reader knows which
+   ranking its candidate table is. */
+.dec-fam {
+  display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px;
+  font: 600 9.5px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-2); border: 1px solid var(--axis); vertical-align: 1px;
+}
 .dec-route { font: 500 12px/1.3 var(--sans); min-width: 0; }
 .dec-route .arrow { color: var(--ink-3); font-family: var(--mono); }
 .dec-route .prev { color: var(--ink-3); }
@@ -481,14 +482,6 @@ main[data-stale="true"] { opacity: .62; }
 
 <div class="controls">
   <div class="controls-inner">
-    <!-- Which kind of request the ranking is shown for. Scoring differs by
-         model family only, so the options are Standard plus one per family
-         cap the seats report; a pool with no family cap has one outcome and
-         no control. The buttons are generated from the payload. -->
-    <div class="ctl" id="rank-ctl" role="radiogroup" aria-labelledby="rank-label" hidden>
-      <span class="ctl-label" id="rank-label">Rank for</span>
-      <div class="seg" id="rank-for"></div>
-    </div>
     <div class="spacer"></div>
     <div class="ctl">
       <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
@@ -604,13 +597,12 @@ main[data-stale="true"] { opacity: .62; }
   var SEAT_HUES = 6;         /* --seat-1 … --seat-6; every later seat is neutral */
 
   var state = {
-    /* The request kind the ranking is shown for: a scoped family name, or
-       "" for Standard. Pinned once the operator chooses; otherwise it
-       follows the last routed model. */
-    rankFor: "",
-    rankPinned: false,
     paused: false,
-    data: null,              /* last good status; a failed fetch keeps it */
+    /* Last good status, merged across request families: everything but the
+       scores comes from the Standard payload; each seat's scores sit in
+       byFamily, one per family the seats report a cap for. A failed fetch
+       keeps the last one. */
+    data: null,
     error: null,
     fetchedAt: null,
     inFlight: false,
@@ -618,10 +610,6 @@ main[data-stale="true"] { opacity: .62; }
        measured from the clock Status.Now comes from, so a seat card and a
        timeline tooltip never disagree about the same instant. */
     skew: 0,
-    /* The #1 eligible seat for every request family other than the one the
-       page is ranked for, from the side fetches of the current refresh:
-       {ok, id, auth}, or absent while the fetch is in flight. */
-    picks: Object.create(null),
     /* Rows the operator opened, by decision key, so a poll does not shut a
        candidate-scores table mid-read. */
     openDecisions: Object.create(null),
@@ -830,12 +818,48 @@ main[data-stale="true"] { opacity: .62; }
     });
   }
 
+  /* A window's score entry, from the family whose ranking it bears on: a
+     scoped cap from its own family's scores, every other window from the
+     Standard scores, which weigh those windows the same as any family does.
+     Null where that family's ranking is unknown this refresh. */
   function scoreFor(auth, w) {
-    var list = (auth.score && auth.score.windows) || [];
+    var sc = famScore(auth, w.kind === "weekly_scoped" ? (w.scope || "") : STANDARD);
+    var list = (sc && sc.windows) || [];
     for (var i = 0; i < list.length; i++) {
       if (list[i].kind === w.kind && (list[i].scope || "") === (w.scope || "")) return list[i];
     }
     return null;
+  }
+
+  /* A seat's score for one request family; null where that family's fetch
+     failed, so nothing is claimed for it. */
+  function famScore(a, fam) {
+    if (!a) return null;
+    if (fam === STANDARD) return a.score || null;
+    return (a.byFamily && a.byFamily[fam]) || null;
+  }
+
+  /* Standard plus every family cap the seats report: the request kinds a
+     ranking can differ by. */
+  function familiesOf(st) { return [STANDARD].concat(scopedFamilies(st || {})); }
+
+  /* Whether every family's value for a seat is one value, so a pair
+     collapses to it. */
+  function allSame(list) {
+    for (var i = 1; i < list.length; i++) if (list[i] !== list[0]) return false;
+    return true;
+  }
+
+  /* One text per family, or the one text when the families agree. */
+  function pairText(fams, textOf, short) {
+    var texts = fams.map(textOf);
+    if (allSame(texts)) return texts[0];
+    return fams.map(function (f, i) { return rankLabel(f, short) + " " + texts[i]; }).join(" · ");
+  }
+
+  function eligText(sc) {
+    if (!sc) return "unknown";
+    return sc.eligible ? "eligible" : (sc.reason || "ineligible");
   }
 
   /* A window is paced when the scorer gave it a weight: only a window bearing
@@ -908,6 +932,7 @@ main[data-stale="true"] { opacity: .62; }
      slack, the fullness penalty (RawWeight × the fullest window, subtracted),
      and the scoped slack at its weight when the model's family has a cap. */
   function scoreBreakdown(score) {
+    if (score === null) return "score        unknown";
     if (!scored(score)) return "score        —";
     var weekly = pacedWindow(score, PACE_KIND), scoped = pacedWindow(score, "weekly_scoped");
     var parts = [];
@@ -985,10 +1010,11 @@ main[data-stale="true"] { opacity: .62; }
     return count > DENSE_AT;
   }
 
-  /* Mirrors internal/pace ranking: eligible first, then Total desc, then id. */
-  function rankAuths(auths) {
+  /* Mirrors internal/pace ranking for one request family: eligible first,
+     then Total desc, then id. */
+  function rankAuths(auths, fam) {
     return (auths || []).slice().sort(function (x, y) {
-      var a = x.score || {}, b = y.score || {};
+      var a = famScore(x, fam) || {}, b = famScore(y, fam) || {};
       if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
       if ((a.total || 0) !== (b.total || 0)) return (b.total || 0) - (a.total || 0);
       return String(x.auth_id).localeCompare(String(y.auth_id));
@@ -1003,8 +1029,50 @@ main[data-stale="true"] { opacity: .62; }
     });
   }
 
-  function firstEligible(ranked) {
-    return ranked.filter(function (a) { return a.score && a.score.eligible; })[0] || null;
+  function firstEligible(ranked, fam) {
+    return ranked.filter(function (a) { var sc = famScore(a, fam); return sc && sc.eligible; })[0] || null;
+  }
+
+  /* Every seat's rank per family, by id, and the seat each family's next new
+     conversation lands on. A family whose ranking is unknown ranks no one. */
+  function rankSeats(st) {
+    var fams = familiesOf(st), byFam = Object.create(null), lead = Object.create(null);
+    fams.forEach(function (fam) {
+      byFam[fam] = Object.create(null);
+      var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
+      if (!known) return;
+      var ranked = rankAuths(st.auths, fam);
+      ranked.forEach(function (a, i) { byFam[fam][a.auth_id] = i; });
+      var first = firstEligible(ranked, fam);
+      if (first) lead[fam] = first.auth_id;
+    });
+    return { fams: fams, byFam: byFam, lead: lead };
+  }
+
+  /* The families whose next new conversation this seat takes. */
+  function leadsOf(a, ranks) {
+    return ranks.fams.filter(function (fam) { return ranks.lead[fam] === a.auth_id; });
+  }
+
+  function anyEligible(a, fams) {
+    return fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
+  }
+
+  /* "takes the next new conversation", naming the families where the seat
+     leads only some of them. */
+  function leadText(leads, fams) {
+    if (!leads.length) return "";
+    if (leads.length === fams.length) return "takes the next new conversation";
+    return "takes the next new " + leads.map(function (f) { return rankLabel(f); }).join(" and ") + " conversation";
+  }
+
+  /* The seat's rank: one figure when every family agrees, else one per
+     family. An unknown ranking reads as a question. */
+  function rankText(a, ranks) {
+    return pairText(ranks.fams, function (fam) {
+      var r = ranks.byFam[fam][a.auth_id];
+      return r === undefined ? "#?" : "#" + (r + 1);
+    }, true);
   }
 
   function hitRate(c) {
@@ -1122,24 +1190,28 @@ main[data-stale="true"] { opacity: .62; }
   /* The seat's whole record, behind its row in the timeline gutter. The
      account is the masked form the status route publishes; there is no fuller
      one on this side. */
-  function seatTip(a, rank, lead) {
+  function seatTip(a, ranks) {
     var now = nowMs();
-    var sc = a.score || {}, snap = a.snapshot || {};
-    var eligible = !!sc.eligible;
+    var snap = a.snapshot || {};
     var hs = a.host_status || "unknown";
     var hr = hitRate(a.cache), c = a.cache;
     var obs = parseT(snap.observed_at);
     var active = null;
     sortedWindows(snap.windows).forEach(function (w) { if (w.active) active = w; });
+    var lead = leadText(leadsOf(a, ranks), ranks.fams);
+    var fams = ranks.fams, one = fams.length === 1;
     var lines = [
       seatLabel(a),
-      "rank #" + (rank + 1) + (lead ? " · takes the next new conversation" : ""),
+      "rank " + rankText(a, ranks) + (lead ? " · " + lead : ""),
       a.email && a.email !== seatLabel(a) ? "account      " + a.email : null,
       a.auth_id ? "id           " + a.auth_id : null,
       a.provider ? "provider     " + a.provider : null,
       "host         " + hs,
-      "eligibility  " + (eligible ? "eligible" : (sc.reason || "ineligible")),
-      scoreBreakdown(sc),
+      "eligibility  " + pairText(fams, function (fam) { return eligText(famScore(a, fam)); })
+    ].concat(fams.map(function (fam) {
+      var line = scoreBreakdown(famScore(a, fam));
+      return one ? line : line.replace(/^score\s+/, (rankLabel(fam, true) + " score").padEnd(13));
+    })).concat([
       "priority     " + (a.priority == null ? "—" : a.priority),
       "bindings     " + intFmt(a.bindings) + " live",
       "cache hits   " + (hr === null ? "no traffic" : pct(hr) + " of input tokens"),
@@ -1151,17 +1223,18 @@ main[data-stale="true"] { opacity: .62; }
         (snap.err ? ": " + snap.err : "") : null,
       active ? "binding window  " + windowShort(active) + " · " + pct(active.utilization) + " · " +
         resetText(parseT(active.resets_at), now) : null
-    ];
+    ]);
     return lines.filter(Boolean).join("\n");
   }
 
-  function seatAria(a, rank, lead) {
+  function seatAria(a, ranks) {
     var sc = a.score || {}, snap = a.snapshot || {};
     var hs = a.host_status || "unknown";
-    return seatLabel(a) + ", rank " + (rank + 1) + (lead ? ", takes the next new conversation" : "") +
-      ", " + (sc.eligible ? "eligible" : (sc.reason || "ineligible")) +
+    var lead = leadText(leadsOf(a, ranks), ranks.fams);
+    return seatLabel(a) + ", rank " + rankText(a, ranks) + (lead ? ", " + lead : "") +
+      ", " + pairText(ranks.fams, function (fam) { return eligText(famScore(a, fam)); }) +
       ", weekly " + weeklySlackText(sc) +
-      ", score " + totalText(sc) +
+      ", score " + pairText(ranks.fams, function (fam) { return totalText(famScore(a, fam)); }) +
       ", " + intFmt(a.bindings) + " live bindings" +
       (hs !== "active" ? ", host " + hs : "") +
       (snap.err || snap.err_category ? ", fetch error " + (snap.err_category || "") : "");
@@ -1241,15 +1314,26 @@ main[data-stale="true"] { opacity: .62; }
      to draw — no lane the scorer evaluated — and, past TL_FULL_ROWS, every
      seat that is not eligible. An eligible seat always keeps its lanes,
      because it is one the next new conversation can land on. */
-  function foldSeat(a, wins, cfg, rank, compact) {
+  function foldSeat(a, wins, cfg, ranks, compact) {
     if (!compact || state.timelineAll) return false;
-    var eligible = !!(a.score && a.score.eligible);
+    var eligible = anyEligible(a, ranks.fams);
     var evaluated = wins.some(function (w) { return laneState(w, scoreFor(a, w), cfg) !== "unknown"; });
     if (!evaluated && !eligible) return true;
-    return rank >= TL_FULL_ROWS && !eligible;
+    return bestRank(a, ranks) >= TL_FULL_ROWS && !eligible;
   }
 
-  function renderTimeline(st, seats, rankOf) {
+  /* The seat's best rank across the families; past every seat where no
+     family ranks it. */
+  function bestRank(a, ranks) {
+    var best = Infinity;
+    ranks.fams.forEach(function (fam) {
+      var r = ranks.byFam[fam][a.auth_id];
+      if (r !== undefined && r < best) best = r;
+    });
+    return best;
+  }
+
+  function renderTimeline(st, seats, ranks) {
     var host = $("timeline");
     host.textContent = "";
     renderStateLegend();
@@ -1289,7 +1373,7 @@ main[data-stale="true"] { opacity: .62; }
     var folded = 0;
     var groups = seats.map(function (a) {
       var wins = sortedWindows(a.snapshot && a.snapshot.windows);
-      var fold = foldSeat(a, wins, cfg, rankOf[a.auth_id], compact);
+      var fold = foldSeat(a, wins, cfg, ranks, compact);
       if (fold) folded++;
       return { a: a, wins: wins, fold: fold };
     });
@@ -1351,9 +1435,10 @@ main[data-stale="true"] { opacity: .62; }
     /* Rows. */
     layout.forEach(function (row) {
       var a = row.g.a;
-      var rank = rankOf[a.auth_id];
-      var eligible = !!(a.score && a.score.eligible);
-      var lead = eligible && rank === 0;
+      var fams = ranks.fams;
+      var eligible = anyEligible(a, fams);
+      var leads = leadsOf(a, ranks);
+      var lead = leads.length > 0;
       var col = seatColor(a);
 
       if (lead) {
@@ -1364,32 +1449,44 @@ main[data-stale="true"] { opacity: .62; }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: rank, identity, eligibility and weekly slack in the gutter,
-         its live figures on a second line where there is room, and the whole
-         record in the tooltip. The name is trimmed to the measured space, so
-         the tooltip is also where a long name is read whole. */
+      /* The seat's row: rank, identity, eligibility and weekly slack in the
+         gutter, its live figures on a second line where there is room, and
+         the whole record in the tooltip. Rank and eligibility are per request
+         family, so each is one figure where the families agree and one per
+         family where they differ. The name is trimmed to the measured space,
+         so the tooltip is also where a long name is read whole. */
       var headY = row.top + (compact ? 17 : 20);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gGut);
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
-      gh.setAttribute("aria-label", seatAria(a, rank, lead));
-      gh.setAttribute("data-tip", seatTip(a, rank, lead));
+      gh.setAttribute("aria-label", seatAria(a, ranks));
+      gh.setAttribute("data-tip", seatTip(a, ranks));
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: GUT - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
-      var rankEl = svgText(gh, 34, headY, "#" + (rank + 1), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
+      var rankEl = svgText(gh, 34, headY, rankText(a, ranks), "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
       var nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
       var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
+      /* Eligible everywhere: the weekly slack. Ineligible somewhere: a
+         verdict per family that says so, with the ones it can still take. */
       var tail;
-      if (!eligible) {
-        tail = svgText(gh, GUT - 14, headY, "✕ " + ((a.score && a.score.reason) || "ineligible"),
-          "t-mono", { "font-size": 10.5, "text-anchor": "end", fill: "var(--critical)" });
-      } else {
+      var verdicts = fams.map(function (fam) { return eligText(famScore(a, fam)); });
+      var agree = allSame(verdicts);
+      if (agree && eligible) {
         tail = svgText(gh, GUT - 14, headY, weeklySlackText(a.score),
           "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
+      } else {
+        tail = svgText(gh, GUT - 14, headY, "", "t-mono", { "font-size": 10.5, "text-anchor": "end" });
+        (agree ? [fams[0]] : fams).forEach(function (fam, i) {
+          var sc = famScore(a, fam), ok = !!(sc && sc.eligible);
+          if (i) tail.appendChild(document.createTextNode(" · "));
+          var ts = svg("tspan", { fill: ok ? "var(--good)" : "var(--critical)" }, tail);
+          ts.textContent = (ok ? "✓" : "✕") + (agree ? "" : " " + rankLabel(fam)) +
+            (ok ? "" : (agree ? " " : ": ") + eligText(sc));
+        });
       }
       fitText(nameEl, GUT - nameX - tail.getComputedTextLength() - 18);
 
-      if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, lead, GUT - nameX - 14);
+      if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, leadText(leads, fams), GUT - nameX - 14);
 
       if (row.g.fold) {
         /* A folded seat keeps its state glyphs on the axis side, so the row
@@ -1533,7 +1630,7 @@ main[data-stale="true"] { opacity: .62; }
     var obs = parseT(snap.observed_at);
     var hr = hitRate(a.cache);
     var parts = [];
-    if (lead) parts.push({ t: "takes the next new conversation" });
+    if (lead) parts.push({ t: lead });
     if (hs !== "active") parts.push({ t: "host " + hs });
     if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "fetch error") });
     parts.push(obs ? { age: obs } : { t: "no snapshot" });
@@ -1614,13 +1711,18 @@ main[data-stale="true"] { opacity: .62; }
 
   /* The weekly all-models window is the budget the plugin paces against and
      the one whose unspent capacity is lost at reset, so it is the series every
-     ranking draws. The family cap the ranking is for is a second 7-day window
-     with a pace target on the same axes, so it draws beside it at its own
-     weight; the session window has no pace target and never draws. */
+     seat draws as a circle: the Standard ranking. A family cap is a second
+     7-day window with a pace target on the same axes, drawn as a diamond at
+     its own weight: that family's ranking. The session window has no pace
+     target and never draws. */
   var PACE_KIND = "seven_day";
   var PACE_DAYS = 7;
   var PT_R = 4.6;            /* the weekly point's radius; the cap's diamond matches its area */
   var PT_D = 6;
+  /* Slack labels: a 10px monospace line, its box and the gap it keeps from
+     its leader. Past LABEL_DENSE labels the chart is dense: a label shows only
+     for the seat pointed at or focused, so no two are up at once. */
+  var LABEL_H = 12, LABEL_GAP = 9, LABEL_DENSE = 12;
 
   /* A scoped weight, as every label that carries one writes it. */
   function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
@@ -1640,22 +1742,73 @@ main[data-stale="true"] { opacity: .62; }
     return null;
   }
 
-  /* Why a seat has no point for the selected family's cap, once it has a
-     score: what its entry for that window lacks. Null means plottable. */
-  function scopedGap(fam, ws) {
+  /* Why a seat has no point for a family's cap, once it has a score: what
+     its entry for that window lacks. Null means plottable. */
+  function scopedGap(fam, sc, ws) {
+    if (sc === null) return fam + " ranking unknown";
     if (!ws) return "no " + fam + " weekly reading";
     if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + fam + " reading";
     if (!(ws.weight > 0)) return fam + " window not paced";
     return null;
   }
 
+  function boxesMeet(a, b) {
+    return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  }
+
+  /* Places every slack label so no two boxes meet. Each label starts at its
+     leader's midpoint on the side with more free room, then moves along the
+     leader's own direction — up for a point under pace, down for one over —
+     until it is clear, bouncing off the plot edge. A label that ends more
+     than one line from its midpoint gets a tick back to the leader so it
+     still reads as its seat's. */
+  function placeLabels(labels, plot) {
+    var placed = [];
+    function boxAt(l, right, yc) {
+      var x0 = right ? l.cx + LABEL_GAP : l.cx - LABEL_GAP - l.w;
+      return { x0: x0, x1: x0 + l.w, y0: yc - LABEL_H / 2, y1: yc + LABEL_H / 2 };
+    }
+    function fits(b) { return b.x0 >= plot.x0 - 0.5 && b.x1 <= plot.x1 + 0.5; }
+    function hits(b, others) {
+      var n = 0;
+      others.forEach(function (o) { if (boxesMeet(b, o)) n++; });
+      return n;
+    }
+    var proposed = labels.map(function (l) {
+      var fitR = fits(boxAt(l, true, l.my)), fitL = fits(boxAt(l, false, l.my));
+      l.right = fitR || !fitL ? true : false;
+      if (fitR && fitL) {
+        var others = labels.filter(function (o) { return o !== l; }).map(function (o) { return boxAt(o, true, o.my); });
+        var hr = hits(boxAt(l, true, l.my), others), hl = hits(boxAt(l, false, l.my), others);
+        l.right = hr !== hl ? hr < hl : (plot.x1 - l.cx) >= (l.cx - plot.x0);
+      }
+      return boxAt(l, l.right, l.my);
+    });
+    /* Higher labels settle first, so a stack grows away from the crowd. */
+    var order = labels.map(function (l, i) { return i; }).sort(function (i, j) { return labels[i].my - labels[j].my; });
+    var yMin = plot.y0 + LABEL_H / 2, yMax = plot.y1 - LABEL_H / 2;
+    order.forEach(function (i) {
+      var l = labels[i], dir = l.up ? -1 : 1, yc = clamp(l.my, yMin, yMax);
+      var b = boxAt(l, l.right, yc), tries = 0;
+      while (hits(b, placed) && tries++ < 400) {
+        yc += dir * 2;
+        if (yc < yMin || yc > yMax) { dir = -dir; yc = clamp(yc, yMin, yMax); }
+        b = boxAt(l, l.right, yc);
+      }
+      if (!fits(b)) b.x0 = clamp(b.x0, plot.x0, plot.x1 - l.w), b.x1 = b.x0 + l.w;
+      l.yc = yc;
+      l.x = l.right ? b.x0 : b.x1;
+      placed.push(b);
+    });
+    return proposed;
+  }
+
   function renderPace(st, seats) {
     var host = $("pace-curve");
     host.textContent = "";
-    var fam = state.rankFor;
-    var capDrawn = fam !== STANDARD;
-    $("pace-sub").textContent = capDrawn
-      ? "each seat's weekly budget and the " + fam + " cap against the pace target, by days into its own week"
+    var fams = scopedFamilies(st);
+    $("pace-sub").textContent = fams.length
+      ? "each seat's weekly budget (circle) and its " + fams.join(", ") + " cap (diamond) against the pace target, by days into its own week"
       : "each seat's weekly budget against the pace target, by days into its own week";
     var pace = (st.config && st.config.pace) || {};
     var gamma = num(pace.curve_exponent) && pace.curve_exponent > 0 ? pace.curve_exponent : 1;
@@ -1670,12 +1823,15 @@ main[data-stale="true"] { opacity: .62; }
 
     var series = seats.map(function (a) {
       var ws = scoreFor(a, { kind: PACE_KIND });
-      var entry = { auth: a, ws: ws, gap: paceGap(a, ws), cap: null };
+      var entry = { auth: a, ws: ws, gap: paceGap(a, ws), caps: [] };
       /* A seat the scorer never evaluated has one reason, already given for
          its weekly point. */
-      if (capDrawn && scored(a.score)) {
-        var cws = scoreFor(a, { kind: "weekly_scoped", scope: fam });
-        entry.cap = { ws: cws, gap: scopedGap(fam, cws) };
+      if (scored(a.score)) {
+        fams.forEach(function (fam) {
+          var w = { kind: "weekly_scoped", scope: fam };
+          var cws = scoreFor(a, w);
+          entry.caps.push({ fam: fam, ws: cws, gap: scopedGap(fam, famScore(a, fam), cws) });
+        });
       }
       return entry;
     });
@@ -1683,7 +1839,7 @@ main[data-stale="true"] { opacity: .62; }
     var maxY = 1.05;
     series.forEach(function (s) {
       if (!s.gap) maxY = Math.max(maxY, s.ws.utilization + 0.05);
-      if (s.cap && !s.cap.gap) maxY = Math.max(maxY, s.cap.ws.utilization + 0.05);
+      s.caps.forEach(function (c) { if (!c.gap) maxY = Math.max(maxY, c.ws.utilization + 0.05); });
     });
 
     var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
@@ -1695,7 +1851,7 @@ main[data-stale="true"] { opacity: .62; }
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
       "aria-label": "Share of the weekly budget spent by days into each seat's own week, against the pace target, one point per seat" +
-        (capDrawn ? ", and a second point per seat for its " + fam + " cap" : "")
+        (fams.length ? ", and one more per seat for its " + fams.join(" and ") + " cap" : "")
     }, host);
 
     [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
@@ -1729,19 +1885,16 @@ main[data-stale="true"] { opacity: .62; }
     svgText(root, X(1) - 4, Y(landing) - 10, "target", "t-muted",
       { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    /* Labels stay legible up to this many plotted seats: one per 90px of plot
-       width, never past the hued seats. Beyond it the chart is dense and a
-       label shows only for the seat pointed at or focused. */
-    var labelBudget = Math.min(SEAT_HUES, Math.max(2, Math.floor(pw / 90)));
-
     /* One point: a filled circle for the weekly window, a filled diamond for
-       the family cap, in the seat's colour. The leader is the slack itself:
+       a family cap, in the seat's colour. The leader is the slack itself:
        the vertical gap at this seat's own elapsed between its point and the
        scorer's target, never the shortest distance to the curve. Inside the
        on-pace band it would sit under the mark, so the mark alone says "on
-       pace". The cap's label carries its weight in the score; the weekly
-       window counts whole. The group's role="img" keeps the label out of the
-       accessibility tree; the slack is in its name. */
+       pace". The label is measured here and placed once every point is
+       drawn, so no two meet. The cap's label carries its weight in the
+       score; the weekly window counts whole. The group's role="img" keeps
+       the label out of the accessibility tree; the slack is in its name. */
+    var labels = [];
     function point(a, ws, weighted) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
@@ -1751,10 +1904,9 @@ main[data-stale="true"] { opacity: .62; }
           x1: cx, x2: cx, y1: cy, y2: ty, stroke: col,
           "stroke-width": 1.5, "stroke-dasharray": "1 3.5", "stroke-linecap": "round"
         }, g);
-        var right = cx < m.l + pw * 0.82;
-        svgText(g, cx + (right ? 9 : -9), (cy + ty) / 2 + 3.5,
-          slackText(ws.slack, true) + (weighted ? " " + weightMark(ws) : ""), "slk t-mono",
-          { "font-size": 10, "text-anchor": right ? "start" : "end" });
+        var t = svgText(g, cx, (cy + ty) / 2 + 3.5,
+          slackText(ws.slack, true) + (weighted ? " " + weightMark(ws) : ""), "slk t-mono", { "font-size": 10 });
+        labels.push({ el: t, g: g, cx: cx, my: (cy + ty) / 2, up: cy > ty, col: col, w: t.getComputedTextLength() + 2 });
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
@@ -1778,20 +1930,33 @@ main[data-stale="true"] { opacity: .62; }
       }
     }
 
-    var plotted = 0, caps = 0;
+    var plotted = 0;
     series.forEach(function (s) {
       if (!s.gap) { plotted++; point(s.auth, s.ws, false); }
-      if (s.cap && !s.cap.gap) { caps++; point(s.auth, s.cap.ws, true); }
+      s.caps.forEach(function (c) { if (!c.gap) point(s.auth, c.ws, true); });
     });
 
-    if (plotted + caps > labelBudget) root.setAttribute("data-dense", "true");
+    placeLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph });
+    labels.forEach(function (l) {
+      l.el.setAttribute("x", String(l.x));
+      l.el.setAttribute("y", String(l.yc + 3.5));
+      l.el.setAttribute("text-anchor", l.right ? "start" : "end");
+      if (Math.abs(l.yc - l.my) > LABEL_H) {
+        var tx = l.right ? l.x - 2 : l.x + 2;
+        svg("line", {
+          "class": "tick", x1: l.cx, y1: l.my, x2: tx, y2: l.yc,
+          stroke: l.col, "stroke-width": 1, opacity: .7
+        }, l.g);
+      }
+    });
+    if (labels.length > LABEL_DENSE) root.setAttribute("data-dense", "true");
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has a paced weekly window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, capDrawn ? fam : null);
+    renderPaceLegend(series, root, fams);
     renderPaceNote(st, gamma, landing);
   }
 
@@ -1809,29 +1974,29 @@ main[data-stale="true"] { opacity: .62; }
 
   /* Every seat is named: plotted ones in the legend, the rest with the reason
      they have no point, so a seat never vanishes from the chart unexplained. */
-  function renderPaceLegend(series, root, fam) {
+  function renderPaceLegend(series, root, fams) {
     var leg = $("pace-legend");
     leg.textContent = "";
     /* With two marks per seat the legend names the marks before the seats. */
-    if (fam) {
+    if (fams.length) {
       var circ = h("li", "");
       var csw = h("span", "sw");
       csw.style.cssText = "background:var(--ink-2);border-radius:50%;width:10px;height:10px";
       circ.appendChild(csw);
-      circ.appendChild(document.createTextNode("7-day all models"));
+      circ.appendChild(document.createTextNode("7-day all models (Standard)"));
       leg.appendChild(circ);
       var dia = h("li", "");
       var dsw = h("span", "sw");
       dsw.style.cssText = "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px";
       dia.appendChild(dsw);
-      dia.appendChild(document.createTextNode(fam + " weekly cap"));
+      dia.appendChild(document.createTextNode(fams.join(", ") + " weekly cap"));
       leg.appendChild(dia);
     }
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
       if (s.gap) { missing.push(seatLabel(a) + ": " + s.gap); return; }
-      if (s.cap && s.cap.gap) missing.push(seatLabel(a) + " (" + fam + "): " + s.cap.gap);
+      s.caps.forEach(function (c) { if (c.gap) missing.push(seatLabel(a) + " (" + c.fam + "): " + c.gap); });
       var li = h("li", "");
       li.setAttribute("data-seat", a.auth_id);
       var sw = h("span", "sw");
@@ -1860,13 +2025,14 @@ main[data-stale="true"] { opacity: .62; }
     var note = $("pace-note");
     note.textContent = "";
     var wts = (st.config && st.config.pace) || {};
+    var fams = scopedFamilies(st);
 
     var p = h("p", "");
     p.appendChild(document.createTextNode("Each circle is one seat's 7-day all-models window: how many days " +
       "into that seat's own week it is, against how much of its weekly budget is spent." +
-      (state.rankFor === STANDARD ? "" : " Each diamond is the same seat's " + state.rankFor +
+      (fams.length ? " Each diamond is the same seat's " + fams.join(" or ") +
         " weekly cap, a 7-day window with the same pace target that counts at " + share(wts.scoped_weight) +
-        " weight in the score.") +
+        " weight in the score for a request of that family, and not at all for a Standard request." : "") +
       " Every seat's week starts at its own time, so the axis is elapsed time, not the calendar. The target curve is "));
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
     p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
@@ -1876,14 +2042,10 @@ main[data-stale="true"] { opacity: .62; }
     note.appendChild(p);
 
     var q = h("p", "");
-    var fams = scopedFamilies(st);
     var scopedTerm = "";
     if (wts.scoped_weight > 0 && fams.length) {
-      scopedTerm = state.rankFor === STANDARD
-        ? ", plus " + share(wts.scoped_weight) + " of the slack on a model-family weekly window when the request's " +
-          "family has its own cap — none does for Standard requests, so that term is zero in the ranking shown"
-        : ", plus " + share(wts.scoped_weight) + " of the slack on the " + state.rankFor + " weekly window, the cap " +
-          "the ranking shown is for (the diamonds)";
+      scopedTerm = ", plus " + share(wts.scoped_weight) + " of the slack on the " + fams.join(" or ") +
+        " weekly window (the diamonds) when the request is of that family — for a Standard request that term is zero";
     }
     q.appendChild(document.createTextNode("Seats rank by score, in the same points: " +
       (wts.weekly_weight === 1 ? "weekly slack" : share(wts.weekly_weight) + " of weekly slack") + scopedTerm +
@@ -1892,10 +2054,12 @@ main[data-stale="true"] { opacity: .62; }
         ? " The 5-hour window has no pace target: it is a rate limit that resets several times a day; it counts toward fullness and gates a seat at the hard cutoff."
         : "") +
       " The eligible seat with the highest score takes the next new conversation" +
+      (fams.length ? " of its family, so the page ranks every seat once per family" : "") +
       (num(wts.hysteresis_margin)
         ? "; a challenger must lead by " + ptsRound(wts.hysteresis_margin) + " to take a session already bound to another seat."
         : ".") +
-      (num(wts.hard_cutoff) ? " A seat with any window it bears on at or past " + pct(wts.hard_cutoff, 0) + " is ineligible." : "")));
+      (num(wts.hard_cutoff) ? " A seat with any window bearing on the request at or past " + pct(wts.hard_cutoff, 0) +
+        " is ineligible for it" + (fams.length ? ": a seat at its " + fams.join(" or ") + " cap can still take a Standard request." : ".") : "")));
     note.appendChild(q);
   }
 
@@ -1915,7 +2079,7 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   function renderDecisions(st) {
-    if (!regionChanged("decisions", [st.decisions, seatNames(st)])) return;
+    if (!regionChanged("decisions", [st.decisions, seatNames(st), scopedFamilies(st)])) return;
     var host = $("decisions");
     /* The list scrolls inside its card; a rebuild puts the reader back where
        they were. */
@@ -1937,6 +2101,7 @@ main[data-stale="true"] { opacity: .62; }
 
     var byID = {};
     (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    var fams = scopedFamilies(st);
     /* A seat mark for a credential the status still lists, its bare id for
        one a retained decision outlives. */
     function name(id) {
@@ -1974,7 +2139,11 @@ main[data-stale="true"] { opacity: .62; }
       var dk = h("code", "dec-key", dec.session_key ? dec.session_key.slice(0, 8) : "—");
       if (dec.session_key && dec.session_key.length > 8) tipOnly(dk, dec.session_key);
       sum.appendChild(dk);
-      sum.appendChild(h("span", "dec-model", dec.model || "—"));
+      /* Each decision scored one real model, so its candidate table is that
+         model's family's ranking; the tag names which. */
+      var md = h("span", "dec-model", dec.model || "—");
+      if (fams.length && dec.model) md.appendChild(h("span", "dec-fam", rankLabel(familyOf(dec.model, fams))));
+      sum.appendChild(md);
 
       var route = h("span", "dec-route");
       if (dec.chosen_auth_id) {
@@ -2193,7 +2362,8 @@ main[data-stale="true"] { opacity: .62; }
 
   /* The build facts sit under the id, in one muted line; the header row
      carries only what bears on a routing decision. */
-  function renderHeader(st, ranked) {
+  function renderHeader(st, ranks) {
+    var seats = st.auths || [];
     var p = st.plugin || {};
     var facts = $("plugin-facts");
     facts.textContent = "";
@@ -2209,63 +2379,51 @@ main[data-stale="true"] { opacity: .62; }
       facts.appendChild(stamp(started, "", "up"));
     }
 
-    var eligible = ranked.filter(function (a) { return a.score && a.score.eligible; }).length;
-    $("seat-count").textContent = ranked.length
-      ? ranked.length + (ranked.length === 1 ? " seat" : " seats") + " · " + eligible + " eligible"
+    /* Eligible for any family: the count of seats a new conversation of
+       some kind can still land on. */
+    var eligible = seats.filter(function (a) { return anyEligible(a, ranks.fams); }).length;
+    $("seat-count").textContent = seats.length
+      ? seats.length + (seats.length === 1 ? " seat" : " seats") + " · " + eligible + " eligible"
       : "—";
 
     var newest = null;
-    ranked.forEach(function (a) {
+    seats.forEach(function (a) {
       var obs = parseT(a.snapshot && a.snapshot.observed_at);
       if (obs && (!newest || obs > newest)) newest = obs;
     });
     var age = $("snapshot-age");
     age.textContent = "";
     if (newest) age.appendChild(stamp(newest, ""));
-    else age.textContent = ranked.length ? "none" : "—";
+    else age.textContent = seats.length ? "none" : "—";
 
-    renderPicks(st, ranked);
+    renderPicks(st, ranks);
 
-    /* The ranking on the page is for one request kind; the sub-line names
-       it, and says so when it is not the kind live traffic is routed by. */
-    var families = scopedFamilies(st);
-    var sub = "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
-    if (families.length) {
-      var liveID = liveModel(st), live = familyOf(liveID, families);
-      sub = "one row per seat, in a fixed order, ranked for " + rankLabel(state.rankFor) + " requests; the #1 eligible seat takes the next new " +
-        rankLabel(state.rankFor) + " conversation" +
-        (state.rankPinned && live !== state.rankFor && liveID
-          ? " (live traffic is " + rankLabel(live) + ": " + liveID + ")" : "");
-    }
-    $("seats-sub").textContent = sub;
+    /* Scoring is per request family, so with a family cap in the pool each
+       seat carries one rank per family. */
+    var fams = scopedFamilies(st);
+    $("seats-sub").textContent = fams.length
+      ? "one row per seat, in a fixed order, ranked for Standard and " + fams.join(", ") +
+        " requests; each family's #1 eligible seat takes its next new conversation"
+      : "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
   }
 
-  /* Where the next new conversation lands, per request family: the ranking
-     shown answers for its own family, the side fetches for the rest. A
-     family whose fetch failed reads as unknown, never as the last answer. */
-  function renderPicks(st, ranked) {
+  /* Where the next new conversation lands, per request family. A family
+     whose ranking is unknown this refresh reads as unknown, never as the
+     last answer. */
+  function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
-    var families = scopedFamilies(st);
-    var lead = { ok: true, auth: firstEligible(ranked) };
-    if (!families.length) { next.appendChild(pickNode(null, lead, ranked.length)); return; }
     var byID = Object.create(null);
-    ranked.forEach(function (a) { byID[a.auth_id] = a; });
-    [STANDARD].concat(families).forEach(function (fam) {
-      var pick = fam === state.rankFor ? lead : state.picks[fam];
-      if (pick && pick.ok && pick.id) pick = { ok: true, auth: byID[pick.id] || pick.auth };
-      next.appendChild(pickNode(fam, pick, ranked.length));
+    (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    ranks.fams.forEach(function (fam) {
+      var span = h("span", "pick");
+      if (ranks.fams.length > 1) span.appendChild(h("span", "pick-fam", rankLabel(fam) + ":"));
+      var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
+      if (!known && (st.auths || []).length) span.appendChild(h("span", "pick-none", "unknown"));
+      else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
+      else span.appendChild(h("span", "pick-none", (st.auths || []).length ? "none eligible" : "—"));
+      next.appendChild(span);
     });
-  }
-
-  function pickNode(fam, pick, count) {
-    var span = h("span", "pick");
-    if (fam !== null) span.appendChild(h("span", "pick-fam", rankLabel(fam) + ":"));
-    if (!pick) span.appendChild(h("span", "pick-none", "…"));
-    else if (!pick.ok) span.appendChild(h("span", "pick-none", "unknown"));
-    else if (pick.auth) span.appendChild(seatMark(pick.auth));
-    else span.appendChild(h("span", "pick-none", count ? "none eligible" : "—"));
-    return span;
   }
 
   /* Every warning comes from the plugin: only it sees what the host offered,
@@ -2285,10 +2443,9 @@ main[data-stale="true"] { opacity: .62; }
     host.appendChild(box);
   }
 
-  /* ------------------------------------------------------------- rank for */
+  /* ------------------------------------------------------- request families */
 
   var STANDARD = "";
-  var RANK_KEY = "cqs-rank-for";
 
   /* Every distinct family cap the seats report, sorted. Scoring differs by
      family, not by model: a scoped weekly window bears on a request only
@@ -2319,18 +2476,6 @@ main[data-stale="true"] { opacity: .62; }
     return STANDARD;
   }
 
-  /* The model live traffic is routed by: the newest routed decision, as the
-     plugin's own default. Status.model is the model the scores were
-     evaluated for, which is the queried one once the control is pinned, so
-     it is only the fallback before any decision. A decline routed nothing. */
-  function liveModel(st) {
-    var decs = (st && st.decisions) || [];
-    for (var i = 0; i < decs.length; i++) {
-      if (decs[i].model && decs[i].kind !== "declined") return decs[i].model;
-    }
-    return (st && st.model) || "";
-  }
-
   function payloadModels(st) {
     var out = [];
     if (st) {
@@ -2341,16 +2486,16 @@ main[data-stale="true"] { opacity: .62; }
     return out.filter(function (m) { return !!m; });
   }
 
-  /* The model id the status route is asked to score for a selection. The
-     route takes a model, not a family, and scores it by family, so any id
-     resolving to the selected family yields that family's ranking. A model
-     seen in traffic is preferred; the synthetic fallback claude-<family>
-     resolves to the family by the same substring rule. For Standard the id
-     must resolve to no observed family: a model of a family without a cap
-     scores as Standard (Opus while only Fable is capped), and the fallback
+  /* The model id the status route is asked to score for a family. The route
+     takes a model, not a family, and scores it by family, so any id
+     resolving to the family yields that family's ranking. A model seen in
+     traffic is preferred; the synthetic fallback claude-<family> resolves to
+     the family by the same substring rule. For Standard the id must resolve
+     to no observed family: a model of a family without a cap scores as
+     Standard (Opus while only Fable is capped), and the fallback
      claude-standard carries no family token at all. Ids from the payload
-     are checked against the observed set rather than trusted by name, so
-     a family that gains a cap stops serving as the Standard sample. */
+     are checked against the observed set rather than trusted by name, so a
+     family that gains a cap stops serving as the Standard sample. */
   function representativeModel(family, st, families) {
     var models = payloadModels(st);
     for (var i = 0; i < models.length; i++) {
@@ -2359,69 +2504,8 @@ main[data-stale="true"] { opacity: .62; }
     return family === STANDARD ? "claude-standard" : "claude-" + family.toLowerCase();
   }
 
-  function rankLabel(family) { return family === STANDARD ? "Standard" : family; }
-
-  /* The control follows live traffic until the operator pins it, and a
-     pinned family the seats no longer report unpins. */
-  function resolveRankFor(st, families) {
-    if (state.rankPinned && (state.rankFor === STANDARD || families.indexOf(state.rankFor) >= 0)) return;
-    if (state.rankPinned) { try { window.localStorage.removeItem(RANK_KEY); } catch (e) { /* ignored */ } }
-    state.rankPinned = false;
-    state.rankFor = familyOf(liveModel(st), families);
-  }
-
-  function pinRankFor(family) {
-    state.rankFor = family;
-    state.rankPinned = true;
-    try { window.localStorage.setItem(RANK_KEY, family); } catch (e) { /* ignored */ }
-    renderRankFor(state.data);
-    refresh(true);
-  }
-
-  function renderRankFor(st) {
-    var families = scopedFamilies(st);
-    resolveRankFor(st, families);
-    var ctl = $("rank-ctl"), seg = $("rank-for");
-    ctl.hidden = !families.length;
-    if (!families.length) { seg.textContent = ""; return; }
-
-    var options = [STANDARD].concat(families);
-    var sig = options.join("\u0000");
-    if (seg.getAttribute("data-options") !== sig) {
-      seg.textContent = "";
-      seg.setAttribute("data-options", sig);
-      options.forEach(function (fam) {
-        var b = h("button", "", rankLabel(fam));
-        b.type = "button";
-        b.setAttribute("role", "radio");
-        b.setAttribute("data-family", fam);
-        b.setAttribute("data-fk", "rank:" + fam);
-        b.addEventListener("click", function () { if (state.rankFor !== fam) pinRankFor(fam); });
-        seg.appendChild(b);
-      });
-    }
-    var btns = seg.querySelectorAll("button");
-    for (var i = 0; i < btns.length; i++) {
-      var on = btns[i].getAttribute("data-family") === state.rankFor;
-      btns[i].setAttribute("aria-checked", on ? "true" : "false");
-      btns[i].tabIndex = on ? 0 : -1;
-    }
-  }
-
-  /* Arrow keys move the selection within the group, as in a native radio. */
-  $("rank-for").addEventListener("keydown", function (ev) {
-    var step = ev.key === "ArrowRight" || ev.key === "ArrowDown" ? 1
-      : ev.key === "ArrowLeft" || ev.key === "ArrowUp" ? -1 : 0;
-    if (!step) return;
-    var btns = this.querySelectorAll("button");
-    if (!btns.length) return;
-    var at = 0;
-    for (var i = 0; i < btns.length; i++) if (btns[i] === document.activeElement) at = i;
-    var next = btns[(at + step + btns.length) % btns.length];
-    ev.preventDefault();
-    next.focus();
-    pinRankFor(next.getAttribute("data-family"));
-  });
+  /* The family's name in prose; "Std" where a badge pairs it with another. */
+  function rankLabel(family, short) { return family === STANDARD ? (short ? "Std" : "Standard") : family; }
 
   /* Rebuilding a region destroys whatever the operator had focused, so a
      region whose payload is unchanged keeps its DOM. */
@@ -2475,21 +2559,18 @@ main[data-stale="true"] { opacity: .62; }
     var st = state.data;
     if (!st) return;
     indexSeats(st);
-    var ranked = rankAuths(st.auths);
     var seats = stableAuths(st.auths);
-    var rankOf = Object.create(null);
-    ranked.forEach(function (a, i) { rankOf[a.auth_id] = i; });
+    var ranks = rankSeats(st);
     var focused = captureFocus();
     hideTip();
 
     $("loading").hidden = true;
     $("fail-state").hidden = true;
     $("app").removeAttribute("aria-busy");
-    renderRankFor(st);
-    renderHeader(st, ranked);
+    renderHeader(st, ranks);
     renderWarnings(st);
 
-    var empty = !ranked.length;
+    var empty = !seats.length;
     $("empty-state").hidden = !empty;
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
@@ -2497,7 +2578,7 @@ main[data-stale="true"] { opacity: .62; }
     $("sec-bindings").hidden = false;
 
     if (!empty) {
-      renderTimeline(st, seats, rankOf);
+      renderTimeline(st, seats, ranks);
       renderPace(st, seats);
     }
     renderDecisions(st);
@@ -2542,13 +2623,9 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* Relative fetch: the mount prefix is chosen by the host and unknown here.
-     An unpinned page sends no model and is scored for the last routed one. */
-  function statusURL() {
-    if (!state.rankPinned) return "api/status";
-    return familyURL(state.rankFor, state.data);
-  }
-
-  function familyURL(fam, st) {
+     The route scores for one model per call, so one refresh asks once per
+     request family. */
+  function statusURL(fam, st) {
     var rep = representativeModel(fam, st, scopedFamilies(st || {}));
     return "api/status?model=" + encodeURIComponent(rep);
   }
@@ -2561,21 +2638,29 @@ main[data-stale="true"] { opacity: .62; }
       });
   }
 
-  /* The request families other than the one the page is ranked for, as the
-     payload reports them. */
-  function sideFamilies(st) {
-    return scopedFamilies(st || {}).concat([STANDARD]).filter(function (f) { return f !== state.rankFor; });
+  /* One family's payload, or null where its fetch failed: the page then
+     shows that family as unknown rather than another family's numbers. */
+  function fetchFamily(fam, st, signal) {
+    return fetchJSON(statusURL(fam, st), signal).then(function (data) { return { fam: fam, data: data }; },
+      function (e) {
+        if (e && e.name === "AbortError") throw e;
+        return { fam: fam, data: null };
+      });
   }
 
-  /* One side fetch: the ranking for another family, kept only for its #1
-     eligible seat. A failure is a pick of its own, so the header can say so. */
-  function fetchPick(fam, st, signal) {
-    return fetchJSON(familyURL(fam, st), signal)
-      .then(function (data) {
-        var lead = firstEligible(rankAuths(data && data.auths));
-        return { fam: fam, pick: { ok: true, id: lead ? lead.auth_id : "", auth: lead } };
-      })
-      .catch(function () { return { fam: fam, pick: { ok: false } }; });
+  /* The merged status: the Standard payload, with each seat's scores for
+     every other family attached under byFamily by auth_id. A family whose
+     payload is missing leaves every seat's entry null. */
+  function mergeStatus(standard, others) {
+    others.forEach(function (o) {
+      var byID = Object.create(null);
+      ((o.data && o.data.auths) || []).forEach(function (a) { byID[a.auth_id] = a.score || null; });
+      (standard.auths || []).forEach(function (a) {
+        if (!a.byFamily) a.byFamily = Object.create(null);
+        a.byFamily[o.fam] = o.data ? (byID[a.auth_id] || null) : null;
+      });
+    });
+    return standard;
   }
 
   var inFlightCtl = null, fetchTimer = null, staleTimer = null, generation = 0;
@@ -2591,15 +2676,14 @@ main[data-stale="true"] { opacity: .62; }
   /* Every request is bounded and cancellable. A request that never settles
      would otherwise hold the in-flight flag for good, freezing the page —
      including the Pause button's own refresh — behind a live green dot.
-     A user-initiated refresh supersedes whatever is running, so a new rank
-     selection takes effect at once; the superseded handlers see a stale
-     generation and leave the state alone.
+     A user-initiated refresh supersedes whatever is running; the superseded
+     handlers see a stale generation and leave the state alone.
 
      One refresh is one status fetch per request family, in parallel: the
-     selected family's payload is the page, the others yield the header's
-     picks. The families come from the last payload; a family that payload
-     did not name (the first load, or a cap that just appeared) is fetched
-     once the main payload arrives, and the header fills in. */
+     Standard payload is the page, the others contribute their scores. The
+     families come from the last payload; a family that payload did not name
+     (the first load, or a cap that just appeared) is fetched once the
+     Standard payload arrives, and the page re-renders with it. */
   function refresh(userInitiated) {
     if (state.inFlight) {
       if (!userInitiated) return;
@@ -2621,31 +2705,31 @@ main[data-stale="true"] { opacity: .62; }
     setLive();
 
     var prior = state.data;
-    var sides = sideFamilies(prior).map(function (fam) { return fetchPick(fam, prior, ctl.signal); });
+    var sides = scopedFamilies(prior || {}).map(function (fam) { return fetchFamily(fam, prior, ctl.signal); });
 
-    Promise.all([fetchJSON(statusURL(), ctl.signal)].concat(sides))
+    function commit(standard, others) {
+      state.data = mergeStatus(standard, others);
+      var served = parseT(standard && standard.now);
+      state.skew = served ? Date.now() - served.getTime() : 0;
+      state.fetchedAt = new Date(nowMs());
+      setError(null);
+      render();
+    }
+
+    Promise.all([fetchJSON(statusURL(STANDARD, prior), ctl.signal)].concat(sides))
       .then(function (results) {
         if (gen !== generation) return;
-        var data = results[0];
-        state.data = data;
-        var served = parseT(data && data.now);
-        state.skew = served ? Date.now() - served.getTime() : 0;
-        state.fetchedAt = new Date(nowMs());
-        state.picks = Object.create(null);
-        results.slice(1).forEach(function (r) { state.picks[r.fam] = r.pick; });
-        setError(null);
-        render();
+        var data = results[0], others = results.slice(1);
+        commit(data, others);
 
-        var late = sideFamilies(data).filter(function (fam) { return !state.picks[fam]; });
+        var have = Object.create(null);
+        others.forEach(function (o) { have[o.fam] = true; });
+        var late = scopedFamilies(data).filter(function (fam) { return !have[fam]; });
         if (!late.length) return;
-        return Promise.all(late.map(function (fam) { return fetchPick(fam, data, ctl.signal); }))
+        return Promise.all(late.map(function (fam) { return fetchFamily(fam, data, ctl.signal); }))
           .then(function (more) {
             if (gen !== generation) return;
-            more.forEach(function (r) { state.picks[r.fam] = r.pick; });
-            var focused = captureFocus();
-            renderPicks(state.data, rankAuths(state.data.auths));
-            markClipped();
-            restoreFocus(focused);
+            commit(data, others.concat(more));
           });
       })
       .catch(function (e) {
@@ -2663,11 +2747,6 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* --------------------------------------------------------------- wiring */
-
-  try {
-    var savedRank = window.localStorage.getItem(RANK_KEY);
-    if (savedRank !== null) { state.rankFor = savedRank; state.rankPinned = true; }
-  } catch (e) { /* storage may be blocked; following traffic is a fine default */ }
 
   var toggle = $("refresh-toggle");
   toggle.addEventListener("click", function () {

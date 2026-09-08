@@ -303,8 +303,8 @@ func TestPageIsOffline(t *testing.T) {
 	if m := rootAbs.FindString(page); m != "" {
 		t.Errorf("page uses a root-absolute URL: %q", m)
 	}
-	if !strings.Contains(page, `"api/status"`) {
-		t.Error("page does not fetch the relative api/status")
+	if !strings.Contains(page, `"api/status?model="`) {
+		t.Error("page does not fetch the relative api/status, scored per model")
 	}
 	if strings.Contains(page, "<script src") || strings.Contains(page, "<link rel=\"stylesheet\"") {
 		t.Error("page loads an external script or stylesheet")
@@ -318,7 +318,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	ids := []string{
 		"tooltip", "svg-ns",
 		"plugin-facts", "next-pick", "seat-count", "snapshot-age",
-		"rank-ctl", "rank-label", "rank-for", "refresh-toggle", "density-toggle", "theme-toggle",
+		"refresh-toggle", "density-toggle", "theme-toggle",
 		"live-dot", "last-updated",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
 		"sec-seats", "seats-sub",
@@ -335,7 +335,8 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	for _, frag := range []string{
 		`prefers-color-scheme: dark`,
 		`aria-pressed`,
-		`role="radiogroup"`,
+		`"dec-fam"`,
+		`byFamily`,
 	} {
 		if !strings.Contains(page, frag) {
 			t.Errorf("page is missing %q", frag)

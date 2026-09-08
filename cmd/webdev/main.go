@@ -22,7 +22,7 @@ import (
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many or empty")
+		"fixture scenario: full, single, stale, degraded, many, collide or empty")
 	seats := flag.Int("seats", 6, "credential count for the many scenario")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
@@ -52,6 +52,12 @@ func main() {
 		// a roomy row: the naming collisions a real pool produces, and every
 		// lane state the page can draw, spread across the seats.
 		src.growTo(*seats)
+	case "collide":
+		// Two seats a few hours apart in their weeks at near-equal utilization,
+		// so their four pace-curve labels contend for one patch of the plot;
+		// one of them is at its Fable cap with its weekly window fine, so it
+		// is eligible for Standard requests and not for Fable ones.
+		src.collide()
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
@@ -483,6 +489,37 @@ var manySeats = []manySeat{
 	{id: "claude-team-web.json", name: "claude-team-web.json", email: "svc.web@acme.example", session: 0.20, weekly: 0.15, scoped: 0.09, state: "disabled"},
 	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.81, state: "over"},
 	{id: "claude-team-qa.json", name: "claude-team-qa.json", email: "svc.qa@acme.example", session: 0.38, weekly: 0.29, scoped: 0.24},
+}
+
+// collide rewrites the two fixture seats so their pace-curve points land
+// close together: seat A 3.5 days into its week at 48% of the weekly budget
+// and 44% of its Fable cap, seat B 3.9 days in at 52% and, on the Fable cap,
+// at the hard cutoff.
+func (f *fixture) collide() {
+	f.observedAge[seatBID] = 40 * time.Second
+	set := func(id string, weekly, scoped, elapsedDays float64) {
+		snap := f.snapshots[id]
+		snap.Source = model.SourceUsageEndpoint
+		snap.Err, snap.ErrCategory = "", ""
+		snap.Windows = append([]model.Window(nil), snap.Windows...)
+		resets := f.anchor.Add(time.Duration((7 - elapsedDays) * float64(24*time.Hour)))
+		for i := range snap.Windows {
+			w := &snap.Windows[i]
+			switch w.Kind {
+			case model.WindowSession:
+				w.Utilization, w.Status, w.Severity = 0.35, model.StatusAllowed, model.SeverityNormal
+			case model.WindowWeekly:
+				w.Utilization, w.ResetsAt, w.Status, w.Severity = weekly, resets, model.StatusAllowed, model.SeverityNormal
+			case model.WindowWeeklyScoped:
+				w.Utilization, w.ResetsAt = scoped, resets
+			}
+		}
+		f.snapshots[id] = snap
+		f.snapshotsPast[id] = withSessionUtil(snap, 0.2, model.StatusAllowed, model.SeverityNormal)
+	}
+	set(seatAID, 0.48, 0.44, 3.5)
+	set(seatBID, 0.52, f.cfg.Pace.HardCutoff, 3.9)
+	f.decisions = f.buildDecisions()
 }
 
 // growTo replaces the fixture's credentials with n synthesized seats. Past the
