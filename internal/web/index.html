@@ -319,7 +319,8 @@ svg.pace[data-focus] g.pt:not([data-focused]) { opacity: .16; }
    carries the seat's colour. In a dense chart labels wait for the seat to be
    pointed at or focused, in the legend or on the point. */
 svg.pace text.slk { fill: var(--ink-2); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk { visibility: hidden; }
+svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.slk,
+svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) line.tick { visibility: hidden; }
 .tl-note { margin: 10px 8px 2px; font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .pace-card { padding: 18px 18px 14px; overflow-x: auto; }
 .pace-card .legend { margin: 12px 0 0; }
@@ -1718,6 +1719,10 @@ main[data-stale="true"] { opacity: .62; }
   var PACE_DAYS = 7;
   var PT_R = 4.6;            /* the weekly point's radius; the cap's diamond matches its area */
   var PT_D = 6;
+  /* Slack labels: a 10px monospace line, its box and the gap it keeps from
+     its leader. Past LABEL_DENSE labels the chart is dense: a label shows only
+     for the seat pointed at or focused, so no two are up at once. */
+  var LABEL_H = 12, LABEL_GAP = 9, LABEL_DENSE = 12;
 
   /* A scoped weight, as every label that carries one writes it. */
   function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
@@ -1745,6 +1750,57 @@ main[data-stale="true"] { opacity: .62; }
     if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + fam + " reading";
     if (!(ws.weight > 0)) return fam + " window not paced";
     return null;
+  }
+
+  function boxesMeet(a, b) {
+    return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  }
+
+  /* Places every slack label so no two boxes meet. Each label starts at its
+     leader's midpoint on the side with more free room, then moves along the
+     leader's own direction — up for a point under pace, down for one over —
+     until it is clear, bouncing off the plot edge. A label that ends more
+     than one line from its midpoint gets a tick back to the leader so it
+     still reads as its seat's. */
+  function placeLabels(labels, plot) {
+    var placed = [];
+    function boxAt(l, right, yc) {
+      var x0 = right ? l.cx + LABEL_GAP : l.cx - LABEL_GAP - l.w;
+      return { x0: x0, x1: x0 + l.w, y0: yc - LABEL_H / 2, y1: yc + LABEL_H / 2 };
+    }
+    function fits(b) { return b.x0 >= plot.x0 - 0.5 && b.x1 <= plot.x1 + 0.5; }
+    function hits(b, others) {
+      var n = 0;
+      others.forEach(function (o) { if (boxesMeet(b, o)) n++; });
+      return n;
+    }
+    var proposed = labels.map(function (l) {
+      var fitR = fits(boxAt(l, true, l.my)), fitL = fits(boxAt(l, false, l.my));
+      l.right = fitR || !fitL ? true : false;
+      if (fitR && fitL) {
+        var others = labels.filter(function (o) { return o !== l; }).map(function (o) { return boxAt(o, true, o.my); });
+        var hr = hits(boxAt(l, true, l.my), others), hl = hits(boxAt(l, false, l.my), others);
+        l.right = hr !== hl ? hr < hl : (plot.x1 - l.cx) >= (l.cx - plot.x0);
+      }
+      return boxAt(l, l.right, l.my);
+    });
+    /* Higher labels settle first, so a stack grows away from the crowd. */
+    var order = labels.map(function (l, i) { return i; }).sort(function (i, j) { return labels[i].my - labels[j].my; });
+    var yMin = plot.y0 + LABEL_H / 2, yMax = plot.y1 - LABEL_H / 2;
+    order.forEach(function (i) {
+      var l = labels[i], dir = l.up ? -1 : 1, yc = clamp(l.my, yMin, yMax);
+      var b = boxAt(l, l.right, yc), tries = 0;
+      while (hits(b, placed) && tries++ < 400) {
+        yc += dir * 2;
+        if (yc < yMin || yc > yMax) { dir = -dir; yc = clamp(yc, yMin, yMax); }
+        b = boxAt(l, l.right, yc);
+      }
+      if (!fits(b)) b.x0 = clamp(b.x0, plot.x0, plot.x1 - l.w), b.x1 = b.x0 + l.w;
+      l.yc = yc;
+      l.x = l.right ? b.x0 : b.x1;
+      placed.push(b);
+    });
+    return proposed;
   }
 
   function renderPace(st, seats) {
@@ -1834,11 +1890,11 @@ main[data-stale="true"] { opacity: .62; }
        the vertical gap at this seat's own elapsed between its point and the
        scorer's target, never the shortest distance to the curve. Inside the
        on-pace band it would sit under the mark, so the mark alone says "on
-       pace". The cap's label carries its weight in the score; the weekly
-       window counts whole. The group's role="img" keeps the label out of the
-       accessibility tree; the slack is in its name. */
-    var labelBudget = Math.min(SEAT_HUES, Math.max(2, Math.floor(pw / 90)));
-    var labels = 0;
+       pace". The label is measured here and placed once every point is
+       drawn, so no two meet. The cap's label carries its weight in the
+       score; the weekly window counts whole. The group's role="img" keeps
+       the label out of the accessibility tree; the slack is in its name. */
+    var labels = [];
     function point(a, ws, weighted) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
@@ -1848,11 +1904,9 @@ main[data-stale="true"] { opacity: .62; }
           x1: cx, x2: cx, y1: cy, y2: ty, stroke: col,
           "stroke-width": 1.5, "stroke-dasharray": "1 3.5", "stroke-linecap": "round"
         }, g);
-        var right = cx < m.l + pw * 0.82;
-        svgText(g, cx + (right ? 9 : -9), (cy + ty) / 2 + 3.5,
-          slackText(ws.slack, true) + (weighted ? " " + weightMark(ws) : ""), "slk t-mono",
-          { "font-size": 10, "text-anchor": right ? "start" : "end" });
-        labels++;
+        var t = svgText(g, cx, (cy + ty) / 2 + 3.5,
+          slackText(ws.slack, true) + (weighted ? " " + weightMark(ws) : ""), "slk t-mono", { "font-size": 10 });
+        labels.push({ el: t, g: g, cx: cx, my: (cy + ty) / 2, up: cy > ty, col: col, w: t.getComputedTextLength() + 2 });
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
@@ -1882,7 +1936,20 @@ main[data-stale="true"] { opacity: .62; }
       s.caps.forEach(function (c) { if (!c.gap) point(s.auth, c.ws, true); });
     });
 
-    if (labels > labelBudget) root.setAttribute("data-dense", "true");
+    placeLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph });
+    labels.forEach(function (l) {
+      l.el.setAttribute("x", String(l.x));
+      l.el.setAttribute("y", String(l.yc + 3.5));
+      l.el.setAttribute("text-anchor", l.right ? "start" : "end");
+      if (Math.abs(l.yc - l.my) > LABEL_H) {
+        var tx = l.right ? l.x - 2 : l.x + 2;
+        svg("line", {
+          "class": "tick", x1: l.cx, y1: l.my, x2: tx, y2: l.yc,
+          stroke: l.col, "stroke-width": 1, opacity: .7
+        }, l.g);
+      }
+    });
+    if (labels.length > LABEL_DENSE) root.setAttribute("data-dense", "true");
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has a paced weekly window",
