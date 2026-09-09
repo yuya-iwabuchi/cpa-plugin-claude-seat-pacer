@@ -757,7 +757,10 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 // present reading, with the completed cycle before it landing somewhere of its
 // own. The seat's id shapes the curves so a pool does not draw the same line
 // twelve times; a third of the seats get a steep last forty minutes on the
-// 5-hour window, which is the case the chart's conversation markers exist for.
+// 5-hour window, which is the case the chart's conversation markers exist for,
+// and another third hold every window flat through the middle half of its
+// cycle, so the store folds that stretch to two readings hours apart and the
+// chart's step between them is visible.
 //
 // The completed cycle is an estimate reconstructed from a token log, as a
 // backfilled file holds it. Seats with seed%3 == 1 also start the current
@@ -793,6 +796,7 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 		}
 		span := now.Sub(start).Seconds()
 		steep := w.Kind == model.WindowSession && seed%3 == 0
+		idle := seed%3 == 2
 		knee := 1 - (40*time.Minute).Seconds()/span
 		mixedUntil := start.Add(-time.Second)
 		if seed%3 == 1 {
@@ -806,6 +810,9 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 		for t := start; !t.After(now); t = t.Add(step) {
 			frac := t.Sub(start).Seconds() / span
 			u := w.Utilization * math.Pow(frac, shape)
+			if idle && frac > 0.25 && frac < 0.75 {
+				u = w.Utilization * math.Pow(0.25, shape)
+			}
 			if steep && knee > 0 {
 				if frac < knee {
 					u = w.Utilization * 0.35 * frac / knee
