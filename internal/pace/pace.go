@@ -84,7 +84,7 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 			unreadable = unreadable || math.IsNaN(w.Utilization) || math.IsInf(w.Utilization, 0)
 			if open(w) {
 				ws.Weight = weightOf(cfg, w)
-				score.Total += ws.Weight * ws.Slack
+				score.Cost -= ws.Weight * ws.Slack
 				if w.Utilization > rawUtil {
 					rawUtil = w.Utilization
 				}
@@ -93,8 +93,8 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 		score.Windows = append(score.Windows, ws)
 	}
 
-	score.RawPenalty = cfg.RawWeight * rawUtil
-	score.Total -= score.RawPenalty
+	score.FullestPenalty = cfg.RawWeight * rawUtil
+	score.Cost += score.FullestPenalty
 
 	switch {
 	case bearing == 0:
@@ -160,24 +160,24 @@ func Rank(cfg model.PaceConfig, snaps map[string]model.AuthSnapshot, candidateID
 	return scores
 }
 
-// better is the ranking order: eligible first, then a comparable Total ahead of
-// a NaN one, then higher Total, then lower AuthID. NaN compares false against
+// better is the ranking order: eligible first, then a comparable Cost ahead of
+// a NaN one, then lower Cost, then lower AuthID. NaN compares false against
 // every number, so it needs its own branch for the order to stay transitive.
 func better(a, b model.Score) bool {
 	if a.Eligible != b.Eligible {
 		return a.Eligible
 	}
-	aNaN, bNaN := math.IsNaN(a.Total), math.IsNaN(b.Total)
+	aNaN, bNaN := math.IsNaN(a.Cost), math.IsNaN(b.Cost)
 	if aNaN != bNaN {
 		return bNaN
 	}
-	if !aNaN && a.Total != b.Total {
-		return a.Total > b.Total
+	if !aNaN && a.Cost != b.Cost {
+		return a.Cost < b.Cost
 	}
 	return a.AuthID < b.AuthID
 }
 
-// Best is the highest-ranked eligible score, and false when none is eligible.
+// Best is the cheapest eligible credential, and false when none is eligible.
 // The slice need not be sorted.
 func Best(scores []model.Score) (model.Score, bool) {
 	var best model.Score
@@ -203,5 +203,5 @@ func ShouldSwitch(cfg model.PaceConfig, incumbent model.Score, challenger model.
 	if !incumbent.Eligible {
 		return true
 	}
-	return challenger.Total > incumbent.Total+cfg.HysteresisMargin
+	return challenger.Cost < incumbent.Cost-cfg.HysteresisMargin
 }

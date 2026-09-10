@@ -219,13 +219,14 @@ func TestScoreAuthBreakdownCoversEveryWindow(t *testing.T) {
 		}
 	}
 
-	// 0.35*0.3 + 1.0*0.15 - 0.25*0.2, the busiest counted window being the
-	// session one at 0.2.
-	if wantTotal := 0.205; math.Abs(score.Total-wantTotal) > tolerance {
-		t.Fatalf("Total = %v, want %v", score.Total, wantTotal)
+	// -(0.35*0.3 + 1.0*0.15) + 0.25*0.2: both windows sit under their target,
+	// so they cost nothing and the fullest of them, the session window at 0.2,
+	// adds the only charge.
+	if wantCost := -0.205; math.Abs(score.Cost-wantCost) > tolerance {
+		t.Fatalf("Cost = %v, want %v", score.Cost, wantCost)
 	}
-	if wantPenalty := cfg.RawWeight * 0.2; math.Abs(score.RawPenalty-wantPenalty) > tolerance {
-		t.Fatalf("RawPenalty = %v, want %v", score.RawPenalty, wantPenalty)
+	if wantPenalty := cfg.RawWeight * 0.2; math.Abs(score.FullestPenalty-wantPenalty) > tolerance {
+		t.Fatalf("FullestPenalty = %v, want %v", score.FullestPenalty, wantPenalty)
 	}
 }
 
@@ -278,8 +279,8 @@ func TestScoreAuthEligibility(t *testing.T) {
 				t.Fatalf("eligible=%v reason=%q, want eligible=%v reason=%q",
 					score.Eligible, score.Reason, tc.eligible, tc.reason)
 			}
-			if math.IsNaN(score.Total) || math.IsInf(score.Total, 0) {
-				t.Fatalf("total = %v, want a finite score", score.Total)
+			if math.IsNaN(score.Cost) || math.IsInf(score.Cost, 0) {
+				t.Fatalf("total = %v, want a finite score", score.Cost)
 			}
 		})
 	}
@@ -335,11 +336,11 @@ func TestUnopenedWindowScoresNothingAndStillGates(t *testing.T) {
 		withoutIdle := ScoreAuth(cfg, seat("seat", now, live), "claude-opus-5", now)
 		withIdle := ScoreAuth(cfg, seat("seat", now, live, unopened(0.9)), "claude-opus-5", now)
 
-		if withIdle.Total != withoutIdle.Total {
-			t.Fatalf("total with an unopened window = %v, want %v", withIdle.Total, withoutIdle.Total)
+		if withIdle.Cost != withoutIdle.Cost {
+			t.Fatalf("total with an unopened window = %v, want %v", withIdle.Cost, withoutIdle.Cost)
 		}
-		if withIdle.RawPenalty != withoutIdle.RawPenalty {
-			t.Fatalf("raw penalty = %v, want %v", withIdle.RawPenalty, withoutIdle.RawPenalty)
+		if withIdle.FullestPenalty != withoutIdle.FullestPenalty {
+			t.Fatalf("raw penalty = %v, want %v", withIdle.FullestPenalty, withoutIdle.FullestPenalty)
 		}
 		if !withIdle.Eligible {
 			t.Fatalf("eligible=false reason=%q, want an unopened window under cutoff not to gate", withIdle.Reason)
@@ -449,7 +450,7 @@ func TestNonFiniteUtilizationIsIneligible(t *testing.T) {
 
 // NaN compares false against every number, so a comparator without a branch for
 // it is not transitive and orders by whatever order the host offered.
-func TestRankOrdersUnreadableTotalsLast(t *testing.T) {
+func TestRankOrdersUnreadableCostsLast(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
 
@@ -493,7 +494,7 @@ func TestRankOrdersUnreadableTotalsLast(t *testing.T) {
 // Two credentials can both sit exactly on their curves while one is nearly
 // spent and the other is idle. Pace slack alone calls that a tie; the raw term
 // is what sends the request to the idle seat.
-func TestRawPenaltySpreadsLoadBetweenSeatsOnPace(t *testing.T) {
+func TestFullestPenaltySpreadsLoadBetweenSeatsOnPace(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
 
@@ -518,9 +519,9 @@ func TestRawPenaltySpreadsLoadBetweenSeatsOnPace(t *testing.T) {
 	}
 }
 
-// RawPenalty is the term actually subtracted from the weighted slack, and it
+// FullestPenalty is the term actually subtracted from the weighted slack, and it
 // comes from the busiest window that counted.
-func TestRawPenaltyTracksTheBusiestCountedWindow(t *testing.T) {
+func TestFullestPenaltyTracksTheBusiestCountedWindow(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
 
@@ -529,15 +530,15 @@ func TestRawPenaltyTracksTheBusiestCountedWindow(t *testing.T) {
 		weekly(now, 0.5, 0.2),
 	), "claude-opus-5", now)
 
-	if want := cfg.RawWeight * 0.9; math.Abs(score.RawPenalty-want) > tolerance {
-		t.Fatalf("RawPenalty = %v, want %v", score.RawPenalty, want)
+	if want := cfg.RawWeight * 0.9; math.Abs(score.FullestPenalty-want) > tolerance {
+		t.Fatalf("FullestPenalty = %v, want %v", score.FullestPenalty, want)
 	}
 	var weighted float64
 	for _, ws := range score.Windows {
 		weighted += ws.Weight * ws.Slack
 	}
-	if math.Abs(score.Total-(weighted-score.RawPenalty)) > tolerance {
-		t.Fatalf("Total = %v, want %v", score.Total, weighted-score.RawPenalty)
+	if want := score.FullestPenalty - weighted; math.Abs(score.Cost-want) > tolerance {
+		t.Fatalf("Cost = %v, want %v", score.Cost, want)
 	}
 }
 
@@ -610,7 +611,7 @@ func TestLiveSeatsRouteAwayFromAndThenIntoTheClosingWindow(t *testing.T) {
 		ranked := Rank(cfg, snapshots(seatA, seatB), []string{"seat-a", "seat-b"}, fable, now)
 		b := scoreOf(t, ranked, "seat-b")
 		if b.Eligible {
-			t.Fatalf("seat-b eligible=true total=%v, want its spent session window to disqualify it", b.Total)
+			t.Fatalf("seat-b eligible=true total=%v, want its spent session window to disqualify it", b.Cost)
 		}
 		if b.Reason != model.ReasonHardCutoff {
 			t.Fatalf("seat-b reason = %q, want %q", b.Reason, model.ReasonHardCutoff)
@@ -647,7 +648,7 @@ func TestLiveSeatsRouteAwayFromAndThenIntoTheClosingWindow(t *testing.T) {
 		b := scoreOf(t, ranked, "seat-b")
 		if best.AuthID != "seat-b" {
 			t.Fatalf("winner = %q (seat-a %v, seat-b %v), want seat-b: its weekly window resets in hours",
-				best.AuthID, a.Total, b.Total)
+				best.AuthID, a.Cost, b.Cost)
 		}
 		// Seat B is behind a curve that is nearly over; seat A is ahead of one
 		// that has just begun.
@@ -659,7 +660,7 @@ func TestLiveSeatsRouteAwayFromAndThenIntoTheClosingWindow(t *testing.T) {
 		}
 		// Decisive enough to pull an established binding across.
 		if !ShouldSwitch(cfg, a, b) {
-			t.Fatalf("ShouldSwitch(seat-a %v, seat-b %v) = false, want true", a.Total, b.Total)
+			t.Fatalf("ShouldSwitch(seat-a %v, seat-b %v) = false, want true", a.Cost, b.Cost)
 		}
 	})
 }
@@ -696,7 +697,7 @@ func TestCurveExponentReordersCandidates(t *testing.T) {
 			}
 			if best.AuthID != tc.want {
 				t.Fatalf("winner = %q (early %v, late %v), want %q", best.AuthID,
-					scoreOf(t, ranked, "early").Total, scoreOf(t, ranked, "late").Total, tc.want)
+					scoreOf(t, ranked, "early").Cost, scoreOf(t, ranked, "late").Cost, tc.want)
 			}
 		})
 	}
@@ -796,33 +797,33 @@ func TestBest(t *testing.T) {
 		{
 			"none eligible",
 			[]model.Score{
-				{AuthID: "a", Total: 1, Reason: model.ReasonHardCutoff},
-				{AuthID: "b", Total: 2, Reason: model.ReasonRejected},
+				{AuthID: "a", Cost: 1, Reason: model.ReasonHardCutoff},
+				{AuthID: "b", Cost: 2, Reason: model.ReasonRejected},
 			},
 			"", false,
 		},
 		{
-			"skips a higher-scoring ineligible",
+			"skips a cheaper ineligible",
 			[]model.Score{
-				{AuthID: "a", Total: 9},
-				{AuthID: "b", Total: 1, Eligible: true},
+				{AuthID: "a", Cost: 0.1},
+				{AuthID: "b", Cost: 1, Eligible: true},
 			},
 			"b", true,
 		},
 		{
 			"unsorted input",
 			[]model.Score{
-				{AuthID: "a", Total: 0.1, Eligible: true},
-				{AuthID: "b", Total: 0.9, Eligible: true},
-				{AuthID: "c", Total: 0.5, Eligible: true},
+				{AuthID: "a", Cost: 0.1, Eligible: true},
+				{AuthID: "b", Cost: 0.9, Eligible: true},
+				{AuthID: "c", Cost: 0.5, Eligible: true},
 			},
-			"b", true,
+			"a", true,
 		},
 		{
 			"ties break on id",
 			[]model.Score{
-				{AuthID: "z", Total: 0.5, Eligible: true},
-				{AuthID: "y", Total: 0.5, Eligible: true},
+				{AuthID: "z", Cost: 0.5, Eligible: true},
+				{AuthID: "y", Cost: 0.5, Eligible: true},
 			},
 			"y", true,
 		},
@@ -838,8 +839,8 @@ func TestBest(t *testing.T) {
 }
 
 func TestShouldSwitch(t *testing.T) {
-	eligible := func(id string, total float64) model.Score {
-		return model.Score{AuthID: id, Total: total, Eligible: true}
+	eligible := func(id string, cost float64) model.Score {
+		return model.Score{AuthID: id, Cost: cost, Eligible: true}
 	}
 
 	cases := []struct {
@@ -849,23 +850,23 @@ func TestShouldSwitch(t *testing.T) {
 		challenger model.Score
 		want       bool
 	}{
-		{"marginal gain holds the binding", 0.05, eligible("a", 0.50), eligible("b", 0.53), false},
+		{"marginal saving holds the binding", 0.05, eligible("a", 0.50), eligible("b", 0.47), false},
 		// Quarters are exactly representable, so the boundary is the boundary
 		// rather than a rounding artefact.
-		{"exactly the margin holds the binding", 0.25, eligible("a", 0.50), eligible("b", 0.75), false},
-		{"a hair past the margin moves it", 0.25, eligible("a", 0.50), eligible("b", 0.76), true},
-		{"decisive gain moves it", 0.05, eligible("a", 0.50), eligible("b", 0.70), true},
-		{"a worse challenger never moves it", 0.05, eligible("a", 0.50), eligible("b", 0.10), false},
+		{"exactly the margin holds the binding", 0.25, eligible("a", 0.50), eligible("b", 0.25), false},
+		{"a hair past the margin moves it", 0.25, eligible("a", 0.50), eligible("b", 0.24), true},
+		{"decisive saving moves it", 0.05, eligible("a", 0.50), eligible("b", 0.30), true},
+		{"a dearer challenger never moves it", 0.05, eligible("a", 0.50), eligible("b", 0.90), false},
 		{
 			"an ineligible incumbent always yields", 0.05,
-			model.Score{AuthID: "a", Total: 9, Reason: model.ReasonHardCutoff},
-			eligible("b", -1),
+			model.Score{AuthID: "a", Cost: -1, Reason: model.ReasonHardCutoff},
+			eligible("b", 9),
 			true,
 		},
 		{
 			"an ineligible challenger never wins", 0.05,
-			eligible("a", -5),
-			model.Score{AuthID: "b", Total: 9, Reason: model.ReasonRejected},
+			eligible("a", 9),
+			model.Score{AuthID: "b", Cost: -5, Reason: model.ReasonRejected},
 			false,
 		},
 	}
@@ -896,7 +897,7 @@ func TestSessionWindowGatesWithoutPacing(t *testing.T) {
 		weekly(now, 0.5, 0.1),
 	), "claude-opus-5", now)
 	bare := ScoreAuth(cfg, seat("bare", now, weekly(now, 0.5, 0.1)), "claude-opus-5", now)
-	if math.Abs(busy.Total-bare.Total) < tolerance {
+	if math.Abs(busy.Cost-bare.Cost) < tolerance {
 		t.Fatal("a session window at higher utilization must still cost through the raw penalty")
 	}
 
@@ -925,5 +926,33 @@ func TestFailedReadIsNotAMissingCap(t *testing.T) {
 	if score.Eligible || score.Reason != model.ReasonFetchFailed {
 		t.Errorf("eligible=%v reason=%q, want eligible=false reason=%q",
 			score.Eligible, score.Reason, model.ReasonFetchFailed)
+	}
+}
+
+// Cost counts against a credential, so a credential nothing is known about
+// scores zero, which is the cheapest a real one can be. Eligibility is what
+// keeps it out of the running, and this pins that: an unread credential must
+// never take a request from one carrying an honest cost.
+func TestAnUnreadCredentialNeverLooksCheapest(t *testing.T) {
+	now := time.Now().UTC()
+	cfg := model.Defaults().Pace
+
+	read := seat("read", now, weekly(now, 0.5, 0.9))
+	unread := model.AuthSnapshot{AuthID: "unread", ObservedAt: now, Err: "usage endpoint throttled"}
+
+	ranked := Rank(cfg, snapshots(read, unread), []string{"read", "unread"}, "claude-opus-5", now)
+	if got := scoreOf(t, ranked, "unread"); got.Cost != 0 || got.Eligible {
+		t.Fatalf("unread = cost %v eligible %v, want zero cost and ineligible", got.Cost, got.Eligible)
+	}
+	if got := scoreOf(t, ranked, "read"); got.Cost <= 0 {
+		t.Fatalf("read = cost %v, want a positive cost so the zero is the cheaper number", got.Cost)
+	}
+
+	best, ok := Best(ranked)
+	if !ok || best.AuthID != "read" {
+		t.Fatalf("Best = %q (%v), want the read credential despite its dearer cost", best.AuthID, ok)
+	}
+	if ranked[0].AuthID != "read" {
+		t.Errorf("Rank put %q first, want the read credential", ranked[0].AuthID)
 	}
 }

@@ -158,45 +158,28 @@ a { color: inherit; }
 }
 
 /* --------------------------------------------------------------- masthead */
+/* The console that embeds this page already names the plugin in its own
+   navigation, so the masthead carries the title and nothing else: one
+   condensed line on the hairline that separates it from the live bar. Every
+   control sits in that bar, every build fact in the footer. */
 .mast {
   border-bottom: 1px solid var(--rule);
   background: linear-gradient(180deg, var(--surface-1), transparent);
 }
 .mast-inner {
-  padding: 22px 28px 16px;
+  padding: 26px 28px 18px;
   max-width: 1360px; margin: 0 auto;
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
 }
 /* The Management Center floats its own toolbar over the top-right corner of
    the frame it embeds this page in, so a framed document keeps that corner
-   empty: nothing of the masthead or the sticky bar sits under it. */
-:root[data-framed] .mast-inner,
+   empty. The sticky bar is the only band that reaches it: the masthead holds
+   a left-aligned title and scrolls away. */
 :root[data-framed] .livebar-inner { padding-right: max(28px, min(250px, 38vw)); }
-.brand { min-width: 0; }
-.brand-eyebrow {
-  font: 600 10.5px/1.6 var(--mono);
-  letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3);
-  display: block; margin-bottom: 6px;
-}
-/* Build facts trail the id in their own case: a version string reads as
-   written, not shouted. */
-.brand-facts { text-transform: none; letter-spacing: .04em; font-weight: 500; }
-.brand-facts:not(:empty)::before { content: "\A0\B7\A0"; letter-spacing: .18em; }
-/* On a phone the facts take a line of their own, so the separator never
-   opens one. */
-@media (max-width: 720px) {
-  .brand-facts { display: block; }
-  .brand-facts::before { content: none !important; }
-}
 .brand-name {
   font-family: var(--cond);
   font-size: clamp(30px, 4.4vw, 46px);
   font-weight: 700; letter-spacing: .008em; line-height: .95;
   margin: 0; text-transform: uppercase;
-}
-.brand-rule {
-  margin-top: 14px; height: 4px; width: 108px; border-radius: 2px;
-  background: linear-gradient(90deg, var(--seat-1), var(--seat-2));
 }
 
 /* --------------------------------------------------------------- live bar */
@@ -251,26 +234,20 @@ a { color: inherit; }
   .livebar-inner button { padding: 6px 9px; font-size: 11px; }
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-/* The controls that act on the live state stack beside it, on the bar's own
-   two rows; the dot beside them reads as the state they act on. Equal widths
-   keep the pair a block rather than a ragged edge. */
-.btn-stack { display: flex; flex-direction: column; gap: 4px; }
-.btn-stack button { width: 100%; }
+/* Every control the page has, in one row beside the live dot that reads as
+   the state they act on. The row fits at every width the bar holds, so it
+   never sets the bar's height: the readouts beside it are two lines tall and
+   the buttons are shorter than that. */
+.btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
 button {
   font: 600 11.5px/1 var(--sans);
   color: var(--ink-1); background: var(--surface-1);
   border: 1px solid var(--axis); border-radius: 6px;
   padding: 7px 11px; cursor: pointer;
 }
-/* Trimmed vertical padding keeps the stacked pair near the height of the two
-   text lines beside it, so the controls do not set the bar's height. */
-.btn-stack button { padding: 5px 11px; }
-/* The readouts already wrap to bands of their own on a phone, so the controls
-   buy one back by sitting side by side: height is the scarce axis there. */
-@media (max-width: 620px) {
-  .btn-stack { flex-direction: row; }
-  .btn-stack button { width: auto; }
-}
+/* Trimmed vertical padding keeps the row inside the two text lines beside
+   it. */
+.btn-row button { padding: 5px 11px; }
 button { white-space: nowrap; }
 button:hover { background: var(--surface-2); }
 /* A forced sync holds the button for the round trip; nothing else disables one. */
@@ -386,7 +363,7 @@ svg.tl g.lane:hover rect.hit { fill: var(--surface-2); }
 svg.tl g.head { cursor: default; }
 svg.tl g.head:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
 svg.tl g.head:hover rect.hit { fill: var(--surface-2); }
-/* The slack label has a lane of its own, so it never meets another. */
+/* The gap label has a lane of its own, so it never meets another. */
 svg.tl text.slk { fill: var(--ink-2); }
 /* A lane's reset stamp is a stop of its own: the row says how long is left,
    its tooltip the instant that lands on. */
@@ -405,8 +382,10 @@ svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
 svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 svg.pace .t-muted { fill: var(--ink-3); }
 svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; }
-svg.pace[data-focus] g.pt:not([data-focused]), svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .16; }
-/* The slack label reads in ink over the curve and grid; the gap tick under
+svg.pace[data-focus] g.pt:not([data-focused]),
+svg.pace[data-focus] g.pt-line:not([data-focused]),
+svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .16; }
+/* The gap label reads in ink over the curve and grid; the gap tick under
    the mark carries the seat's colour. In a dense chart labels wait for the
    seat to be pointed at or focused, in the legend or on the point. */
 svg.pace text.slk { fill: var(--ink-2); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
@@ -421,7 +400,7 @@ svg.pace path.hist { fill: none; stroke-width: 1.4; stroke-linejoin: round; stro
 svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .5; stroke-dasharray: 2 3; }
 /* A weighted mark's label yields to the full-weight one beside it. */
 svg.pace text.slk.slk-half { font-size: 9px; opacity: .72; }
-/* The seat's score, at the head of its weekly line, in the seat's text hue. */
+/* The seat's cost, at the head of its weekly line, in the seat's text hue. */
 svg.pace text.score { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.score { visibility: hidden; }
 svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
@@ -561,6 +540,20 @@ th[aria-sort] button { color: var(--ink-1); }
 .secref::before { content: "\2197"; font-size: 9px; }
 .secref:hover { color: var(--ink-1); border-color: var(--ink-3); }
 
+/* ---------------------------------------------------------------- footer */
+/* The build facts, in the quietest type on the page and on a rule of their
+   own: which version is running, which host contract it registered against
+   and how long it has been up. Nothing here applies to a routing decision, so
+   nothing here competes with the sections above it. */
+.foot {
+  margin-top: 56px; padding: 14px 0 0;
+  border-top: 1px solid var(--rule);
+}
+.foot-facts {
+  font: 500 10.5px/1.7 var(--mono);
+  letter-spacing: .06em; color: var(--ink-3);
+}
+
 /* ---------------------------------------------------------------- states */
 .skel { display: grid; gap: 16px; }
 .skel-row { height: 76px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hairline); }
@@ -617,12 +610,7 @@ main[data-stale="true"] { opacity: .62; }
 
 <header class="mast">
   <div class="mast-inner">
-    <div class="brand">
-      <span class="brand-eyebrow">cpa-claude-quota-scheduler &middot; CLIProxyAPI plugin<span class="brand-facts" id="plugin-facts"></span></span>
-      <h1 class="brand-name">Claude quota</h1>
-      <div class="brand-rule"></div>
-    </div>
-    <button type="button" id="theme-toggle">Theme: auto</button>
+    <h1 class="brand-name">Claude quota</h1>
   </div>
 </header>
 
@@ -651,9 +639,10 @@ main[data-stale="true"] { opacity: .62; }
     <div class="spacer"></div>
     <div class="ctl">
       <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
-      <div class="btn-stack">
+      <div class="btn-row">
         <button type="button" id="sync-now">Sync now</button>
         <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
+        <button type="button" id="theme-toggle">Theme: auto</button>
       </div>
     </div>
   </div>
@@ -692,11 +681,12 @@ main[data-stale="true"] { opacity: .62; }
         <span class="sec-sub" id="seats-sub">one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation</span>
         <span class="sec-line"></span>
       </div>
-      <!-- The lane states come from STATE_META at render time; only the
-           axis markers, which no script draws, are markup. -->
+      <!-- The lane states come from STATE_META and the sign key from
+           SIGN_KEY, both at render time; only the axis markers, which no
+           script draws, are markup. -->
       <ul class="legend" id="timeline-legend">
         <li data-axis-marker><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
-        <li data-axis-marker><span class="gl">&#8943;</span> slack: gap to the pace target, in points of the budget · + over pace, − under</li>
+        <li data-axis-marker><span class="gl">&#8943;</span> gap to the pace target</li>
         <li data-axis-marker><span class="gl" style="color:var(--critical)">&#9478;</span> hard cutoff</li>
         <li data-axis-marker><span class="gl">&#9474;</span> now</li>
       </ul>
@@ -707,7 +697,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Weekly window</h2>
-        <span class="sec-sub" id="pace-sub">the budget the scheduler paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; its slack is what ranks the seats</span>
+        <span class="sec-sub" id="pace-sub">the budget the scheduler paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; the gap to that curve ranks the seats</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -727,7 +717,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>5-hour window</h2>
-        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization against the same curve, by hours into its own window &middot; no pace weight of its own, but it gates a seat at the cutoff and usually sets the fullness penalty</span>
+        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization against the same curve, by hours into its own window &middot; it carries no pace weight, but it gates a seat at the cutoff and is often its fullest window</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -745,11 +735,11 @@ main[data-stale="true"] { opacity: .62; }
     <section id="sec-score" hidden>
       <div class="sec-head">
         <span class="sec-idx"></span>
-        <h2>Score</h2>
-        <span class="sec-sub">how the next pick is arrived at: every term of each seat's score, the fullness penalty subtracted, and the total that ranks it</span>
+        <h2>Cost</h2>
+        <span class="sec-sub">how the next pick is arrived at: every term of each seat's cost, and the total the terms add to &middot; the lowest cost takes the next new conversation</span>
         <span class="sec-line"></span>
       </div>
-      <ul class="legend" id="score-legend" aria-label="How a score is built"></ul>
+      <ul class="legend" id="score-legend" aria-label="How a cost is built"></ul>
       <div class="card score-card" id="score-tables"></div>
     </section>
 
@@ -774,6 +764,13 @@ main[data-stale="true"] { opacity: .62; }
     </section>
 
   </main>
+
+  <!-- The build facts, away from every figure a routing decision turns on.
+       It stays out of the document until it has something to say, so a page
+       that has never fetched carries no empty rule. -->
+  <footer class="foot" id="page-foot" hidden>
+    <div class="foot-facts" id="plugin-facts"></div>
+  </footer>
 </div>
 
 <script>
@@ -788,7 +785,7 @@ main[data-stale="true"] { opacity: .62; }
      holds. */
   var SYNC_TIMEOUT_MS = 30000;
   var STALE_DIM_MS = 250;    /* a round trip faster than this never dims */
-  var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
+  var PACE_BAND = 0.02;      /* a gap inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
   var DENSE_AT = 4;          /* more seats than this and the rows draw compact */
@@ -907,40 +904,39 @@ main[data-stale="true"] { opacity: .62; }
     return v.toFixed(2) + "×";
   }
 
-  /* Slack is target minus utilization: positive is a seat under pace, with
-     budget still to spend. The full form says so in words, for prose and
-     tooltips. The compact form is one signed number for chart labels and
-     table cells, and its sign is the reader's: + is over pace (utilization
-     above target), − is under, so it is −slack to one decimal. Every legend
-     that shows the compact form states the convention once. */
-  function slackText(v, compact) {
-    if (!num(v)) return "—";
-    if (compact) return signedOver(v);
-    return pts(v) + " " + (v >= 0 ? "under" : "over") + " pace";
-  }
-
-  /* The compact form of a slack: the amount over the target, signed. A slack
+  /* One signed figure, in points of a window's budget. The page signs
+     everything one way: + counts against the seat, − counts for it. A figure
      inside a twentieth of a point of zero reads as 0.0 with no sign. */
-  function signedOver(slack) {
-    var over = -slack * 100;
-    if (Math.abs(over) < 0.05) return "0.0";
-    return (over > 0 ? "+" : "−") + Math.abs(over).toFixed(1);
+  function signed(v) {
+    if (!num(v)) return "—";
+    var n = Math.abs(v) * 100;
+    if (n < 0.05) return "0.0";
+    return (v > 0 ? "+" : "−") + n.toFixed(1);
   }
 
-  /* The 5-hour window's compact form, in the same sign convention: + over
-     the curve, − headroom. The full form names the headroom rather than a
-     pace, because the scheduler keeps no pace on this window. */
-  function headroomText(v, compact) {
-    if (!num(v)) return "—";
-    if (compact) return signedOver(v);
-    return pts(v) + (v >= 0 ? " headroom under the curve" : " over the curve");
+  /* How far a window runs over its target, compact, for chart labels and
+     table cells. The payload gives target minus utilization, which is the
+     other direction, so it is negated here and nowhere else. */
+  function overPts(slack) { return num(slack) ? signed(-slack) : "—"; }
+
+  /* The same gap in words, for prose and tooltips. */
+  function overText(slack) {
+    if (!num(slack)) return "—";
+    return pts(slack) + (slack >= 0 ? " under target" : " over target");
   }
 
-  /* A score is a composite, not a slack, so it keeps its sign. */
-  function signedPts(v) {
-    if (!num(v)) return "—";
-    return (v < 0 ? "−" : "") + pts(v);
+  /* The 5-hour window's gap in words. Under the curve on this window is
+     headroom, and that is the only direction the word names. */
+  function headroomText(slack) {
+    if (!num(slack)) return "—";
+    return pts(slack) + (slack >= 0 ? " headroom under the curve" : " over the curve");
   }
+
+  /* The one sentence on the page that says what the sign means. Every legend
+     carrying a signed figure prints it, so no two can disagree. The 5-hour
+     chart names the under-target direction it keeps its own word for. */
+  var SIGN_KEY = "+ over target · − under target";
+  var SIGN_KEY_SESSION = SIGN_KEY + " (headroom)";
 
   function absTime(d) {
     return d.toLocaleString(undefined, {
@@ -1021,14 +1017,14 @@ main[data-stale="true"] { opacity: .62; }
   function windowName(w) {
     if (w.kind === "five_hour") return "5-hour session";
     if (w.kind === "seven_day") return "7-day all models";
-    if (w.kind === "weekly_scoped") return (w.scope || "scoped") + " weekly";
+    if (w.kind === "weekly_scoped") return (w.scope || "family") + " weekly cap";
     return w.kind;
   }
 
   function windowShort(w) {
     if (w.kind === "five_hour") return "5h session";
     if (w.kind === "seven_day") return "7d all models";
-    if (w.kind === "weekly_scoped") return (w.scope || "scoped") + " 7d";
+    if (w.kind === "weekly_scoped") return (w.scope || "family") + " cap";
     return w.kind;
   }
 
@@ -1045,8 +1041,8 @@ main[data-stale="true"] { opacity: .62; }
     });
   }
 
-  /* A window's score entry, from the family whose ranking it bears on: a
-     scoped cap from its own family's scores, every other window from the
+  /* A window's cost entry, from the family whose ranking it applies to: a
+     family cap from its own family's scores, every other window from the
      Standard scores, which weigh those windows the same as any family does.
      Null where that family's ranking is unknown this refresh. */
   function scoreFor(auth, w) {
@@ -1099,13 +1095,13 @@ main[data-stale="true"] { opacity: .62; }
     return sc.eligible ? "eligible" : reasonText(sc.reason);
   }
 
-  /* A window is paced when the scorer gave it a weight: only a window bearing
-     on the requested model, with an open period, reaches the curve. */
+  /* A window is paced when the scorer gave it a weight: only a window that
+     applies to the requested model, with an open period, reaches the curve. */
   function counted(ws) { return !!ws && num(ws.slack) && ws.weight > 0; }
 
   /* The session and all-models weekly windows bear on every model, so a score
      entry for one of them at weight zero is a window the scorer read and
-     gates on without pacing. A scoped window at weight zero is a cap for
+     gates on without pacing. A family cap at weight zero is a cap for
      another family, and a snapshot with no breakdown was never evaluated;
      neither has a verdict. */
   function gatedOnly(w, ws) {
@@ -1152,12 +1148,15 @@ main[data-stale="true"] { opacity: .62; }
     return "on";
   }
 
-  /* A score with no window breakdown was never computed — no snapshot, or one
-     past max-staleness — and its zero total is not a reading. */
+  /* A cost with no window breakdown was never computed — no snapshot, or one
+     past max-staleness — and its zero value is not a reading. */
   function scored(score) { return !!(score && score.windows && score.windows.length); }
 
-  function totalText(score) {
-    return scored(score) ? signedPts(score.total) : "—";
+  /* A cost adds every term below it, so it carries the sum's own sign: a
+     seat under target on every window costs less than nothing. The lowest
+     cost takes the work. */
+  function costText(score) {
+    return scored(score) ? signed(score.cost) : "—";
   }
 
   /* The paced window of a kind in a score's breakdown; null where the scorer
@@ -1170,26 +1169,27 @@ main[data-stale="true"] { opacity: .62; }
     return null;
   }
 
-  /* The seat's headline figure: weekly slack, which is the rank almost every
-     time. The score is a composite and lives in the tooltip. */
-  function weeklySlackText(score) {
+  /* The seat's headline figure: how far its weekly window runs over target,
+     which is the rank almost every time. The cost is a composite and lives
+     in the tooltip. */
+  function weeklyGapText(score) {
     var ws = pacedWindow(score, PACE_KIND);
-    return ws ? slackText(ws.slack) : "—";
+    return ws ? overText(ws.slack) : "—";
   }
 
-  /* How the score was built, in the units the page uses everywhere: weekly
-     slack, the fullness penalty (RawWeight × the fullest window, subtracted),
-     and the scoped slack at its weight when the model's family has a cap. */
-  function scoreBreakdown(score) {
-    if (score === null) return "score unknown";
-    if (!scored(score)) return "score —";
-    var weekly = pacedWindow(score, PACE_KIND), scoped = pacedWindow(score, "weekly_scoped");
+  /* How the cost was built, in the units the page uses everywhere: the
+     weekly gap to target, the family cap's gap at its weight, and the
+     fullest-window penalty. Every term adds. */
+  function costBreakdown(score) {
+    if (score === null) return "cost unknown";
+    if (!scored(score)) return "cost —";
+    var weekly = pacedWindow(score, PACE_KIND), cap = pacedWindow(score, "weekly_scoped");
     var parts = [];
-    if (weekly) parts.push("weekly " + slackText(weekly.slack, true) +
+    if (weekly) parts.push("7d " + overPts(weekly.slack) +
       (weekly.weight !== 1 ? " ×" + weekly.weight.toFixed(2) : ""));
-    if (scoped) parts.push("scoped " + slackText(scoped.slack, true) + " ×" + scoped.weight.toFixed(2));
-    if (num(score.raw_penalty)) parts.push("fullness −" + pts(score.raw_penalty));
-    return "score " + [totalText(score)].concat(parts).join(" · ");
+    if (cap) parts.push(windowShort(cap) + " " + overPts(cap.slack) + " ×" + cap.weight.toFixed(2));
+    if (num(score.fullest_penalty)) parts.push("fullest window +" + pts(score.fullest_penalty));
+    return "cost " + [costText(score)].concat(parts).join(" · ");
   }
 
 
@@ -1277,12 +1277,13 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* Mirrors internal/pace ranking for one request family: eligible first,
-     then Total desc, then id. */
+     then the lowest Cost, then id. Rank #1 is the seat the pool pays least
+     to use. */
   function rankAuths(auths, fam) {
     return (auths || []).slice().sort(function (x, y) {
       var a = famScore(x, fam) || {}, b = famScore(y, fam) || {};
       if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
-      if ((a.total || 0) !== (b.total || 0)) return (b.total || 0) - (a.total || 0);
+      if ((a.cost || 0) !== (b.cost || 0)) return (a.cost || 0) - (b.cost || 0);
       return String(x.auth_id).localeCompare(String(y.auth_id));
     });
   }
@@ -1359,7 +1360,7 @@ main[data-stale="true"] { opacity: .62; }
      first: what an operator watching an exhausted seat is waiting on. Only an
      observed refusal counts, which is what the scheduler gates on; a window
      the usage endpoint merely rates critical still serves. Null where nothing
-     bearing on the family is rejected. */
+     applying to the family is rejected. */
   function blockingWindow(a, fam) {
     var out = null;
     ((a.snapshot && a.snapshot.windows) || []).forEach(function (w) {
@@ -1485,7 +1486,7 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* Behind a seat's row in the timeline gutter: why it ranks where it does
-     and whether it can take work, then the score that ranks it and its live
+     and whether it can take work, then the cost that ranks it and its live
      load. Anything unremarkable stays out; the name is here whole because
      the row trims it to the measured space. */
   function seatTip(a, ranks) {
@@ -1510,9 +1511,9 @@ main[data-stale="true"] { opacity: .62; }
       });
       if (blk) verdict += " · " + windowShort(blk) + " " + resetText(parseT(blk.resets_at), now);
     }
-    var std = scoreBreakdown(famScore(a, fams[0]));
+    var std = costBreakdown(famScore(a, fams[0]));
     var scores = [std].concat(fams.slice(1).map(function (fam) {
-      var line = scoreBreakdown(famScore(a, fam));
+      var line = costBreakdown(famScore(a, fam));
       return line === std ? null : rankLabel(fam) + " " + line;
     }));
     var lines = [verdict].concat(scores, [
@@ -1531,8 +1532,8 @@ main[data-stale="true"] { opacity: .62; }
     var lead = leadText(leadsOf(a, ranks), ranks.fams);
     return seatLabel(a) + ", rank " + (rankText(a, ranks) || "unranked") + (lead ? ", " + lead : "") +
       ", " + pairText(ranks.fams, function (fam) { return eligText(famScore(a, fam)); }) +
-      ", weekly " + weeklySlackText(sc) +
-      ", score " + pairText(ranks.fams, function (fam) { return totalText(famScore(a, fam)); }) +
+      ", weekly " + weeklyGapText(sc) +
+      ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
       ", " + intFmt(a.bindings) + " live bindings" +
       (hs !== "active" ? ", host " + hs : "") +
       (snap.err || snap.err_category ? ", fetch error " + (snap.err_category || "") : "");
@@ -1548,7 +1549,7 @@ main[data-stale="true"] { opacity: .62; }
     var fill = pct(w.utilization, 0) + " used";
     if (counted(ws)) {
       fill += " · target " + pct(ws.target, 0) + " · " + paceVerdict(ws.slack) +
-        (ws.weight !== 1 ? " · ×" + ws.weight.toFixed(2) + " in the score" : "");
+        (ws.weight !== 1 ? " · ×" + ws.weight.toFixed(2) + " in the cost" : "");
     } else if (gatedOnly(w, ws)) {
       fill += (cut !== null ? " · " + pct(cut, 0) + " cutoff" : "") + " · gated, not paced";
     } else if (stt === "unknown") {
@@ -1566,19 +1567,19 @@ main[data-stale="true"] { opacity: .62; }
     return lines.filter(Boolean).join("\n");
   }
 
-  /* The compact slack with its verdict: +N.N over pace, −N.N under pace, or
-     on pace inside the band. */
+  /* The compact gap with its verdict: +N.N over target, −N.N under target,
+     or on pace inside the band. */
   function paceVerdict(slack) {
     if (!num(slack)) return "—";
     if (Math.abs(slack) < PACE_BAND) return "on pace";
-    return slackText(slack, true) + (slack < 0 ? " over pace" : " under pace");
+    return overPts(slack) + (slack < 0 ? " over target" : " under target");
   }
 
   function laneAria(a, w, ws, stt, cfg) {
     var cut = cutoffOf(cfg);
     return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
       ", utilization " + pct(w.utilization) +
-      (counted(ws) ? ", target " + pct(ws.target) + ", " + slackText(ws.slack) : "") +
+      (counted(ws) ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") +
       (gatedOnly(w, ws) && cut !== null ? ", hard cutoff " + pct(cut) : "");
   }
 
@@ -1586,12 +1587,12 @@ main[data-stale="true"] { opacity: .62; }
 
   var GUT = 520, PAD_R = 20, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
-  /* The slack label, right of the meter; the gutter leaves it room for
+  /* The gap label, right of the meter; the gutter leaves it room for
      "+100.0" before the reset column begins. */
   var SLK_X = MET_X + MET_W + 14;
   /* The reset column, last in the gutter and right-aligned against the plot.
      It is as wide as the longest stamp the reset mode writes, so a figure
-     that lengthens as it counts down never reaches the slack label. */
+     that lengthens as it counts down never reaches the gap label. */
   var RST_W = 104, RST_X = GUT - 12;
   /* The floor a seat's name keeps in its header, whatever its rank, pill and
      verdicts run to: the verdicts shorten before the name does, because a
@@ -1609,7 +1610,8 @@ main[data-stale="true"] { opacity: .62; }
   };
 
   /* The lane states are one list: the legend, the glyph, the tooltip and the
-     aria-label all read STATE_META, so they cannot drift apart. */
+     aria-label all read STATE_META, so they cannot drift apart. The sign key
+     closes the row, from the one constant every legend prints. */
   function renderStateLegend() {
     var host = $("timeline-legend");
     var markers = host.querySelectorAll("[data-axis-marker]");
@@ -1628,6 +1630,7 @@ main[data-stale="true"] { opacity: .62; }
       host.appendChild(li);
     });
     for (var i = 0; i < markers.length; i++) host.appendChild(markers[i]);
+    legendRow(host, SW_SIGN, SIGN_KEY);
   }
 
   /* A seat's eligibility verdicts, one tspan per family, at one of three
@@ -1787,7 +1790,7 @@ main[data-stale="true"] { opacity: .62; }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: rank, identity, eligibility and weekly slack in the
+      /* The seat's row: rank, identity, eligibility and the weekly gap in the
          gutter, its live figures on a second line where there is room, and
          the whole record in the tooltip. Rank and eligibility are per request
          family, so each is one figure where the families agree and one per
@@ -1814,8 +1817,8 @@ main[data-stale="true"] { opacity: .62; }
       var pill = lead ? seatPill(gh, headY, leadPill(leads, fams)) : null;
       var pillW = pill ? pill.w + 8 : 0;
 
-      /* Eligible everywhere: the weekly slack. Ineligible somewhere: a
-         verdict per family that says so, with the ones it can still take.
+      /* Eligible everywhere: the weekly gap to target. Ineligible somewhere:
+         a verdict per family that says so, with the ones it can still take.
          Each window's reset is on its own lane, so a verdict names the
          refusal and stops there.
 
@@ -1826,7 +1829,7 @@ main[data-stale="true"] { opacity: .62; }
       var verdicts = fams.map(function (fam) { return eligText(famScore(a, fam)); });
       var agree = allSame(verdicts);
       if (agree && eligible) {
-        tail = svgText(gh, GUT - 14, headY, weeklySlackText(a.score),
+        tail = svgText(gh, GUT - 14, headY, weeklyGapText(a.score),
           "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
       } else {
         tail = svgText(gh, GUT - 14, headY, "", "t-mono", { "font-size": 10.5, "text-anchor": "end" });
@@ -1996,11 +1999,11 @@ main[data-stale="true"] { opacity: .62; }
     return el;
   }
 
-  /* Whether a window's meter carries a slack connector: the scorer paced it,
+  /* Whether a window's meter carries a gap connector: the scorer paced it,
      so it has a target, and the gap is outside the on-pace band, where the
      dotted run would sit under the tick. A gated session window and a window
      the scorer never evaluated have no target and get nothing. */
-  function slackDrawn(ws, stt) {
+  function gapDrawn(ws, stt) {
     return counted(ws) && stt !== "unknown" && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND;
   }
 
@@ -2022,15 +2025,15 @@ main[data-stale="true"] { opacity: .62; }
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
       svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
         stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: opacity }, parent);
-      /* The slack is the run along the meter between where the fill ends and
+      /* The gap is the run along the meter between where the fill ends and
          where the target stands, dotted in ink over a halo so it reads on the
          fill as well as on the track, and labelled in points with its direction. */
-      if (slackDrawn(ws, stt)) {
+      if (gapDrawn(ws, stt)) {
         var sx = MET_X + fw;
         var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round", opacity: opacity };
         svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
         svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
-        svgText(parent, SLK_X, cy + 3.5, slackText(ws.slack, true), "slk t-mono", { "font-size": 10, opacity: opacity });
+        svgText(parent, SLK_X, cy + 3.5, overPts(ws.slack), "slk t-mono", { "font-size": 10, opacity: opacity });
       }
     }
     if (w.utilization > 1) {
@@ -2140,13 +2143,13 @@ main[data-stale="true"] { opacity: .62; }
   var PACE_DAYS = 7;
   var PT_R = 4.6;            /* the weekly point's radius; the cap's diamond matches its area */
   var PT_D = 6;
-  /* Slack labels: a 10px monospace line, its box and the gap it keeps from
+  /* Gap labels: a 10px monospace line, its box and the distance it keeps from
      its mark. Past LABEL_DENSE labels the chart is dense: a label shows only
      for the seat pointed at or focused, so no two are up at once. A plot has
      room for about one label per LABEL_PX of width before that. */
   var LABEL_H = 12, LABEL_GAP = 9, LABEL_DENSE = 12, LABEL_PX = 35;
 
-  /* A scoped weight, as every label that carries one writes it. */
+  /* A family cap's weight, as every label that carries one writes it. */
   function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
 
   /* Whether a sample of a cycle is an estimate reconstructed from token
@@ -2178,7 +2181,7 @@ main[data-stale="true"] { opacity: .62; }
 
   /* A mark's head: a hairline dotted tick from the mark straight to the
      target at the mark's own x, which is the vertical gap and carries no
-     text, and the compact slack label beside the mark, queued for
+     text, and the compact gap label beside the mark, queued for
      placeLabels. A mark within TICK_MIN of the curve draws no tick. */
   var TICK_MIN = 4;
   function head(g, labels, a, cx, cy, ty, text, cls) {
@@ -2264,7 +2267,7 @@ main[data-stale="true"] { opacity: .62; }
      A label that meets another moves along the gap's own direction — up for
      a mark under the curve, down for one over — until it is clear, bouncing
      off the plot edge, and never back across the mark's x. The labels of
-     one mark share a side, so a slack and its score read as one head. A
+     one mark share a side, so a gap and a cost read as one head. A
      label that ends more than one line from its mark gets a tick back to
      it. */
   function placeLabels(labels, plot) {
@@ -2304,10 +2307,11 @@ main[data-stale="true"] { opacity: .62; }
     host.textContent = "";
     var fams = scopedFamilies(st);
     var paced = "the budget the scheduler paces against: each seat's 7-day utilization";
+    var ranks = " \u00B7 the gap to that curve ranks the seats";
     $("pace-sub").textContent = fams.length
       ? paced + " (circle) and its " + fams.join(", ") + " cap (diamond) against the target curve, " +
-        "by days into its own week \u00B7 their slack is what ranks the seats"
-      : paced + " against the target curve, by days into its own week \u00B7 its slack is what ranks the seats";
+        "by days into its own week" + ranks
+      : paced + " against the target curve, by days into its own week" + ranks;
     var pace = (st.config && st.config.pace) || {};
     var gamma = num(pace.curve_exponent) && pace.curve_exponent > 0 ? pace.curve_exponent : 1;
     var landing = num(pace.landing_target) && pace.landing_target > 0 ? pace.landing_target : 1;
@@ -2384,18 +2388,30 @@ main[data-stale="true"] { opacity: .62; }
       { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
     /* One point: a filled circle for the weekly window, a filled diamond for
-       a family cap, in the seat's colour. The tick under it is the slack
-       itself: the vertical gap at this seat's own elapsed between its point
-       and the scorer's target, never the shortest distance to the curve.
-       Inside the on-pace band the mark alone says "on pace". The label is
-       measured here and placed once every point is drawn, so no two meet. The cap's label carries its weight in the
-       score; the weekly window counts whole. The group's role="img" keeps
-       the label out of the accessibility tree; the slack is in its name. */
+       a family cap, in the seat's colour. The tick under it is the gap
+       itself: the vertical distance at this seat's own elapsed between its
+       point and the scorer's target, never the shortest distance to the
+       curve. Inside the on-pace band the mark alone says "on pace". The
+       label is measured here and placed once every point is drawn, so no two
+       meet. The cap's label carries its weight in the cost; the weekly
+       window counts whole. The group's role="img" keeps the label out of the
+       accessibility tree; the gap is in its name. */
     var labels = [], anyEst = false;
     var SLOPE_SPAN_MS = 6 * 3600000;
+    /* Two layers, because SVG paints in document order and a seat drawn later
+       would otherwise run its recorded line across an earlier seat's mark and
+       label. Every line goes in the lower layer and every mark, label and hit
+       area in the upper one, so no seat can hide another's reading. */
+    var gLines = svg("g", {}, root);
+    var gPts = svg("g", {}, root);
     function point(a, ws, weighted) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
-      var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+      var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gPts);
+      /* The line's own group, carrying the mark's identity: it sits in the
+         lower layer, and the delegated tooltip and the legend's focus dimming
+         both find it by the attributes they find the mark by. */
+      var gl = svg("g", { "class": "pt-line" }, gLines);
+      gl.setAttribute("data-seat", a.auth_id);
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
          alone. x is the sample's own elapsed fraction of this window. */
@@ -2405,7 +2421,7 @@ main[data-stale="true"] { opacity: .62; }
         var cycle = currentCycle(hist, resets), cur = samplesOf(cycle);
         if (cur.length >= 2) {
           var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
-          est = historyLine(g, cycle, cur, xOf, Y, col, tailTo(cx, cy));
+          est = historyLine(gl, cycle, cur, xOf, Y, col, tailTo(cx, cy));
           anyEst = anyEst || est > 0;
           line = cur;
           slope = recentSlope(cur, SLOPE_SPAN_MS);
@@ -2415,12 +2431,12 @@ main[data-stale="true"] { opacity: .62; }
          two rates read side by side. */
       var targetSlope = landing * gamma * Math.pow(Math.max(ws.elapsed, 1e-6), gamma - 1) * 100 / (PACE_DAYS * 24);
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
-        head(g, labels, a, cx, cy, Y(ws.target), slackText(ws.slack, true), weighted ? "slk-half" : null);
+        head(g, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), weighted ? "slk-half" : null);
       }
-      /* The score ranks the seat, so it sits once at the head of the weekly
+      /* The cost ranks the seat, so it sits once at the head of the weekly
          line, in the seat's colour, and moves with the other labels. */
       if (!weighted && scored(a.score)) {
-        var sc = svgText(g, cx, cy + 3.5, "score " + signedOver(-a.score.total), "score", { "font-size": 10.5 });
+        var sc = svgText(g, cx, cy + 3.5, "cost " + signed(a.score.cost), "score", { "font-size": 10.5 });
         sc.style.fill = seatTextColor(a);
         labels.push({ el: sc, g: g, cx: cx, my: cy, up: !(num(ws.slack) && ws.slack < 0), col: col, w: sc.getComputedTextLength() + 2 });
       }
@@ -2428,14 +2444,15 @@ main[data-stale="true"] { opacity: .62; }
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
         ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the " + windowName(ws) + " budget spent" +
-        ", " + slackText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the score" : ", score " + totalText(a.score)));
+        ", " + overText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the cost" : ", cost " + costText(a.score)));
       g.setAttribute("data-tip", [
         "day " + (clamp(ws.elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS + " · " +
           pct(ws.utilization, 0) + " spent vs " + pct(ws.target, 0) + " target · " + paceVerdict(ws.slack),
-        weighted ? weightMark(ws) + " in the score" : "score " + totalText(a.score),
+        weighted ? weightMark(ws) + " in the cost" : "cost " + costText(a.score),
         line ? "last 6h " + rateText(slope) + " vs " + rateText(targetSlope).replace(/ pts\/h$/, "") + " target" : null,
         est ? est + " of " + line.length + " readings estimated from token spend" : null
       ].filter(Boolean).join("\n"));
+      gl.setAttribute("data-tip", g.getAttribute("data-tip"));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       if (weighted) {
         svg("path", {
@@ -2469,7 +2486,7 @@ main[data-stale="true"] { opacity: .62; }
   function focusSeat(root, id) {
     if (!id) { root.removeAttribute("data-focus"); }
     else { root.setAttribute("data-focus", id); }
-    var pts = root.querySelectorAll("g.pt, g.seg");
+    var pts = root.querySelectorAll("g.pt, g.pt-line, g.seg");
     for (var i = 0; i < pts.length; i++) {
       if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
       else pts[i].removeAttribute("data-focused");
@@ -2486,7 +2503,7 @@ main[data-stale="true"] { opacity: .62; }
       legendRow(leg, "background:var(--ink-2);border-radius:50%;width:10px;height:10px", "7-day all models (Standard)");
       legendRow(leg, "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px", fams.join(", ") + " weekly cap");
     }
-    legendRow(leg, SW_SIGN, "+ over pace · − under");
+    legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     var missing = [];
     series.forEach(function (s) {
@@ -2524,43 +2541,51 @@ main[data-stale="true"] { opacity: .62; }
     var fams = scopedFamilies(st);
 
     var p = h("p", "");
-    p.appendChild(document.createTextNode("Each circle is one seat's 7-day all-models window: how many days " +
-      "into that seat's own week it is, against how much of its weekly budget is spent." +
-      (fams.length ? " Each diamond is the same seat's " + fams.join(" or ") +
-        " weekly cap, a 7-day window with the same pace target that counts at " + share(wts.scoped_weight) +
-        " weight in the score for a request of that family, and not at all for a Standard request." : "") +
+    p.appendChild(document.createTextNode("Each circle is one seat's 7-day all-models window. It shows how many " +
+      "days into that seat's own week it is, and how much of the weekly budget it has spent." +
+      (fams.length ? " Each diamond is the same seat's " + fams.join(" or ") + " cap. That cap is a 7-day " +
+        "window with the same target, and it counts at " + share(wts.scoped_weight) +
+        " weight in the cost of a request of that family. It counts nothing for a Standard request." : "") +
       " Every seat's week starts at its own time, so the axis is elapsed time, not the calendar. The target curve is "));
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
-    p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) +
-      ". A point below the curve is under pace, with budget still to spend; the dotted tick from a mark to the curve " +
-      "is that seat's slack, in percentage points of the weekly budget, and the label beside the mark gives it with " +
-      "the sign a reader expects: + is over pace, − is under. The bold figure by the circle is the seat's score, the number that ranks it. The thin line " +
-      "behind a mark is that seat's recorded path from the start of its window: steeper than the target curve is " +
-      "spending faster than pace, flatter is slower; the tooltip gives both rates over the last six hours. A dashed, " +
-      "paler stretch of that line is an estimate reconstructed from token spend rather than a reading; the mark " +
-      "itself is always a reading. This is the window the plugin paces against, and the one whose unspent " +
-      "capacity is lost at reset."));
+    p.appendChild(document.createTextNode(", and it lands at " + pct(landing, 0) +
+      ". A point below the curve is under target, with budget still to spend. The dotted tick between a mark and " +
+      "the curve is the gap, in points of the weekly budget. The label beside the mark gives that gap: " + SIGN_KEY +
+      ". The bold figure by the circle is the seat's cost, the number that ranks it."));
     note.appendChild(p);
 
+    var r = h("p", "");
+    r.appendChild(document.createTextNode("The thin line behind a mark is the seat's recorded path from the " +
+      "start of its window. Steeper than the curve is spending faster than pace, flatter is slower. The tooltip " +
+      "gives both rates over the last six hours. A dashed, paler stretch is an estimate rebuilt from token spend. " +
+      "The mark itself is always a reading. This is the window the plugin paces against, and the one whose unspent " +
+      "capacity is lost at reset."));
+    note.appendChild(r);
+
     var q = h("p", "");
-    var scopedTerm = "";
+    var capTerm = "";
     if (wts.scoped_weight > 0 && fams.length) {
-      scopedTerm = ", plus " + share(wts.scoped_weight) + " of the slack on the " + fams.join(" or ") +
-        " weekly window (the diamonds) when the request is of that family — for a Standard request that term is zero";
+      capTerm = ", plus " + share(wts.scoped_weight) + " of the same gap on the " + fams.join(" or ") +
+        " cap (the diamonds) when the request is of that family";
     }
-    q.appendChild(document.createTextNode("Seats rank by score, in the same points: " +
-      (wts.weekly_weight === 1 ? "weekly slack" : share(wts.weekly_weight) + " of weekly slack") + scopedTerm +
-      ", minus a fullness penalty of " + share(wts.raw_utilization_weight) + " of the seat's fullest window." +
+    q.appendChild(document.createTextNode("Seats rank by cost, in the same points. A seat's cost is " +
+      (wts.weekly_weight === 1 ? "the weekly gap" : share(wts.weekly_weight) + " of the weekly gap") + capTerm +
+      ", plus a penalty of " + share(wts.raw_utilization_weight) + " of the seat's fullest window. " +
+      "Every term counts against the seat, so the lowest cost wins." +
       (wts.session_weight === 0
-        ? " The 5-hour window carries no weight: it is a rate limit that resets several times a day, so its gap to the curve is headroom that never enters a score; it counts toward fullness and gates a seat at the hard cutoff."
+        ? " The 5-hour window carries no pace weight. It is a rate limit that resets several times a day, so its " +
+          "gap to the curve is headroom and stays out of the cost. Its level still counts: it can be the fullest " +
+          "window, and it gates a seat at the hard cutoff."
         : "") +
-      " The eligible seat with the highest score takes the next new conversation" +
+      " The eligible seat with the lowest cost takes the next new conversation" +
       (fams.length ? " of its family, so the page ranks every seat once per family" : "") +
       (num(wts.hysteresis_margin)
-        ? "; a challenger must lead by " + ptsRound(wts.hysteresis_margin) + " to take a session already bound to another seat."
+        ? ". A challenger must undercut by " + ptsRound(wts.hysteresis_margin) +
+          " to take a session already bound to another seat."
         : ".") +
-      (num(wts.hard_cutoff) ? " A seat with any window bearing on the request at or past " + pct(wts.hard_cutoff, 0) +
-        " is ineligible for it" + (fams.length ? ": a seat at its " + fams.join(" or ") + " cap can still take a Standard request." : ".") : "")));
+      (num(wts.hard_cutoff) ? " A seat is ineligible when any window that applies to the request is at or past " +
+        pct(wts.hard_cutoff, 0) + (fams.length ? ". A seat at its " + fams.join(" or ") +
+        " cap can still take a Standard request." : ".") : "")));
     note.appendChild(q);
   }
 
@@ -2568,14 +2593,14 @@ main[data-stale="true"] { opacity: .62; }
 
   /* The 5-hour window is a rate limit, and its chart is the weekly chart's
      construction on a 5-hour axis: the same target curve, each seat's mark
-     with a tick to the curve and the recorded line behind it. The gap to the
-     curve is headroom, not a verdict: the scorer gives this window no pace
-     weight, so the gap itself never enters a score. The level does — the
-     fullness penalty is a share of the seat's fullest bearing window, which
-     is often this one — and it gates the seat at the hard cutoff. Spend is
-     measured per seat, so the conversations a stretch of the line names are
-     the ones the routing log shows active on that seat then, not the ones
-     that spent the tokens. */
+     with a tick to the curve and the recorded line behind it. Under the
+     curve here is headroom, not a verdict: the scorer gives this window no
+     pace weight, so the gap itself never enters a cost. The level does — the
+     penalty is a share of the fullest window that applies to the request,
+     which is often this one — and it gates the seat at the hard cutoff.
+     Spend is measured per seat, so the conversations a stretch of the line
+     names are the ones the routing log shows active on that seat then, not
+     the ones that spent the tokens. */
   var SESSION_HOURS = 5;
   var SESSION_MS = SESSION_HOURS * 3600000;
   var SEG_MS = 15 * 60000;   /* one hoverable stretch of a seat's line */
@@ -2666,8 +2691,8 @@ main[data-stale="true"] { opacity: .62; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Each seat's 5-hour window utilization by hours into its own window against the target curve, one mark per seat with the recorded line behind it, labelled with its headroom" +
-        "; the headroom carries no pace weight, but the level gates a seat at the hard cutoff and usually sets the fullness penalty in its score"
+      "aria-label": "Each seat's 5-hour window utilization by hours into its own window against the target curve, one mark per seat with the recorded line behind it, labelled with its gap to the curve" +
+        "; that gap carries no pace weight, but the level gates a seat at the hard cutoff and is often the fullest window in its cost"
     }, host);
 
     [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
@@ -2703,6 +2728,11 @@ main[data-stale="true"] { opacity: .62; }
     }
 
     var plotted = 0, labels = [], anyEst = false;
+    /* Two layers, as on the weekly chart: every line stretch below every mark
+       and label, so a seat drawn later cannot run its line across an earlier
+       seat's reading. */
+    var gSegs = svg("g", {}, root);
+    var gMarks = svg("g", {}, root);
     series.forEach(function (s) {
       if (s.gap) return;
       plotted++;
@@ -2712,7 +2742,7 @@ main[data-stale="true"] { opacity: .62; }
       var cx = X(hoursOf(now)), cy = Y(s.w.utilization), ws = s.ws;
       var estCur = 0;
       var hoursIn = clamp(hoursOf(now), 0, SESSION_HOURS), lastHour = rateText(recentSlope(s.cur, 3600000));
-      /* The tooltip answers headroom and burn; the name reads a fuller
+      /* The tooltip answers the gap and the burn; the name reads a fuller
          record, since it gets no second hover. */
       var headAria = seatLabel(a) + ", 5-hour session, " + hoursIn.toFixed(1) + " of " + SESSION_HOURS + " hours elapsed" +
         ", " + pct(s.w.utilization) + " used" +
@@ -2720,7 +2750,7 @@ main[data-stale="true"] { opacity: .62; }
         (cut !== null ? ", hard cutoff " + pct(cut) : "") +
         ", resets " + relText(s.resets, now) +
         ", last hour " + lastHour +
-        ", a rate limit: the headroom carries no pace weight, but the level sets the fullness penalty and gates at the cutoff";
+        ", a rate limit: this gap carries no pace weight, but the level can be the fullest window and gates at the cutoff";
       var headTip = hoursIn.toFixed(1) + " h in · " + pct(s.w.utilization, 0) + " used" +
         (ws ? " vs " + pct(ws.target, 0) + " curve · " + headroomText(ws.slack) : "") +
         "\n" + resetText(s.resets, now) + (cut !== null ? " · " + pct(cut, 0) + " cutoff" : "") +
@@ -2739,7 +2769,7 @@ main[data-stale="true"] { opacity: .62; }
             var d = pathOf(pts, xOf, Y);
             var du = pts[pts.length - 1].u - pts[0].u, dh = (pts[pts.length - 1].t - pts[0].t) / 3600000;
             var act = activeOn(st, a.auth_id, pts[0].t, pts[pts.length - 1].t);
-            var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, root);
+            var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, gSegs);
             g.setAttribute("data-seat", a.auth_id);
             g.setAttribute("data-fk", "seg:" + a.auth_id + ":" + k);
             var estHere = pts.some(function (p) { return estimatedAt(s.curCycle, p); });
@@ -2774,7 +2804,7 @@ main[data-stale="true"] { opacity: .62; }
           from = to;
         }
       }
-      var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, root);
+      var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gMarks);
       hg.setAttribute("data-seat", a.auth_id);
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
       var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated from token spend" : "";
@@ -2783,7 +2813,7 @@ main[data-stale="true"] { opacity: .62; }
       /* The tick is the gap to the curve at this seat's own elapsed, as on
          the weekly chart; the present reading is always observed. */
       if (ws && Math.abs(ws.slack) >= PACE_BAND) {
-        head(hg, labels, a, cx, cy, Y(ws.target), headroomText(ws.slack, true), null);
+        head(hg, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), null);
       }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
       svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col, stroke: "var(--surface-1)", "stroke-width": 2 }, hg);
@@ -2803,7 +2833,7 @@ main[data-stale="true"] { opacity: .62; }
   function renderSessionLegend(series, root, anyEst) {
     var leg = $("session-legend");
     leg.textContent = "";
-    legendRow(leg, SW_SIGN, "+ over the curve · − headroom");
+    legendRow(leg, SW_SIGN, SIGN_KEY_SESSION);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     var missing = [];
     series.forEach(function (s) {
@@ -2836,53 +2866,46 @@ main[data-stale="true"] { opacity: .62; }
     note.textContent = "";
     var wts = (st.config && st.config.pace) || {};
     var p = h("p", "");
-    p.appendChild(document.createTextNode("Each mark is one seat's rolling 5-hour window: how far into the window " +
-      "it is, against how much of the window is used, with its recorded line from the window's start behind it. " +
-      "The curve is the weekly chart's, "));
+    p.appendChild(document.createTextNode("Each mark is one seat's rolling 5-hour window. It shows how far into " +
+      "the window the seat is, and how much of the window it has used. The line behind the mark is the seat's " +
+      "recorded path from the start of the window. The curve is the weekly chart's, "));
     p.appendChild(h("code", "", "landing × elapsed^" + gamma));
-    p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) + ", drawn over five hours; the dotted tick from a mark to the curve is the " +
-      "seat's gap to it, and the label beside the mark gives it: + over the curve, − headroom. Read it as headroom only. This is a rate limit, not a " +
-      "budget: unused capacity vanishes at reset, the window resets several times a day, and the scorer gives this " +
-      "window no pace weight, so the gap here never enters a score. The level still does, twice over: the fullness " +
-      "penalty is " + share(wts.raw_utilization_weight) + " of the seat's fullest window bearing on the request, and this is often the fullest; and " +
-      (cut !== null ? "the hard cutoff at " + pct(cut, 0) + " takes the seat out of the running for a new conversation altogether" : "the top of the window gates it altogether") +
-      ". A dashed, paler stretch of a seat's line is an estimate reconstructed from token spend rather than a reading; the mark is always a reading."));
+    p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) + ", drawn over five hours. The dotted " +
+      "tick between a mark and the curve is the gap. The label beside the mark gives it: " + SIGN_KEY_SESSION + "."));
     note.appendChild(p);
+    var r = h("p", "");
+    r.appendChild(document.createTextNode("This is a rate limit, not a budget. The window resets several times a " +
+      "day and unused capacity vanishes at each reset, so the scorer gives it no pace weight and this gap stays " +
+      "out of the cost. The level counts twice over. The penalty is " + share(wts.raw_utilization_weight) +
+      " of the fullest window that applies to the request, and this is often that window. " +
+      (cut !== null ? "The hard cutoff at " + pct(cut, 0) + " then takes the seat out of the running for a new conversation." : "The top of the window then gates the seat altogether.") +
+      " A dashed, paler stretch of a line is an estimate rebuilt from token spend. The mark is always a reading."));
+    note.appendChild(r);
     var q = h("p", "");
-    q.appendChild(document.createTextNode("Spend is measured per seat: the host reports each request's tokens against the " +
-      "credential that served it, not the conversation, so no line here belongs to one conversation. Pointing at a " +
-      "stretch of a line lists the conversations the routing log placed on that seat in that quarter hour, by " +
-      "request count; a steep stretch with one conversation on it is that conversation, a steep stretch with several " +
-      "is a set to look at. The log is bounded, so an older stretch may fall outside it."));
+    q.appendChild(document.createTextNode("Spend is measured per seat. The host reports each request's tokens " +
+      "against the credential that served it, not against the conversation, so no line here belongs to one " +
+      "conversation. Point at a stretch of a line to list the conversations the routing log placed on that seat in " +
+      "that quarter hour, by request count. A steep stretch with one conversation on it is that conversation; a " +
+      "steep stretch with several is a set to look at. The log is bounded, so an older stretch may fall outside it."));
     note.appendChild(q);
   }
 
-  /* ---------------------------------------------------------------- score */
+  /* ----------------------------------------------------------------- cost */
 
   /* The pick as arithmetic: one table per request family, one row per seat in
-     the seats' own order, and every term of the sum the scorer made — weight
-     × slack for each window, the fullness penalty subtracted, then the total
+     the seats' own order, and every term of the sum the scorer made — the
+     weight times how far each window runs over target, then the
+     fullest-window penalty. Every term adds, and the row adds to the cost
      that ranks the seat. Every figure is read out of the scorer's own
      breakdown rather than recomputed here, so a row whose terms do not come
-     to its total is a disagreement between this page and the plugin.
+     to its cost is a disagreement between this page and the plugin.
 
-     A seat no request can land on carries its reason where its total would
+     A seat no request can land on carries its reason where its cost would
      be: it loses whatever its terms come to. */
-
-  /* A term of the sum, signed as it enters the sum: + adds to the score, −
-     takes from it, in points of the window's budget. This is the scorer's
-     sign, not the charts': there a gap is signed from the reader's eye, + for
-     a mark over the curve. */
-  function termText(v) {
-    if (!num(v)) return "—";
-    var n = Math.abs(v) * 100;
-    if (n < 0.05) return "0.0";
-    return (v > 0 ? "+" : "−") + n.toFixed(1);
-  }
 
   function wtText(v) { return num(v) ? v.toFixed(2) : "?"; }
 
-  /* One window's entry in a score's breakdown; null where the seat carries no
+  /* One window's entry in a cost's breakdown; null where the seat carries no
      reading of it. */
   function windowIn(sc, kind, scope) {
     var list = (sc && sc.windows) || [];
@@ -2893,22 +2916,22 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* Mirrors model.Window.BearsOn: the session and all-models weekly windows
-     cap every request, a family cap only its own family's. */
-  function bearsOn(w, fam) {
+     apply to every request, a family cap only to its own family's. */
+  function appliesTo(w, fam) {
     if (w.kind === "five_hour" || w.kind === "seven_day") return true;
     return w.kind === "weekly_scoped" && fam !== STANDARD && (w.scope || "") === fam;
   }
 
-  /* The window the fullness penalty was taken from. The penalty is the weight
-     times the highest utilization among the windows bearing on the request,
-     so dividing the weight back out names the reading it came from. Null
-     where no window matches, which is a payload this page and the scorer read
+  /* The window the penalty was taken from. The penalty is the weight times
+     the highest utilization among the windows that apply to the request, so
+     dividing the weight back out names the reading it came from. Null where
+     no window matches, which is a payload this page and the scorer read
      differently. */
   function fullestWindow(sc, fam, rawWeight) {
-    if (!sc || !num(sc.raw_penalty) || !(rawWeight > 0)) return null;
-    var want = sc.raw_penalty / rawWeight, list = sc.windows || [];
+    if (!sc || !num(sc.fullest_penalty) || !(rawWeight > 0)) return null;
+    var want = sc.fullest_penalty / rawWeight, list = sc.windows || [];
     for (var i = 0; i < list.length; i++) {
-      if (bearsOn(list[i], fam) && num(list[i].utilization) &&
+      if (appliesTo(list[i], fam) && num(list[i].utilization) &&
           Math.abs(list[i].utilization - want) < 1e-9) return list[i];
     }
     return null;
@@ -2922,7 +2945,7 @@ main[data-stale="true"] { opacity: .62; }
       : { id: "sec-pace", name: "the weekly window" };
   }
 
-  /* A term cell: the product the score took, over the slack and the weight it
+  /* A term cell: the product the cost took, over the gap and the weight it
      came from. A weight of zero reads as the 0.0 it is, so the session term
      is visibly a design choice rather than a missing figure. */
   function termCell(ws, shown) {
@@ -2931,18 +2954,18 @@ main[data-stale="true"] { opacity: .62; }
       box.appendChild(h("span", "score-val", "—"));
       box.appendChild(h("span", "score-fac", ws ? "no pace target" : "no reading"));
     } else {
-      var val = h("span", "score-val", termText(shown));
+      var val = h("span", "score-val", signed(shown));
       if (Math.abs(shown) < 0.0005) val.setAttribute("data-zero", "true");
       box.appendChild(val);
-      box.appendChild(h("span", "score-fac", termText(ws.slack) + " × " + ws.weight.toFixed(2)));
+      box.appendChild(h("span", "score-fac", overPts(ws.slack) + " × " + ws.weight.toFixed(2)));
     }
     td.appendChild(box);
     return td;
   }
 
-  /* The penalty, as the subtraction it is, over the window whose level set
-     it and a pointer to the chart that plots that window: nothing else on the
-     page says the 5-hour chart is explaining a term of the score. */
+  /* The penalty, over the window whose level set it and a pointer to the
+     chart that plots that window: nothing else on the page says the 5-hour
+     chart is explaining a term of the cost. */
   function penaltyCell(sc, fam, wts, shown, fk) {
     var td = h("td", "n"), box = h("div", "score-term");
     if (!scored(sc) || shown === null) {
@@ -2951,7 +2974,7 @@ main[data-stale="true"] { opacity: .62; }
       return td;
     }
     var rawW = num(wts.raw_utilization_weight) ? wts.raw_utilization_weight : 0;
-    var val = h("span", "score-val", termText(shown));
+    var val = h("span", "score-val", signed(shown));
     if (Math.abs(shown) < 0.0005) val.setAttribute("data-zero", "true");
     box.appendChild(val);
     var fac = h("span", "score-fac");
@@ -2970,7 +2993,7 @@ main[data-stale="true"] { opacity: .62; }
 
   /* The terms one family's table carries: the all-models weekly window, that
      family's own cap where it has one, then the session window. Another
-     family's cap bears on no request of this one, so it is not a term here
+     family's cap applies to no request of this one, so it is not a term here
      and has no column. */
   function scoreColumns(fam, wts) {
     var cols = [{ kind: "seven_day", scope: "", weight: wts.weekly_weight }];
@@ -2994,27 +3017,30 @@ main[data-stale="true"] { opacity: .62; }
       lead.appendChild(seatMark(byID[ranks.lead[fam]]));
       lead.appendChild(document.createTextNode(" takes the next new conversation"));
     } else {
-      lead.appendChild(document.createTextNode("no seat is eligible; the least-bound seat takes the next new conversation"));
+      lead.appendChild(document.createTextNode("no seat is eligible; the seat with the fewest live conversations takes the next new conversation"));
     }
     block.appendChild(lead);
 
     var tbl = h("table", "");
     /* The lead line above carries the family in prose; the table still needs a
        name of its own for a reader who meets it out of that context. */
-    tbl.appendChild(h("caption", "sr-only", rankLabel(fam) + " requests, every seat's score"));
+    tbl.appendChild(h("caption", "sr-only", rankLabel(fam) + " requests, every seat's cost"));
 
+    /* Every column adds, so every head but the first carries the plus that
+       says so and the last carries the equals. */
     var thead = h("thead", ""), hr = h("tr", "");
     hr.appendChild(h("th", "n", "Rank"));
     hr.appendChild(h("th", "", "Seat"));
-    cols.forEach(function (c) {
+    cols.forEach(function (c, i) {
       var th = h("th", "n"), box = h("span", "score-head");
-      box.appendChild(document.createTextNode(windowShort(c) + " ×" + wtText(c.weight)));
+      box.appendChild(document.createTextNode((i ? "+ " : "") + windowShort(c) +
+        " over target ×" + wtText(c.weight)));
       box.appendChild(secRef(chartOf(c.kind).id, chartOf(c.kind).name, fam + ":head:" + c.kind + c.scope));
       th.appendChild(box);
       hr.appendChild(th);
     });
-    hr.appendChild(h("th", "n", "− fullness ×" + wtText(wts.raw_utilization_weight)));
-    hr.appendChild(h("th", "n", "= score"));
+    hr.appendChild(h("th", "n", "+ fullest window ×" + wtText(wts.raw_utilization_weight)));
+    hr.appendChild(h("th", "n", "= cost"));
     thead.appendChild(hr);
     tbl.appendChild(thead);
 
@@ -3034,30 +3060,32 @@ main[data-stale="true"] { opacity: .62; }
       tr.appendChild(seatTd);
 
       var terms = cols.map(function (c) { return windowIn(sc, c.kind, c.scope); });
-      /* The row is shown to a tenth of a point, and figures each rounded to a
-         tenth need not sum to the total rounded the same way. The penalty
-         carries the difference, because its own factors are a whole percent
-         of a window and pin its figure far less tightly than a slack pins a
-         term's: the row adds up exactly where a reader checks it, and every
-         figure stays within a tenth of the value it stands for. */
+      /* Each window's term is its weight times how far it runs over target,
+         which the payload gives as the negation of that. The row is shown to
+         a tenth of a point, and figures each rounded to a tenth need not sum
+         to the cost rounded the same way. The penalty carries the difference,
+         because its own factors are a whole percent of a window and pin its
+         figure far less tightly than a gap pins a term's: the row adds up
+         exactly where a reader checks it, and every figure stays within a
+         tenth of the value it stands for. */
       var shown = terms.map(function (ws) {
-        return ws && num(ws.slack) && num(ws.weight) ? Math.round(ws.weight * ws.slack * 1000) : null;
+        return ws && num(ws.slack) && num(ws.weight) ? Math.round(ws.weight * -ws.slack * 1000) : null;
       });
-      var whole = scored(sc) && num(sc.raw_penalty);
-      var pen = whole ? -Math.round(sc.raw_penalty * 1000) : null;
-      if (pen !== null && elig && num(sc.total) && shown.indexOf(null) < 0) {
-        pen = Math.round(sc.total * 1000);
+      var whole = scored(sc) && num(sc.fullest_penalty);
+      var pen = whole ? Math.round(sc.fullest_penalty * 1000) : null;
+      if (pen !== null && elig && num(sc.cost) && shown.indexOf(null) < 0) {
+        pen = Math.round(sc.cost * 1000);
         shown.forEach(function (t) { pen -= t; });
       }
       cols.forEach(function (c, i) { tr.appendChild(termCell(terms[i], shown[i] === null ? null : shown[i] / 1000)); });
       tr.appendChild(penaltyCell(sc, fam, wts, pen === null ? null : pen / 1000, fam + ":" + a.auth_id));
 
-      /* A seat that cannot take the request carries why in place of its
-         total: the arithmetic ran, and it loses whatever the terms come to. */
+      /* A seat that cannot take the request carries why in place of its cost:
+         the arithmetic ran, and it loses whatever the terms come to. */
       var totTd = h("td", "n");
       if (sc === null) totTd.appendChild(h("span", "score-val", "unknown"));
       else if (!sc.eligible) totTd.appendChild(chip(reasonText(sc.reason), "critical", "✕"));
-      else totTd.appendChild(h("span", "score-val score-total", termText(sc.total)));
+      else totTd.appendChild(h("span", "score-val score-total", signed(sc.cost)));
       tr.appendChild(totTd);
 
       tb.appendChild(tr);
@@ -3070,24 +3098,23 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* The sum the tables lay out, in the weights the plugin is running with,
-     and the sign its figures carry — the scorer's, which is the opposite of
-     the one the charts label their gaps with. */
-  function renderScoreLegend(st, wts) {
+     and the sign its figures carry, which is the page's one sign. */
+  function renderCostLegend(st, wts) {
     var leg = $("score-legend");
     leg.textContent = "";
     var fams = scopedFamilies(st);
-    leg.appendChild(h("li", "", "score = 7d all models slack ×" + wtText(wts.weekly_weight) +
-      (fams.length ? " + " + fams.join("/") + " 7d slack ×" + wtText(wts.scoped_weight) : "") +
-      " + 5h session slack ×" + wtText(wts.session_weight) + " − fullness"));
-    leg.appendChild(h("li", "", "fullness = ×" + wtText(wts.raw_utilization_weight) +
-      " of the seat's fullest window bearing on the request, often the 5-hour one"));
-    leg.appendChild(h("li", "", "points of a window's budget: + adds to the score (under pace), − takes from it (over pace) · the charts sign the same gaps the other way round"));
-    if (fams.length) leg.appendChild(h("li", "", "a family cap bears only on its own family's requests, so it is a term in that family's table alone"));
+    leg.appendChild(h("li", "", "cost = 7d all models over target ×" + wtText(wts.weekly_weight) +
+      (fams.length ? " + " + fams.join("/") + " cap over target ×" + wtText(wts.scoped_weight) : "") +
+      " + 5h session over target ×" + wtText(wts.session_weight) +
+      " + fullest window ×" + wtText(wts.raw_utilization_weight)));
+    leg.appendChild(h("li", "", "fullest window = the highest utilization of any window that applies to the request, often the 5-hour one"));
+    leg.appendChild(h("li", "", SIGN_KEY + ", in points of a window's budget · every term adds, so the lowest cost wins"));
+    if (fams.length) leg.appendChild(h("li", "", "a family cap applies only to its own family's requests, so it is a term in that family's table alone"));
   }
 
   function renderScore(st, seats, ranks) {
     var wts = (st.config && st.config.pace) || {};
-    renderScoreLegend(st, wts);
+    renderCostLegend(st, wts);
     var host = $("score-tables");
     host.textContent = "";
     ranks.fams.forEach(function (fam) { host.appendChild(scoreTable(st, seats, ranks, fam, wts)); });
@@ -3220,10 +3247,10 @@ main[data-stale="true"] { opacity: .62; }
       return body;
     }
     var tbl = h("table", "scores");
-    tbl.appendChild(h("caption", "", "Candidate scores"));
+    tbl.appendChild(h("caption", "", "Candidate costs"));
     var thead = h("thead", "");
     var hr = h("tr", "");
-    ["Seat", "Score", "Fullness penalty", "Eligibility", "By window (+ over pace · − under)"].forEach(function (c, i) {
+    ["Seat", "Cost", "Fullest window", "Eligibility", "By window (" + SIGN_KEY + ")"].forEach(function (c, i) {
       var th = h("th", i === 1 || i === 2 ? "n" : "", c);
       hr.appendChild(th);
     });
@@ -3233,7 +3260,7 @@ main[data-stale="true"] { opacity: .62; }
     var tb = h("tbody", "");
     dec.scores.slice().sort(function (a, b) {
       if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
-      return (b.total || 0) - (a.total || 0);
+      return (a.cost || 0) - (b.cost || 0);
     }).forEach(function (s) {
       var tr = h("tr", "");
       var td0 = h("td", "");
@@ -3247,8 +3274,8 @@ main[data-stale="true"] { opacity: .62; }
         td0.appendChild(name(s.auth_id));
       }
       tr.appendChild(td0);
-      tr.appendChild(h("td", "n mono", totalText(s)));
-      tr.appendChild(h("td", "n mono", scored(s) && num(s.raw_penalty) ? "−" + pts(s.raw_penalty) : "—"));
+      tr.appendChild(h("td", "n mono", costText(s)));
+      tr.appendChild(h("td", "n mono", scored(s) && num(s.fullest_penalty) ? signed(s.fullest_penalty) : "—"));
 
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
@@ -3257,13 +3284,13 @@ main[data-stale="true"] { opacity: .62; }
 
       var tdW = h("td", "");
       /* A window the scorer gave no weight has no pace target for this
-         model, so it carries no slack figure here. */
+         model, so it carries no figure here. */
       var span = h("span", "wslack");
       (s.windows || []).forEach(function (ws) {
         var item = h("span", "");
         item.appendChild(document.createTextNode(windowShort(ws) + " "));
         if (counted(ws)) {
-          var b = h("b", "", slackText(ws.slack, true));
+          var b = h("b", "", overPts(ws.slack));
           b.style.color = ws.slack >= 0 ? "var(--pos-text)" : "var(--neg-text)";
           item.appendChild(b);
         } else {
@@ -3391,8 +3418,10 @@ main[data-stale="true"] { opacity: .62; }
 
   /* --------------------------------------------------------------- shell */
 
-  /* The build facts sit under the id, in one muted line; the header row
-     carries only what bears on a routing decision. */
+  /* The build facts go to the footer, away from every figure a routing
+     decision turns on: which version is running, which host contract it
+     registered against, and how long it has been up. The footer stays out of
+     the document until one of the three arrives. */
   function renderHeader(st, ranks) {
     var seats = st.auths || [];
     var p = st.plugin || {};
@@ -3409,6 +3438,7 @@ main[data-stale="true"] { opacity: .62; }
       facts.appendChild(document.createTextNode((parts.length ? " · " : "") + "up "));
       facts.appendChild(stamp(started, "", "up"));
     }
+    $("page-foot").hidden = !facts.childNodes.length;
 
     /* Eligible for any family: the count of seats a new conversation of
        some kind can still land on. */
@@ -3469,8 +3499,9 @@ main[data-stale="true"] { opacity: .62; }
      no seat left to take the family and the log showing traffic on an
      ungoverned credential, the requests are landing on that overflow tier
      rather than failing, and the line says so. With no eligible seat and no
-     overflow tier the least-bound seat still takes the conversation: the
-     scheduler picks past its own pace rather than refusing the request. */
+     overflow tier the seat carrying the fewest live conversations still takes
+     it: the scheduler picks past its own pace rather than refuse the
+     request. */
   function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
@@ -3487,8 +3518,11 @@ main[data-stale="true"] { opacity: .62; }
       else if (seats && overflow) {
         span.appendChild(h("span", "pick-none pick-wrap", "seats exhausted · traffic on overflow key"));
       } else {
+        /* One short line, because the column is narrow: how the seat is
+           picked, which says a seat still takes the work. That none is
+           eligible is the readout beside this one. */
         span.appendChild(h("span", "pick-none pick-wrap",
-          seats ? "no seat eligible · least-bound takes it" : "—"));
+          seats ? "fewest bindings takes it" : "—"));
       }
       next.appendChild(span);
     });
@@ -3516,7 +3550,7 @@ main[data-stale="true"] { opacity: .62; }
   var STANDARD = "";
 
   /* Every distinct family cap the seats report, sorted. Scoring differs by
-     family, not by model: a scoped weekly window bears on a request only
+     family, not by model: a family's weekly cap applies to a request only
      when the request's family matches its scope, so every model outside
      these families scores the same way — Standard. */
   function scopedFamilies(st) {
