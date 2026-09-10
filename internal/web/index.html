@@ -181,6 +181,12 @@ a { color: inherit; }
   font-weight: 700; letter-spacing: .008em; line-height: .95;
   margin: 0; text-transform: uppercase;
 }
+/* What the page is for, once, under the title. Capped near a comfortable
+   reading measure so it never runs the width of a wide window. */
+.brand-line {
+  margin: 8px 0 0; max-width: 62ch;
+  font: 400 13px/1.5 var(--sans); color: var(--ink-2);
+}
 
 /* --------------------------------------------------------------- live bar */
 /* Every figure that moves between polls, in one bar that survives the scroll:
@@ -611,6 +617,8 @@ main[data-stale="true"] { opacity: .62; }
 <header class="mast">
   <div class="mast-inner">
     <h1 class="brand-name">Claude quota</h1>
+    <p class="brand-line">Spreads requests across every Claude seat by how fast each one is
+      spending, and keeps each conversation on the seat it started on.</p>
   </div>
 </header>
 
@@ -3502,6 +3510,58 @@ main[data-stale="true"] { opacity: .62; }
      overflow tier the seat carrying the fewest live conversations still takes
      it: the scheduler picks past its own pace rather than refuse the
      request. */
+  /* Why no seat can take this family, in the space of one narrow line. The
+     reason every seat shares is the fact worth reading: a spent cap says when
+     it comes back, a refusal says the provider is turning the work away, and
+     an unread credential says nothing about the cap at all. The plugin still
+     forwards the request; the routing log is where that is recorded. */
+  function blockedText(st, fam) {
+    var reasons = Object.create(null), n = 0;
+    (st.auths || []).forEach(function (a) {
+      var sc = famScore(a, fam);
+      if (!sc || sc.eligible) return;
+      n++;
+      reasons[sc.reason || ""] = true;
+    });
+    var only = Object.keys(reasons);
+    if (!n || only.length !== 1) return "no seat eligible";
+
+    var back = returnsAt(st, fam), when = back ? " · " + resetText(back, nowMs()) : "";
+    switch (only[0]) {
+    case "hard-cutoff":
+      return "spent" + when;
+    case "provider-rejected":
+      return "rate-limited" + when;
+    default:
+      return reasonText(only[0]);
+    }
+  }
+
+  /* When the pool can serve this family again. A seat is held until its last
+     blocking window resets, so the answer is the latest reset per seat and
+     then the earliest of those: the soonest reset anywhere would promise
+     capacity that a seat's other spent window still withholds. */
+  function returnsAt(st, fam) {
+    var cut = cutoffOf(st.config), soonest = null;
+    (st.auths || []).forEach(function (a) {
+      var last = null, unknown = false;
+      ((a.snapshot || {}).windows || []).forEach(function (w) {
+        if (!appliesTo(w, fam)) return;
+        var held = w.status === "rejected" ||
+          (cut !== null && num(w.utilization) && w.utilization >= cut);
+        if (!held) return;
+        var r = parseT(w.resets_at);
+        // A held window with no reset instant leaves this seat's return
+        // unknown, and an unknown return cannot be claimed as a time.
+        if (!r) { unknown = true; return; }
+        if (!last || r > last) last = r;
+      });
+      if (unknown || !last) return;
+      if (!soonest || last < soonest) soonest = last;
+    });
+    return soonest;
+  }
+
   function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
@@ -3518,11 +3578,8 @@ main[data-stale="true"] { opacity: .62; }
       else if (seats && overflow) {
         span.appendChild(h("span", "pick-none pick-wrap", "seats exhausted · traffic on overflow key"));
       } else {
-        /* One short line, because the column is narrow: how the seat is
-           picked, which says a seat still takes the work. That none is
-           eligible is the readout beside this one. */
         span.appendChild(h("span", "pick-none pick-wrap",
-          seats ? "fewest bindings takes it" : "—"));
+          seats ? blockedText(st, fam) : "—"));
       }
       next.appendChild(span);
     });
