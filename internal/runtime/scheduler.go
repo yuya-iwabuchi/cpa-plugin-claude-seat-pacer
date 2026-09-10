@@ -57,17 +57,27 @@ func (in pickInput) scoreOf(authID string) model.Score {
 
 // hasAlternativeHome reports whether some candidate other than authID is
 // worth moving to: one the pace curve rates eligible, or one whose state
-// leaves open that it can serve. A candidate the provider has already rejected
-// for this model is neither.
+// leaves open that it can serve.
+//
+// Only a reading that says the provider will not serve rules a candidate out —
+// a refusal, or a window it reports as full — because moving to either buys
+// nothing and spends a cross-organization cache miss on the way. Every other
+// ineligibility leaves open that the candidate can serve: a reading too old to
+// trust, one too broken to grade, or none at all says nothing about the
+// credential, and staying on a refused binding is a certain failure. Reading
+// the score rather than the snapshot is what keeps that distinction, since the
+// snapshot map carries readings past MaxStaleness that scoring has already
+// discarded.
 func (in pickInput) hasAlternativeHome(authID string) bool {
 	for _, id := range in.candidates {
 		if id == authID {
 			continue
 		}
-		if in.scoreOf(id).Eligible {
+		score := in.scoreOf(id)
+		if score.Eligible {
 			return true
 		}
-		if snap, ok := in.snaps[id]; !ok || !blockedFor(snap, in.req.Model) {
+		if score.Reason != model.ReasonRejected && score.Reason != model.ReasonSpent {
 			return true
 		}
 	}
@@ -90,7 +100,7 @@ func (in pickInput) hasAlternativeHome(authID string) bool {
 //     when its pace score trails (OverrideThreshold), unless OverrideThreshold
 //     is off and the pace winner beats it by the hysteresis margin. A binding
 //     that fails any of those fails over to the cold pick, except that a
-//     rejected binding stands when every other candidate is rejected too.
+//     rejected binding stands when no other candidate can take the model.
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
 //     ineligible; the pace winner takes the session. When nothing is eligible
 //     but a session key exists, the candidate with the fewest live bindings
@@ -199,17 +209,21 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 
 	// A window the provider has already rejected for this model makes the
 	// binding no home at all, whether or not another candidate outscores it: a
-	// host allowed one pick per request has no retry to recover on. With every
-	// other candidate rejected too the move buys nothing and costs a cross-org
-	// cache miss, and the fewest-conversations fallback alternates seats
-	// request by request, so the
-	// binding stands until somewhere better exists.
+	// host allowed one pick per request has no retry to recover on. With no
+	// other candidate able to take the model the move buys nothing and costs a
+	// cross-org cache miss, and the fewest-conversations fallback alternates
+	// seats request by request, so the binding stands until somewhere better
+	// exists.
 	if blockedFor(in.snaps[bound.AuthID], in.req.Model) {
 		if !in.hasAlternativeHome(bound.AuthID) {
+			note := "binding kept; no other seat can take this model"
+			if len(in.candidates) == 1 {
+				note = "binding kept; it is the only seat offered"
+			}
 			return p.decide(in, model.Decision{
 				ChosenAuthID: bound.AuthID,
 				Kind:         model.DecisionAffinityHit,
-				Note:         "binding kept; every seat is rate-limited for this model",
+				Note:         note,
 				Scores:       in.scores,
 			}), true
 		}
@@ -220,9 +234,20 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 		pace.ShouldSwitch(in.cfg.Pace, in.scoreOf(bound.AuthID), best) {
 		return p.pickCold(in, bound.AuthID, "pace winner beats the binding by the hysteresis margin"), true
 	}
+	// A binding on a credential the provider reports as full is kept on
+	// purpose: moving a live conversation is a certain cross-organization
+	// cache miss, while the window may reset before the conversation's next
+	// request. The note is what tells an operator the seat was chosen knowing
+	// that, rather than in ignorance of it; an ordinary hit carries none, so
+	// the status view only marks the deliberate case.
+	note := ""
+	if score := in.scoreOf(bound.AuthID); !score.Eligible && score.Reason == model.ReasonSpent {
+		note = "binding kept; the seat is spent, and moving a live conversation costs a cache miss"
+	}
 	return p.decide(in, model.Decision{
 		ChosenAuthID: bound.AuthID,
 		Kind:         model.DecisionAffinityHit,
+		Note:         note,
 	}), true
 }
 

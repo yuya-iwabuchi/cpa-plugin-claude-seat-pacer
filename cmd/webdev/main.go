@@ -215,14 +215,14 @@ func (f *fixture) pollTimes(now time.Time) (polled, next time.Time) {
 }
 
 func newFixture(anchor time.Time) *fixture {
+	// The pace curve is whatever Defaults ships: linear, landing past full, so
+	// the target leads elapsed and reaches 100% before the window closes. Set
+	// cfg.Pace.Shape to model.ShapePower with a CurveExponent, or to
+	// model.ShapeSigmoid with a Steepness, to draw a bent one.
 	cfg := model.Defaults()
 	// Defaults leave the plugin off, and a status view of a plugin that routes
 	// nothing is a different page.
 	cfg.Enabled = true
-	// A conservative curve: the target trails elapsed early and lands short of
-	// full, which separates the pace tick from the now line in the timeline.
-	cfg.Pace.CurveExponent = 1.35
-	cfg.Pace.LandingTarget = 0.95
 
 	f := &fixture{
 		anchor: anchor,
@@ -612,7 +612,7 @@ var manySeats = []manySeat{
 	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.61, scoped: 0.70, state: "over"},
 	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.35, scoped: 0.90, state: "critical"},
 	{id: "claude-oncall@acme.example.json", name: "claude-oncall@acme.example.json", email: "oncall@acme.example", session: 1.00, weekly: 0.58, scoped: 0.44, state: "rejected"},
-	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 0.91, scoped: 0.52, state: "cutoff"},
+	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 0.91, scoped: 0.52, state: "spent"},
 	{id: "claude-quota.bot@acme-corp.example.json", name: "claude-quota.bot@acme-corp.example.json", email: "quota.bot@acme-corp.example", session: 0.05, weekly: 0.09, scoped: 0.0, state: "stale"},
 	{id: "claude-team-data.json", name: "claude-team-data.json", email: "svc.data@acme.example", session: 0.52, weekly: 0.40, scoped: 0.33, state: "error"},
 	{id: "claude-team-infra.json", name: "claude-team-infra.json", email: "svc.infra@acme.example", session: 0.0, weekly: 0.0, scoped: 0.0, state: "nosnap"},
@@ -624,8 +624,9 @@ var manySeats = []manySeat{
 
 // collide rewrites the two fixture seats so their pace-curve points land
 // close together: seat A 3.5 days into its week at 48% of the weekly budget
-// and 44% of its Fable cap, seat B 3.9 days in at 52% and, on the Fable cap,
-// at the hard cutoff.
+// and 44% of its Fable cap, seat B 3.9 days in at 54.28% and, on the Fable
+// cap, spent. The two weekly gaps differ by under a tenth of a point, so the
+// Standard table prints one cost for both seats and ranks them apart.
 func (f *fixture) collide() {
 	f.observedAge[seatBID] = 40 * time.Second
 	set := func(id string, weekly, scoped, elapsedDays float64) {
@@ -650,7 +651,7 @@ func (f *fixture) collide() {
 		f.snapshotsPast[id] = withSessionUtil(snap, 0.2, model.StatusAllowed, model.SeverityNormal)
 	}
 	set(seatAID, 0.48, 0.44, 3.5)
-	set(seatBID, 0.52, f.cfg.Pace.HardCutoff, 3.9)
+	set(seatBID, 0.5428, 1.0, 3.9)
 	f.decisions = f.buildDecisions()
 }
 
@@ -737,8 +738,8 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		// that puts a verdict per family in the seat's header row.
 		snap.Windows[2].Status = model.StatusRejected
 		snap.Windows[2].Severity = model.SeverityCritical
-	case "cutoff":
-		snap.Windows[1].Utilization = f.cfg.Pace.HardCutoff + 0.01
+	case "spent":
+		snap.Windows[1].Utilization = 1.02
 		snap.Windows[1].Status = model.StatusAllowedWarning
 		snap.Windows[1].Severity = model.SeverityWarning
 	case "stale":

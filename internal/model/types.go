@@ -282,9 +282,11 @@ type WindowScore struct {
 // Ineligibility reasons.
 const (
 	ReasonEligible   = ""
-	ReasonHardCutoff = "hard-cutoff"
 	ReasonRejected   = "provider-rejected"
 	ReasonNoSnapshot = "no-snapshot"
+	// ReasonSpent marks a credential whose bearing window the provider reports
+	// as full: the endpoint says there is nothing left in that window.
+	ReasonSpent = "spent"
 	// ReasonFetchFailed marks a credential whose usage read has never
 	// succeeded, so nothing is known about its caps. It is distinct from
 	// ReasonNoWindow, which says the caps were read and none of them applies.
@@ -303,17 +305,14 @@ const (
 type Score struct {
 	AuthID string `json:"auth_id"`
 	// Cost is how much a request on this credential costs the pool: the
-	// weighted sum of how far each window runs over its target, plus the
-	// fullest-window penalty. Every term counts against the credential, so
-	// the lowest cost wins.
-	Cost    float64       `json:"cost"`
-	Windows []WindowScore `json:"windows"`
-	// FullestPenalty is the load-balancing term, taken from the fullest window
-	// that applies to the request. Pace alone under-charges a heavily used
-	// credential that happens to be on target, which starves idle siblings.
-	FullestPenalty float64 `json:"fullest_penalty"`
-	Eligible       bool    `json:"eligible"`
-	Reason         string  `json:"reason,omitempty"`
+	// weighted sum of how far each window runs over its target. Running over
+	// target counts against the credential and running under counts for it,
+	// so the lowest cost wins. Every term is one window's; nothing else
+	// enters it.
+	Cost     float64       `json:"cost"`
+	Windows  []WindowScore `json:"windows"`
+	Eligible bool          `json:"eligible"`
+	Reason   string        `json:"reason,omitempty"`
 }
 
 // Decision kinds.

@@ -15,6 +15,15 @@ import (
 
 // Target is the utilization the curve expects at elapsed, which is clamped to
 // 0..1.
+//
+// The result is clamped to full. A landing above full tilts the pick toward a
+// credential near its reset; the clamp bounds that tilt rather than making it
+// safe, since a clamped slack of zero still beats a credential running over
+// its own curve — ScoreAuth gates a full window for that reason. The clamp
+// does fix where the tilt stops climbing: the target reaches full where the
+// shape reaches the reciprocal of the landing, which under a linear shape is
+// that fraction of the way through the window and earlier or later under the
+// others.
 func Target(cfg model.PaceConfig, elapsed float64) float64 {
 	switch {
 	case math.IsNaN(elapsed) || elapsed < 0:
@@ -22,7 +31,36 @@ func Target(cfg model.PaceConfig, elapsed float64) float64 {
 	case elapsed > 1:
 		elapsed = 1
 	}
-	return cfg.LandingTarget * math.Pow(elapsed, cfg.CurveExponent)
+	return math.Min(cfg.LandingTarget*shape(cfg, elapsed), 1)
+}
+
+// shape is the unit curve the target follows, rising from 0 at a window's open
+// to 1 at its close.
+func shape(cfg model.PaceConfig, elapsed float64) float64 {
+	switch cfg.Shape {
+	case model.ShapePower:
+		return math.Pow(elapsed, cfg.CurveExponent)
+	case model.ShapeSigmoid:
+		return sigmoid(cfg.Steepness, elapsed)
+	default:
+		return elapsed
+	}
+}
+
+// sigmoid is a logistic curve through (0,0) and (1,1), rescaled from the raw
+// logistic so both ends are exact. It holds back over the first half, climbs
+// through the middle and eases off near the close, which suits a budget whose
+// last few points are worth no more urgency than its last few tenths.
+func sigmoid(k, elapsed float64) float64 {
+	if k <= 0 {
+		return elapsed
+	}
+	logistic := func(x float64) float64 { return 1 / (1 + math.Exp(-k*(x-0.5))) }
+	lo, hi := logistic(0), logistic(1)
+	if hi == lo {
+		return elapsed
+	}
+	return (logistic(elapsed) - lo) / (hi - lo)
 }
 
 // ScoreAuth evaluates one credential for one model.
@@ -30,11 +68,18 @@ func Target(cfg model.PaceConfig, elapsed float64) float64 {
 // A window bears on the request when it is a session or an all-models weekly
 // window, or a scoped weekly window whose Scope names the requested model's
 // family; a scoped cap for another family is not a cap this request can reach.
-// Every bearing window gates, open or not: a provider rejection, a utilization
-// at or above HardCutoff, or a utilization that is not a finite number makes
-// the credential ineligible. Only a bearing window with an open period —
-// non-zero ResetsAt and positive Duration — has a place on the curve, so only
-// it carries a weight, a raw-utilization reading and a contribution to Total.
+// Every bearing window gates, open or not, on an observation rather than a
+// forecast: a provider rejection recorded against it, a utilization the
+// provider reports as full, or one that is not a finite number, makes the
+// credential ineligible.
+//
+// Fullness has to gate rather than only cost more. Each window is measured at
+// its own elapsed, so cost does not order credentials by the budget they hold:
+// a full window's slack clamps to zero, and zero beats any credential running
+// over its own curve however much it has left. Only a bearing window with an
+// open period — non-zero ResetsAt and positive Duration — has a place on the
+// curve, so only it carries a weight and a term in Cost; fullness is read
+// whether or not the window has one.
 //
 // The breakdown carries every window in the snapshot, including those that
 // contribute nothing, so the status UI renders the whole picture from one
@@ -59,10 +104,9 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 	score.Windows = make([]model.WindowScore, 0, len(snap.Windows))
 
 	var (
-		rawUtil    float64
 		bearing    int
 		rejected   bool
-		cutoff     bool
+		spent      bool
 		unreadable bool
 	)
 	for _, w := range snap.Windows {
@@ -80,21 +124,21 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 		if w.BearsOn(family) {
 			bearing++
 			rejected = rejected || w.Blocking()
-			cutoff = cutoff || w.Utilization >= cfg.HardCutoff
+			spent = spent || w.Utilization >= 1
 			unreadable = unreadable || math.IsNaN(w.Utilization) || math.IsInf(w.Utilization, 0)
 			if open(w) {
 				ws.Weight = weightOf(cfg, w)
-				score.Cost -= ws.Weight * ws.Slack
-				if w.Utilization > rawUtil {
-					rawUtil = w.Utilization
+				// A window carrying no weight contributes no term. Skipping
+				// the product rather than adding a zero keeps an unreadable
+				// reading on such a window out of the total, where it would
+				// otherwise arrive as a NaN the credential never earned.
+				if ws.Weight != 0 {
+					score.Cost -= ws.Weight * ws.Slack
 				}
 			}
 		}
 		score.Windows = append(score.Windows, ws)
 	}
-
-	score.FullestPenalty = cfg.RawWeight * rawUtil
-	score.Cost += score.FullestPenalty
 
 	switch {
 	case bearing == 0:
@@ -106,9 +150,9 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 	case unreadable:
 		score.Eligible = false
 		score.Reason = model.ReasonBadReading
-	case cutoff:
+	case spent:
 		score.Eligible = false
-		score.Reason = model.ReasonHardCutoff
+		score.Reason = model.ReasonSpent
 	}
 	return score
 }
@@ -132,7 +176,7 @@ func weightOf(cfg model.PaceConfig, w model.Window) float64 {
 }
 
 // Rank scores every candidate and orders the results: eligible before
-// ineligible, then Total descending, then AuthID ascending so repeated calls on
+// ineligible, then Cost ascending, then AuthID ascending so repeated calls on
 // the same inputs agree regardless of the order the host offered candidates in.
 // A repeated id is scored and returned once. A candidate with no snapshot
 // scores ineligible with model.ReasonNoSnapshot. The arguments are not

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
 )
 
 func TestRegisterThenReconfigureIsIdempotent(t *testing.T) {
@@ -30,10 +32,12 @@ func TestRegisterThenReconfigureIsIdempotent(t *testing.T) {
 	builds := tp.built
 
 	// Reconfigure with a different pace knob but the same affinity settings:
-	// the config swaps, the poller and binding table stay.
-	tp.register(t, MethodPluginReconfigure, testConfigYAML+"pace:\n  hard-cutoff: 0.9\n")
-	if got := tp.config().Pace.HardCutoff; got != 0.9 {
-		t.Errorf("hard-cutoff = %v after reconfigure, want 0.9", got)
+	// the config swaps, the poller and binding table stay. The knob is spelled
+	// in the case an operator might write rather than the folded form, so the
+	// round trip covers normalization too.
+	tp.register(t, MethodPluginReconfigure, testConfigYAML+"pace:\n  shape: Sigmoid\n")
+	if got := tp.config().Pace.Shape; got != model.ShapeSigmoid {
+		t.Errorf("shape = %q after reconfigure, want %q", got, model.ShapeSigmoid)
 	}
 	tp.lifeMu.Lock()
 	second := tp.poller
@@ -53,8 +57,8 @@ func TestRegisterThenReconfigureIsIdempotent(t *testing.T) {
 	if got := tp.config().Affinity.TTL; got != 30*time.Minute {
 		t.Errorf("affinity TTL = %v, want 30m", got)
 	}
-	if got := tp.config().Pace.HardCutoff; got != 0.98 {
-		t.Errorf("hard-cutoff = %v, want the default restored when the key is absent", got)
+	if got := tp.config().Pace.Shape; got != model.ShapeLinear {
+		t.Errorf("shape = %q, want the default restored when the key is absent", got)
 	}
 }
 

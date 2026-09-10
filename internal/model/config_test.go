@@ -64,9 +64,10 @@ func TestNormalizeDefaultsAndClamps(t *testing.T) {
 		t.Errorf("history limit = %d, want %d", cfg.Web.HistoryLimit, d.Web.HistoryLimit)
 	}
 
-	// A poll interval under the floor spins the loop, and a negative
-	// hysteresis margin makes every challenger win.
-	cfg = Config{Quota: QuotaConfig{PollInterval: time.Second}, Pace: PaceConfig{HysteresisMargin: -1, HardCutoff: 9}}
+	// A poll interval under the floor spins the loop, a negative hysteresis
+	// margin makes every challenger win, and a landing of nine is a
+	// misconfiguration rather than a policy.
+	cfg = Config{Quota: QuotaConfig{PollInterval: time.Second}, Pace: PaceConfig{HysteresisMargin: -1, LandingTarget: 9}}
 	cfg.Normalize()
 	if cfg.Quota.PollInterval != d.Quota.PollInterval {
 		t.Errorf("poll interval = %v, want the default restored", cfg.Quota.PollInterval)
@@ -74,8 +75,75 @@ func TestNormalizeDefaultsAndClamps(t *testing.T) {
 	if cfg.Pace.HysteresisMargin != 0 {
 		t.Errorf("hysteresis margin = %v, want 0", cfg.Pace.HysteresisMargin)
 	}
-	if cfg.Pace.HardCutoff != d.Pace.HardCutoff {
-		t.Errorf("hard cutoff = %v, want the default restored", cfg.Pace.HardCutoff)
+	if cfg.Pace.LandingTarget != d.Pace.LandingTarget {
+		t.Errorf("landing target = %v, want the default restored", cfg.Pace.LandingTarget)
+	}
+}
+
+// A landing above full is the use-it-or-lose-it tilt, so it has to survive
+// normalization; Target's clamp is what bounds it. Only a landing no curve
+// could mean reads as a misconfiguration.
+func TestNormalizeKeepsALandingAboveFull(t *testing.T) {
+	d := Defaults()
+	for _, tc := range []struct {
+		name string
+		in   float64
+		want float64
+	}{
+		{"the default tilt", 1.10, 1.10},
+		{"a steeper tilt", 2.5, 2.5},
+		{"the top of the range", 4, 4},
+		{"a deliberate safety margin", 0.9, 0.9},
+		{"zero", 0, d.Pace.LandingTarget},
+		{"negative", -1, d.Pace.LandingTarget},
+		{"past the top of the range", 4.0001, d.Pace.LandingTarget},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Pace: PaceConfig{LandingTarget: tc.in}}
+			cfg.Normalize()
+			if cfg.Pace.LandingTarget != tc.want {
+				t.Errorf("LandingTarget %v normalized to %v, want %v", tc.in, cfg.Pace.LandingTarget, tc.want)
+			}
+		})
+	}
+}
+
+// Shape is the one pace knob written as a name rather than a number, so a
+// config that misspells it has to land on a curve the scorer can evaluate.
+func TestNormalizeFoldsShapeAndSteepness(t *testing.T) {
+	d := Defaults()
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{ShapeLinear, ShapeLinear},
+		{ShapePower, ShapePower},
+		{ShapeSigmoid, ShapeSigmoid},
+		{"  SIGMOID  ", ShapeSigmoid},
+		{"Power", ShapePower},
+		{"", d.Pace.Shape},
+		{"logarithmic", d.Pace.Shape},
+	} {
+		cfg := Config{Pace: PaceConfig{Shape: tc.in}}
+		cfg.Normalize()
+		if cfg.Pace.Shape != tc.want {
+			t.Errorf("Shape %q normalized to %q, want %q", tc.in, cfg.Pace.Shape, tc.want)
+		}
+	}
+
+	// A steepness of zero or below flattens the sigmoid into a line, which
+	// silently ignores the shape the operator asked for.
+	for _, bad := range []float64{0, -1, -8} {
+		cfg := Config{Pace: PaceConfig{Steepness: bad}}
+		cfg.Normalize()
+		if cfg.Pace.Steepness != d.Pace.Steepness {
+			t.Errorf("Steepness %v normalized to %v, want the default %v", bad, cfg.Pace.Steepness, d.Pace.Steepness)
+		}
+	}
+	cfg := Config{Pace: PaceConfig{Steepness: 20}}
+	cfg.Normalize()
+	if cfg.Pace.Steepness != 20 {
+		t.Errorf("Steepness = %v, want a positive setting kept", cfg.Pace.Steepness)
 	}
 }
 
@@ -86,13 +154,12 @@ func TestNormalizeRejectsNaNAndInf(t *testing.T) {
 	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		cfg := Config{Pace: PaceConfig{
 			CurveExponent:    bad,
+			Steepness:        bad,
 			LandingTarget:    bad,
 			WeeklyWeight:     bad,
 			SessionWeight:    bad,
 			ScopedWeight:     bad,
-			RawWeight:        bad,
 			HysteresisMargin: bad,
-			HardCutoff:       bad,
 		}}
 		cfg.Normalize()
 		if cfg.Pace != d.Pace {
@@ -151,4 +218,57 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// An exponent is only ever set to bend the curve, and only the power shape
+// reads one. A config written before the shape key existed keeps the curve it
+// asked for rather than going quietly linear on upgrade.
+func TestAnExponentWithoutAShapeImpliesPower(t *testing.T) {
+	d := Defaults()
+	cases := []struct {
+		name     string
+		shape    string
+		exponent float64
+		want     string
+	}{
+		{"exponent alone predates the shape key", "", 1.35, ShapePower},
+		{"the default exponent implies nothing", "", d.Pace.CurveExponent, d.Pace.Shape},
+		{"an unset exponent implies nothing", "", 0, d.Pace.Shape},
+		{"a named shape always wins", ShapeSigmoid, 1.35, ShapeSigmoid},
+		{"a named linear shape is not overridden", ShapeLinear, 1.35, ShapeLinear},
+		{"an unknown shape falls back rather than inferring", "spline", 1.35, d.Pace.Shape},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Pace: PaceConfig{Shape: tc.shape, CurveExponent: tc.exponent}}
+			cfg.Normalize()
+			if cfg.Pace.Shape != tc.want {
+				t.Errorf("shape = %q, want %q", cfg.Pace.Shape, tc.want)
+			}
+		})
+	}
+}
+
+// A negative weight would invert the pace preference and send work to the
+// credential furthest over its target. Zero is meaningful and stays: it retires
+// a window from the score without retiring the gates that read it.
+func TestNormalizeCorrectsANegativeWeightAndKeepsZero(t *testing.T) {
+	cfg := Config{Pace: PaceConfig{WeeklyWeight: -1, SessionWeight: -0.001, ScopedWeight: 0}}
+	cfg.Normalize()
+
+	if cfg.Pace.WeeklyWeight != 0 || cfg.Pace.SessionWeight != 0 {
+		t.Errorf("weights = (%v, %v), want both corrected to 0",
+			cfg.Pace.WeeklyWeight, cfg.Pace.SessionWeight)
+	}
+	if cfg.Pace.ScopedWeight != 0 {
+		t.Errorf("scoped weight = %v, want the configured 0 kept", cfg.Pace.ScopedWeight)
+	}
+
+	// A positive weight is never touched.
+	kept := Config{Pace: PaceConfig{WeeklyWeight: 2, SessionWeight: 0.25, ScopedWeight: 0.5}}
+	kept.Normalize()
+	if kept.Pace.WeeklyWeight != 2 || kept.Pace.SessionWeight != 0.25 || kept.Pace.ScopedWeight != 0.5 {
+		t.Errorf("weights = (%v, %v, %v), want them kept as configured",
+			kept.Pace.WeeklyWeight, kept.Pace.SessionWeight, kept.Pace.ScopedWeight)
+	}
 }
