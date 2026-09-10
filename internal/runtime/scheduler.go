@@ -201,7 +201,8 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 	// binding no home at all, whether or not another candidate outscores it: a
 	// host allowed one pick per request has no retry to recover on. With every
 	// other candidate rejected too the move buys nothing and costs a cross-org
-	// cache miss, and least-bound alternates seats request by request, so the
+	// cache miss, and the fewest-conversations fallback alternates seats
+	// request by request, so the
 	// binding stands until somewhere better exists.
 	if blockedFor(in.snaps[bound.AuthID], in.req.Model) {
 		if !in.hasAlternativeHome(bound.AuthID) {
@@ -236,7 +237,7 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 			return p.declineWithScores(in, "no eligible candidate")
 		}
 		chosen = leastBound(in.candidates, p.bindingStore().CountByAuth())
-		note = joinNotes(note, "no eligible candidate; least-bound fallback")
+		note = joinNotes(note, "no eligible candidate; the seat with the fewest live conversations takes it")
 	}
 
 	d := model.Decision{ChosenAuthID: chosen, Kind: model.DecisionColdPick, Note: note, Scores: in.scores}

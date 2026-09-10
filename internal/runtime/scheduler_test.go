@@ -298,10 +298,10 @@ func TestAllStaleWithKeyBindsLeastBound(t *testing.T) {
 
 	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
 	if !resp.Handled || resp.AuthID != "seat-b" {
-		t.Fatalf("response = %+v, want the least-bound seat-b", resp)
+		t.Fatalf("response = %+v, want seat-b, which carries the fewest conversations", resp)
 	}
 	d := tp.lastDecision(t)
-	if d.Kind != model.DecisionColdPick || !strings.Contains(d.Note, "least-bound") {
+	if d.Kind != model.DecisionColdPick || !strings.Contains(d.Note, "fewest live conversations") {
 		t.Errorf("decision = %+v", d)
 	}
 	for _, s := range d.Scores {

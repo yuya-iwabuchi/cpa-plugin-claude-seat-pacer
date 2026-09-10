@@ -75,7 +75,7 @@ func richStatus() model.Status {
 				}},
 			},
 			Score: model.Score{
-				AuthID: "auth-a", Total: -0.31, RawPenalty: 0.2, Eligible: true,
+				AuthID: "auth-a", Cost: -0.31, FullestPenalty: 0.2, Eligible: true,
 				Windows: []model.WindowScore{{
 					Kind: model.WindowSession, Elapsed: 0.6, Target: 0.49,
 					Utilization: 0.8, Slack: -0.31, Weight: 0.35,
@@ -103,7 +103,7 @@ func richStatus() model.Status {
 			ChosenAuthID: "auth-a", PreviousAuthID: "auth-b", Kind: model.DecisionFailover,
 			Note: "bound credential was not offered", Subagent: true,
 			Scores: []model.Score{{
-				AuthID: "auth-b", Total: -0.9, RawPenalty: 0.25,
+				AuthID: "auth-b", Cost: -0.9, FullestPenalty: 0.25,
 				Eligible: false, Reason: model.ReasonHardCutoff,
 				Windows: []model.WindowScore{{
 					Kind: model.WindowWeekly, Elapsed: 0.9, Target: 0.88,
@@ -328,7 +328,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 
 	ids := []string{
 		"tooltip", "svg-ns",
-		"plugin-facts", "next-pick", "seat-total", "seat-eligible", "snapshot-age",
+		"page-foot", "plugin-facts", "next-pick", "seat-total", "seat-eligible", "snapshot-age",
 		"refresh-toggle", "theme-toggle", "sync-now",
 		"live-dot", "next-sync",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
@@ -417,14 +417,14 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 	st.Auths[0].Snapshot.Windows[0].Utilization = math.NaN()
 	st.Auths[0].Snapshot.Windows[1].Utilization = math.Inf(1)
 	st.Auths[0].Score = model.Score{
-		AuthID: "auth-a", Total: math.NaN(), RawPenalty: math.Inf(-1),
+		AuthID: "auth-a", Cost: math.NaN(), FullestPenalty: math.Inf(-1),
 		Reason: model.ReasonBadReading,
 		Windows: []model.WindowScore{{
 			Kind: model.WindowSession, Utilization: math.NaN(), Slack: math.NaN(),
 		}},
 	}
 	st.Config.Pace.HardCutoff = math.NaN()
-	st.Decisions[0].Scores[0].Total = math.Inf(1)
+	st.Decisions[0].Scores[0].Cost = math.Inf(1)
 	st.Decisions[0].Scores[0].Windows[0].Slack = math.NaN()
 
 	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
@@ -445,16 +445,16 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 	if win["utilization"] != nil {
 		t.Errorf("utilization = %v, want null", win["utilization"])
 	}
-	if auth["score"].(map[string]any)["total"] != nil {
-		t.Errorf("score total = %v, want null", auth["score"].(map[string]any)["total"])
+	if auth["score"].(map[string]any)["cost"] != nil {
+		t.Errorf("score cost = %v, want null", auth["score"].(map[string]any)["cost"])
 	}
 	if raw["config"].(map[string]any)["pace"].(map[string]any)["hard_cutoff"] != nil {
 		t.Error("hard_cutoff is not null")
 	}
 	// A decision carries its own candidate scores, on the same path.
 	logged := raw["decisions"].([]any)[0].(map[string]any)["scores"].([]any)[0].(map[string]any)
-	if logged["total"] != nil {
-		t.Errorf("logged score total = %v, want null", logged["total"])
+	if logged["cost"] != nil {
+		t.Errorf("logged score cost = %v, want null", logged["cost"])
 	}
 	if logged["windows"].([]any)[0].(map[string]any)["slack"] != nil {
 		t.Error("logged window slack is not null")

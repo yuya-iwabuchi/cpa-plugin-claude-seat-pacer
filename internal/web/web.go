@@ -520,8 +520,8 @@ func finiteWindows(windows []model.Window) []model.Window {
 }
 
 func finiteScore(s model.Score) model.Score {
-	s.Total = finite(s.Total)
-	s.RawPenalty = finite(s.RawPenalty)
+	s.Cost = finite(s.Cost)
+	s.FullestPenalty = finite(s.FullestPenalty)
 	if len(s.Windows) == 0 {
 		return s
 	}

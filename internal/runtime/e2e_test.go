@@ -30,7 +30,7 @@ import (
 // pick would legitimately fail the session over.
 //
 // No usage endpoint is reachable, so no snapshot is ever eligible and every
-// cold pick takes the least-bound path: the first session goes to the lowest
+// cold pick falls back on the fewest conversations: the first session goes to the lowest
 // id, the second to the other credential. Skips unless CPA_SOURCE_DIR points
 // at a CLIProxyAPI checkout.
 //
@@ -235,7 +235,7 @@ plugins:
 		t.Errorf("decision kinds = %v, want %v", kinds, want)
 	}
 	if chronological[0].ChosenAuthID != "claude-a.json" {
-		t.Errorf("first session landed on %q, want the least-bound lowest id claude-a.json", chronological[0].ChosenAuthID)
+		t.Errorf("first session landed on %q, want the lowest id claude-a.json, which carries the fewest conversations", chronological[0].ChosenAuthID)
 	}
 	t.Logf("session one: kinds=%v auth=%s key=%s", kinds, chronological[0].ChosenAuthID, chronological[0].SessionKey)
 

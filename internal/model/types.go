@@ -267,8 +267,10 @@ type WindowScore struct {
 	Target float64 `json:"target"`
 	// Utilization is the observed fraction consumed.
 	Utilization float64 `json:"utilization"`
-	// Slack is Target-Utilization. Positive means under-consumed relative to
-	// pace, and therefore preferred.
+	// Slack is Target-Utilization, so it is positive when the window is
+	// under-consumed relative to pace. Cost charges its negation, which is how
+	// far the window runs over target; the status page prints that direction
+	// instead of this one, and never the word.
 	Slack float64 `json:"slack"`
 	// Weight is the coefficient this window contributes with.
 	Weight float64 `json:"weight"`
@@ -300,16 +302,18 @@ const (
 // Score is the routing evaluation of one credential for one request.
 type Score struct {
 	AuthID string `json:"auth_id"`
-	// Total is the weighted sum of window slacks less the raw-utilization
-	// penalty. Higher wins.
-	Total   float64       `json:"total"`
+	// Cost is how much a request on this credential costs the pool: the
+	// weighted sum of how far each window runs over its target, plus the
+	// fullest-window penalty. Every term counts against the credential, so
+	// the lowest cost wins.
+	Cost    float64       `json:"cost"`
 	Windows []WindowScore `json:"windows"`
-	// RawPenalty is the load-balancing term. Pace slack alone under-penalizes
-	// a heavily used credential that happens to be on pace, which starves
-	// idle siblings.
-	RawPenalty float64 `json:"raw_penalty"`
-	Eligible   bool    `json:"eligible"`
-	Reason     string  `json:"reason,omitempty"`
+	// FullestPenalty is the load-balancing term, taken from the fullest window
+	// that applies to the request. Pace alone under-charges a heavily used
+	// credential that happens to be on target, which starves idle siblings.
+	FullestPenalty float64 `json:"fullest_penalty"`
+	Eligible       bool    `json:"eligible"`
+	Reason         string  `json:"reason,omitempty"`
 }
 
 // Decision kinds.
