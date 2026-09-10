@@ -46,7 +46,12 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 	score := model.Score{AuthID: snap.AuthID, Eligible: true}
 	if len(snap.Windows) == 0 {
 		score.Eligible = false
+		// A snapshot with no window and an error has never been read, which is
+		// a different fact from a credential whose caps do not cover the model.
 		score.Reason = model.ReasonNoWindow
+		if snap.Err != "" {
+			score.Reason = model.ReasonFetchFailed
+		}
 		return score
 	}
 

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -172,6 +173,45 @@ type fixture struct {
 	// succeeds.
 	listErr  string
 	warnings []string
+	// forcedAt is when the last forced read landed, in Unix nanoseconds, as
+	// SyncNow moves it. The polling loop's own schedule is untouched by one,
+	// the way the plugin leaves its timer alone.
+	forcedAt atomic.Int64
+}
+
+// forcedPollGap is the plugin's throttle on a forced read, restated here so a
+// run of clicks on the page's Sync button meets the same limit it meets in
+// production.
+const forcedPollGap = 10 * time.Second
+
+// SyncNow reports whether it read, and reads at most once every
+// forcedPollGap. The harness holds no upstream to re-read, so a read here
+// moves only the stamp the page counts from.
+func (f *fixture) SyncNow(context.Context) bool {
+	now := time.Now()
+	last := f.forcedAt.Load()
+	if last != 0 && now.Sub(time.Unix(0, last)) < forcedPollGap {
+		return false
+	}
+	f.forcedAt.Store(now.UnixNano())
+	return true
+}
+
+// pollTimes is the poller's schedule as the harness keeps it: scheduled reads
+// land on quota.poll-interval from process start, so a page left open watches
+// a countdown that wraps for real. A forced read moves the last-read stamp
+// without moving the next wake.
+func (f *fixture) pollTimes(now time.Time) (polled, next time.Time) {
+	every := f.cfg.Quota.PollInterval
+	if every <= 0 {
+		return now, time.Time{}
+	}
+	polled = now.Add(-(now.Sub(f.anchor) % every))
+	next = polled.Add(every)
+	if forced := f.forcedAt.Load(); forced != 0 && time.Unix(0, forced).After(polled) {
+		polled = time.Unix(0, forced)
+	}
+	return polled, next
 }
 
 func newFixture(anchor time.Time) *fixture {
@@ -218,11 +258,15 @@ func newFixture(anchor time.Time) *fixture {
 					Duration: model.WeeklyDuration,
 					Status:   model.StatusAllowed, Severity: model.SeverityNormal,
 				},
+				// The state the leading seat is really in when a family cap
+				// runs down: the usage endpoint rates the headroom critical
+				// around 90% while the provider has refused nothing, so the
+				// seat keeps serving and keeps taking the picks it wins.
 				{
-					Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: 0.0,
+					Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: 0.90,
 					ResetsAt: anchor.Add(5*24*time.Hour + 12*time.Hour),
 					Duration: model.WeeklyDuration,
-					Status:   model.StatusAllowed, Severity: model.SeverityNormal,
+					Status:   model.StatusAllowedWarning, Severity: model.SeverityCritical,
 				},
 			},
 		},
@@ -391,15 +435,18 @@ func (f *fixture) Status(now time.Time, modelID string) model.Status {
 		}
 		auths = append(auths, a)
 	}
+	polled, next := f.pollTimes(now)
 	return model.Status{
-		Now:       now,
-		Plugin:    f.plugin,
-		Config:    f.cfg,
-		Model:     modelID,
-		Auths:     auths,
-		Bindings:  f.bindings,
-		Decisions: f.decisions,
-		Warnings:  f.warnings,
+		Now:        now,
+		Plugin:     f.plugin,
+		Config:     f.cfg,
+		Model:      modelID,
+		PolledAt:   polled,
+		NextPollAt: next,
+		Auths:      auths,
+		Bindings:   f.bindings,
+		Decisions:  f.decisions,
+		Warnings:   f.warnings,
 	}
 }
 
@@ -563,13 +610,13 @@ type manySeat struct {
 var manySeats = []manySeat{
 	{id: "claude-alice-team-a.json", name: "claude-alice-team-a.json", email: "alice@example.com", session: 0.31, weekly: 0.22, scoped: 0.18},
 	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.61, scoped: 0.70, state: "over"},
-	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.35, scoped: 0.30},
+	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.35, scoped: 0.90, state: "critical"},
 	{id: "claude-oncall@acme.example.json", name: "claude-oncall@acme.example.json", email: "oncall@acme.example", session: 1.00, weekly: 0.58, scoped: 0.44, state: "rejected"},
 	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 0.91, scoped: 0.52, state: "cutoff"},
 	{id: "claude-quota.bot@acme-corp.example.json", name: "claude-quota.bot@acme-corp.example.json", email: "quota.bot@acme-corp.example", session: 0.05, weekly: 0.09, scoped: 0.0, state: "stale"},
 	{id: "claude-team-data.json", name: "claude-team-data.json", email: "svc.data@acme.example", session: 0.52, weekly: 0.40, scoped: 0.33, state: "error"},
 	{id: "claude-team-infra.json", name: "claude-team-infra.json", email: "svc.infra@acme.example", session: 0.0, weekly: 0.0, scoped: 0.0, state: "nosnap"},
-	{id: "claude-team-mobile.json", name: "claude-team-mobile.json", email: "svc.mobile@acme.example", session: 0.67, weekly: 0.47, scoped: 0.51},
+	{id: "claude-team-mobile.json", name: "claude-team-mobile.json", email: "svc.mobile@acme.example", session: 0.67, weekly: 0.47, scoped: 0.51, state: "scoped-rejected"},
 	{id: "claude-team-web.json", name: "claude-team-web.json", email: "svc.web@acme.example", session: 0.20, weekly: 0.15, scoped: 0.09, state: "disabled"},
 	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.81, state: "over"},
 	{id: "claude-team-qa.json", name: "claude-team-qa.json", email: "svc.qa@acme.example", session: 0.38, weekly: 0.29, scoped: 0.24},
@@ -596,6 +643,7 @@ func (f *fixture) collide() {
 				w.Utilization, w.ResetsAt, w.Status, w.Severity = weekly, resets, model.StatusAllowed, model.SeverityNormal
 			case model.WindowWeeklyScoped:
 				w.Utilization, w.ResetsAt = scoped, resets
+				w.Status, w.Severity = model.StatusAllowed, model.SeverityNormal
 			}
 		}
 		f.snapshots[id] = snap
@@ -678,6 +726,17 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 	case "rejected":
 		snap.Windows[0].Status = model.StatusRejected
 		snap.Windows[0].Severity = model.SeverityCritical
+	case "critical":
+		// Critical headroom on the family cap with nothing rejected: the seat
+		// is still serving every request and is still eligible.
+		snap.Windows[2].Status = model.StatusAllowedWarning
+		snap.Windows[2].Severity = model.SeverityCritical
+	case "scoped-rejected":
+		// The provider refused the family cap and nothing else: the seat still
+		// takes Standard requests and is out for Fable ones, which is the state
+		// that puts a verdict per family in the seat's header row.
+		snap.Windows[2].Status = model.StatusRejected
+		snap.Windows[2].Severity = model.SeverityCritical
 	case "cutoff":
 		snap.Windows[1].Utilization = f.cfg.Pace.HardCutoff + 0.01
 		snap.Windows[1].Status = model.StatusAllowedWarning

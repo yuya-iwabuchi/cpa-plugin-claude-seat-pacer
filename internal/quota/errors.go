@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ErrCategory classifies a fetch failure. Client.Fetch carries it on
@@ -44,7 +45,11 @@ type FetchError struct {
 	Status int
 	// Detail is a fixed phrase naming the failing step.
 	Detail string
-	cause  error
+	// RetryAfter is how long the endpoint asked the caller to wait, from a
+	// Retry-After header, and 0 when it named none. It is a hint about when
+	// the endpoint will answer, not a promise that it will.
+	RetryAfter time.Duration
+	cause      error
 }
 
 func (e *FetchError) Error() string {

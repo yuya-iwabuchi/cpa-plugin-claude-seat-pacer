@@ -45,6 +45,22 @@ const (
 // per-credential fetch timeouts, covering the auth.list and auth.get calls.
 const refreshHeadroom = 5 * time.Second
 
+// pollBudget bounds one background poll. It is deliberately independent of the
+// credential count: on the first poll after a load that count is still zero, and
+// a budget sized from it cuts short the very read that would populate it, which
+// stores an error snapshot carrying no window for every credential.
+// quota.Client already caps each fetch at Quota.RequestTimeout, so this only
+// has to outlast a whole poll and stop a wedged host callback from parking the
+// loop for good.
+const pollBudget = 2 * time.Minute
+
+// minForcedPollGap floors how often the status route may force a usage read.
+// That route is served unauthenticated, so without a floor anything that can
+// reach the management port could drive the usage endpoint as fast as it likes
+// and earn the pool a throttle. A forced read is otherwise the same work the
+// loop does on its own.
+const minForcedPollGap = 10 * time.Second
+
 // managementRegister answers management.register. The host re-issues it on
 // every reconfigure, so the same routes come back each time.
 func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
@@ -160,7 +176,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 }
 
 // refreshTimeout bounds a manual refresh by the number of credentials it has
-// to fetch.
+// to fetch. A manual refresh answers an HTTP request that waits on it, so it
+// stays tight; the background loop uses pollBudget instead.
 func (p *Plugin) refreshTimeout() time.Duration {
 	cfg := p.config()
 	p.mu.Lock()
@@ -231,4 +248,28 @@ func jsonResponse(status int, body any) ManagementResponse {
 		},
 		Body: encoded,
 	}
+}
+
+// SyncNow re-reads every governed credential's usage unless the last poll is
+// more recent than minForcedPollGap, and reports whether it read. It runs
+// inline on the caller's goroutine, so a status response built after it
+// carries the fresh reading.
+func (p *Plugin) SyncNow(ctx context.Context) bool {
+	p.mu.Lock()
+	polledAt := p.polledAt
+	p.mu.Unlock()
+	if !polledAt.IsZero() && p.now().Sub(polledAt) < minForcedPollGap {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
+	defer cancel()
+	_ = p.refresh(ctx)
+
+	// Only the read time moves. The loop's timer is untouched by a forced
+	// read, so nextPollAt still names the wake it will actually take.
+	p.mu.Lock()
+	p.polledAt = p.now()
+	p.mu.Unlock()
+	return true
 }

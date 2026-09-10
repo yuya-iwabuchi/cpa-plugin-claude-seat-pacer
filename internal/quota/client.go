@@ -3,6 +3,7 @@ package quota
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,16 @@ const userAgent = "claude-cli/1.0.60 (external, cli)"
 
 // oauthBeta gates the OAuth usage endpoint.
 const oauthBeta = "oauth-2025-04-20"
+
+// Throttle retry. The endpoint throttles the caller rather than the
+// credential, so a 429 arrives for every seat at once and leaves the pool with
+// no reading at all. One short retry recovers from a brief throttle within the
+// same poll; anything longer is the next poll's job, which is why a
+// Retry-After past retryAfterCap skips the retry rather than waiting it out.
+const (
+	retryBackoff  = 900 * time.Millisecond
+	retryAfterCap = 5 * time.Second
+)
 
 // Client reads one credential's quota from the OAuth usage endpoint.
 type Client struct {
@@ -58,6 +69,13 @@ func (c *Client) Fetch(ctx context.Context, authID, authIndex, accessToken strin
 	}
 
 	body, err := c.get(ctx, accessToken)
+	if wait, ok := retryWait(err); ok {
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+			body, err = c.get(ctx, accessToken)
+		}
+	}
 	snap.ObservedAt = c.now()
 	if err == nil {
 		snap.Windows, err = ParseUsagePayload(body, snap.ObservedAt)
@@ -69,6 +87,43 @@ func (c *Client) Fetch(ctx context.Context, authID, authIndex, accessToken strin
 		return snap, err
 	}
 	return snap, nil
+}
+
+// retryWait reports how long to wait before one retry of err, and whether to
+// retry at all. Only a throttle is retried: an auth failure, a bad body and a
+// timeout all mean the same thing on a second attempt, and a timeout has
+// already spent the deadline the retry would need.
+func retryWait(err error) (time.Duration, bool) {
+	var fe *FetchError
+	if !errors.As(err, &fe) || fe.Category != CategoryRateLimited {
+		return 0, false
+	}
+	switch {
+	case fe.RetryAfter <= 0:
+		return retryBackoff, true
+	case fe.RetryAfter > retryAfterCap:
+		return 0, false
+	default:
+		return fe.RetryAfter, true
+	}
+}
+
+// retryAfterOf reads a Retry-After header as a duration. Only the delta-seconds
+// form is read; the HTTP-date form needs a trusted clock difference this has no
+// use for, and a value it cannot read reports 0, which leaves the default
+// backoff in charge.
+func retryAfterOf(h map[string][]string) time.Duration {
+	for name, values := range h {
+		if !strings.EqualFold(name, "Retry-After") || len(values) == 0 {
+			continue
+		}
+		secs, err := strconv.Atoi(strings.TrimSpace(values[0]))
+		if err != nil || secs < 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	return 0
 }
 
 // get performs the usage request and reports the response body.
@@ -120,6 +175,10 @@ func (c *Client) get(ctx context.Context, accessToken string) ([]byte, error) {
 		return nil, &FetchError{Category: category, Detail: "request failed", cause: scrub(got.err, accessToken)}
 	}
 	if err := statusError(got.resp.StatusCode); err != nil {
+		var fe *FetchError
+		if errors.As(err, &fe) && fe.Category == CategoryRateLimited {
+			fe.RetryAfter = retryAfterOf(got.resp.Header)
+		}
 		return nil, err
 	}
 	if len(got.resp.Body) > MaxBodyBytes {

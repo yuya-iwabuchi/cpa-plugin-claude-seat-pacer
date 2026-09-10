@@ -96,8 +96,11 @@ func TestClientFetchSuccess(t *testing.T) {
 	if session.Utilization != 1.0 {
 		t.Errorf("session utilization = %v, want 1", session.Utilization)
 	}
-	if !session.Blocking() {
-		t.Error("a session window at critical severity should report blocking")
+	if session.Blocking() {
+		t.Error("critical severity is an advisory level, not an observed refusal")
+	}
+	if !session.Critical() {
+		t.Error("a session window at critical severity should report critical")
 	}
 	if fable, ok := snap.Window(model.WindowWeeklyScoped, "Fable"); !ok || fable.Utilization != 0.67 {
 		t.Errorf("fable window = %+v, ok = %v", fable, ok)
@@ -306,5 +309,134 @@ func assertNoToken(t *testing.T, s string) {
 	}
 	if strings.Contains(s, "Bearer ") {
 		t.Errorf("string leaks an authorization header: %q", s)
+	}
+}
+
+// throttleThenServe answers the first n calls with 429 and the rest with a
+// usable body, counting every call.
+func throttleThenServe(t *testing.T, n int, retryAfter string) (*int, doerFunc) {
+	t.Helper()
+	body := fixture(t, "usage_late_week.json")
+	calls := 0
+	return &calls, func(context.Context, Request) (Response, error) {
+		calls++
+		if calls <= n {
+			resp := Response{StatusCode: 429}
+			if retryAfter != "" {
+				resp.Header = map[string][]string{"Retry-After": {retryAfter}}
+			}
+			return resp, nil
+		}
+		return Response{StatusCode: 200, Body: body}, nil
+	}
+}
+
+// A throttle costs the pool every reading at once, so one retry inside the
+// same fetch is worth its wall clock.
+func TestThrottleIsRetriedOnce(t *testing.T) {
+	calls, doer := throttleThenServe(t, 1, "")
+	client := newTestClient(doer, time.Second)
+
+	snap, err := client.Fetch(context.Background(), "auth-1", "0", testToken)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if *calls != 2 {
+		t.Errorf("calls = %d, want the request and one retry", *calls)
+	}
+	if len(snap.Windows) == 0 {
+		t.Error("the retry's windows did not reach the snapshot")
+	}
+
+	// A throttle that outlasts the retry is reported, and only once retried.
+	calls, doer = throttleThenServe(t, 9, "")
+	client = newTestClient(doer, time.Second)
+	if _, err = client.Fetch(context.Background(), "auth-1", "0", testToken); Category(err) != CategoryRateLimited {
+		t.Errorf("category = %q, want %q", Category(err), CategoryRateLimited)
+	}
+	if *calls != 2 {
+		t.Errorf("calls = %d, want no more than one retry", *calls)
+	}
+}
+
+// Retry-After is the endpoint saying when it will answer. A hint past the cap
+// is longer than the poll interval it would block, so the next poll takes it.
+func TestRetryAfterIsHonouredUpToTheCap(t *testing.T) {
+	cases := []struct {
+		name      string
+		header    string
+		wantCalls int
+	}{
+		{"no hint uses the default backoff", "", 2},
+		{"a short hint is waited out", "1", 2},
+		{"a hint past the cap skips the retry", "600", 1},
+		{"an unreadable hint falls back to the backoff", "Wed, 09 Sep 2026 10:00:00 GMT", 2},
+		{"a negative hint falls back to the backoff", "-5", 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls, doer := throttleThenServe(t, 1, tc.header)
+			client := newTestClient(doer, 2*time.Second)
+			_, _ = client.Fetch(context.Background(), "auth-1", "0", testToken)
+			if *calls != tc.wantCalls {
+				t.Errorf("calls = %d, want %d", *calls, tc.wantCalls)
+			}
+		})
+	}
+}
+
+// Only a throttle is retried: every other failure means the same thing twice.
+func TestOtherFailuresAreNotRetried(t *testing.T) {
+	cases := []struct {
+		name string
+		doer doerFunc
+	}{
+		{"unauthorized", respondWith(401, nil)},
+		{"forbidden", respondWith(403, nil)},
+		{"server error", respondWith(500, nil)},
+		{"unparseable body", respondWith(200, []byte("<html>nope</html>"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			counted := doerFunc(func(ctx context.Context, req Request) (Response, error) {
+				calls++
+				return tc.doer(ctx, req)
+			})
+			client := newTestClient(counted, time.Second)
+			if _, err := client.Fetch(context.Background(), "auth-1", "0", testToken); err == nil {
+				t.Fatal("Fetch reported success")
+			}
+			if calls != 1 {
+				t.Errorf("calls = %d, want exactly one", calls)
+			}
+		})
+	}
+}
+
+// A context that dies during the backoff ends the wait rather than holding the
+// poll for it, so a stop mid-throttle is not paid for twice.
+func TestARetryDoesNotOutlastTheContext(t *testing.T) {
+	calls := 0
+	var cancel context.CancelFunc
+	client := newTestClient(doerFunc(func(context.Context, Request) (Response, error) {
+		calls++
+		// The throttle lands, then the context dies while the backoff runs.
+		cancel()
+		return Response{StatusCode: 429}, nil
+	}), time.Second)
+	ctx, stop := context.WithCancel(context.Background())
+	cancel = stop
+	defer stop()
+
+	start := time.Now()
+	if _, err := client.Fetch(ctx, "auth-1", "0", testToken); err == nil {
+		t.Fatal("Fetch reported success")
+	}
+	if elapsed := time.Since(start); elapsed >= retryBackoff {
+		t.Errorf("Fetch took %v, want it to give up rather than wait out %v", elapsed, retryBackoff)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want the retry skipped", calls)
 	}
 }

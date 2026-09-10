@@ -72,6 +72,11 @@ import (
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
 )
 
+// The status route serves a forced usage read only to a Source that offers
+// one, and does so through a type assertion that would otherwise fail in
+// silence, leaving the page's sync button inert.
+var _ web.Syncer = (*runtime.Plugin)(nil)
+
 // Plugin identity. The host rejects a plugin with any of these blank. The
 // Makefile reads pluginVersion from this line to name the installed library.
 const (

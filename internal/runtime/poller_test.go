@@ -442,3 +442,68 @@ func TestHostDoerTranslatesResponse(t *testing.T) {
 		t.Errorf("host saw %+v", seen)
 	}
 }
+
+// A cold store whose very first poll fails knows nothing about any credential's
+// caps. Reporting that as "no bearing window" would tell an operator the seat
+// carries no cap for the model, sending them to the wrong place entirely.
+func TestFirstPollFailureReportsTheFailedRead(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.host.http = func(HostHTTPRequest) (HostHTTPResponse, error) { return HostHTTPResponse{StatusCode: 429}, nil }
+
+	if err := tp.refresh(context.Background()); err == nil {
+		t.Fatal("refresh reported success with every usage fetch failing")
+	}
+
+	status := tp.Status(testNow, "")
+	seen := 0
+	for _, row := range status.Auths {
+		if row.Snapshot.Err == "" {
+			continue
+		}
+		seen++
+		if row.Score.Reason != model.ReasonFetchFailed {
+			t.Errorf("%s reason = %q, want %q", row.AuthID, row.Score.Reason, model.ReasonFetchFailed)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no credential recorded a failed read")
+	}
+}
+
+// The usage endpoint throttles the caller rather than the credential, so reads
+// that arrive together are what earns a 429. The poll spaces them, and a
+// cancelled context ends the spacing rather than being held for it.
+func TestFetchesAreStaggered(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.fetchStagger = 40 * time.Millisecond
+
+	var at []time.Time
+	inner := tp.host.http
+	tp.host.http = func(req HostHTTPRequest) (HostHTTPResponse, error) {
+		at = append(at, time.Now())
+		return inner(req)
+	}
+
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if len(at) != 2 {
+		t.Fatalf("usage reads = %d, want one per governed OAuth credential", len(at))
+	}
+	if gap := at[1].Sub(at[0]); gap < tp.fetchStagger {
+		t.Errorf("gap between reads = %v, want at least %v", gap, tp.fetchStagger)
+	}
+
+	// A context already done stops the poll at the stagger, so the second
+	// credential is not read and the first poll's view stands.
+	at = nil
+	tp.fetchStagger = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = tp.refresh(ctx)
+	if len(at) > 1 {
+		t.Errorf("usage reads = %d, want the poll cut short at the stagger", len(at))
+	}
+}

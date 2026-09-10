@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -233,10 +234,13 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v\nbody: %s", err, rec.Body.String())
 	}
-	// This route serves the pace curve for the whole config and a hashed
-	// credential id; everything else travels unchanged.
+	// This route serves the pace curve and the poll cadence for the whole
+	// config and a hashed credential id; everything else travels unchanged.
 	expect := want
-	expect.Config = model.Config{Pace: want.Config.Pace}
+	expect.Config = model.Config{
+		Pace:  want.Config.Pace,
+		Quota: model.QuotaConfig{PollInterval: want.Config.Quota.PollInterval},
+	}
 	expect.Auths = []model.AuthStatus{want.Auths[0]}
 	expect.Auths[0].AuthID = publicID("auth-a")
 	expect.Auths[0].Snapshot.AuthID = publicID("auth-a")
@@ -324,9 +328,9 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 
 	ids := []string{
 		"tooltip", "svg-ns",
-		"plugin-facts", "next-pick", "seat-count", "snapshot-age",
-		"refresh-toggle", "theme-toggle",
-		"live-dot", "last-updated",
+		"plugin-facts", "next-pick", "seat-total", "seat-eligible", "snapshot-age",
+		"refresh-toggle", "theme-toggle", "sync-now",
+		"live-dot", "next-sync",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
 		"sec-seats", "seats-sub",
 		"timeline", "timeline-legend",
@@ -615,6 +619,7 @@ func TestConfigIsReducedToThePaceCurve(t *testing.T) {
 	t.Parallel()
 	st := richStatus()
 	st.Config.Quota.UsageURL = "https://usage.internal.example/api/oauth/usage"
+	st.Config.Quota.PollInterval = 2 * time.Minute
 
 	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
 	var got model.Status
@@ -624,8 +629,12 @@ func TestConfigIsReducedToThePaceCurve(t *testing.T) {
 	if got.Config.Pace != st.Config.Pace {
 		t.Errorf("pace = %+v, want %+v", got.Config.Pace, st.Config.Pace)
 	}
-	if !reflect.DeepEqual(got.Config, model.Config{Pace: st.Config.Pace}) {
-		t.Errorf("the route serves config beyond the pace curve: %+v", got.Config)
+	want := model.Config{
+		Pace:  st.Config.Pace,
+		Quota: model.QuotaConfig{PollInterval: st.Config.Quota.PollInterval},
+	}
+	if !reflect.DeepEqual(got.Config, want) {
+		t.Errorf("the route serves config beyond the pace curve and poll cadence: %+v", got.Config)
 	}
 	if strings.Contains(rec.Body.String(), "usage.internal.example") {
 		t.Errorf("the configured usage endpoint reached the body: %s", rec.Body.String())
@@ -909,5 +918,42 @@ func TestFreeTextMasksAnUnlistedCredential(t *testing.T) {
 	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
 	if strings.Contains(rec.Body.String(), "removed@") {
 		t.Errorf("an unlisted credential's address is served: %s", rec.Body.String())
+	}
+}
+
+// syncSource is a Source that can also be asked for a fresh upstream read.
+type syncSource struct {
+	stubSource
+	syncs int
+}
+
+func (s *syncSource) SyncNow(context.Context) bool { s.syncs++; return true }
+
+// The page asks for a fresh provider read with sync=1, and only then. A source
+// with no SyncNow serves the request rather than failing it.
+func TestStatusSyncsOnlyWhenAsked(t *testing.T) {
+	src := &syncSource{stubSource: stubSource{status: richStatus()}}
+	h := NewHandler(src)
+
+	if rec := get(t, h, "/api/status"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if src.syncs != 0 {
+		t.Errorf("syncs = %d, want none without sync=1", src.syncs)
+	}
+
+	if rec := get(t, h, "/api/status?sync=1"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if src.syncs != 1 {
+		t.Errorf("syncs = %d, want exactly one", src.syncs)
+	}
+	if src.calls != 2 {
+		t.Errorf("Status calls = %d, want one per request", src.calls)
+	}
+
+	plain := NewHandler(&stubSource{status: richStatus()})
+	if rec := get(t, plain, "/api/status?sync=1"); rec.Code != http.StatusOK {
+		t.Errorf("a source without SyncNow answered %d, want 200", rec.Code)
 	}
 }

@@ -163,15 +163,15 @@ a { color: inherit; }
   background: linear-gradient(180deg, var(--surface-1), transparent);
 }
 .mast-inner {
-  display: flex; flex-direction: column; gap: 22px;
-  padding: 26px 28px 20px;
+  padding: 22px 28px 16px;
   max-width: 1360px; margin: 0 auto;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
 }
 /* The Management Center floats its own toolbar over the top-right corner of
    the frame it embeds this page in, so a framed document keeps that corner
    empty: nothing of the masthead or the sticky bar sits under it. */
 :root[data-framed] .mast-inner,
-:root[data-framed] .controls-inner { padding-right: max(28px, min(250px, 38vw)); }
+:root[data-framed] .livebar-inner { padding-right: max(28px, min(250px, 38vw)); }
 .brand { min-width: 0; }
 .brand-eyebrow {
   font: 600 10.5px/1.6 var(--mono);
@@ -198,49 +198,86 @@ a { color: inherit; }
   margin-top: 14px; height: 4px; width: 108px; border-radius: 2px;
   background: linear-gradient(90deg, var(--seat-1), var(--seat-2));
 }
-.mast-meta {
-  display: flex; flex-wrap: wrap; gap: 10px 34px; margin: 0;
-}
-.mast-meta div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.mast-meta dt {
-  font: 600 10px/1.4 var(--mono);
-  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
-}
-.mast-meta dd { margin: 0; font: 500 13.5px/1.35 var(--mono); color: var(--ink-1); overflow-wrap: anywhere; }
-.mast-meta dd .seat-dot { display: inline-block; margin-right: 7px; vertical-align: 1px; }
-/* One pick per request family; a family and its seat stay on one line, and
-   the picks wrap between families. */
-#next-pick { display: flex; flex-wrap: wrap; gap: 2px 14px; }
-.pick { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; max-width: 100%; }
-.pick .seat-mark { flex: 1 1 auto; min-width: 0; }
-.pick-fam { color: var(--ink-3); font-weight: 600; flex: none; }
-.pick-none { color: var(--ink-2); }
-/* The exhausted line is prose, not a seat name: it wraps rather than running
-   past the card on a narrow viewport. */
-.pick-wrap { white-space: normal; }
 
-/* --------------------------------------------------------------- controls */
-.controls {
+/* --------------------------------------------------------------- live bar */
+/* Every figure that moves between polls, in one bar that survives the scroll:
+   the picks, the pool, the age of the newest reading, the next poll and the
+   controls. The brand above it may leave the viewport; this may not. */
+.livebar {
   position: sticky; top: 0; z-index: 30;
-  background: color-mix(in srgb, var(--plane) 88%, transparent);
+  background: color-mix(in srgb, var(--plane) 92%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--rule);
 }
-.controls-inner {
-  max-width: 1360px; margin: 0 auto; padding: 10px 28px;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+.livebar-inner {
+  max-width: 1360px; margin: 0 auto; padding: 7px 28px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
+}
+/* One readout: its name beside its value rather than above it, because the
+   bar is on screen at every scroll depth and a row of labels of its own would
+   cost the page a section head's worth of height. */
+.lb { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.lb-key {
+  font: 600 9.5px/1.5 var(--mono); letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-3); flex: none;
+}
+.lb-val { font: 500 12.5px/1.4 var(--mono); color: var(--ink-1); min-width: 0; overflow-wrap: anywhere; }
+/* Every readout carries two lines, so the second line of one group sits level
+   with the second line of the next and the bar holds one height whatever it
+   is reporting. A group with nothing for its second line leaves it empty
+   rather than collapsing, which would break that rhythm. */
+.lb-stack { display: flex; flex-direction: column; }
+.lb-stack > span:empty::before { content: "\A0"; }
+.lb-stack > span + span { color: var(--ink-2); }
+/* One pick per request family, each on a line of its own and each named, with
+   the family labels sharing a column so the seats line up under one another.
+   The block is capped: a long account address is trimmed to the space rather
+   than pushing the controls onto a second row, and the whole of it stays in
+   the DOM and in the tooltip. */
+#next-pick { display: flex; flex-direction: column; max-width: 40ch; }
+.pick { display: flex; align-items: center; gap: 8px; white-space: nowrap; min-width: 0; max-width: 100%; }
+.pick .seat-mark { flex: 0 1 auto; min-width: 0; }
+.pick-fam { color: var(--ink-3); font-weight: 600; flex: none; min-width: 5.6em; }
+.pick-none { color: var(--ink-2); }
+/* The exhausted line is prose, not a seat name: it wraps rather than running
+   past the bar on a narrow viewport. */
+.pick-wrap { white-space: normal; }
+/* On a phone the bar carries the same figures in less height: a tighter gap
+   and smaller controls. The gutter is the page's at every width, so the
+   readouts stay aligned with the sections. */
+@media (max-width: 620px) {
+  .livebar-inner { padding: 6px 28px; gap: 2px 12px; }
+  .livebar-inner .spacer { display: none; }
+  .livebar-inner button { padding: 6px 9px; font-size: 11px; }
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+/* The controls that act on the live state stack beside it, on the bar's own
+   two rows; the dot beside them reads as the state they act on. Equal widths
+   keep the pair a block rather than a ragged edge. */
+.btn-stack { display: flex; flex-direction: column; gap: 4px; }
+.btn-stack button { width: 100%; }
 button {
   font: 600 11.5px/1 var(--sans);
   color: var(--ink-1); background: var(--surface-1);
   border: 1px solid var(--axis); border-radius: 6px;
-  padding: 8px 12px; cursor: pointer;
+  padding: 7px 11px; cursor: pointer;
 }
+/* Trimmed vertical padding keeps the stacked pair near the height of the two
+   text lines beside it, so the controls do not set the bar's height. */
+.btn-stack button { padding: 5px 11px; }
+/* The readouts already wrap to bands of their own on a phone, so the controls
+   buy one back by sitting side by side: height is the scarce axis there. */
+@media (max-width: 620px) {
+  .btn-stack { flex-direction: row; }
+  .btn-stack button { width: auto; }
+}
+button { white-space: nowrap; }
 button:hover { background: var(--surface-2); }
+/* A forced sync holds the button for the round trip; nothing else disables one. */
+button:disabled { color: var(--ink-3); background: var(--surface-1); cursor: default; }
 button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); }
 .spacer { flex: 1 1 auto; }
-.stamp { font: 500 11.5px/1 var(--mono); color: var(--ink-2); }
+.stamp { font: 500 11.5px/1 var(--mono); color: var(--ink-2); white-space: nowrap; }
 .live-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--good); display: inline-block; flex: none;
@@ -319,6 +356,16 @@ td .seat-mark { max-width: 22ch; }
 .legend li[data-seat] { cursor: default; }
 .legend li[data-seat]:hover { color: var(--ink-1); }
 .legend .sw { width: 14px; height: 9px; border-radius: 2px; flex: none; }
+/* The two red states are told apart by the pattern their swatch and their bar
+   carry, so neither rests on colour: blocked is hatched, critical stippled. */
+.legend .sw[data-pattern="hatch"] {
+  background-image: repeating-linear-gradient(45deg,
+    var(--surface-1) 0 1.5px, transparent 1.5px 4px);
+}
+.legend .sw[data-pattern="dots"] {
+  background-image: radial-gradient(var(--surface-1) 0 1px, transparent 1.1px);
+  background-size: 4px 4px;
+}
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
 .tl-card { padding: 16px 8px 8px 8px; overflow-x: auto; }
 svg.tl { display: block; }
@@ -335,6 +382,19 @@ svg.tl g.head:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
 svg.tl g.head:hover rect.hit { fill: var(--surface-2); }
 /* The slack label has a lane of its own, so it never meets another. */
 svg.tl text.slk { fill: var(--ink-2); }
+/* A lane's reset stamp is a stop of its own: the row says how long is left,
+   its tooltip the instant that lands on. */
+svg.tl g.rst { cursor: default; }
+svg.tl g.rst:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
+svg.tl g.rst:hover rect.hit { fill: var(--surface-2); }
+/* The pill on the seat the next new conversation lands on. Its label names the
+   families, so the plate's tint carries nothing on its own. */
+svg.tl .pill-plate {
+  fill: color-mix(in srgb, var(--info) 15%, var(--surface-1));
+  stroke: color-mix(in srgb, var(--info) 42%, transparent);
+  stroke-width: 1;
+}
+svg.tl text.pill-text { font-family: var(--mono); font-weight: 600; letter-spacing: .04em; }
 svg.pace text { font-family: var(--sans); fill: var(--ink-1); }
 svg.pace .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 svg.pace .t-muted { fill: var(--ink-3); }
@@ -515,23 +575,40 @@ main[data-stale="true"] { opacity: .62; }
       <h1 class="brand-name">Claude quota</h1>
       <div class="brand-rule"></div>
     </div>
-    <dl class="mast-meta">
-      <div><dt>Next new conversation</dt><dd id="next-pick">&mdash;</dd></div>
-      <div><dt>Seats</dt><dd id="seat-count">&mdash;</dd></div>
-      <div><dt>Newest snapshot</dt><dd id="snapshot-age">&mdash;</dd></div>
-    </dl>
+    <button type="button" id="theme-toggle">Theme: auto</button>
   </div>
 </header>
 
-<div class="controls">
-  <div class="controls-inner">
+<!-- The live state, sticky: where the next conversation lands, how big the
+     pool is, how old the newest reading is, and when the next one is due. -->
+<div class="livebar">
+  <div class="livebar-inner">
+    <div class="lb">
+      <span class="lb-key">Next pick</span>
+      <div class="lb-val" id="next-pick">&mdash;</div>
+    </div>
+    <div class="lb">
+      <span class="lb-key">Seats</span>
+      <div class="lb-val lb-stack">
+        <span id="seat-total">&mdash;</span>
+        <span id="seat-eligible"></span>
+      </div>
+    </div>
+    <div class="lb">
+      <span class="lb-key">Sync</span>
+      <div class="lb-val lb-stack">
+        <span id="snapshot-age">&mdash;</span>
+        <span id="next-sync">&mdash;</span>
+      </div>
+    </div>
     <div class="spacer"></div>
     <div class="ctl">
       <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
-      <span class="stamp" id="last-updated">never</span>
+      <div class="btn-stack">
+        <button type="button" id="sync-now">Sync now</button>
+        <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
+      </div>
     </div>
-    <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
-    <button type="button" id="theme-toggle">Theme: auto</button>
   </div>
 </div>
 
@@ -648,6 +725,10 @@ main[data-stale="true"] { opacity: .62; }
   var SVGNS = document.getElementById("svg-ns").namespaceURI;
   var REFRESH_MS = 10000;
   var FETCH_TIMEOUT_MS = REFRESH_MS * 1.5;
+  /* A forced sync reads every seat's usage upstream before the response is
+     built, so it is allowed longer than a fetch of what the poller already
+     holds. */
+  var SYNC_TIMEOUT_MS = 30000;
   var STALE_DIM_MS = 250;    /* a round trip faster than this never dims */
   var PACE_BAND = 0.02;      /* slack inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
@@ -713,14 +794,17 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* Trims SVG text to the measured pixel budget rather than a character
-     guess, so a long label never runs into the plot. */
+     guess, so a long label never runs into the plot. A budget too small for
+     even one character leaves nothing: a stub that overruns what follows says
+     less than the tooltip beside it already does. */
   function fitText(node, maxWidth) {
     var full = node.textContent;
     if (node.getComputedTextLength() <= maxWidth) return;
-    for (var n = full.length - 1; n > 1; n--) {
+    for (var n = full.length - 1; n > 0; n--) {
       node.textContent = full.slice(0, n) + "…";
       if (node.getComputedTextLength() <= maxWidth) return;
     }
+    node.textContent = "";
   }
 
   function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -841,7 +925,16 @@ main[data-stale="true"] { opacity: .62; }
     return durText(Math.max(0, Math.floor((base - d.getTime()) / 1000)));
   }
 
-  var STAMP_MODES = { rel: relText, reset: resetText, up: upText };
+  /* The next poll reads as a countdown to it. A passed instant says the read
+     is due, which is what a poll running late looks like, rather than a
+     negative number. */
+  function syncText(d, base) {
+    var ms = d.getTime() - base;
+    if (ms < 1000) return "due now";
+    return "next in " + durText(Math.floor(ms / 1000));
+  }
+
+  var STAMP_MODES = { rel: relText, reset: resetText, up: upText, sync: syncText };
 
   /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts]. */
   function stamp(d, cls, mode) {
@@ -933,9 +1026,19 @@ main[data-stale="true"] { opacity: .62; }
     return fams.map(function (f, i) { return rankLabel(f, short) + " " + texts[i]; }).join(" · ");
   }
 
+  /* The scorer's reasons, in prose where the raw token would point at the
+     wrong thing. A credential whose usage read has never succeeded carries
+     fetch-failed: nothing is known about its caps, which is a failing read
+     rather than a model without one. */
+  var REASON_TEXT = { "fetch-failed": "usage read failing" };
+
+  function reasonText(reason) {
+    return REASON_TEXT[reason] || reason || "ineligible";
+  }
+
   function eligText(sc) {
     if (!sc) return "unknown";
-    return sc.eligible ? "eligible" : (sc.reason || "ineligible");
+    return sc.eligible ? "eligible" : reasonText(sc.reason);
   }
 
   /* A window is paced when the scorer gave it a weight: only a window bearing
@@ -956,23 +1059,35 @@ main[data-stale="true"] { opacity: .62; }
     return num(cut) && cut > 0 ? cut : null;
   }
 
+  /* The lane states, in the order the legend lists them. Two are red and are
+     told apart by their glyph and by the pattern their bar and swatch carry:
+     critical is the usage endpoint's advisory that a window's headroom is
+     nearly gone, raised around 90% utilization, and requests on that window
+     still succeed; blocked is a window the provider has refused or one at the
+     configured hard cutoff, where the scheduler will not send a new
+     conversation. */
   var STATE_META = {
-    under:   { color: "var(--good)",     glyph: "▼", label: "under target" },
-    on:      { color: "var(--info)",     glyph: "●", label: "on pace" },
-    over:    { color: "var(--serious)",  glyph: "▲", label: "over target" },
-    limit:   { color: "var(--ink-1)",    glyph: "○", label: "gated, not paced" },
-    blocked: { color: "var(--critical)", glyph: "✕", label: "blocked / hard cutoff" },
-    unknown: { color: "var(--ink-3)",    glyph: "?", label: "not evaluated" }
+    under:    { color: "var(--good)",     glyph: "▼", label: "under target" },
+    on:       { color: "var(--info)",     glyph: "●", label: "on pace" },
+    over:     { color: "var(--serious)",  glyph: "▲", label: "over target" },
+    limit:    { color: "var(--ink-1)",    glyph: "○", label: "gated, not paced" },
+    critical: { color: "var(--critical)", glyph: "!", label: "headroom critical, still serving", pattern: "dots" },
+    blocked:  { color: "var(--critical)", glyph: "✕", label: "blocked / hard cutoff", pattern: "hatch" },
+    unknown:  { color: "var(--ink-3)",    glyph: "?", label: "not evaluated" }
   };
 
   function laneState(w, ws, cfg) {
     /* A provider rejection is a reading rather than an evaluation, so it
-       stands even where the scorer produced nothing. */
-    if (w.status === "rejected" || w.severity === "critical") return "blocked";
+       stands even where the scorer produced nothing; a critical severity is
+       one too, and it is advisory: the window is nearly spent and still
+       serving. */
+    if (w.status === "rejected") return "blocked";
+    var crit = w.severity === "critical";
     var paced = counted(ws), gated = gatedOnly(w, ws);
-    if (!paced && !gated) return "unknown";
+    if (!paced && !gated) return crit ? "critical" : "unknown";
     var cut = cutoffOf(cfg);
     if (cut !== null && num(w.utilization) && w.utilization >= cut) return "blocked";
+    if (crit) return "critical";
     if (!paced) return "limit";
     if (ws.slack > PACE_BAND) return "under";
     if (ws.slack < -PACE_BAND) return "over";
@@ -1183,12 +1298,14 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* The window whose rejection keeps a family off this seat, soonest reset
-     first: what an operator watching an exhausted seat is waiting on. Null
-     where nothing bearing on the family is rejected. */
+     first: what an operator watching an exhausted seat is waiting on. Only an
+     observed refusal counts, which is what the scheduler gates on; a window
+     the usage endpoint merely rates critical still serves. Null where nothing
+     bearing on the family is rejected. */
   function blockingWindow(a, fam) {
     var out = null;
     ((a.snapshot && a.snapshot.windows) || []).forEach(function (w) {
-      if (w.status !== "rejected" && w.severity !== "critical") return;
+      if (w.status !== "rejected") return;
       if (w.kind === "weekly_scoped" && (w.scope || "") !== fam) return;
       var r = parseT(w.resets_at);
       if (!r) return;
@@ -1383,8 +1500,9 @@ main[data-stale="true"] { opacity: .62; }
       fill,
       resets ? resetText(resets, now) : "no open window",
       stt === "blocked" ? STATE_META.blocked.label +
-        (w.status === "rejected" ? " · provider rejected" : "") +
-        (w.severity === "critical" ? " · severity critical" : "") : null,
+        (w.status === "rejected" ? " · provider rejected" : " · past the hard cutoff") : null,
+      stt === "critical" ? STATE_META.critical.label +
+        " · the provider has refused nothing on it" : null,
       clipped ? "opened before the axis begins" : null
     ];
     return lines.filter(Boolean).join("\n");
@@ -1408,11 +1526,22 @@ main[data-stale="true"] { opacity: .62; }
 
   /* ------------------------------------------------------------ timeline */
 
-  var GUT = 420, PAD_R = 20, AXIS_H = 40, TOP = 10;
+  var GUT = 520, PAD_R = 20, AXIS_H = 40, TOP = 10;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
   /* The slack label, right of the meter; the gutter leaves it room for
-     "+100.0" before the plot begins. */
+     "+100.0" before the reset column begins. */
   var SLK_X = MET_X + MET_W + 14;
+  /* The reset column, last in the gutter and right-aligned against the plot.
+     It is as wide as the longest stamp the reset mode writes, so a figure
+     that lengthens as it counts down never reaches the slack label. */
+  var RST_W = 104, RST_X = GUT - 12;
+  /* The floor a seat's name keeps in its header, whatever its rank, pill and
+     verdicts run to: the verdicts shorten before the name does, because a
+     name cut to two letters identifies no seat. */
+  var NAME_MIN = 62;
+  /* The plot a date on the axis needs to itself: a "Sep 16" set at 10.5px is
+     about 40 of it, and the rest is the gap to the next one. */
+  var DAY_LABEL_PX = 54;
   /* Row geometry, at the two densities the timeline draws. A roomy seat row
      has a second line for its live figures; a compact one keeps them in the
      tooltip. */
@@ -1431,7 +1560,8 @@ main[data-stale="true"] { opacity: .62; }
       var meta = STATE_META[key];
       var li = h("li", "");
       var sw = h("span", "sw");
-      sw.style.background = meta.color;
+      sw.style.backgroundColor = meta.color;
+      if (meta.pattern) sw.setAttribute("data-pattern", meta.pattern);
       var gl = h("span", "gl", meta.glyph);
       gl.style.color = meta.color;
       li.appendChild(sw);
@@ -1440,6 +1570,62 @@ main[data-stale="true"] { opacity: .62; }
       host.appendChild(li);
     });
     for (var i = 0; i < markers.length; i++) host.appendChild(markers[i]);
+  }
+
+  /* A seat's eligibility verdicts, one tspan per family, at one of three
+     lengths: level 0 names the family in full and why it is refused, level 1
+     abbreviates the family, level 2 keeps the verdicts alone. A family the
+     provider has rejected reads as rate-limited; when it resets is on the
+     lane of the window holding it. A single verdict keeps its reason at every
+     level, because on its own it is the whole of the row's tail. */
+  function writeVerdicts(tail, a, fams, agree, level) {
+    tail.textContent = "";
+    fams.forEach(function (fam, i) {
+      var sc = famScore(a, fam), ok = !!(sc && sc.eligible);
+      if (i) tail.appendChild(document.createTextNode(" · "));
+      var ts = svg("tspan", { fill: ok ? "var(--good)" : "var(--critical)" }, tail);
+      var head = (ok ? "✓" : "✕") + (agree ? "" : " " + rankLabel(fam, level > 0));
+      ts.textContent = head + (ok || (level > 1 && !agree) ? "" : (agree ? " " : ": ") +
+        (blockingWindow(a, fam) ? "rate-limited" : eligText(sc)));
+    });
+  }
+
+  /* The pill's label: whose next new conversation this seat takes. One family
+     in the pool needs no qualifier; past that the families are named, because
+     a seat can lead one and not the other. */
+  function leadPill(leads, fams) {
+    if (fams.length < 2) return "Next pick";
+    if (leads.length === fams.length) return "Next: " + (fams.length === 2 ? "both" : "all");
+    return "Next: " + leads.map(function (f) { return rankLabel(f, true); }).join(" + ");
+  }
+
+  /* A pill on a seat's header row: a tinted plate behind a short label, drawn
+     at the origin so the caller can slide it beside the name once that has
+     been trimmed. */
+  function seatPill(parent, y, label) {
+    var g = svg("g", { "class": "pill" }, parent);
+    var t = svgText(g, 7, y, label, "pill-text", { "font-size": 9.5 });
+    var w = t.getComputedTextLength() + 14;
+    var plate = svg("rect", { "class": "pill-plate", x: 0, y: y - 9.5, width: w, height: 13.5, rx: 3.5 }, g);
+    g.insertBefore(plate, t);
+    return { g: g, w: w };
+  }
+
+  /* The last column of a lane's gutter: when that window rolls. The stamp
+     ticks with the rest of the page and its tooltip is the instant itself, in
+     the reader's own zone. The hit box is the whole column, so a figure that
+     changes length as it counts down keeps one target. */
+  function resetStamp(parent, cy, resets, opacity) {
+    var g = svg("g", { "class": "rst", tabindex: 0, role: "img", opacity: opacity }, parent);
+    svg("rect", { "class": "hit", x: RST_X - RST_W, y: cy - 9, width: RST_W, height: 18,
+      rx: 3, fill: "transparent" }, g);
+    var t = svgText(g, RST_X, cy + 3.5, resetText(resets, nowMs()), "t-mono t-muted",
+      { "font-size": 10, "text-anchor": "end", opacity: opacity });
+    t.setAttribute("data-ts", String(resets.getTime()));
+    t.setAttribute("data-ts-mode", "reset");
+    g.setAttribute("data-tip", absTime(resets));
+    g.setAttribute("aria-label", "resets " + absTime(resets));
+    return g;
   }
 
   function renderTimeline(st, seats, ranks) {
@@ -1452,7 +1638,7 @@ main[data-stale="true"] { opacity: .62; }
     var compact = dense(seats.length);
     var geo = compact ? TL_GEO.compact : TL_GEO.roomy;
     var now = new Date(nowMs());
-    var width = Math.max(760, host.clientWidth || 1000);
+    var width = Math.max(860, host.clientWidth || 1000);
     var plotW = width - GUT - PAD_R;
 
     /* The axis runs from the earliest open window's start, floored eight days
@@ -1502,13 +1688,17 @@ main[data-stale="true"] { opacity: .62; }
     var gNow = svg("g", {}, root);
     var gGut = svg("g", {}, root);
 
-    /* Day gridlines and the bottom axis. */
+    /* Day gridlines and the bottom axis. Every day rules a line; the dates
+       are set every DAY_LABEL_PX of plot, because two that run together read
+       as neither. */
     var day = new Date(t0);
     day.setHours(0, 0, 0, 0);
     if (day.getTime() < t0) day.setDate(day.getDate() + 1);
-    for (var d = day.getTime(); d <= t1; d += 86400000) {
+    var perLabel = Math.max(1, Math.ceil(DAY_LABEL_PX / (86400000 / (t1 - t0) * plotW)));
+    for (var d = day.getTime(), di = 0; d <= t1; d += 86400000, di++) {
       var gx = X(d);
       svg("line", { x1: gx, x2: gx, y1: 0, y2: plotH, stroke: "var(--rule)", "stroke-width": 1 }, gGrid);
+      if (di % perLabel) continue;
       svgText(gGrid, gx, plotH + 20,
         new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
         "t-muted", { "font-size": 10.5, "text-anchor": "middle" });
@@ -1560,11 +1750,20 @@ main[data-stale="true"] { opacity: .62; }
       }
       var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
+      /* The seat the next new conversation lands on carries a pill beside its
+         name, which is the seat the fact is about. It is slid into place once
+         the name has been trimmed, so it holds its space either way. */
+      var pill = lead ? seatPill(gh, headY, leadPill(leads, fams)) : null;
+      var pillW = pill ? pill.w + 8 : 0;
+
       /* Eligible everywhere: the weekly slack. Ineligible somewhere: a
          verdict per family that says so, with the ones it can still take.
-         A family the provider has rejected leads with the reset of the
-         window holding it back, which is the next thing to happen to the
-         seat; the stamp ticks with the rest of the page. */
+         Each window's reset is on its own lane, so a verdict names the
+         refusal and stops there.
+
+         The verdicts are written at the most informative length the row has
+         room for — the family in full, then abbreviated, then the verdicts
+         alone — and give way before the name does. */
       var tail;
       var verdicts = fams.map(function (fam) { return eligText(famScore(a, fam)); });
       var agree = allSame(verdicts);
@@ -1573,24 +1772,19 @@ main[data-stale="true"] { opacity: .62; }
           "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
       } else {
         tail = svgText(gh, GUT - 14, headY, "", "t-mono", { "font-size": 10.5, "text-anchor": "end" });
-        (agree ? [fams[0]] : fams).forEach(function (fam, i) {
-          var sc = famScore(a, fam), ok = !!(sc && sc.eligible);
-          if (i) tail.appendChild(document.createTextNode(" · "));
-          var ts = svg("tspan", { fill: ok ? "var(--good)" : "var(--critical)" }, tail);
-          var head = (ok ? "✓" : "✕") + (agree ? "" : " " + rankLabel(fam));
-          var blocking = ok ? null : blockingWindow(a, fam);
-          ts.textContent = head + (ok ? "" : (agree ? " " : ": ") +
-            (blocking ? "rate-limited" : eligText(sc)));
-          if (!blocking) return;
-          tail.appendChild(document.createTextNode(" · "));
-          var resets = parseT(blocking.resets_at);
-          var rt = svg("tspan", { "data-ts": resets.getTime(), "data-ts-mode": "reset" }, tail);
-          rt.textContent = resetText(resets, nowMs());
-        });
+        var room = GUT - 14 - nameX - pillW - NAME_MIN;
+        for (var lv = 0; lv < 3; lv++) {
+          writeVerdicts(tail, a, agree ? [fams[0]] : fams, agree, lv);
+          if (tail.getComputedTextLength() <= room) break;
+        }
       }
-      fitText(nameEl, GUT - nameX - tail.getComputedTextLength() - 18);
+      fitText(nameEl, GUT - nameX - pillW - tail.getComputedTextLength() - 18);
+      if (pill) {
+        pill.g.setAttribute("transform",
+          "translate(" + (nameX + nameEl.getComputedTextLength() + 8) + ",0)");
+      }
 
-      if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, leadText(leads, fams), GUT - nameX - 14);
+      if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, GUT - nameX - 14);
 
 
       var groupOpacity = eligible ? 1 : 0.62;
@@ -1617,6 +1811,8 @@ main[data-stale="true"] { opacity: .62; }
         budgetMeter(gGut, cy, w, ws, meta.color, groupOpacity, stt, cutoffOf(cfg));
 
         var resets = parseT(w.resets_at);
+        if (resets) resetStamp(gGut, cy, resets, groupOpacity);
+
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
         if (!resets || durMs <= 0) {
           g.setAttribute("aria-label", laneAria(a, w, ws, stt, cfg));
@@ -1647,10 +1843,10 @@ main[data-stale="true"] { opacity: .62; }
         if (fx1 > bx0) {
           svg("path", { d: roundedRight(bx0, by, fx1 - bx0, barH, 3), fill: meta.color }, g);
         }
-        if (stt === "blocked") {
+        if (meta.pattern) {
           svg("rect", {
             x: bx0, y: by, width: fx1 - bx0, height: barH, rx: 3,
-            fill: "url(#hatch)"
+            fill: "url(#" + meta.pattern + ")"
           }, g);
         }
         if (clipped) {
@@ -1698,25 +1894,28 @@ main[data-stale="true"] { opacity: .62; }
     svg("rect", { x: nx + 2, y: 1, width: lw + 6, height: 11, fill: "var(--surface-1)" }, gNow);
     gNow.appendChild(nowLabel);
 
-    /* Hatch marks a blocked window without leaning on colour. */
+    /* The patterns STATE_META names, so the two red states read apart
+       without leaning on colour: a blocked window is hatched, one the
+       provider rates critical is stippled. */
     var defs = svg("defs", {}, root);
     var pat = svg("pattern", {
       id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse",
       patternTransform: "rotate(45)"
     }, defs);
     svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
+    var dots = svg("pattern", { id: "dots", width: 4, height: 4, patternUnits: "userSpaceOnUse" }, defs);
+    svg("circle", { cx: 2, cy: 2, r: 1.15, fill: "var(--surface-1)", opacity: .9 }, dots);
   }
 
   /* The second line of a roomy seat row, least important figure last, so a
      line that overruns the gutter loses figures from the end; the tooltip
      keeps every one. The snapshot age is a ticking stamp. */
-  function seatSubLine(parent, x, y, a, lead, maxW) {
+  function seatSubLine(parent, x, y, a, maxW) {
     var snap = a.snapshot || {};
     var hs = a.host_status || "unknown";
     var obs = parseT(snap.observed_at);
     var hr = hitRate(a.cache);
     var parts = [];
-    if (lead) parts.push({ t: lead });
     if (hs !== "active") parts.push({ t: "host " + hs });
     if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "fetch error") });
     parts.push(obs ? { age: obs } : { t: "no snapshot" });
@@ -1979,7 +2178,7 @@ main[data-stale="true"] { opacity: .62; }
      the seat, otherwise what the weekly entry lacks. Null means plottable. */
   function paceGap(a, ws) {
     var sc = a.score;
-    if (!sc || !sc.windows || !sc.windows.length) return sc && sc.reason ? sc.reason : "not evaluated";
+    if (!sc || !sc.windows || !sc.windows.length) return sc && sc.reason ? reasonText(sc.reason) : "not evaluated";
     if (!ws) return "no weekly reading";
     if (!num(ws.utilization) || !num(ws.elapsed)) return "bad reading";
     if (!(ws.weight > 0)) return "weekly window not paced";
@@ -2754,7 +2953,7 @@ main[data-stale="true"] { opacity: .62; }
 
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
-                                 : chip(s.reason || "ineligible", "critical", "✕"));
+                                 : chip(reasonText(s.reason), "critical", "✕"));
       tr.appendChild(tdE);
 
       var tdW = h("td", "");
@@ -2915,9 +3114,10 @@ main[data-stale="true"] { opacity: .62; }
     /* Eligible for any family: the count of seats a new conversation of
        some kind can still land on. */
     var eligible = seats.filter(function (a) { return anyEligible(a, ranks.fams); }).length;
-    $("seat-count").textContent = seats.length
-      ? seats.length + (seats.length === 1 ? " seat" : " seats") + " · " + eligible + " eligible"
+    $("seat-total").textContent = seats.length
+      ? seats.length + (seats.length === 1 ? " seat" : " seats")
       : "—";
+    $("seat-eligible").textContent = seats.length ? eligible + " eligible" : "";
 
     var newest = null;
     seats.forEach(function (a) {
@@ -2926,8 +3126,31 @@ main[data-stale="true"] { opacity: .62; }
     });
     var age = $("snapshot-age");
     age.textContent = "";
-    if (newest) age.appendChild(stamp(newest, ""));
-    else age.textContent = seats.length ? "none" : "—";
+    if (newest) {
+      age.appendChild(document.createTextNode("read "));
+      age.appendChild(stamp(newest, ""));
+    } else if (!seats.length) {
+      age.textContent = "—";
+    } else {
+      /* No seat carries a reading. The poll stamp then says whether the poller
+         has run at all, which is the difference between reads that are failing
+         and a poller that has not started. */
+      var polled = parseT(st.polled_at);
+      age.textContent = "no reading";
+      if (polled) {
+        age.appendChild(document.createTextNode(" · polled "));
+        age.appendChild(stamp(polled, ""));
+      }
+    }
+
+    /* The button that forces a read names the throttle the server holds it
+       to, and the poller's own cadence where the payload carries it: the
+       public status route reduces the config to the pace block, so usually
+       only the authenticated one does. */
+    var every = st.config && st.config.quota ? st.config.quota.poll_interval : 0;
+    $("sync-now").setAttribute("data-tip", "reads every seat's usage now" +
+      (num(every) && every > 0 ? " · the poller reads every " + durText(Math.round(every / 1e9)) : "") +
+      " · at most one forced read every 10s");
 
     renderPicks(st, ranks);
 
@@ -2940,26 +3163,34 @@ main[data-stale="true"] { opacity: .62; }
       : "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
   }
 
-  /* Where the next new conversation lands, per request family. A family
-     whose ranking is unknown this refresh reads as unknown, never as the
-     last answer. With no seat left to take the family and the log showing
-     traffic on an ungoverned credential, the requests are landing on that
-     overflow tier rather than failing, and the line says so. */
+  /* Where the next new conversation lands, one line per request family and
+     every line named: scoring differs by family, so an unlabelled seat would
+     leave the reader to work out which ranking it won. A family whose ranking
+     is unknown this refresh reads as unknown, never as the last answer. With
+     no seat left to take the family and the log showing traffic on an
+     ungoverned credential, the requests are landing on that overflow tier
+     rather than failing, and the line says so. With no eligible seat and no
+     overflow tier the least-bound seat still takes the conversation: the
+     scheduler picks past its own pace rather than refusing the request. */
   function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
     var byID = Object.create(null);
     (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
     var overflow = overflowInLog(st);
+    var seats = (st.auths || []).length;
     ranks.fams.forEach(function (fam) {
       var span = h("span", "pick");
-      if (ranks.fams.length > 1) span.appendChild(h("span", "pick-fam", rankLabel(fam) + ":"));
+      span.appendChild(h("span", "pick-fam", rankLabel(fam)));
       var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
-      if (!known && (st.auths || []).length) span.appendChild(h("span", "pick-none", "unknown"));
+      if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
-      else if ((st.auths || []).length && overflow) {
+      else if (seats && overflow) {
         span.appendChild(h("span", "pick-none pick-wrap", "seats exhausted · traffic on overflow key"));
-      } else span.appendChild(h("span", "pick-none", (st.auths || []).length ? "none eligible" : "—"));
+      } else {
+        span.appendChild(h("span", "pick-none pick-wrap",
+          seats ? "no seat eligible · least-bound takes it" : "—"));
+      }
       next.appendChild(span);
     });
   }
@@ -3152,22 +3383,36 @@ main[data-stale="true"] { opacity: .62; }
     strip.appendChild(p);
   }
 
+  /* The dot carries whether the page is polling; the countdown carries when
+     the plugin next reads upstream. With nothing fetched yet there is no
+     reading to age, so the freshness readout says so instead. */
   function setLive() {
     var dot = $("live-dot");
     dot.setAttribute("data-live", state.error ? "error" : state.paused ? "paused" : "live");
-    var s = $("last-updated");
-    s.textContent = "";
-    if (!state.fetchedAt) { s.textContent = state.inFlight ? "loading…" : "never"; return; }
-    s.appendChild(document.createTextNode(state.paused ? "paused · updated " : "updated "));
-    s.appendChild(stamp(state.fetchedAt, ""));
+    if (!state.data) $("snapshot-age").textContent = state.inFlight ? "loading…" : "never";
+    renderSync();
+  }
+
+  /* The next upstream read, counted down locally: the stamp loop ticks it
+     every second rather than the page asking the server for the time. Both
+     poll stamps are absent until the first poll returns, which is a state of
+     its own and not a countdown to zero. The cadence the poller keeps sits on
+     the button that overrides it. */
+  function renderSync() {
+    var host = $("next-sync");
+    var st = state.data;
+    var next = parseT(st && st.next_poll_at);
+    host.textContent = "";
+    if (!next) { host.textContent = st ? "first sync pending" : "—"; return; }
+    host.appendChild(stamp(next, "", "sync"));
   }
 
   /* Relative fetch: the mount prefix is chosen by the host and unknown here.
      The route scores for one model per call, so one refresh asks once per
      request family. */
-  function statusURL(fam, st) {
+  function statusURL(fam, st, forceSync) {
     var rep = representativeModel(fam, st, scopedFamilies(st || {}));
-    return "api/status?model=" + encodeURIComponent(rep);
+    return "api/status?model=" + encodeURIComponent(rep) + (forceSync ? "&sync=1" : "");
   }
 
   function fetchJSON(url, signal) {
@@ -3205,11 +3450,21 @@ main[data-stale="true"] { opacity: .62; }
 
   var inFlightCtl = null, fetchTimer = null, staleTimer = null, generation = 0;
 
+  /* The forced-read button while its fetch is out. The server answers a call
+     it throttles from the state it already holds, so this clears on the round
+     trip either way and never waits on a read that was refused. */
+  function setSyncing(on) {
+    var b = $("sync-now");
+    b.disabled = on;
+    b.textContent = on ? "Syncing…" : "Sync now";
+  }
+
   function endFetch() {
     if (fetchTimer) { window.clearTimeout(fetchTimer); fetchTimer = null; }
     if (staleTimer) { window.clearTimeout(staleTimer); staleTimer = null; }
     inFlightCtl = null;
     state.inFlight = false;
+    setSyncing(false);
     $("app").removeAttribute("data-stale");
   }
 
@@ -3223,8 +3478,12 @@ main[data-stale="true"] { opacity: .62; }
      Standard payload is the page, the others contribute their scores. The
      families come from the last payload; a family that payload did not name
      (the first load, or a cap that just appeared) is fetched once the
-     Standard payload arrives, and the page re-renders with it. */
-  function refresh(userInitiated) {
+     Standard payload arrives, and the page re-renders with it.
+
+     forceSync asks the server to re-read usage upstream before it answers,
+     so the payload the normal render path receives already carries the fresh
+     reading and nothing else here changes. */
+  function refresh(userInitiated, forceSync) {
     if (state.inFlight) {
       if (!userInitiated) return;
       inFlightCtl.abort();
@@ -3234,6 +3493,7 @@ main[data-stale="true"] { opacity: .62; }
     var ctl = new AbortController();
     inFlightCtl = ctl;
     state.inFlight = true;
+    if (forceSync) setSyncing(true);
     if (state.data) {
       staleTimer = window.setTimeout(function () {
         $("app").setAttribute("data-stale", "true");
@@ -3241,7 +3501,8 @@ main[data-stale="true"] { opacity: .62; }
     } else {
       $("app").setAttribute("aria-busy", "true");
     }
-    fetchTimer = window.setTimeout(function () { ctl.abort(); }, FETCH_TIMEOUT_MS);
+    var budget = forceSync ? SYNC_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+    fetchTimer = window.setTimeout(function () { ctl.abort(); }, budget);
     setLive();
 
     var prior = state.data;
@@ -3256,7 +3517,11 @@ main[data-stale="true"] { opacity: .62; }
       render();
     }
 
-    Promise.all([fetchJSON(statusURL(STANDARD, prior), ctl.signal)].concat(sides))
+    /* Only the Standard call asks for the forced read: the server runs it
+       inline and throttles it to one every ten seconds, so asking on every
+       family at once would either duplicate the upstream read or be thrown
+       away. The other families score against the reading it lands. */
+    Promise.all([fetchJSON(statusURL(STANDARD, prior, forceSync), ctl.signal)].concat(sides))
       .then(function (results) {
         if (gen !== generation) return;
         var data = results[0], others = results.slice(1);
@@ -3275,7 +3540,7 @@ main[data-stale="true"] { opacity: .62; }
       .catch(function (e) {
         if (gen !== generation) return;
         setError(e && e.name === "AbortError"
-          ? "no response within " + Math.round(FETCH_TIMEOUT_MS / 1000) + "s"
+          ? "no response within " + Math.round(budget / 1000) + "s"
           : String(e && e.message ? e.message : e));
         renderFailure();
       })
@@ -3287,6 +3552,9 @@ main[data-stale="true"] { opacity: .62; }
   }
 
   /* --------------------------------------------------------------- wiring */
+
+  var syncBtn = $("sync-now");
+  syncBtn.addEventListener("click", function () { refresh(true, true); });
 
   var toggle = $("refresh-toggle");
   toggle.addEventListener("click", function () {
