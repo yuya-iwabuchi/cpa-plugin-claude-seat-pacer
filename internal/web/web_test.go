@@ -75,7 +75,7 @@ func richStatus() model.Status {
 				}},
 			},
 			Score: model.Score{
-				AuthID: "auth-a", Cost: -0.31, FullestPenalty: 0.2, Eligible: true,
+				AuthID: "auth-a", Cost: -0.31, Eligible: true,
 				Windows: []model.WindowScore{{
 					Kind: model.WindowSession, Elapsed: 0.6, Target: 0.49,
 					Utilization: 0.8, Slack: -0.31, Weight: 0.35,
@@ -103,11 +103,11 @@ func richStatus() model.Status {
 			ChosenAuthID: "auth-a", PreviousAuthID: "auth-b", Kind: model.DecisionFailover,
 			Note: "bound credential was not offered", Subagent: true,
 			Scores: []model.Score{{
-				AuthID: "auth-b", Cost: -0.9, FullestPenalty: 0.25,
-				Eligible: false, Reason: model.ReasonHardCutoff,
+				AuthID: "auth-b", Cost: -0.9,
+				Eligible: false, Reason: model.ReasonSpent,
 				Windows: []model.WindowScore{{
-					Kind: model.WindowWeekly, Elapsed: 0.9, Target: 0.88,
-					Utilization: 0.99, Slack: -0.11, Weight: 1,
+					Kind: model.WindowWeekly, Elapsed: 0.9, Target: 1,
+					Utilization: 1, Slack: 0, Weight: 1,
 					ResetsAt: base.Add(16 * time.Hour),
 				}},
 			}},
@@ -417,13 +417,13 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 	st.Auths[0].Snapshot.Windows[0].Utilization = math.NaN()
 	st.Auths[0].Snapshot.Windows[1].Utilization = math.Inf(1)
 	st.Auths[0].Score = model.Score{
-		AuthID: "auth-a", Cost: math.NaN(), FullestPenalty: math.Inf(-1),
+		AuthID: "auth-a", Cost: math.NaN(),
 		Reason: model.ReasonBadReading,
 		Windows: []model.WindowScore{{
 			Kind: model.WindowSession, Utilization: math.NaN(), Slack: math.NaN(),
 		}},
 	}
-	st.Config.Pace.HardCutoff = math.NaN()
+	st.Config.Pace.Steepness = math.NaN()
 	st.Decisions[0].Scores[0].Cost = math.Inf(1)
 	st.Decisions[0].Scores[0].Windows[0].Slack = math.NaN()
 
@@ -448,8 +448,8 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 	if auth["score"].(map[string]any)["cost"] != nil {
 		t.Errorf("score cost = %v, want null", auth["score"].(map[string]any)["cost"])
 	}
-	if raw["config"].(map[string]any)["pace"].(map[string]any)["hard_cutoff"] != nil {
-		t.Error("hard_cutoff is not null")
+	if raw["config"].(map[string]any)["pace"].(map[string]any)["steepness"] != nil {
+		t.Error("steepness is not null")
 	}
 	// A decision carries its own candidate scores, on the same path.
 	logged := raw["decisions"].([]any)[0].(map[string]any)["scores"].([]any)[0].(map[string]any)
@@ -755,7 +755,7 @@ func idStatus() model.Status {
 				AuthID: seatBID, AuthIndex: "8c41f0a2b7d5e693", Label: "aaron@acme.example",
 				ObservedAt: base, Source: model.SourceResponseHeaders, Windows: []model.Window{},
 			},
-			Score: model.Score{AuthID: seatBID, Reason: model.ReasonHardCutoff},
+			Score: model.Score{AuthID: seatBID, Reason: model.ReasonSpent},
 		}},
 		Bindings: []model.Binding{
 			{SessionKey: "5f2c0b7d", Provider: "claude", Model: "claude-fable-5", AuthID: seatAID},
@@ -767,7 +767,7 @@ func idStatus() model.Status {
 			Note: "retry after " + seatBID,
 			Scores: []model.Score{
 				{AuthID: seatAID, Eligible: true},
-				{AuthID: seatBID, Reason: model.ReasonHardCutoff},
+				{AuthID: seatBID, Reason: model.ReasonSpent},
 			},
 		}},
 		Warnings: []string{"no quota snapshot for " + seatBID + "; it cannot take a new conversation"},

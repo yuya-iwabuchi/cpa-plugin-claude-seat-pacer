@@ -51,14 +51,30 @@ type AffinityConfig struct {
 // credential furthest behind its curve wins, which drains a window that is
 // about to reset while holding back one with days left.
 type PaceConfig struct {
-	// CurveExponent is gamma in target = LandingTarget * elapsed^gamma.
-	// 1.0 is linear and means "spend evenly", which puts the target at 50%
-	// halfway through a window and 90% at nine tenths elapsed. Above 1.0 is
-	// conservative early and aggressive late; below 1.0 front-loads spending
-	// and risks early exhaustion.
+	// Shape names the curve the target follows across a window: "linear"
+	// spends evenly, "power" bends it by CurveExponent, "sigmoid" holds back early,
+	// climbs through the middle and eases off near the end. An unknown name
+	// reads as linear.
+	Shape string `yaml:"shape" json:"shape"`
+	// CurveExponent is gamma in landing * elapsed^gamma, and applies to the
+	// power shape alone. Above 1.0 is conservative early and aggressive late;
+	// below 1.0 front-loads spending and risks early exhaustion.
 	CurveExponent float64 `yaml:"curve-exponent" json:"curve_exponent"`
-	// LandingTarget is the utilization the curve aims to reach at window end.
-	// Below 1.0 leaves a deliberate safety margin.
+	// Steepness is the sigmoid's slope through its midpoint, and applies to
+	// that shape alone. Higher is more S-shaped; near zero is almost linear.
+	Steepness float64 `yaml:"steepness" json:"steepness"`
+	// LandingTarget is the utilization the curve aims for at window end,
+	// before Target clamps it to full.
+	//
+	// Above 1.0 tilts the pick toward a credential near its reset: weekly
+	// quota is perishable, so budget that expires in hours is worth spending
+	// ahead of budget that has days left. The clamp bounds that tilt rather
+	// than making it safe — a full window is gated in ScoreAuth, because a
+	// clamped slack of zero still beats a credential running over its own
+	// curve. The clamp does fix where the tilt saturates: the target reaches
+	// full where Shape reaches the reciprocal of the landing, which is that
+	// fraction of the way through a linear window and earlier or later under
+	// the other shapes. Below 1.0 leaves a deliberate safety margin instead.
 	LandingTarget float64 `yaml:"landing-target" json:"landing_target"`
 
 	// WeeklyWeight scales the weekly window's slack. The weekly window is the
@@ -66,28 +82,28 @@ type PaceConfig struct {
 	WeeklyWeight float64 `yaml:"weekly-weight" json:"weekly_weight"`
 	// SessionWeight scales the 5-hour window's slack. It is zero: the session
 	// window is a rate limit rather than a budget, so there is nothing to pace
-	// against — unspent session capacity is not carried, and the window resets
-	// several times a day. The session window still gates a credential out
-	// when it is rejected or past the hard cutoff, and still feeds the raw
-	// utilization penalty, because both read the window rather than its slack.
+	// against — unused session capacity is not carried, and the window resets
+	// several times a day. A refusal recorded against it, a reading of it that
+	// is not finite, or a reading of it at full still gates the credential —
+	// each is an observation rather than a forecast.
 	// Non-zero restores a short-horizon term when weekly slack ties.
 	SessionWeight float64 `yaml:"session-weight" json:"session_weight"`
 	// ScopedWeight scales a model-family weekly window's slack when the
-	// requested model falls in that family.
+	// requested model falls in that family. Both weekly windows are paced
+	// against the same curve and differ only in weight.
 	ScopedWeight float64 `yaml:"scoped-weight" json:"scoped_weight"`
-
-	// RawWeight penalizes absolute utilization independently of pace. Pace
-	// slack alone under-penalizes a credential at 80% that is merely on
-	// schedule, which starves idle siblings; this term restores spread.
-	RawWeight float64 `yaml:"raw-utilization-weight" json:"raw_utilization_weight"`
 
 	// HysteresisMargin is the score gap a challenger must beat before an
 	// established binding moves. Zero makes routing flap at window edges.
 	HysteresisMargin float64 `yaml:"hysteresis-margin" json:"hysteresis_margin"`
-	// HardCutoff is the utilization at or above which a credential is
-	// ineligible for a cold pick.
-	HardCutoff float64 `yaml:"hard-cutoff" json:"hard_cutoff"`
 }
+
+// Curve shapes for PaceConfig.Shape.
+const (
+	ShapeLinear  = "linear"
+	ShapePower   = "power"
+	ShapeSigmoid = "sigmoid"
+)
 
 // QuotaConfig governs quota observation.
 type QuotaConfig struct {
@@ -118,8 +134,9 @@ type WebConfig struct {
 // without consuming message quota.
 const DefaultUsageURL = "https://api.anthropic.com/api/oauth/usage"
 
-// Defaults returns a config that is safe to run unattended: stickiness on,
-// linear pace curve, and a hard cutoff just short of exhaustion.
+// Defaults returns a config that is safe to run unattended: stickiness on, and
+// a linear pace curve landing past full so a credential near its reset spends
+// the budget that is about to expire.
 func Defaults() Config {
 	return Config{
 		Providers: []string{"claude"},
@@ -131,14 +148,14 @@ func Defaults() Config {
 			OverrideThreshold: true,
 		},
 		Pace: PaceConfig{
+			Shape:            ShapeLinear,
 			CurveExponent:    1.0,
-			LandingTarget:    1.0,
+			Steepness:        8.0,
+			LandingTarget:    1.10,
 			WeeklyWeight:     1.0,
 			SessionWeight:    0,
 			ScopedWeight:     0.5,
-			RawWeight:        0.25,
 			HysteresisMargin: 0.05,
-			HardCutoff:       0.98,
 		},
 		Quota: QuotaConfig{
 			PollInterval:   2 * time.Minute,
@@ -164,13 +181,12 @@ func (c *Config) Normalize() {
 		def float64
 	}{
 		{&c.Pace.CurveExponent, d.Pace.CurveExponent},
+		{&c.Pace.Steepness, d.Pace.Steepness},
 		{&c.Pace.LandingTarget, d.Pace.LandingTarget},
 		{&c.Pace.WeeklyWeight, d.Pace.WeeklyWeight},
 		{&c.Pace.SessionWeight, d.Pace.SessionWeight},
 		{&c.Pace.ScopedWeight, d.Pace.ScopedWeight},
-		{&c.Pace.RawWeight, d.Pace.RawWeight},
 		{&c.Pace.HysteresisMargin, d.Pace.HysteresisMargin},
-		{&c.Pace.HardCutoff, d.Pace.HardCutoff},
 	} {
 		if math.IsNaN(*f.v) || math.IsInf(*f.v, 0) {
 			*f.v = f.def
@@ -190,11 +206,36 @@ func (c *Config) Normalize() {
 	if c.Pace.CurveExponent <= 0 {
 		c.Pace.CurveExponent = d.Pace.CurveExponent
 	}
-	if c.Pace.LandingTarget <= 0 {
+	// A landing above full is the use-it-or-lose-it tilt and is admissible;
+	// Target's clamp is what bounds it. Past 4 the curve aims at four times a
+	// budget no window can hold, which reads as a misconfiguration rather than
+	// a policy whatever the shape; how much of the window the clamp then flattens
+	// depends on Shape, so no single fraction describes it.
+	if c.Pace.LandingTarget <= 0 || c.Pace.LandingTarget > 4 {
 		c.Pace.LandingTarget = d.Pace.LandingTarget
 	}
-	if c.Pace.HardCutoff <= 0 || c.Pace.HardCutoff > 2 {
-		c.Pace.HardCutoff = d.Pace.HardCutoff
+	if c.Pace.Steepness <= 0 {
+		c.Pace.Steepness = d.Pace.Steepness
+	}
+	// A negative weight would invert the pace preference, sending work to the
+	// credential furthest over its target. Zero is meaningful — it retires a
+	// window from the score without retiring its gates — so only the sign is
+	// corrected.
+	for _, w := range []*float64{&c.Pace.WeeklyWeight, &c.Pace.SessionWeight, &c.Pace.ScopedWeight} {
+		if *w < 0 {
+			*w = 0
+		}
+	}
+	switch shape := strings.ToLower(strings.TrimSpace(c.Pace.Shape)); {
+	case shape == ShapeLinear || shape == ShapePower || shape == ShapeSigmoid:
+		c.Pace.Shape = shape
+	case shape == "" && c.Pace.CurveExponent != d.Pace.CurveExponent:
+		// An exponent is only ever set to bend the curve, and only the power
+		// shape reads one. A config that carries an exponent but names no
+		// shape predates the shape key, so it keeps the curve it asked for.
+		c.Pace.Shape = ShapePower
+	default:
+		c.Pace.Shape = d.Pace.Shape
 	}
 	if c.Pace.HysteresisMargin < 0 {
 		c.Pace.HysteresisMargin = 0

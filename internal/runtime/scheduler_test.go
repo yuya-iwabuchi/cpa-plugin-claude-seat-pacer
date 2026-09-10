@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
 )
 
 // seats installs the live-seat fixtures as fresh snapshots.
@@ -260,7 +261,7 @@ func TestEverySeatRejectedKeepsTheBinding(t *testing.T) {
 			t.Fatalf("pick %d = %+v, want the binding kept on seat-a", i, resp)
 		}
 		d := tp.lastDecision(t)
-		if d.Kind != model.DecisionAffinityHit || !strings.Contains(d.Note, "every seat is rate-limited") {
+		if d.Kind != model.DecisionAffinityHit || !strings.Contains(d.Note, "no other seat can take this model") {
 			t.Fatalf("decision %d = %+v", i, d)
 		}
 	}
@@ -402,7 +403,7 @@ func TestSubagentDoesNotInheritABlockedParent(t *testing.T) {
 // binding whose credential is the only one offered: there is nowhere to move
 // to, so the seat holds, and the provider's own rejection is what the log
 // reads rather than a bare keep.
-func TestSoleRejectedCandidateKeepsTheBindingAndNamesTheRejection(t *testing.T) {
+func TestSoleRejectedCandidateKeepsTheBindingAndSaysItIsTheOnlySeat(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	blocked := seatA(t)
 	blocked.Windows[1].Status = model.StatusRejected
@@ -413,8 +414,8 @@ func TestSoleRejectedCandidateKeepsTheBindingAndNamesTheRejection(t *testing.T) 
 		t.Fatalf("response = %+v, want the binding kept on seat-a", resp)
 	}
 	d := tp.lastDecision(t)
-	if !strings.Contains(d.Note, "rate-limited for this model") {
-		t.Errorf("note = %q, want the rejection named", d.Note)
+	if !strings.Contains(d.Note, "it is the only seat offered") {
+		t.Errorf("note = %q, want the single-candidate pool named", d.Note)
 	}
 	if d.Kind != model.DecisionAffinityHit {
 		t.Errorf("decision kind = %q, want %q", d.Kind, model.DecisionAffinityHit)
@@ -527,4 +528,182 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+// A credential the provider reports as full cannot take a new conversation.
+// pace.ScoreAuth gates it, and the cold pick has to honour that gate rather
+// than route to a seat with nothing left in the window the request needs.
+func TestColdPickSkipsASpentSeat(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	spent := seatB(t)
+	spent.Windows[2].Utilization = 1.0 // the Fable cap this request needs
+	tp.quota.Put(seatA(t))
+	tp.quota.Put(spent)
+
+	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+	if !resp.Handled || resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want the seat that still holds Fable budget", resp)
+	}
+	// A full Fable cap bears on no Standard request, so the seat carrying it is
+	// still a candidate for one — and still the pace winner, since its weekly
+	// windows are untouched.
+	before := pace.ScoreAuth(tp.config().Pace, spent, "claude-sonnet-4-5", testNow)
+	if !before.Eligible || before.Reason != model.ReasonEligible {
+		t.Fatalf("seat-b scored %+v for Standard, want eligible despite a full Fable cap", before)
+	}
+	resp = tp.pick(t, pickRequest("claude-sonnet-4-5", "standard-key", "seat-a", "seat-b"))
+	if !resp.Handled || resp.AuthID != "seat-b" {
+		t.Fatalf("response = %+v, want seat-b: a full Fable cap must not bar a Standard request", resp)
+	}
+}
+
+// Moving a refused binding to a seat the provider reports as full buys nothing
+// and spends a cross-organization cache miss on the way, so the binding holds.
+func TestARefusedBindingDoesNotFailOverToASpentSeat(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	refused := seatA(t)
+	refused.Windows[2].Status = model.StatusRejected
+	spent := seatB(t)
+	spent.Windows[2].Utilization = 1.0
+	tp.quota.Put(refused)
+	tp.quota.Put(spent)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+	for i := 0; i < 3; i++ {
+		resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+		if resp.AuthID != "seat-a" {
+			t.Fatalf("pick %d = %+v, want the binding kept rather than moved to a spent seat", i, resp)
+		}
+	}
+	if b, _ := tp.bindings.Lookup("claude", fableModel, "k", testNow); b.AuthID != "seat-a" {
+		t.Errorf("binding = %+v, want seat-a", b)
+	}
+}
+
+// Affinity outranks fullness: with Affinity.OverrideThreshold on, an
+// established conversation stays on its seat even once the provider reports
+// the window full, because moving it costs a certain cache miss while the
+// reading may be one poll stale. The request is forwarded and the provider
+// decides. This pins the behaviour so a change to it is deliberate.
+func TestASpentBindingIsKeptWhileAffinityOverridesPace(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	spent := seatA(t)
+	spent.Windows[2].Utilization = 1.02
+	tp.quota.Put(spent)
+	tp.quota.Put(seatB(t))
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+	if !tp.config().Affinity.OverrideThreshold {
+		t.Fatal("override-threshold is off, so this test no longer covers what it claims")
+	}
+	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+	if resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want the binding kept on the spent seat", resp)
+	}
+	if d := tp.lastDecision(t); d.Kind != model.DecisionAffinityHit {
+		t.Errorf("decision = %+v, want an affinity hit", d)
+	}
+	// A conversation that has no binding yet still avoids it.
+	if resp := tp.pick(t, pickRequest(fableModel, "fresh", "seat-a", "seat-b")); resp.AuthID != "seat-b" {
+		t.Errorf("cold pick = %+v, want the seat with Fable budget", resp)
+	}
+}
+
+// A reading the plugin has already discarded as too old cannot bar a sibling
+// from taking a refused binding. The snapshot map keeps every reading whatever
+// its age, so answering this from the snapshot rather than the score pinned a
+// conversation to a credential the provider had refused.
+func TestAStaleFullReadingDoesNotPinARefusedBinding(t *testing.T) {
+	refused := seatA(t)
+	refused.Windows[2].Status = model.StatusRejected
+
+	t.Run("a reading past max-staleness leaves the sibling a home", func(t *testing.T) {
+		tp := newTestPlugin(t, testConfigYAML)
+		stale := seatB(t)
+		stale.Windows[2].Utilization = 1.0
+		stale.ObservedAt = testNow.Add(-72 * time.Hour)
+		tp.quota.Put(refused)
+		tp.quota.Put(stale)
+		tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+		if resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b")); resp.AuthID == "seat-a" {
+			t.Fatalf("response = %+v, want a failover: the sibling's reading is too old to bar it", resp)
+		}
+	})
+
+	t.Run("a current reading at full does bar it", func(t *testing.T) {
+		tp := newTestPlugin(t, testConfigYAML)
+		full := seatB(t)
+		full.Windows[2].Utilization = 1.0
+		tp.quota.Put(refused)
+		tp.quota.Put(full)
+		tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+		if resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b")); resp.AuthID != "seat-a" {
+			t.Fatalf("response = %+v, want the binding kept: the sibling has nothing left", resp)
+		}
+	})
+}
+
+// A full cap for another family bars nothing here: it applies to no request of
+// this family, so the seat carrying it is still somewhere a refused binding can
+// move to.
+func TestAFullCapForAnotherFamilyStillLeavesASeatAHome(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	refused := seatA(t)
+	refused.Windows[2].Status = model.StatusRejected
+	other := seatB(t)
+	other.Windows = append(other.Windows, model.Window{
+		Kind: model.WindowWeeklyScoped, Scope: model.FamilyOpus, Utilization: 1.0,
+		ResetsAt: testNow.Add(48 * time.Hour), Duration: model.WeeklyDuration,
+	})
+	tp.quota.Put(refused)
+	tp.quota.Put(other)
+	tp.bindings.Bind("claude", fableModel, "k", "k", testNow)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+	if resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b")); resp.AuthID != "seat-b" {
+		t.Fatalf("response = %+v, want seat-b: its full cap is another family's", resp)
+	}
+}
+
+// Keeping a binding on a credential the provider reports as full is a choice,
+// not an oversight, so the decision carries the reason. An ordinary kept seat
+// carries none: the status view marks a note on hover, and a note on every hit
+// would mark every request of every conversation.
+func TestOnlyASpentBindingRecordsWhyItWasKept(t *testing.T) {
+	t.Run("a spent binding names the reason", func(t *testing.T) {
+		tp := newTestPlugin(t, testConfigYAML)
+		spent := seatA(t)
+		spent.Windows[2].Utilization = 1.02
+		tp.quota.Put(spent)
+		tp.quota.Put(seatB(t))
+		tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+
+		if resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b")); resp.AuthID != "seat-a" {
+			t.Fatalf("response = %+v, want the binding kept", resp)
+		}
+		d := tp.lastDecision(t)
+		if d.Kind != model.DecisionAffinityHit {
+			t.Fatalf("kind = %q, want %q", d.Kind, model.DecisionAffinityHit)
+		}
+		if !strings.Contains(d.Note, "spent") {
+			t.Errorf("note = %q, want the spent seat named", d.Note)
+		}
+	})
+
+	t.Run("an ordinary kept seat carries no note", func(t *testing.T) {
+		tp := newTestPlugin(t, testConfigYAML)
+		tp.seats(t)
+		tp.bindings.Bind("claude", fableModel, "k", "seat-b", testNow)
+
+		tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+		d := tp.lastDecision(t)
+		if d.Kind != model.DecisionAffinityHit {
+			t.Fatalf("kind = %q, want %q", d.Kind, model.DecisionAffinityHit)
+		}
+		if d.Note != "" {
+			t.Errorf("note = %q, want none so the status view marks only the deliberate case", d.Note)
+		}
+	})
 }

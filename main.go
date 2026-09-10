@@ -92,9 +92,10 @@ var configFields = []runtime.ConfigField{
 	{Name: "enabled", Type: "boolean", Description: "Route governed requests. Off leaves the host's own selector in charge."},
 	{Name: "providers", Type: "array", Description: "Provider keys the plugin governs. Default [claude]."},
 	{Name: "affinity.ttl", Type: "string", Description: "Idle time before a conversation's credential binding expires. Default 1h."},
-	{Name: "pace.curve-exponent", Type: "number", Description: "Target curve exponent; 1.0 spends evenly, above 1.0 holds back early. Default 1.0."},
-	{Name: "pace.landing-target", Type: "number", Description: "Utilization the curve aims for at window end. Default 1.0."},
-	{Name: "pace.hard-cutoff", Type: "number", Description: "Utilization at or above which a credential cannot take a new conversation. Default 0.98."},
+	{Name: "pace.shape", Type: "string", Description: "Target curve shape: linear, power or sigmoid. Default linear."},
+	{Name: "pace.curve-exponent", Type: "number", Description: "Exponent for the power shape; above 1.0 holds back early. Selects the power shape when pace.shape is unset, and is ignored by the sigmoid shape. Default 1.0."},
+	{Name: "pace.steepness", Type: "number", Description: "Slope through the sigmoid's midpoint. Ignored by the other shapes. Default 8.0."},
+	{Name: "pace.landing-target", Type: "number", Description: "Utilization the curve aims for at window end, clamped to full. Above 1.0 favours a credential near its reset, whose budget expires soonest. Default 1.10."},
 	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m, minimum 30s."},
 	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page on the plugin's resource routes. Default true."},
 }

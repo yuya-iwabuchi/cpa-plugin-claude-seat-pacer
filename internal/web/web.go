@@ -521,7 +521,6 @@ func finiteWindows(windows []model.Window) []model.Window {
 
 func finiteScore(s model.Score) model.Score {
 	s.Cost = finite(s.Cost)
-	s.FullestPenalty = finite(s.FullestPenalty)
 	if len(s.Windows) == 0 {
 		return s
 	}
@@ -540,12 +539,11 @@ func finiteScore(s model.Score) model.Score {
 
 func finitePace(p model.PaceConfig) model.PaceConfig {
 	p.CurveExponent = finite(p.CurveExponent)
+	p.Steepness = finite(p.Steepness)
 	p.LandingTarget = finite(p.LandingTarget)
 	p.WeeklyWeight = finite(p.WeeklyWeight)
 	p.SessionWeight = finite(p.SessionWeight)
 	p.ScopedWeight = finite(p.ScopedWeight)
-	p.RawWeight = finite(p.RawWeight)
 	p.HysteresisMargin = finite(p.HysteresisMargin)
-	p.HardCutoff = finite(p.HardCutoff)
 	return p
 }

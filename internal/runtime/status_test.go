@@ -35,7 +35,7 @@ func TestStatusFillsEveryField(t *testing.T) {
 	if status.Plugin.Name != "cpa-claude-quota-scheduler" || status.Plugin.Version == "" || status.Plugin.HostSchemaVersion != 4 || !status.Plugin.StartedAt.Equal(testNow) {
 		t.Errorf("Plugin = %+v", status.Plugin)
 	}
-	if !status.Config.Enabled || status.Config.Pace.HardCutoff != 0.98 {
+	if !status.Config.Enabled || status.Config.Pace.LandingTarget != 1.10 {
 		t.Errorf("Config = %+v, want the live config", status.Config)
 	}
 	if status.Model != fableModel {
