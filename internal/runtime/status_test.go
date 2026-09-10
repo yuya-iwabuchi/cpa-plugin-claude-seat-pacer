@@ -206,6 +206,7 @@ func TestHistoryFileIsWrittenAfterAPollAndReadAtStart(t *testing.T) {
 		Now: func() time.Time { return testNow.Add(2 * time.Minute) },
 	})
 	again.startDelay = time.Hour
+	again.fetchStagger = 0
 	t.Cleanup(again.Shutdown)
 	again.register(t, MethodPluginRegister, testConfigYAML)
 	if err := again.refresh(context.Background()); err != nil {

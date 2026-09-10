@@ -47,6 +47,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		cache[id] = stats
 	}
 	lastModel := p.lastModel
+	polledAt, nextPollAt := p.polledAt, p.nextPollAt
 	listErr := p.listErr
 	// Only providers whose latest pick was still down to one candidate, so the
 	// warning clears once the pool's priority values are fixed.
@@ -153,14 +154,16 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		bound = []model.Binding{}
 	}
 	return model.Status{
-		Now:       now,
-		Plugin:    info,
-		Config:    cfg,
-		Model:     modelID,
-		Auths:     rows,
-		Bindings:  bound,
-		Decisions: decisions,
-		Warnings:  warnings,
+		Now:        now,
+		Plugin:     info,
+		Config:     cfg,
+		Model:      modelID,
+		PolledAt:   polledAt,
+		NextPollAt: nextPollAt,
+		Auths:      rows,
+		Bindings:   bound,
+		Decisions:  decisions,
+		Warnings:   warnings,
 	}
 }
 

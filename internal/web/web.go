@@ -20,6 +20,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
@@ -77,6 +78,15 @@ func inlineScriptSource(page []byte) string {
 	}
 	sum := sha256.Sum256(page[i+len(openTag) : j])
 	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+}
+
+// Syncer is a Source that can re-read upstream usage on demand, throttled by
+// the source itself. A Source that does not implement it serves whatever its
+// own polling has most recently established.
+type Syncer interface {
+	// SyncNow re-reads usage unless it was read too recently, and reports
+	// whether it read.
+	SyncNow(ctx context.Context) bool
 }
 
 // Source supplies the state the app renders.
@@ -140,6 +150,14 @@ func servePage(w http.ResponseWriter) {
 }
 
 func serveStatus(w http.ResponseWriter, r *http.Request, src Source) {
+	// A sync is a read of the provider rather than a write of any local state,
+	// which is why the unauthenticated route may serve it at all. The source
+	// throttles it; this route only asks.
+	if r.URL.Query().Get("sync") == "1" {
+		if s, ok := src.(Syncer); ok {
+			s.SyncNow(r.Context())
+		}
+	}
 	status := reduceForPublic(src.Status(time.Now(), r.URL.Query().Get("model")))
 
 	// The body is built before any header is written so an encoding failure
@@ -182,10 +200,14 @@ func encodeStatus(status model.Status) ([]byte, error) {
 // reduceForPublic is the status as the unauthenticated route serves it. It
 // copies every slice it rewrites, so the source's own state is untouched.
 func reduceForPublic(st model.Status) model.Status {
-	// The page reads the pace curve out of the config and nothing else. The
-	// rest is operator configuration, the usage endpoint above all: it is
-	// operator-set and may name internal infrastructure.
-	st.Config = model.Config{Pace: finitePace(st.Config.Pace)}
+	// The page reads the pace curve and the poll cadence out of the config and
+	// nothing else. The rest is operator configuration, the usage endpoint
+	// above all: it is operator-set and may name internal infrastructure. A
+	// cadence names nothing, and the page states it beside the countdown.
+	st.Config = model.Config{
+		Pace:  finitePace(st.Config.Pace),
+		Quota: model.QuotaConfig{PollInterval: st.Config.Quota.PollInterval},
+	}
 
 	ids := authIDReplacer(st)
 

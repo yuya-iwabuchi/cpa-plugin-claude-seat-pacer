@@ -109,9 +109,21 @@ func (w Window) Elapsed(now time.Time) float64 {
 	return 1 - remaining.Seconds()/w.Duration.Seconds()
 }
 
-// Blocking reports whether the provider has already refused this window.
+// Blocking reports whether the provider has already refused this window. Only
+// an observed refusal counts: the status field is set from a response the
+// provider actually rejected, so it names a request that failed rather than
+// one predicted to.
 func (w Window) Blocking() bool {
-	return w.Status == StatusRejected || w.Severity == SeverityCritical
+	return w.Status == StatusRejected
+}
+
+// Critical reports whether the provider rates this window's remaining headroom
+// as critical. It is an advisory level from the usage endpoint, raised well
+// before the window is spent, so it colours the status view and leaves routing
+// to pace: a window this far past its target already scores far enough below
+// its peers to lose every pick it should lose.
+func (w Window) Critical() bool {
+	return w.Severity == SeverityCritical
 }
 
 // BearsOn reports whether this window caps a request for a model family. The
@@ -271,6 +283,10 @@ const (
 	ReasonHardCutoff = "hard-cutoff"
 	ReasonRejected   = "provider-rejected"
 	ReasonNoSnapshot = "no-snapshot"
+	// ReasonFetchFailed marks a credential whose usage read has never
+	// succeeded, so nothing is known about its caps. It is distinct from
+	// ReasonNoWindow, which says the caps were read and none of them applies.
+	ReasonFetchFailed = "fetch-failed"
 	// ReasonNoWindow marks a snapshot that exists but has no window bearing on
 	// the requested model, such as one holding only another family's cap.
 	ReasonNoWindow = "no-bearing-window"
@@ -413,10 +429,14 @@ type Status struct {
 	Plugin PluginInfo `json:"plugin"`
 	Config Config     `json:"config"`
 	// Model is the model id every AuthStatus.Score was evaluated for.
-	Model     string       `json:"model"`
-	Auths     []AuthStatus `json:"auths"`
-	Bindings  []Binding    `json:"bindings"`
-	Decisions []Decision   `json:"decisions"`
+	Model string `json:"model"`
+	// PolledAt is when the last background poll finished and NextPollAt when
+	// the next is due. Both are absent before the first poll returns.
+	PolledAt   time.Time    `json:"polled_at,omitempty"`
+	NextPollAt time.Time    `json:"next_poll_at,omitempty"`
+	Auths      []AuthStatus `json:"auths"`
+	Bindings   []Binding    `json:"bindings"`
+	Decisions  []Decision   `json:"decisions"`
 	// Warnings are operator-facing conditions that leave the plugin inert or
 	// degraded, such as a single-candidate pool or host session affinity
 	// still enabled.

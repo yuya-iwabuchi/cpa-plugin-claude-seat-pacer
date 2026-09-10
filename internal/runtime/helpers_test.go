@@ -285,6 +285,7 @@ func newTestPlugin(t *testing.T, configYAML string) *testPlugin {
 		},
 	})
 	tp.startDelay = time.Hour
+	tp.fetchStagger = 0
 	t.Cleanup(tp.Shutdown)
 	tp.register(t, MethodPluginRegister, configYAML)
 	return tp

@@ -69,6 +69,11 @@ type Plugin struct {
 	polls       map[string]pollState
 	listErr     string
 	fetchErr    string
+	// polledAt is when the last poll finished and nextPollAt when the loop
+	// wakes for the next one, so the status view can count down to a sync it
+	// does not schedule. Both are zero until the first poll returns.
+	polledAt   time.Time
+	nextPollAt time.Time
 	// singleCandidates is the candidate count each provider was last offered,
 	// and singleLogged the providers already warned about.
 	singleCandidates map[string]int
@@ -79,6 +84,9 @@ type Plugin struct {
 	lifeMu sync.Mutex
 	poller *poller
 	pollMu sync.Mutex
+	// fetchStagger spaces one credential's usage read from the next; tests
+	// zero it so a poll costs no wall clock.
+	fetchStagger time.Duration
 	// startDelay is the wait before the first poll; tests push it out so a
 	// poll cannot race their assertions.
 	startDelay time.Duration
@@ -120,6 +128,7 @@ func New(opts Options) *Plugin {
 		polls:            make(map[string]pollState),
 		singleCandidates: make(map[string]int),
 		singleLogged:     make(map[string]bool),
+		fetchStagger:     fetchStagger,
 		startDelay:       startupGrace,
 	}
 	if p.opts.HistoryFile == "" {

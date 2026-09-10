@@ -22,6 +22,12 @@ const (
 	listRetryWait = 15 * time.Second
 )
 
+// fetchStagger spaces one credential's usage read from the next. The endpoint
+// throttles the caller rather than the credential — a 429 arrives for every
+// seat in the same instant — so reads that land together are what earns one,
+// and a pool polled back to back throttles itself.
+const fetchStagger = 400 * time.Millisecond
+
 // hostDrainTimeout bounds the wait for host callbacks still parked in the host
 // once the poll loop has stopped.
 const hostDrainTimeout = 5 * time.Second
@@ -153,14 +159,19 @@ func (p *Plugin) runPoller(pl *poller) {
 			return
 		case <-timer.C:
 		}
-		timer.Reset(p.pollOnce(ctx))
+		wait := p.pollOnce(ctx)
+		p.mu.Lock()
+		p.polledAt = p.now()
+		p.nextPollAt = p.polledAt.Add(wait)
+		p.mu.Unlock()
+		timer.Reset(wait)
 	}
 }
 
 // pollOnce runs one background poll under the deadline a manual refresh uses,
 // so a host callback that never returns costs one poll rather than the loop.
 func (p *Plugin) pollOnce(ctx context.Context) time.Duration {
-	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
+	ctx, cancel := context.WithTimeout(ctx, pollBudget)
 	defer cancel()
 	return p.poll(ctx)
 }
@@ -239,6 +250,7 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 	listed := make(map[string]struct{}, len(governed))
 	keep := make(map[string]struct{}, len(governed))
 	fetchErr := ""
+	fetched := 0
 	client := quota.NewClient(hostDoer{h: p.host}, cfg.Quota.UsageURL, cfg.Quota.RequestTimeout)
 	for _, entry := range governed {
 		id := authID(entry)
@@ -256,6 +268,10 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		if ctx.Err() != nil {
 			break
 		}
+		if fetched > 0 && !p.wait(ctx, p.fetchStagger) {
+			break
+		}
+		fetched++
 		snap, err := p.fetchOne(ctx, client, id, entry)
 		if snap.AuthID == "" {
 			// Not an OAuth credential: nothing to poll and nothing to route on.
@@ -307,6 +323,22 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 	}
 	p.mu.Unlock()
 	return cfg.Quota.PollInterval
+}
+
+// wait pauses for d and reports whether it elapsed. A cancelled context ends
+// the pause at once, so a stop or a cut-short poll is never held for it.
+func (p *Plugin) wait(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 // warnSingleCandidate logs once per provider that spreading cannot work: the

@@ -242,6 +242,9 @@ func TestScoreAuthEligibility(t *testing.T) {
 	rejectedAndSpent := weekly(now, 0.5, 1.0)
 	rejectedAndSpent.Status = model.StatusRejected
 
+	criticalAndSpent := weekly(now, 0.5, 1.0)
+	criticalAndSpent.Severity = model.SeverityCritical
+
 	warned := weekly(now, 0.5, 0.5)
 	warned.Status = model.StatusAllowedWarning
 	warned.Severity = model.SeverityWarning
@@ -255,10 +258,11 @@ func TestScoreAuthEligibility(t *testing.T) {
 		{"healthy", []model.Window{weekly(now, 0.5, 0.2)}, true, model.ReasonEligible},
 		{"warning is not blocking", []model.Window{warned}, true, model.ReasonEligible},
 		{"provider rejected", []model.Window{rejected}, false, model.ReasonRejected},
-		{"severity critical", []model.Window{critical}, false, model.ReasonRejected},
+		{"severity critical is not a gate", []model.Window{critical}, true, model.ReasonEligible},
 		{"at hard cutoff", []model.Window{weekly(now, 0.5, cfg.HardCutoff)}, false, model.ReasonHardCutoff},
 		{"past full utilization", []model.Window{weekly(now, 0.5, 1.5)}, false, model.ReasonHardCutoff},
 		{"rejection outranks cutoff", []model.Window{rejectedAndSpent}, false, model.ReasonRejected},
+		{"critical still meets the cutoff", []model.Window{criticalAndSpent}, false, model.ReasonHardCutoff},
 		{"no windows", nil, false, model.ReasonNoWindow},
 		{
 			"only another family's cap",
@@ -902,5 +906,24 @@ func TestSessionWindowGatesWithoutPacing(t *testing.T) {
 	), "claude-opus-5", now)
 	if over.Eligible || over.Reason != model.ReasonHardCutoff {
 		t.Fatalf("eligible=%v reason=%q, want the session window to gate", over.Eligible, over.Reason)
+	}
+}
+
+// A credential whose usage read failed is not a credential without caps: the
+// first tells an operator to look at the endpoint, the second at the model.
+func TestFailedReadIsNotAMissingCap(t *testing.T) {
+	now := time.Now().UTC()
+	cfg := model.Defaults().Pace
+
+	read := model.AuthSnapshot{AuthID: "seat", ObservedAt: now}
+	if score := ScoreAuth(cfg, read, "claude-fable-5-1", now); score.Reason != model.ReasonNoWindow {
+		t.Errorf("reason = %q, want %q", score.Reason, model.ReasonNoWindow)
+	}
+
+	failed := model.AuthSnapshot{AuthID: "seat", ObservedAt: now, Err: "usage endpoint throttled"}
+	score := ScoreAuth(cfg, failed, "claude-fable-5-1", now)
+	if score.Eligible || score.Reason != model.ReasonFetchFailed {
+		t.Errorf("eligible=%v reason=%q, want eligible=false reason=%q",
+			score.Eligible, score.Reason, model.ReasonFetchFailed)
 	}
 }
