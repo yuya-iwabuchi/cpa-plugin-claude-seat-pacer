@@ -301,7 +301,13 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 .banner.err { border-left-color: var(--critical); }
 
 /* -------------------------------------------------------------- sections */
-section { margin-top: 42px; }
+/* The live bar never leaves the viewport, so a section arrived at by a
+   cross-reference stops below it rather than under it. */
+section { margin-top: 42px; scroll-margin-top: 74px; border-radius: 12px; }
+/* A section a cross-reference has just taken the reader to, marked while the
+   eye arrives. The outline is offset, so nothing on the page moves for it. */
+section { outline: 2px solid transparent; outline-offset: 8px; }
+section.lit { outline-color: color-mix(in srgb, var(--focus) 62%, transparent); }
 .sec-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 0 0 16px;
 }
@@ -515,6 +521,46 @@ th[aria-sort] button { color: var(--ink-1); }
 .wslack span { white-space: nowrap; color: var(--ink-2); }
 .wslack b { font-weight: 600; color: var(--ink-1); }
 
+/* ----------------------------------------------------------------- score */
+/* One table per request family. A row reads left to right as the sum the
+   scorer made, so the terms and the total it produced sit on one line. */
+.score-card { padding: 16px; }
+.score-fam + .score-fam { margin-top: 26px; }
+/* Only the table scrolls sideways: the line naming the seat the family's next
+   new conversation lands on is the section's headline and stays in place at
+   every width. */
+.score-scroll { overflow-x: auto; }
+.score-lead { margin: 0 0 10px; font: 500 12px/1.6 var(--sans); color: var(--ink-2); }
+.score-lead .score-fam-name {
+  font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-3); margin-right: 10px;
+}
+.score-lead .seat-mark { vertical-align: -2px; }
+.score-head { display: inline-flex; align-items: center; gap: 6px; }
+/* Every term stacks its product over the factors it came from, so a column of
+   products reads down and the arithmetic of one row reads across. */
+.score-term { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.score-val { font: 600 12.5px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-1); }
+/* A term the weight zeroes is still a term: it reads as the 0.0 it is,
+   muted, rather than as an empty cell. */
+.score-val[data-zero] { color: var(--ink-3); }
+.score-total { font-weight: 700; }
+.score-fac {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font: 500 10px/1.3 var(--mono); color: var(--ink-3);
+}
+.score-rank { color: var(--ink-2); white-space: nowrap; }
+/* A pointer to the section that plots the figure beside it. The number is
+   written at render from that section's own index, so it follows the count
+   when a section is absent. */
+.secref {
+  all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 2px;
+  font: 600 9.5px/1 var(--mono); letter-spacing: .06em; color: var(--ink-3);
+  border: 1px solid var(--axis); border-radius: 4px; padding: 2px 4px;
+}
+.secref::before { content: "\2197"; font-size: 9px; }
+.secref:hover { color: var(--ink-1); border-color: var(--ink-3); }
+
 /* ---------------------------------------------------------------- states */
 .skel { display: grid; gap: 16px; }
 .skel-row { height: 76px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hairline); }
@@ -547,12 +593,13 @@ main[data-stale="true"] { opacity: .62; }
 @media (prefers-reduced-motion: no-preference) {
   main { transition: opacity .18s ease; }
   #tooltip { transition: opacity .1s ease; }
+  section { transition: outline-color .45s ease; }
 }
 
 /* Carries a value the layout has no room for to assistive technology. Every
    region that scrolls sideways is its containing block, so one placed deep in
    a wide table cannot widen the page instead of the table. */
-.tl-card, .tbl-card, .dec-body, .pace-card, .dec > summary { position: relative; }
+.tl-card, .tbl-card, .dec-body, .pace-card, .score-scroll, .dec > summary { position: relative; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -659,8 +706,8 @@ main[data-stale="true"] { opacity: .62; }
     <section id="sec-pace" hidden>
       <div class="sec-head">
         <span class="sec-idx"></span>
-        <h2>Pace curve</h2>
-        <span class="sec-sub" id="pace-sub">each seat's weekly budget against the pace target, by days into its own week</span>
+        <h2>Weekly window</h2>
+        <span class="sec-sub" id="pace-sub">the budget the scheduler paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; its slack is what ranks the seats</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -680,7 +727,7 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>5-hour window</h2>
-        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization against the target curve, by hours into its own window · headroom here does not affect routing</span>
+        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour utilization against the same curve, by hours into its own window &middot; no pace weight of its own, but it gates a seat at the cutoff and usually sets the fullness penalty</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -693,6 +740,17 @@ main[data-stale="true"] { opacity: .62; }
           <div class="pace-note" id="session-note"></div>
         </details>
       </div>
+    </section>
+
+    <section id="sec-score" hidden>
+      <div class="sec-head">
+        <span class="sec-idx"></span>
+        <h2>Score</h2>
+        <span class="sec-sub">how the next pick is arrived at: every term of each seat's score, the fullness penalty subtracted, and the total that ranks it</span>
+        <span class="sec-line"></span>
+      </div>
+      <ul class="legend" id="score-legend" aria-label="How a score is built"></ul>
+      <div class="card score-card" id="score-tables"></div>
     </section>
 
     <section id="sec-bindings" hidden>
@@ -2245,9 +2303,11 @@ main[data-stale="true"] { opacity: .62; }
     var host = $("pace-curve");
     host.textContent = "";
     var fams = scopedFamilies(st);
+    var paced = "the budget the scheduler paces against: each seat's 7-day utilization";
     $("pace-sub").textContent = fams.length
-      ? "each seat's weekly budget (circle) and its " + fams.join(", ") + " cap (diamond) against the pace target, by days into its own week"
-      : "each seat's weekly budget against the pace target, by days into its own week";
+      ? paced + " (circle) and its " + fams.join(", ") + " cap (diamond) against the target curve, " +
+        "by days into its own week \u00B7 their slack is what ranks the seats"
+      : paced + " against the target curve, by days into its own week \u00B7 its slack is what ranks the seats";
     var pace = (st.config && st.config.pace) || {};
     var gamma = num(pace.curve_exponent) && pace.curve_exponent > 0 ? pace.curve_exponent : 1;
     var landing = num(pace.landing_target) && pace.landing_target > 0 ? pace.landing_target : 1;
@@ -2509,9 +2569,10 @@ main[data-stale="true"] { opacity: .62; }
   /* The 5-hour window is a rate limit, and its chart is the weekly chart's
      construction on a 5-hour axis: the same target curve, each seat's mark
      with a tick to the curve and the recorded line behind it. The gap to the
-     curve is headroom, not a verdict:
-     the scorer gives this window no weight, so nothing here moves a routing
-     decision, and the hard cutoff is the one line that gates. Spend is
+     curve is headroom, not a verdict: the scorer gives this window no pace
+     weight, so the gap itself never enters a score. The level does — the
+     fullness penalty is a share of the seat's fullest bearing window, which
+     is often this one — and it gates the seat at the hard cutoff. Spend is
      measured per seat, so the conversations a stretch of the line names are
      the ones the routing log shows active on that seat then, not the ones
      that spent the tokens. */
@@ -2606,7 +2667,7 @@ main[data-stale="true"] { opacity: .62; }
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
       "aria-label": "Each seat's 5-hour window utilization by hours into its own window against the target curve, one mark per seat with the recorded line behind it, labelled with its headroom" +
-        "; headroom here does not affect routing; the hard cutoff is the line that gates"
+        "; the headroom carries no pace weight, but the level gates a seat at the hard cutoff and usually sets the fullness penalty in its score"
     }, host);
 
     [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
@@ -2659,7 +2720,7 @@ main[data-stale="true"] { opacity: .62; }
         (cut !== null ? ", hard cutoff " + pct(cut) : "") +
         ", resets " + relText(s.resets, now) +
         ", last hour " + lastHour +
-        ", a rate limit: headroom here does not affect routing";
+        ", a rate limit: the headroom carries no pace weight, but the level sets the fullness penalty and gates at the cutoff";
       var headTip = hoursIn.toFixed(1) + " h in · " + pct(s.w.utilization, 0) + " used" +
         (ws ? " vs " + pct(ws.target, 0) + " curve · " + headroomText(ws.slack) : "") +
         "\n" + resetText(s.resets, now) + (cut !== null ? " · " + pct(cut, 0) + " cutoff" : "") +
@@ -2773,6 +2834,7 @@ main[data-stale="true"] { opacity: .62; }
   function renderSessionNote(st, cut, gamma, landing) {
     var note = $("session-note");
     note.textContent = "";
+    var wts = (st.config && st.config.pace) || {};
     var p = h("p", "");
     p.appendChild(document.createTextNode("Each mark is one seat's rolling 5-hour window: how far into the window " +
       "it is, against how much of the window is used, with its recorded line from the window's start behind it. " +
@@ -2781,8 +2843,9 @@ main[data-stale="true"] { opacity: .62; }
     p.appendChild(document.createTextNode(", landing at " + pct(landing, 0) + ", drawn over five hours; the dotted tick from a mark to the curve is the " +
       "seat's gap to it, and the label beside the mark gives it: + over the curve, − headroom. Read it as headroom only. This is a rate limit, not a " +
       "budget: unused capacity vanishes at reset, the window resets several times a day, and the scorer gives this " +
-      "window no weight, so the gap here never moves a routing decision. What does gate is " +
-      (cut !== null ? "the hard cutoff at " + pct(cut, 0) + ", past which a seat cannot take a new conversation" : "the top of the window") +
+      "window no pace weight, so the gap here never enters a score. The level still does, twice over: the fullness " +
+      "penalty is " + share(wts.raw_utilization_weight) + " of the seat's fullest window bearing on the request, and this is often the fullest; and " +
+      (cut !== null ? "the hard cutoff at " + pct(cut, 0) + " takes the seat out of the running for a new conversation altogether" : "the top of the window gates it altogether") +
       ". A dashed, paler stretch of a seat's line is an estimate reconstructed from token spend rather than a reading; the mark is always a reading."));
     note.appendChild(p);
     var q = h("p", "");
@@ -2792,6 +2855,242 @@ main[data-stale="true"] { opacity: .62; }
       "request count; a steep stretch with one conversation on it is that conversation, a steep stretch with several " +
       "is a set to look at. The log is bounded, so an older stretch may fall outside it."));
     note.appendChild(q);
+  }
+
+  /* ---------------------------------------------------------------- score */
+
+  /* The pick as arithmetic: one table per request family, one row per seat in
+     the seats' own order, and every term of the sum the scorer made — weight
+     × slack for each window, the fullness penalty subtracted, then the total
+     that ranks the seat. Every figure is read out of the scorer's own
+     breakdown rather than recomputed here, so a row whose terms do not come
+     to its total is a disagreement between this page and the plugin.
+
+     A seat no request can land on carries its reason where its total would
+     be: it loses whatever its terms come to. */
+
+  /* A term of the sum, signed as it enters the sum: + adds to the score, −
+     takes from it, in points of the window's budget. This is the scorer's
+     sign, not the charts': there a gap is signed from the reader's eye, + for
+     a mark over the curve. */
+  function termText(v) {
+    if (!num(v)) return "—";
+    var n = Math.abs(v) * 100;
+    if (n < 0.05) return "0.0";
+    return (v > 0 ? "+" : "−") + n.toFixed(1);
+  }
+
+  function wtText(v) { return num(v) ? v.toFixed(2) : "?"; }
+
+  /* One window's entry in a score's breakdown; null where the seat carries no
+     reading of it. */
+  function windowIn(sc, kind, scope) {
+    var list = (sc && sc.windows) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === kind && (list[i].scope || "") === (scope || "")) return list[i];
+    }
+    return null;
+  }
+
+  /* Mirrors model.Window.BearsOn: the session and all-models weekly windows
+     cap every request, a family cap only its own family's. */
+  function bearsOn(w, fam) {
+    if (w.kind === "five_hour" || w.kind === "seven_day") return true;
+    return w.kind === "weekly_scoped" && fam !== STANDARD && (w.scope || "") === fam;
+  }
+
+  /* The window the fullness penalty was taken from. The penalty is the weight
+     times the highest utilization among the windows bearing on the request,
+     so dividing the weight back out names the reading it came from. Null
+     where no window matches, which is a payload this page and the scorer read
+     differently. */
+  function fullestWindow(sc, fam, rawWeight) {
+    if (!sc || !num(sc.raw_penalty) || !(rawWeight > 0)) return null;
+    var want = sc.raw_penalty / rawWeight, list = sc.windows || [];
+    for (var i = 0; i < list.length; i++) {
+      if (bearsOn(list[i], fam) && num(list[i].utilization) &&
+          Math.abs(list[i].utilization - want) < 1e-9) return list[i];
+    }
+    return null;
+  }
+
+  /* The section that plots a window, so every term can point at its own
+     picture. */
+  function chartOf(kind) {
+    return kind === "five_hour"
+      ? { id: "sec-session", name: "the 5-hour window" }
+      : { id: "sec-pace", name: "the weekly window" };
+  }
+
+  /* A term cell: the product the score took, over the slack and the weight it
+     came from. A weight of zero reads as the 0.0 it is, so the session term
+     is visibly a design choice rather than a missing figure. */
+  function termCell(ws, shown) {
+    var td = h("td", "n"), box = h("div", "score-term");
+    if (shown === null) {
+      box.appendChild(h("span", "score-val", "—"));
+      box.appendChild(h("span", "score-fac", ws ? "no pace target" : "no reading"));
+    } else {
+      var val = h("span", "score-val", termText(shown));
+      if (Math.abs(shown) < 0.0005) val.setAttribute("data-zero", "true");
+      box.appendChild(val);
+      box.appendChild(h("span", "score-fac", termText(ws.slack) + " × " + ws.weight.toFixed(2)));
+    }
+    td.appendChild(box);
+    return td;
+  }
+
+  /* The penalty, as the subtraction it is, over the window whose level set
+     it and a pointer to the chart that plots that window: nothing else on the
+     page says the 5-hour chart is explaining a term of the score. */
+  function penaltyCell(sc, fam, wts, shown, fk) {
+    var td = h("td", "n"), box = h("div", "score-term");
+    if (!scored(sc) || shown === null) {
+      box.appendChild(h("span", "score-val", "—"));
+      td.appendChild(box);
+      return td;
+    }
+    var rawW = num(wts.raw_utilization_weight) ? wts.raw_utilization_weight : 0;
+    var val = h("span", "score-val", termText(shown));
+    if (Math.abs(shown) < 0.0005) val.setAttribute("data-zero", "true");
+    box.appendChild(val);
+    var fac = h("span", "score-fac");
+    var full = fullestWindow(sc, fam, rawW);
+    if (full) {
+      fac.appendChild(document.createTextNode(windowShort(full) + " " + pct(full.utilization, 0)));
+      var chart = chartOf(full.kind);
+      fac.appendChild(secRef(chart.id, chart.name, fk));
+    } else {
+      fac.appendChild(document.createTextNode("fullest window"));
+    }
+    box.appendChild(fac);
+    td.appendChild(box);
+    return td;
+  }
+
+  /* The terms one family's table carries: the all-models weekly window, that
+     family's own cap where it has one, then the session window. Another
+     family's cap bears on no request of this one, so it is not a term here
+     and has no column. */
+  function scoreColumns(fam, wts) {
+    var cols = [{ kind: "seven_day", scope: "", weight: wts.weekly_weight }];
+    if (fam !== STANDARD) cols.push({ kind: "weekly_scoped", scope: fam, weight: wts.scoped_weight });
+    cols.push({ kind: "five_hour", scope: "", weight: wts.session_weight });
+    return cols;
+  }
+
+  function scoreTable(st, seats, ranks, fam, wts) {
+    var cols = scoreColumns(fam, wts);
+    var byID = Object.create(null);
+    seats.forEach(function (a) { byID[a.auth_id] = a; });
+    var known = seats.some(function (a) { return famScore(a, fam) !== null; });
+
+    var block = h("div", "score-fam");
+    var lead = h("p", "score-lead");
+    lead.appendChild(h("span", "score-fam-name", rankLabel(fam) + " requests"));
+    if (!known) {
+      lead.appendChild(document.createTextNode("this family's ranking is unknown this refresh"));
+    } else if (ranks.lead[fam]) {
+      lead.appendChild(seatMark(byID[ranks.lead[fam]]));
+      lead.appendChild(document.createTextNode(" takes the next new conversation"));
+    } else {
+      lead.appendChild(document.createTextNode("no seat is eligible; the least-bound seat takes the next new conversation"));
+    }
+    block.appendChild(lead);
+
+    var tbl = h("table", "");
+    /* The lead line above carries the family in prose; the table still needs a
+       name of its own for a reader who meets it out of that context. */
+    tbl.appendChild(h("caption", "sr-only", rankLabel(fam) + " requests, every seat's score"));
+
+    var thead = h("thead", ""), hr = h("tr", "");
+    hr.appendChild(h("th", "n", "Rank"));
+    hr.appendChild(h("th", "", "Seat"));
+    cols.forEach(function (c) {
+      var th = h("th", "n"), box = h("span", "score-head");
+      box.appendChild(document.createTextNode(windowShort(c) + " ×" + wtText(c.weight)));
+      box.appendChild(secRef(chartOf(c.kind).id, chartOf(c.kind).name, fam + ":head:" + c.kind + c.scope));
+      th.appendChild(box);
+      hr.appendChild(th);
+    });
+    hr.appendChild(h("th", "n", "− fullness ×" + wtText(wts.raw_utilization_weight)));
+    hr.appendChild(h("th", "n", "= score"));
+    thead.appendChild(hr);
+    tbl.appendChild(thead);
+
+    var tb = h("tbody", "");
+    seats.forEach(function (a) {
+      var sc = famScore(a, fam), tr = h("tr", "");
+      var rank = ranks.byFam[fam][a.auth_id];
+      var elig = !!(sc && sc.eligible);
+      tr.appendChild(h("td", "n mono score-rank", elig && rank !== undefined ? "#" + (rank + 1) : "—"));
+
+      var seatTd = h("td", "");
+      seatTd.appendChild(seatMark(a));
+      if (ranks.lead[fam] === a.auth_id) {
+        seatTd.appendChild(document.createTextNode(" "));
+        seatTd.appendChild(chip("takes it", "info", "✓"));
+      }
+      tr.appendChild(seatTd);
+
+      var terms = cols.map(function (c) { return windowIn(sc, c.kind, c.scope); });
+      /* The row is shown to a tenth of a point, and figures each rounded to a
+         tenth need not sum to the total rounded the same way. The penalty
+         carries the difference, because its own factors are a whole percent
+         of a window and pin its figure far less tightly than a slack pins a
+         term's: the row adds up exactly where a reader checks it, and every
+         figure stays within a tenth of the value it stands for. */
+      var shown = terms.map(function (ws) {
+        return ws && num(ws.slack) && num(ws.weight) ? Math.round(ws.weight * ws.slack * 1000) : null;
+      });
+      var whole = scored(sc) && num(sc.raw_penalty);
+      var pen = whole ? -Math.round(sc.raw_penalty * 1000) : null;
+      if (pen !== null && elig && num(sc.total) && shown.indexOf(null) < 0) {
+        pen = Math.round(sc.total * 1000);
+        shown.forEach(function (t) { pen -= t; });
+      }
+      cols.forEach(function (c, i) { tr.appendChild(termCell(terms[i], shown[i] === null ? null : shown[i] / 1000)); });
+      tr.appendChild(penaltyCell(sc, fam, wts, pen === null ? null : pen / 1000, fam + ":" + a.auth_id));
+
+      /* A seat that cannot take the request carries why in place of its
+         total: the arithmetic ran, and it loses whatever the terms come to. */
+      var totTd = h("td", "n");
+      if (sc === null) totTd.appendChild(h("span", "score-val", "unknown"));
+      else if (!sc.eligible) totTd.appendChild(chip(reasonText(sc.reason), "critical", "✕"));
+      else totTd.appendChild(h("span", "score-val score-total", termText(sc.total)));
+      tr.appendChild(totTd);
+
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    var scroll = h("div", "score-scroll");
+    scroll.appendChild(tbl);
+    block.appendChild(scroll);
+    return block;
+  }
+
+  /* The sum the tables lay out, in the weights the plugin is running with,
+     and the sign its figures carry — the scorer's, which is the opposite of
+     the one the charts label their gaps with. */
+  function renderScoreLegend(st, wts) {
+    var leg = $("score-legend");
+    leg.textContent = "";
+    var fams = scopedFamilies(st);
+    leg.appendChild(h("li", "", "score = 7d all models slack ×" + wtText(wts.weekly_weight) +
+      (fams.length ? " + " + fams.join("/") + " 7d slack ×" + wtText(wts.scoped_weight) : "") +
+      " + 5h session slack ×" + wtText(wts.session_weight) + " − fullness"));
+    leg.appendChild(h("li", "", "fullness = ×" + wtText(wts.raw_utilization_weight) +
+      " of the seat's fullest window bearing on the request, often the 5-hour one"));
+    leg.appendChild(h("li", "", "points of a window's budget: + adds to the score (under pace), − takes from it (over pace) · the charts sign the same gaps the other way round"));
+    if (fams.length) leg.appendChild(h("li", "", "a family cap bears only on its own family's requests, so it is a term in that family's table alone"));
+  }
+
+  function renderScore(st, seats, ranks) {
+    var wts = (st.config && st.config.pace) || {};
+    renderScoreLegend(st, wts);
+    var host = $("score-tables");
+    host.textContent = "";
+    ranks.fams.forEach(function (fam) { host.appendChild(scoreTable(st, seats, ranks, fam, wts)); });
   }
 
   /* ------------------------------------------------------------ decisions */
@@ -3309,9 +3608,62 @@ main[data-stale="true"] { opacity: .62; }
     }
   }
 
+  /* A pointer from a figure to the section that plots it. The index it shows
+     is assigned at render and skips a hidden section, so writeSecRefs writes
+     it rather than the caller baking one in; the section's name rides along
+     because a reader who hears "02" alone has heard a number. */
+  function secRef(target, name, fk) {
+    var b = h("button", "secref");
+    b.type = "button";
+    b.setAttribute("data-secref", target);
+    b.setAttribute("data-secref-name", name);
+    if (fk) b.setAttribute("data-fk", "secref:" + fk + ":" + target);
+    b.addEventListener("click", function () { goToSection(target); });
+    return b;
+  }
+
+  /* Every reference's number and label, from the sections as they now stand.
+     A reference to a section that is not on screen points at nothing, so it
+     is not on screen either. */
+  function writeSecRefs() {
+    var refs = document.querySelectorAll("[data-secref]");
+    for (var i = 0; i < refs.length; i++) {
+      var sec = $(refs[i].getAttribute("data-secref"));
+      var idx = sec && !sec.hidden && sec.querySelector(".sec-idx");
+      var text = idx ? idx.textContent : "";
+      refs[i].hidden = !text;
+      refs[i].textContent = text;
+      refs[i].setAttribute("aria-label",
+        "go to section " + text + ", " + refs[i].getAttribute("data-secref-name"));
+    }
+  }
+
+  /* Takes the reader to a section and marks it while the eye arrives. A
+     reader who asked for less motion gets the jump and the mark without the
+     ease or the fade: the mark is CSS, so only its timer is here. */
+  var litSection = null, litTimer = null;
+
+  function goToSection(id) {
+    var sec = $(id);
+    if (!sec || sec.hidden) return;
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    try { sec.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" }); }
+    catch (e) { sec.scrollIntoView(); }
+    if (litTimer) window.clearTimeout(litTimer);
+    if (litSection) litSection.classList.remove("lit");
+    litSection = sec;
+    sec.classList.add("lit");
+    litTimer = window.setTimeout(function () {
+      sec.classList.remove("lit");
+      litSection = null;
+      litTimer = null;
+    }, 1500);
+  }
+
   /* The index counts the sections actually on screen: with no credentials the
-     first two are absent, and a bindings table numbered 03 would read as two
-     sections that failed to render. */
+     first three are absent, and a bindings table numbered 04 would read as
+     three sections that failed to render. Every cross-reference is rewritten
+     from the same pass, so a number never outlives the count it came from. */
   function renumberSections() {
     var secs = $("app").querySelectorAll("section");
     var n = 0;
@@ -3322,6 +3674,7 @@ main[data-stale="true"] { opacity: .62; }
       n++;
       idx.textContent = (n < 10 ? "0" : "") + n;
     }
+    writeSecRefs();
   }
 
   function render() {
@@ -3344,6 +3697,7 @@ main[data-stale="true"] { opacity: .62; }
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
     $("sec-session").hidden = empty;
+    $("sec-score").hidden = empty;
     $("sec-decisions").hidden = false;
     $("sec-bindings").hidden = false;
 
@@ -3351,6 +3705,7 @@ main[data-stale="true"] { opacity: .62; }
       renderTimeline(st, seats, ranks);
       renderPace(st, seats);
       renderSession(st, seats);
+      renderScore(st, seats, ranks);
     }
     renderDecisions(st);
     renderBindings(st);
