@@ -19,7 +19,13 @@
   --hairline:     rgba(11,11,11,.10);
   --shadow:       0 1px 2px rgba(11,11,11,.05), 0 8px 24px -16px rgba(11,11,11,.28);
 
+  /* A window's track stays dark enough against the card that the coloured
+     fill drawn over it keeps its own boundary, which leaves the track itself
+     near 1.2:1 there. Its 1px edge carries the window's extent instead, and
+     clears 3:1 on the card even under the dim an ineligible seat's marks
+     take. */
   --track:        #e6e5df;
+  --track-edge:   #4f4e4a;
   --emph:         rgba(42,120,214,.07);
 
   /* The four tones a chip can take carry the non-colour encoding — glyph, bar
@@ -68,6 +74,7 @@
     --hairline:   rgba(255,255,255,.10);
     --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.9);
     --track:      #2c2c2a;
+    --track-edge: #999892;
     --critical:   #e05050;
     --emph:       rgba(57,135,229,.12);
     --good:       #0ca30c;
@@ -104,6 +111,7 @@
   --hairline:   rgba(255,255,255,.10);
   --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.9);
   --track:      #2c2c2a;
+  --track-edge: #999892;
   --emph:       rgba(57,135,229,.12);
   --critical:   #e05050;
   --good:       #0ca30c;
@@ -181,10 +189,11 @@ a { color: inherit; }
   font-weight: 700; letter-spacing: .008em; line-height: .95;
   margin: 0; text-transform: uppercase;
 }
-/* What the page is for, once, under the title. Capped near a comfortable
-   reading measure so it never runs the width of a wide window. */
+/* What the page is for, once, under the title. The cap keeps both sentences on
+   one line at a desktop width without running the width of a wide window; a
+   narrow viewport wraps them. */
 .brand-line {
-  margin: 8px 0 0; max-width: 62ch;
+  margin: 8px 0 0; max-width: 104ch;
   font: 400 13px/1.5 var(--sans); color: var(--ink-2);
 }
 
@@ -355,11 +364,14 @@ td .seat-mark { max-width: 22ch; }
     var(--surface-1) 0 1.6px, transparent 1.6px 4px);
 }
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
-/* The timeline's legend sits under its card, as every chart's does, in two
-   short lists rather than one long one. */
-.tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; }
+/* The timeline's legend sits inside its card under the chart, the same 8px
+   below it and 6px above the card's edge as a pace card's does, in two short
+   lists rather than one long one. The chart alone scrolls sideways, so the
+   lists wrap to the card's width rather than to the timeline's. */
+.tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; }
 .tl-legend .legend { margin: 0; }
-.tl-card { padding: 8px 8px 2px; overflow-x: auto; }
+.tl-card { padding: 8px 8px 6px; }
+#timeline { overflow-x: auto; }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
 svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -650,7 +662,7 @@ th[aria-sort] button { color: var(--ink-1); }
 /* Carries a value the layout has no room for to assistive technology. Every
    region that scrolls sideways is its containing block, so one placed deep in
    a wide table cannot widen the page instead of the table. */
-.tl-card, .tbl-card, .dec-body, .pace-card, .dec > summary { position: relative; }
+.tl-card, #timeline, .tbl-card, .dec-body, .pace-card, .dec > summary { position: relative; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -669,8 +681,8 @@ th[aria-sort] button { color: var(--ink-1); }
 <header class="mast">
   <div class="mast-inner">
     <h1 class="brand-name">Claude quota</h1>
-    <p class="brand-line">Spreads requests across every Claude seat by how fast each one is
-      spending, and keeps each conversation on the seat it started on.</p>
+    <p class="brand-line">Spreads requests across the Claude seats by how fast each is
+      spending. Each conversation stays on its first seat.</p>
   </div>
 </header>
 
@@ -741,19 +753,21 @@ th[aria-sort] button { color: var(--ink-1); }
         <span class="sec-sub" id="seats-sub">one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation</span>
         <span class="sec-line"></span>
       </div>
-      <div class="card tl-card"><div id="timeline"></div></div>
-      <!-- Two lists: what a bar's fill says, then the marks drawn over it.
-           The lane states come from STATE_META and the sign key from
-           SIGN_KEY, both at render time; only the axis markers, which no
-           script draws, are markup. -->
-      <div class="tl-legend" id="timeline-legend">
-        <ul class="legend" id="timeline-states" aria-label="Window states"></ul>
-        <ul class="legend" id="timeline-marks" aria-label="Marks on the axis">
-          <li><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
-          <li><span class="gl">&#8942;</span> curve position, on a window that weighs nothing in the cost</li>
-          <li><span class="gl">&#8943;</span> gap to the pace target</li>
-          <li><span class="gl">&#9474;</span> now</li>
-        </ul>
+      <div class="card tl-card">
+        <div id="timeline"></div>
+        <!-- Two lists: what a bar's fill says, then the marks drawn over it.
+             The lane states come from STATE_META and the sign key from
+             SIGN_KEY, both at render time; only the axis markers, which no
+             script draws, are markup. -->
+        <div class="tl-legend" id="timeline-legend">
+          <ul class="legend" id="timeline-states" aria-label="Window states"></ul>
+          <ul class="legend" id="timeline-marks" aria-label="Marks on the axis">
+            <li><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
+            <li><span class="gl">&#8942;</span> curve position, on a window that weighs nothing in the cost</li>
+            <li><span class="gl">&#8943;</span> gap to the pace target</li>
+            <li><span class="gl">&#9474;</span> now</li>
+          </ul>
+        </div>
       </div>
     </section>
 
@@ -2055,7 +2069,15 @@ th[aria-sort] button { color: var(--ink-1); }
         /* The drawn marks alone take the dim, so a lane keeps its focus ring
            at full strength whatever the seat's standing is. */
         var gm = svg("g", { opacity: markOpacity }, g);
-        svg("rect", { x: bx0, y: by, width: bx1 - bx0, height: barH, rx: 3, fill: "var(--track)" }, gm);
+        /* The track's fill is barely off the card, so its 1px edge is what
+           reads as the window's extent; the rect is inset half a pixel so the
+           edge lands on whole device pixels rather than straddling them. The
+           coloured fill covers that edge, which leaves it showing along the
+           unspent run alone. */
+        svg("rect", {
+          x: bx0 + 0.5, y: by + 0.5, width: (bx1 - bx0) - 1, height: barH - 1, rx: 2.5,
+          fill: "var(--track)", stroke: "var(--track-edge)", "stroke-width": 1
+        }, gm);
 
         /* Fill and target are measured against the track as drawn, not against
            the window's true span: the track has a floor and a clamp, and a
@@ -2170,8 +2192,9 @@ th[aria-sort] button { color: var(--ink-1); }
      window that is a sliver on the time axis is read. */
   function budgetMeter(parent, cy, w, ws, meta, eligible) {
     var color = meta.color, y = cy - MET_H / 2, opacity = eligible ? 1 : MARK_DIM;
-    svg("rect", { x: MET_X, y: y, width: MET_W, height: MET_H, rx: MET_H / 2,
-      fill: "var(--track)", opacity: opacity }, parent);
+    svg("rect", { x: MET_X + 0.5, y: y + 0.5, width: MET_W - 1, height: MET_H - 1,
+      rx: (MET_H - 1) / 2, fill: "var(--track)", stroke: "var(--track-edge)",
+      "stroke-width": 1, opacity: opacity }, parent);
     var fw = MET_W * clamp(w.utilization, 0, 1);
     if (fw > 0.5) {
       svg("path", { d: roundedRight(MET_X, y, fw, MET_H, MET_H / 2), fill: color, opacity: opacity }, parent);
