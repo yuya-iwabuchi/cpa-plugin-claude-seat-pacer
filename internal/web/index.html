@@ -284,16 +284,20 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 .banner.err { border-left-color: var(--critical); }
 
 /* -------------------------------------------------------------- sections */
-section { margin-top: 42px; border-radius: 12px; }
+/* Two sections are what a reader compares: where the next conversation lands
+   and why. The head, the gaps around it and the cards are set so the first two
+   stand together on a laptop viewport under the sticky bar, and every figure,
+   hit target and stop stays where it was. */
+section { margin-top: 26px; border-radius: 12px; }
 .sec-head {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 0 0 16px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0 0 8px;
 }
 .sec-head h2 {
-  font-family: var(--cond); font-size: 21px; font-weight: 700;
+  font-family: var(--cond); font-size: 21px; font-weight: 700; line-height: 1.05;
   letter-spacing: .04em; text-transform: uppercase; margin: 0; white-space: nowrap;
 }
 .sec-idx { font: 600 10.5px/1 var(--mono); color: var(--ink-3); letter-spacing: .1em; }
-.sec-sub { font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
+.sec-sub { font: 400 12px/1.35 var(--sans); color: var(--ink-2); }
 .sec-line { flex: 1 1 40px; height: 1px; background: var(--rule); }
 .sec-tools { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .sec-tools button { padding: 5px 9px; font-size: 10.5px; }
@@ -353,9 +357,9 @@ td .seat-mark { max-width: 22ch; }
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
 /* The timeline's legend sits under its card, as every chart's does, in two
    short lists rather than one long one. */
-.tl-legend { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 0; }
+.tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; }
 .tl-legend .legend { margin: 0; }
-.tl-card { padding: 16px 8px 8px 8px; overflow-x: auto; }
+.tl-card { padding: 8px 8px 2px; overflow-x: auto; }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
 svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -368,8 +372,10 @@ svg.tl g.lane:hover rect.hit { fill: var(--surface-2); }
 svg.tl g.head { cursor: default; }
 svg.tl g.head:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
 svg.tl g.head:hover rect.hit { fill: var(--surface-2); }
-/* The gap label has a lane of its own, so it never meets another. */
+/* The gap label has a lane of its own, so it never meets another. On an
+   ineligible seat it steps one ink token down, as the rest of that gutter does. */
 svg.tl text.gap-label { fill: var(--ink-2); }
+svg.tl text.gap-label.t-muted { fill: var(--ink-3); }
 /* A lane's reset stamp is a stop of its own: the row says how long is left,
    its tooltip the instant that lands on. */
 svg.tl g.rst { cursor: default; }
@@ -396,6 +402,9 @@ svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; 
 svg.pace[data-focus] g.pt:not([data-focused]),
 svg.pace[data-focus] g.pt-line:not([data-focused]),
 svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .16; }
+/* Pointing at one seat holds the others back only while the pointer is there;
+   a stop the keyboard reaches comes back whole, so its ring is never dimmed. */
+svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.seg:focus-visible { opacity: 1; }
 /* The gap label reads in ink over the curve and grid; the gap tick under
    the mark carries the seat's colour. In a dense chart labels wait for the
    seat to be pointed at or focused, in the legend or on the point. */
@@ -413,8 +422,10 @@ svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; 
    full inside the window runs its ramp under that label, so it carries the
    same halo as every other label drawn over the plot. */
 svg.pace text.curve-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-/* A weighted mark's label yields to the full-weight one beside it. */
-svg.pace text.gap-label.gap-label-half { font-size: 9px; opacity: .72; }
+/* A weighted mark's label yields to the full-weight one beside it: it is set
+   smaller, and holds its ink, because a figure behind an alpha reads under the
+   ratio this page holds text to. */
+svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 /* The seat's cost, at the head of its weekly line, in the seat's text hue;
    the ranked list beside the plot is where the costs are read against one
    another. */
@@ -424,8 +435,8 @@ svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
 svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
 .sess-focus b { font-weight: 600; color: var(--ink-1); }
-.pace-card { padding: 18px 18px 14px; overflow-x: auto; }
-.pace-card .legend { margin: 12px 0 0; }
+.pace-card { padding: 12px 16px 6px; overflow-x: auto; }
+.pace-card .legend { margin: 8px 0 0; }
 /* The plot and the ranking it produces, side by side: the plot carries the
    inputs, the list the answer, and the list's column is bounded so the plot
    keeps most of the card at every desktop width. On a phone the list drops
@@ -438,8 +449,10 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
   .pace-rank > #pace-rank { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 26px; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
-   can check a figure against the marks' labels by. */
-.rank-formula { margin: 0; font: 500 11px/1.55 var(--mono); color: var(--ink-2); }
+   can check a figure against the marks' labels by. It runs the width of the
+   card: in the list's own column the same sentence wraps to five lines, and
+   the column then sets the card's height rather than the plot. */
+.rank-formula { margin: 0 0 8px; font: 500 11px/1.45 var(--mono); color: var(--ink-2); }
 .rank-formula b { font-weight: 600; color: var(--ink-1); }
 /* One list per request family, every seat ordered by cost, lowest first: the
    top row is the seat that family's next new conversation lands on. */
@@ -458,7 +471,10 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 }
 .rank-row[data-lead] { background: var(--emph); }
 .rank-row[data-out] { color: var(--ink-3); }
-.rank-row[data-out] .seat-mark, .rank-row[data-out] .rank-state { opacity: .62; }
+/* A seat held off a family recedes in its swatches: the row is already set in
+   the dimmest ink, and an opacity over that takes the name and the state's
+   glyph under the ratio this page holds text to. */
+.rank-row[data-out] .seat-dot, .rank-row[data-out] .rank-state .sw { opacity: .62; }
 .rank-row[data-tip] { cursor: help; }
 .rank-row:focus-visible { outline-offset: 0; }
 .rank-no { font: 600 11px/1 var(--mono); color: var(--ink-2); }
@@ -480,10 +496,10 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .pace-missing { margin: 8px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-3); }
 .pace-missing b { font-weight: 600; color: var(--ink-2); }
 /* The explainer folds so prose never sets the card's height; the chart does. */
-.pace-more { margin-top: 12px; border-top: 1px solid var(--rule); }
+.pace-more { margin-top: 8px; border-top: 1px solid var(--rule); }
 .pace-more > summary {
   display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
-  padding: 10px 0 2px; font: 600 10.5px/1 var(--mono); letter-spacing: .14em;
+  padding: 5px 0 2px; font: 600 10.5px/1 var(--mono); letter-spacing: .14em;
   text-transform: uppercase; color: var(--ink-3);
 }
 .pace-more > summary::-webkit-details-marker { display: none; }
@@ -604,7 +620,14 @@ th[aria-sort] button { color: var(--ink-1); }
 .empty p { margin: 0 auto; max-width: 52ch; color: var(--ink-2); }
 .empty strong { display: block; font: 600 17px/1.3 var(--sans); color: var(--ink-1); margin-bottom: 8px; }
 [hidden] { display: none !important; }
-main[data-stale="true"] { opacity: .62; }
+/* A read still out past STALE_CUE_MS rules the sticky bar, which is on screen
+   at every scroll depth. The document itself keeps its ink: an opacity over it
+   multiplies with every token beneath and would take the very figures the cue
+   qualifies under the ratio this page holds text to. */
+:root[data-stale="true"] .livebar::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; background: var(--warning);
+}
 
 /* --------------------------------------------------------------- tooltip */
 #tooltip {
@@ -621,7 +644,6 @@ main[data-stale="true"] { opacity: .62; }
 /* Every animation on the page sits behind this query, including the ones that
    only fade. */
 @media (prefers-reduced-motion: no-preference) {
-  main { transition: opacity .18s ease; }
   #tooltip { transition: opacity .1s ease; }
 }
 
@@ -694,19 +716,19 @@ main[data-stale="true"] { opacity: .62; }
     <div id="error-strip" class="banner err" role="status" hidden></div>
     <div id="warnings" role="status" hidden></div>
 
-    <div id="loading" class="skel" style="margin-top:42px">
+    <div id="loading" class="skel" style="margin-top:26px">
       <div class="skel-row"></div>
       <div class="skel-row"></div>
       <div class="skel-row"></div>
     </div>
 
-    <div id="fail-state" class="card empty" hidden style="margin-top:42px">
+    <div id="fail-state" class="card empty" hidden style="margin-top:26px">
       <p><strong>No answer from the status endpoint.</strong>
       <span id="fail-detail"></span>
       Retrying. No data has arrived yet, so there is nothing stale to show.</p>
     </div>
 
-    <div id="empty-state" class="card empty" hidden style="margin-top:42px">
+    <div id="empty-state" class="card empty" hidden style="margin-top:26px">
       <p><strong>No credentials reported yet.</strong>
       The poller has not published a snapshot. Until it does the scheduler
       declines every pick and the host&rsquo;s own selector routes traffic.</p>
@@ -743,13 +765,15 @@ main[data-stale="true"] { opacity: .62; }
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
+        <!-- The sum a cost is, from the running weights, across the card: it
+             reads over the plot and the list it explains, and the list's
+             column keeps its height for the ranking alone. -->
+        <p class="rank-formula" id="pace-formula"></p>
         <div class="pace-body">
           <div id="pace-curve"></div>
-          <!-- The ranking the plot's gaps produce, beside the plot: the sum a
-               cost is, from the running weights, then one list per request
-               family with every seat in cost order. -->
+          <!-- The ranking the plot's gaps produce, beside the plot: one list
+               per request family with every seat in cost order. -->
           <div class="pace-rank">
-            <p class="rank-formula" id="pace-formula"></p>
             <div id="pace-rank"></div>
           </div>
         </div>
@@ -824,7 +848,7 @@ main[data-stale="true"] { opacity: .62; }
      built, so it is allowed longer than a fetch of what the poller already
      holds. */
   var SYNC_TIMEOUT_MS = 30000;
-  var STALE_DIM_MS = 250;    /* a round trip faster than this never dims */
+  var STALE_CUE_MS = 250;    /* a round trip faster than this is never marked */
   var PACE_BAND = 0.02;      /* a gap inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
@@ -1689,7 +1713,7 @@ main[data-stale="true"] { opacity: .62; }
 
   /* ------------------------------------------------------------ timeline */
 
-  var GUT = 520, PAD_R = 20, AXIS_H = 40, TOP = 10;
+  var GUT = 520, PAD_R = 20, AXIS_H = 26, TOP = 8;
   var MET_X = 232, MET_W = 100, MET_H = 7;   /* the per-lane budget meter */
   /* The gap label, right of the meter; the gutter leaves it room for
      "+100.0" before the reset column begins. */
@@ -1705,11 +1729,17 @@ main[data-stale="true"] { opacity: .62; }
   /* The plot a date on the axis needs to itself: a "Sep 16" set at 10.5px is
      about 40 of it, and the rest is the gap to the next one. */
   var DAY_LABEL_PX = 54;
+  /* What an ineligible seat's marks are drawn at. Opacity multiplies with
+     whatever it is set on, so it stays on the bars, the meters and the ticks:
+     a figure set in it lands under the ratio this page holds text to, and its
+     own text steps one ink token down instead. */
+  var MARK_DIM = 0.62;
+
   /* Row geometry, at the two densities the timeline draws. A roomy seat row
      has a second line for its live figures; a compact one keeps them in the
      tooltip. */
   var TL_GEO = {
-    roomy:   { head: 46, lane: 26, gap: 14, name: 13.5, sub: true },
+    roomy:   { head: 38, lane: 21, gap: 10, name: 13.5, sub: true },
     compact: { head: 26, lane: 21, gap: 8,  name: 12.5, sub: false }
   };
 
@@ -1808,13 +1838,15 @@ main[data-stale="true"] { opacity: .62; }
   /* The last column of a lane's gutter: when that window rolls. The stamp
      ticks with the rest of the page and its tooltip is the instant itself, in
      the reader's own zone. The hit box is the whole column, so a figure that
-     changes length as it counts down keeps one target. */
-  function resetStamp(parent, cy, resets, opacity) {
-    var g = svg("g", { "class": "rst", tabindex: 0, role: "img", opacity: opacity }, parent);
+     changes length as it counts down keeps one target. The stamp is already
+     set in the dimmest ink the page has, and carries no opacity of its own:
+     a seat's standing shows in its marks. */
+  function resetStamp(parent, cy, resets) {
+    var g = svg("g", { "class": "rst", tabindex: 0, role: "img" }, parent);
     svg("rect", { "class": "hit", x: RST_X - RST_W, y: cy - 9, width: RST_W, height: 18,
       rx: 3, fill: "transparent" }, g);
     var t = svgText(g, RST_X, cy + 3.5, resetText(resets, nowMs()), "t-mono t-muted",
-      { "font-size": 10, "text-anchor": "end", opacity: opacity });
+      { "font-size": 10, "text-anchor": "end" });
     t.setAttribute("data-ts", String(resets.getTime()));
     t.setAttribute("data-ts-mode", "reset");
     g.setAttribute("data-tip", absTime(resets));
@@ -1929,7 +1961,7 @@ main[data-stale="true"] { opacity: .62; }
          family, so each is one figure where the families agree and one per
          family where they differ. The name is trimmed to the measured space,
          so the tooltip is also where a long name is read whole. */
-      var headY = row.top + (compact ? 17 : 20);
+      var headY = row.top + (compact ? 17 : 18);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gGut);
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
       gh.setAttribute("aria-label", seatAria(a, ranks));
@@ -1968,10 +2000,10 @@ main[data-stale="true"] { opacity: .62; }
         cx += c.w + 6;
       });
 
-      if (geo.sub) seatSubLine(gh, nameX, headY + 15, a, GUT - nameX - 14);
+      if (geo.sub) seatSubLine(gh, nameX, headY + 14, a, GUT - nameX - 14);
 
 
-      var groupOpacity = eligible ? 1 : 0.62;
+      var markOpacity = eligible ? 1 : MARK_DIM;
 
       row.lanes.forEach(function (lane) {
         var w = lane.w;
@@ -1980,22 +2012,25 @@ main[data-stale="true"] { opacity: .62; }
         var meta = STATE_META[stt];
         var cy = lane.y + geo.lane / 2;
 
-        var g = svg("g", { "class": "lane", tabindex: 0, role: "img", opacity: groupOpacity }, gBars);
+        var g = svg("g", { "class": "lane", tabindex: 0, role: "img" }, gBars);
         g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
 
         /* Gutter: name, state glyph, utilization. All three are text, so no
-           value in this view depends on hovering a bar. */
-        var nm = svgText(gGut, 40, cy + 4, windowShort(w), "t-sec", { "font-size": 11.5, opacity: groupOpacity });
+           value in this view depends on hovering a bar. An ineligible seat
+           sets them one ink token down; the glyph keeps its own and carries no
+           opacity, so a state reads at full strength whatever the seat's
+           standing is. */
+        var nm = svgText(gGut, 40, cy + 4, windowShort(w), eligible ? "t-sec" : "t-muted", { "font-size": 11.5 });
         fitText(nm, 112);
-        if (meta.glyph) svgText(gGut, 160, cy + 4, meta.glyph, "", { "font-size": 10, fill: meta.color, opacity: groupOpacity });
-        svgText(gGut, 218, cy + 4, pct(w.utilization), "t-mono",
-          { "font-size": 11.5, "text-anchor": "end", opacity: groupOpacity });
+        if (meta.glyph) svgText(gGut, 160, cy + 4, meta.glyph, "", { "font-size": 10, fill: meta.color });
+        svgText(gGut, 218, cy + 4, pct(w.utilization), eligible ? "t-mono" : "t-mono t-sec",
+          { "font-size": 11.5, "text-anchor": "end" });
         /* The budget meter is a fixed width, so utilization and its target
            stay readable even where the window is a sliver on the time axis. */
-        budgetMeter(gGut, cy, w, ws, meta, groupOpacity);
+        budgetMeter(gGut, cy, w, ws, meta, eligible);
 
         var resets = parseT(w.resets_at);
-        if (resets) resetStamp(gGut, cy, resets, groupOpacity);
+        if (resets) resetStamp(gGut, cy, resets);
 
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
         if (!resets || durMs <= 0) {
@@ -2017,7 +2052,10 @@ main[data-stale="true"] { opacity: .62; }
           "class": "hit", x: bx0 - 6, y: lane.y, width: (bx1 - bx0) + 12, height: geo.lane,
           rx: 4, fill: "transparent"
         }, g);
-        svg("rect", { x: bx0, y: by, width: bx1 - bx0, height: barH, rx: 3, fill: "var(--track)" }, g);
+        /* The drawn marks alone take the dim, so a lane keeps its focus ring
+           at full strength whatever the seat's standing is. */
+        var gm = svg("g", { opacity: markOpacity }, g);
+        svg("rect", { x: bx0, y: by, width: bx1 - bx0, height: barH, rx: 3, fill: "var(--track)" }, gm);
 
         /* Fill and target are measured against the track as drawn, not against
            the window's true span: the track has a floor and a clamp, and a
@@ -2025,13 +2063,13 @@ main[data-stale="true"] { opacity: .62; }
         var track = bx1 - bx0;
         var fx1 = bx0 + track * clamp(w.utilization, 0, 1);
         if (fx1 > bx0) {
-          svg("path", { d: roundedRight(bx0, by, fx1 - bx0, barH, 3), fill: meta.color }, g);
+          svg("path", { d: roundedRight(bx0, by, fx1 - bx0, barH, 3), fill: meta.color }, gm);
         }
         if (meta.pattern) {
           svg("rect", {
             x: bx0, y: by, width: fx1 - bx0, height: barH, rx: 3,
             fill: "url(#" + meta.pattern + ")"
-          }, g);
+          }, gm);
         }
         if (clipped) {
           /* A torn left edge: this bar begins before the axis does. */
@@ -2042,13 +2080,13 @@ main[data-stale="true"] { opacity: .62; }
                "L" + bx0 + " " + (by + barH * 0.7) +
                "L" + (bx0 + 3.5) + " " + (by + barH),
             fill: "none", stroke: "var(--surface-1)", "stroke-width": 2, "stroke-linejoin": "round"
-          }, g);
+          }, gm);
         }
         if (w.utilization > 1) {
           svg("path", {
             d: "M" + (bx1 + 4) + " " + (cy - 4) + "L" + (bx1 + 10) + " " + cy + "L" + (bx1 + 4) + " " + (cy + 4) + "Z",
             fill: meta.color
-          }, g);
+          }, gm);
         }
         /* The pace target rides the same axis as the fill: it marks where the
            fill should reach right now. A window the cost does not weigh has no
@@ -2056,12 +2094,12 @@ main[data-stale="true"] { opacity: .62; }
            the curve is a reference tick on its gutter meter instead. */
         if (counted(ws) && stt !== "unknown" && num(ws.target)) {
           var tx = bx0 + track * clamp(ws.target, 0, 1);
-          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
-          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
+          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, gm);
+          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, gm);
           svg("path", {
             d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
             fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
-          }, g);
+          }, gm);
         }
       });
     });
@@ -2130,8 +2168,8 @@ main[data-stale="true"] { opacity: .62; }
   /* The meter's fill carries the lane state's pattern as the bar does, so a
      refused or spent window reads as one in the gutter, where a
      window that is a sliver on the time axis is read. */
-  function budgetMeter(parent, cy, w, ws, meta, opacity) {
-    var color = meta.color, y = cy - MET_H / 2;
+  function budgetMeter(parent, cy, w, ws, meta, eligible) {
+    var color = meta.color, y = cy - MET_H / 2, opacity = eligible ? 1 : MARK_DIM;
     svg("rect", { x: MET_X, y: y, width: MET_W, height: MET_H, rx: MET_H / 2,
       fill: "var(--track)", opacity: opacity }, parent);
     var fw = MET_W * clamp(w.utilization, 0, 1);
@@ -2156,7 +2194,8 @@ main[data-stale="true"] { opacity: .62; }
         var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round", opacity: opacity };
         svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
         svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
-        svgText(parent, GAP_X, cy + 3.5, overPts(ws.slack), "gap-label t-mono", { "font-size": 10, opacity: opacity });
+        svgText(parent, GAP_X, cy + 3.5, overPts(ws.slack),
+          eligible ? "gap-label t-mono" : "gap-label t-mono t-muted", { "font-size": 10 });
       }
     } else if (gatedOnly(w, ws) && openWindow(w) && num(ws.target)) {
       /* A window the cost does not weigh still sits somewhere on the curve,
@@ -2583,10 +2622,14 @@ main[data-stale="true"] { opacity: .62; }
     var pace = (st.config && st.config.pace) || {};
 
     /* The plot takes the card's width and a height that follows it, bounded so
-       a phone still gets a readable chart and a wide screen not a wall. */
+       a phone still gets a readable chart and a wide screen not a wall. The
+       ratio holds the plot to about what the ranked list beside it already
+       costs the card, so the section stands beside section 01 on a laptop
+       viewport; the gridlines stay a quarter of the budget apart and every
+       gap is printed on its own mark besides. */
     var W = Math.max(280, host.clientWidth || 480);
-    var H = Math.round(clamp(W * 0.34, 240, 400));
-    var m = { l: 46, r: 22, t: 18, b: 46 };
+    var H = Math.round(clamp(W * 0.25, 196, 340));
+    var m = { l: 46, r: 22, t: 16, b: 40 };
     var pw = W - m.l - m.r, ph = H - m.t - m.b;
 
     var series = seats.map(function (a) {
@@ -4229,7 +4272,7 @@ main[data-stale="true"] { opacity: .62; }
     inFlightCtl = null;
     state.inFlight = false;
     setSyncing(false);
-    $("app").removeAttribute("data-stale");
+    document.documentElement.removeAttribute("data-stale");
   }
 
   /* Every request is bounded and cancellable. A request that never settles
@@ -4260,8 +4303,8 @@ main[data-stale="true"] { opacity: .62; }
     if (forceSync) setSyncing(true);
     if (state.data) {
       staleTimer = window.setTimeout(function () {
-        $("app").setAttribute("data-stale", "true");
-      }, STALE_DIM_MS);
+        document.documentElement.setAttribute("data-stale", "true");
+      }, STALE_CUE_MS);
     } else {
       $("app").setAttribute("aria-busy", "true");
     }
