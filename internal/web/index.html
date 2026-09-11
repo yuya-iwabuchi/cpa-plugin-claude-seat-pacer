@@ -284,13 +284,7 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 .banner.err { border-left-color: var(--critical); }
 
 /* -------------------------------------------------------------- sections */
-/* The live bar never leaves the viewport, so a section arrived at by a
-   cross-reference stops below it rather than under it. */
-section { margin-top: 42px; scroll-margin-top: 74px; border-radius: 12px; }
-/* A section a cross-reference has just taken the reader to, marked while the
-   eye arrives. The outline is offset, so nothing on the page moves for it. */
-section { outline: 2px solid transparent; outline-offset: 8px; }
-section.lit { outline-color: color-mix(in srgb, var(--focus) 62%, transparent); }
+section { margin-top: 42px; border-radius: 12px; }
 .sec-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 0 0 16px;
 }
@@ -348,11 +342,11 @@ td .seat-mark { max-width: 22ch; }
 /* The red states are told apart by the pattern their swatch and their bar
    carry, so neither rests on colour: a refused window is hatched on the
    diagonal, a spent one barred upright. */
-.legend .sw[data-pattern="hatch"] {
+.sw[data-pattern="hatch"] {
   background-image: repeating-linear-gradient(45deg,
     var(--surface-1) 0 1.5px, transparent 1.5px 4px);
 }
-.legend .sw[data-pattern="bars"] {
+.sw[data-pattern="bars"] {
   background-image: repeating-linear-gradient(90deg,
     var(--surface-1) 0 1.6px, transparent 1.6px 4px);
 }
@@ -421,7 +415,9 @@ svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; 
 svg.pace text.curve-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 /* A weighted mark's label yields to the full-weight one beside it. */
 svg.pace text.gap-label.gap-label-half { font-size: 9px; opacity: .72; }
-/* The seat's cost, at the head of its weekly line, in the seat's text hue. */
+/* The seat's cost, at the head of its weekly line, in the seat's text hue;
+   the ranked list beside the plot is where the costs are read against one
+   another. */
 svg.pace text.score { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.score { visibility: hidden; }
 svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
@@ -430,6 +426,57 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus b { font-weight: 600; color: var(--ink-1); }
 .pace-card { padding: 18px 18px 14px; overflow-x: auto; }
 .pace-card .legend { margin: 12px 0 0; }
+/* The plot and the ranking it produces, side by side: the plot carries the
+   inputs, the list the answer, and the list's column is bounded so the plot
+   keeps most of the card at every desktop width. On a phone the list drops
+   under the plot, and its families sit side by side where two fit. */
+.pace-body { display: grid; grid-template-columns: minmax(0, 1fr) clamp(220px, 24%, 300px); gap: 14px 26px; align-items: start; }
+.pace-body > #pace-curve { min-width: 0; }
+.pace-rank { display: grid; gap: 14px; align-content: start; }
+@media (max-width: 760px) {
+  .pace-body { grid-template-columns: minmax(0, 1fr); }
+  .pace-rank > #pace-rank { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 26px; }
+}
+/* The sum a listed cost is, from the running weights, in one line a reader
+   can check a figure against the marks' labels by. */
+.rank-formula { margin: 0; font: 500 11px/1.55 var(--mono); color: var(--ink-2); }
+.rank-formula b { font-weight: 600; color: var(--ink-1); }
+/* One list per request family, every seat ordered by cost, lowest first: the
+   top row is the seat that family's next new conversation lands on. */
+.rank-fam + .rank-fam { margin-top: 14px; }
+.rank-fam-head { margin: 0 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.rank-fam-name { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.rank-fam-note { font: 400 11px/1.4 var(--sans); color: var(--ink-2); }
+.rank-list { margin: 0; padding: 0; list-style: none; }
+/* A row reads rank, state, seat, cost. The lead row carries the tint the
+   timeline gives the same seat; a seat held off the family is greyed and
+   carries its hold in the tooltip, because the icon already says it is out
+   and the reasons run long. */
+.rank-row {
+  display: grid; grid-template-columns: 2.4em 24px minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
+}
+.rank-row[data-lead] { background: var(--emph); }
+.rank-row[data-out] { color: var(--ink-3); }
+.rank-row[data-out] .seat-mark, .rank-row[data-out] .rank-state { opacity: .62; }
+.rank-row[data-tip] { cursor: help; }
+.rank-row:focus-visible { outline-offset: 0; }
+.rank-no { font: 600 11px/1 var(--mono); color: var(--ink-2); }
+.rank-row[data-out] .rank-no { color: var(--ink-3); }
+/* The state's swatch and glyph, as the timeline legend draws them; in a row
+   the swatch is square and the pair sits tight, so the column stays narrow. */
+.rank-state { display: inline-flex; align-items: center; gap: 7px; }
+.rank-row .rank-state { gap: 4px; }
+.rank-row .rank-state .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.rank-row .rank-state .gl { font: 600 10px/1 var(--mono); flex: none; }
+.rank-row .seat-mark { max-width: 100%; }
+.rank-cost { font: 600 12px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-1); text-align: right; }
+.rank-row[data-out] .rank-cost { color: var(--ink-3); font-weight: 500; }
+/* A cost that cannot be read against its neighbours': another eligible row
+   prints the same tenth, or a neighbour in the ranking sits close enough that
+   the two figures can come out in the wrong order. The rank compares the
+   unrounded figures, and the mark says where to read that. */
+.rank-cost[data-tip] { border-bottom: 1px dotted var(--ink-3); cursor: help; }
 .pace-missing { margin: 8px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-3); }
 .pace-missing b { font-weight: 600; color: var(--ink-2); }
 /* The explainer folds so prose never sets the card's height; the chart does. */
@@ -486,7 +533,7 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 /* A kept seat is every request of an ongoing conversation, so its note is a
    mark the pointer or the keyboard opens rather than a line of text under
    every row. The dotted rule is the page's mark for a figure carrying one,
-   the same as on a cost total, and the muted grey keeps it a remark rather
+   the same as on a listed cost, and the muted grey keeps it a remark rather
    than a fault. */
 .dec-why {
   font: 400 11.5px/1.3 var(--sans); color: var(--ink-3); font-style: italic;
@@ -529,56 +576,6 @@ th[aria-sort] button { color: var(--ink-1); }
 .win-gaps { display: inline-flex; gap: 10px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; }
 .win-gaps span { white-space: nowrap; color: var(--ink-2); }
 .win-gaps b { font-weight: 600; color: var(--ink-1); }
-
-/* ----------------------------------------------------------------- score */
-/* One table per request family. A row reads left to right as the sum the
-   scorer made, so the terms and the total it produced sit on one line. */
-.score-card { padding: 16px; }
-.score-fam + .score-fam { margin-top: 26px; }
-/* Only the table scrolls sideways: the line naming the seat the family's next
-   new conversation lands on is the section's headline and stays in place at
-   every width. */
-.score-scroll { overflow-x: auto; }
-.score-lead { margin: 0 0 10px; font: 500 12px/1.6 var(--sans); color: var(--ink-2); }
-.score-lead .score-fam-name {
-  font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--ink-3); margin-right: 10px;
-}
-.score-lead .seat-mark { vertical-align: -2px; }
-/* A term's head names the window on one line and the factor on the next,
-   so the head is no wider than the cells under it and the window's name
-   stands alone as the column's identity. */
-.score-head { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.score-head > span { display: inline-flex; align-items: center; gap: 5px; }
-.score-head .score-win { color: var(--ink-2); }
-/* A cost that cannot be read against its neighbours': another eligible row
-   prints the same tenth, or a neighbour in the ranking sits close enough that
-   the two totals can come out in the wrong order. The rank compares the
-   unrounded figures, and the mark says where to read that. */
-.score-total[data-tip] { border-bottom: 1px dotted var(--ink-3); cursor: help; }
-/* Every term stacks its product over the factors it came from, so a column of
-   products reads down and the arithmetic of one row reads across. */
-.score-term { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-.score-val { font: 600 12.5px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-1); }
-/* A term whose product rounds to nothing reads as the 0.0 it is, muted,
-   rather than as an empty cell. */
-.score-val[data-zero] { color: var(--ink-3); }
-.score-total { font-weight: 700; }
-.score-fac {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
-  font: 500 10px/1.3 var(--mono); color: var(--ink-3);
-}
-.score-rank { color: var(--ink-2); white-space: nowrap; }
-/* A pointer to the section that plots the figure beside it. The number is
-   written at render from that section's own index, so it follows the count
-   when a section is absent. */
-.secref {
-  all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 2px;
-  font: 600 9.5px/1 var(--mono); letter-spacing: .06em; color: var(--ink-3);
-  border: 1px solid var(--axis); border-radius: 4px; padding: 2px 4px;
-}
-.secref::before { content: "\2197"; font-size: 9px; }
-.secref:hover { color: var(--ink-1); border-color: var(--ink-3); }
 
 /* ---------------------------------------------------------------- footer */
 /* The build facts, in the quietest type on the page and on a rule of their
@@ -626,13 +623,12 @@ main[data-stale="true"] { opacity: .62; }
 @media (prefers-reduced-motion: no-preference) {
   main { transition: opacity .18s ease; }
   #tooltip { transition: opacity .1s ease; }
-  section { transition: outline-color .45s ease; }
 }
 
 /* Carries a value the layout has no room for to assistive technology. Every
    region that scrolls sideways is its containing block, so one placed deep in
    a wide table cannot widen the page instead of the table. */
-.tl-card, .tbl-card, .dec-body, .pace-card, .score-scroll, .dec > summary { position: relative; }
+.tl-card, .tbl-card, .dec-body, .pace-card, .dec > summary { position: relative; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -743,11 +739,20 @@ main[data-stale="true"] { opacity: .62; }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Weekly window</h2>
-        <span class="sec-sub" id="pace-sub">the budget the scheduler paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; the gap to that curve ranks the seats</span>
+        <span class="sec-sub" id="pace-sub">the budget the scheduler paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
-        <div id="pace-curve"></div>
+        <div class="pace-body">
+          <div id="pace-curve"></div>
+          <!-- The ranking the plot's gaps produce, beside the plot: the sum a
+               cost is, from the running weights, then one list per request
+               family with every seat in cost order. -->
+          <div class="pace-rank">
+            <p class="rank-formula" id="pace-formula"></p>
+            <div id="pace-rank"></div>
+          </div>
+        </div>
         <ul class="legend" id="pace-legend" aria-label="Seats plotted"></ul>
         <p class="pace-missing" id="pace-missing" hidden></p>
         <!-- Static, so the fold's open state and a focused summary outlive the
@@ -776,17 +781,6 @@ main[data-stale="true"] { opacity: .62; }
           <div class="pace-note" id="session-note"></div>
         </details>
       </div>
-    </section>
-
-    <section id="sec-score" hidden>
-      <div class="sec-head">
-        <span class="sec-idx"></span>
-        <h2>Cost</h2>
-        <span class="sec-sub">how the next pick is made: each seat's cost, term by term, and the total &middot; the lowest cost takes the next new conversation</span>
-        <span class="sec-line"></span>
-      </div>
-      <ul class="legend" id="score-legend" aria-label="How a cost is built"></ul>
-      <div class="card score-card" id="score-tables"></div>
     </section>
 
     <section id="sec-bindings" hidden>
@@ -1120,7 +1114,8 @@ main[data-stale="true"] { opacity: .62; }
      came from. One refresh is one fetch per family, so a plugin.reconfigure
      landing between two of them leaves the families holding different
      weights; reading a family's weights and its terms out of one payload is
-     what keeps a cost table's columns and its totals the same arithmetic.
+     what keeps a family's formula clause and its listed costs the same
+     arithmetic.
      A family whose fetch failed has no scores to lay out, so the Standard
      payload's weights stand in and nothing is claimed from them. */
   function famPace(st, fam) {
@@ -1718,9 +1713,10 @@ main[data-stale="true"] { opacity: .62; }
     compact: { head: 26, lane: 21, gap: 8,  name: 12.5, sub: false }
   };
 
-  /* The lane states are one list: the legend, the glyph, the tooltip and the
-     aria-label all read STATE_META, so they cannot drift apart. A state told
-     apart by hue alone has no glyph and shows its swatch only. The sign key
+  /* The lane states are one list: the legend, the glyph, the tooltip, the
+     aria-label and the ranked list's icons all read STATE_META, so they
+     cannot drift apart. A state told apart by hue alone has no glyph and
+     shows its swatch only. The sign key
      closes the marks list, from the one constant every legend prints, and
      is written once because the markup around it is static. */
   function renderStateLegend() {
@@ -1729,15 +1725,7 @@ main[data-stale="true"] { opacity: .62; }
     Object.keys(STATE_META).forEach(function (key) {
       var meta = STATE_META[key];
       var li = h("li", "");
-      var sw = h("span", "sw");
-      sw.style.backgroundColor = meta.color;
-      if (meta.pattern) sw.setAttribute("data-pattern", meta.pattern);
-      li.appendChild(sw);
-      if (meta.glyph) {
-        var gl = h("span", "gl", meta.glyph);
-        gl.style.color = meta.color;
-        li.appendChild(gl);
-      }
+      li.appendChild(stateSwatch(meta));
       li.appendChild(document.createTextNode(" " + meta.label));
       host.appendChild(li);
     });
@@ -2578,20 +2566,20 @@ main[data-stale="true"] { opacity: .62; }
     });
   }
 
-  function renderPace(st, seats) {
+  function renderPace(st, seats, ranks) {
     var host = $("pace-curve");
     host.textContent = "";
     var fams = scopedFamilies(st);
     var paced = "the budget the scheduler paces against: each seat's 7-day utilization";
-    var ranks = " \u00B7 the gap to that curve ranks the seats";
+    var ranked = " \u00B7 the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it";
     /* The cap is named only where a diamond is drawn for it: a weight of zero
        retires the cap from the cost, and the plot draws no mark for a window
        the cost does not weigh. */
     var capDrawn = fams.length && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     $("pace-sub").textContent = capDrawn
       ? paced + " (circle) and its " + fams.join(", ") + " cap (diamond) against the target curve, " +
-        "by days into its own week" + ranks
-      : paced + " against the target curve, by days into its own week" + ranks;
+        "by days into its own week" + ranked
+      : paced + " against the target curve, by days into its own week" + ranked;
     var pace = (st.config && st.config.pace) || {};
 
     /* The plot takes the card's width and a height that follows it, bounded so
@@ -2753,6 +2741,7 @@ main[data-stale="true"] { opacity: .62; }
     }
 
     renderPaceLegend(series, root, fams, anyEst);
+    renderRank(st, seats, ranks);
     renderPaceNote(st);
   }
 
@@ -2818,8 +2807,8 @@ main[data-stale="true"] { opacity: .62; }
 
     var p = h("p", "");
     /* A cap draws a diamond only where its weight puts it in a cost, which is
-       the same test the cost tables give it a column on, so the note claims a
-       mark the chart drew and a term the table carries. */
+       the same test the formula line gives it a clause on, so the note claims
+       a mark the chart drew and a term the list carries. */
     p.appendChild(document.createTextNode("Each circle is one seat's 7-day all-models window. It shows how many " +
       "days into that seat's own week it is, and how much of the weekly budget it has used." +
       (!fams.length ? ""
@@ -2834,7 +2823,8 @@ main[data-stale="true"] { opacity: .62; }
     p.appendChild(document.createTextNode(". A point below the curve is under target, with budget still to " +
       "spend. The dotted tick between a mark and the curve is the gap, in points of the weekly budget. The label " +
       "beside the mark gives that gap: " + SIGN_KEY +
-      ". The bold figure by the circle is the seat's cost, the number that ranks it."));
+      ". The bold figure by the circle is the seat's cost, the number that ranks it; the list beside the " +
+      "plot orders every seat by it, lowest first."));
     note.appendChild(p);
 
     var t = h("p", "");
@@ -2863,10 +2853,10 @@ main[data-stale="true"] { opacity: .62; }
     note.appendChild(r);
 
     var q = h("p", "");
-    /* The sum the cost tables lay out, in words: one clause per term the
+    /* The sum the formula line states, in words: one clause per term the
        running weights actually put in the cost, on the same test that gives
-       the window its column. A window a zero weight retires is named where it
-       is retired and claimed as a term nowhere. */
+       the window its clause there. A window a zero weight retires is named
+       where it is retired and claimed as a term nowhere. */
     var terms = [];
     if (termShown(wts.weekly_weight)) {
       terms.push(wts.weekly_weight === 1 ? "the weekly gap"
@@ -2892,7 +2882,9 @@ main[data-stale="true"] { opacity: .62; }
           "so its headroom is not budget to pace and stays out of the cost.") +
       " Whatever its weight, " + SESSION_GATES + ", because those are readings and not forecasts." +
       " The eligible seat with the lowest cost takes the next new conversation" +
-      (fams.length ? " of its family, so the page ranks every seat once per family" : "") +
+      (fams.length ? " of its family, so the list ranks every seat once per family" : "") +
+      ". Every figure is written to a tenth of a point, and a cost is the sum of its terms as each was rounded; " +
+      "a listed cost that cannot be read against its neighbour's carries a dotted rule and says why" +
       (num(wts.hysteresis_margin)
         ? ". A challenger must undercut by " + ptsRound(wts.hysteresis_margin) +
           " to take a session already bound to another seat."
@@ -3237,38 +3229,21 @@ main[data-stale="true"] { opacity: .62; }
     note.appendChild(q);
   }
 
-  /* ----------------------------------------------------------------- cost */
+  /* -------------------------------------------------------------- ranking */
 
-  /* The pick as arithmetic: one table per request family, one row per seat in
-     the seats' own order, and every term of the sum the scorer made, each one
-     the weight times how far that window runs over target. One kind of term
-     and nothing else, so the row adds across to the cost that ranks the seat.
+  /* The pick as a list: one per request family, every seat in the order the
+     scorer ranks them for it, the lowest cost first, so the top row is the
+     seat that family's next new conversation lands on. Beside the plot whose
+     gaps the costs are made of: the plot carries the inputs, the list the
+     answer, and the formula line between them says how one becomes the other
+     in the weights the plugin is running with.
 
-     Every gap and weight is read out of the scorer's own breakdown. The cost
-     beside them is the sum of the terms as printed, because a term rounded to
-     a tenth and a sum rounded to a tenth need not agree, and a row a reader
-     adds up has to come out. costTenths does that rounding once for the whole
-     page, so the total here is the same figure the charts and the routing log
-     print for the seat.
-
-     A seat no request can land on carries its reason where its cost would
-     be: it loses whatever its terms come to. */
+     A seat no request can land on sits under the eligible ones, in the
+     scorer's own order, greyed, with the hold in its tooltip. */
 
   /* One display unit of a cost: every figure on the page is written to a tenth
      of a point, and a point is a hundredth of a window's budget. */
   var COST_UNIT = 0.001;
-
-  function wtText(v) { return num(v) ? v.toFixed(2) : "?"; }
-
-  /* One window's entry in a cost's breakdown; null where the seat carries no
-     reading of it. */
-  function windowIn(sc, kind, scope) {
-    var list = (sc && sc.windows) || [];
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].kind === kind && (list[i].scope || "") === (scope || "")) return list[i];
-    }
-    return null;
-  }
 
   /* Mirrors model.Window.BearsOn: the session and all-models weekly windows
      apply to every request, a family cap only to its own family's. */
@@ -3277,126 +3252,142 @@ main[data-stale="true"] { opacity: .62; }
     return w.kind === "weekly_scoped" && fam !== STANDARD && (w.scope || "") === fam;
   }
 
-  /* The section that plots a window, so every term can point at its own
-     picture. */
-  function chartOf(kind) {
-    return kind === "five_hour"
-      ? { id: "sec-session", name: "the 5-hour window" }
-      : { id: "sec-pace", name: "the weekly window" };
-  }
-
-  /* A term cell: the product the cost took, over the gap and the weight it
-     came from. A product that rounds to nothing reads as the 0.0 it is,
-     rather than as a missing figure. */
-  function termCell(ws, shown) {
-    var td = h("td", "n"), box = h("div", "score-term");
-    if (shown === null) {
-      box.appendChild(h("span", "score-val", "—"));
-      box.appendChild(h("span", "score-fac", ws ? "no pace target" : "no reading"));
-    } else {
-      var val = h("span", "score-val", signed(shown));
-      if (Math.abs(shown) < 0.0005) val.setAttribute("data-zero", "true");
-      box.appendChild(val);
-      box.appendChild(h("span", "score-fac", overPts(ws.slack) + " × " + ws.weight.toFixed(2)));
-    }
-    td.appendChild(box);
-    return td;
-  }
-
   /* Whether a weight makes its window a term of the cost, which decides the
-     window's column and its clause in the formula. A zero weight retires the
-     window from the score and keeps every gate on it, so the column could
-     print nothing but 0.0 — on a phone the 5-hour one alone was a quarter of
-     the table's width, none of it a figure the pick turned on. Each chart's
-     note is where a deliberate zero is read. A weight the payload does not
-     carry is unknown rather than zero: the column stays, and each row prints
-     the weight the scorer itself recorded. */
+     window's clause in the formula line and whether the plot draws a mark for
+     it. A zero weight retires the window from the score and keeps every gate
+     on it; each chart's note is where a deliberate zero is read. A weight the
+     payload does not carry is unknown rather than zero: the clause stays. */
   function termShown(weight) {
     return !(num(weight) && weight === 0);
   }
 
-  /* The terms one family's table carries: the all-models weekly window, that
-     family's own cap where it has one, then the session window where its
-     weight puts it in the cost. Another family's cap applies to no request of
-     this one, so it is not a term here and has no column. */
-  function scoreColumns(fam, wts) {
-    var cols = [];
-    if (termShown(wts.weekly_weight)) cols.push({ kind: "seven_day", scope: "", weight: wts.weekly_weight });
-    if (fam !== STANDARD && termShown(wts.scoped_weight)) {
-      cols.push({ kind: "weekly_scoped", scope: fam, weight: wts.scoped_weight });
+  /* The lane states, least to most severe, so a seat's row can carry the one
+     that says the most about it. */
+  var STATE_ORDER = ["unknown", "limit", "under", "on", "over", "spent", "blocked"];
+
+  /* The state a seat's row carries for one family: the scorer's own hold
+     where it holds the seat off the family, else the most severe lane state
+     among the windows that apply to the family, which is the state the
+     timeline draws on the same seat. A hold with no reset to name reads as
+     not evaluated, which is the glyph the timeline gives a window it could
+     not read. */
+  function seatState(a, fam) {
+    var sc = famScore(a, fam);
+    if (sc && !sc.eligible) {
+      if (sc.reason === "provider-rejected") return "blocked";
+      if (sc.reason === "spent") return "spent";
+      return "unknown";
     }
-    if (termShown(wts.session_weight)) cols.push({ kind: "five_hour", scope: "", weight: wts.session_weight });
-    return cols;
+    var worst = "unknown";
+    ((a.snapshot && a.snapshot.windows) || []).forEach(function (w) {
+      if (!appliesTo(w, fam)) return;
+      var stt = laneState(w, scoreFor(a, w));
+      if (STATE_ORDER.indexOf(stt) > STATE_ORDER.indexOf(worst)) worst = stt;
+    });
+    return worst;
   }
 
-  function scoreTable(st, seats, ranks, fam, wts) {
-    var cols = scoreColumns(fam, wts);
-    var byID = Object.create(null);
-    seats.forEach(function (a) { byID[a.auth_id] = a; });
-    var known = seats.some(function (a) { return famScore(a, fam) !== null; });
+  /* One clause of the formula: a window's gap at its weight. */
+  function termClause(name, weight) {
+    return "the " + name + " gap at " + weightWord(weight) + " weight";
+  }
 
-    var block = h("div", "score-fam");
-    var lead = h("p", "score-lead");
-    lead.appendChild(h("span", "score-fam-name", rankLabel(fam) + " requests"));
-    if (!known) {
-      lead.appendChild(document.createTextNode("this family's ranking is unknown this refresh"));
-    } else if (ranks.lead[fam]) {
-      lead.appendChild(seatMark(byID[ranks.lead[fam]]));
-      lead.appendChild(document.createTextNode(" takes the next new conversation"));
-    } else {
-      lead.appendChild(document.createTextNode("no seat is eligible; the seat with the fewest live conversations takes the next new conversation"));
+  /* The sum a listed cost is, in the weights the plugin is running with: the
+     Standard sum first, then what each family adds to it. Every clause comes
+     from the same test that draws the window's mark, so the line claims a
+     term the list carries and nothing else; the session window is a term of
+     the cost this chart does not plot, and the line says so rather than let
+     every term read as a mark. Each family's clause reads the weights that
+     scored that family, which is what keeps it the arithmetic of the costs
+     under it. */
+  function renderFormula(st) {
+    var host = $("pace-formula");
+    host.textContent = "";
+    var wts = (st.config && st.config.pace) || {};
+    var fams = scopedFamilies(st);
+    var std = [];
+    if (termShown(wts.weekly_weight)) std.push(termClause("7-day", wts.weekly_weight));
+    if (termShown(wts.session_weight)) {
+      std.push(termClause("5-hour", wts.session_weight) + ", which is not on this chart");
     }
-    block.appendChild(lead);
-
-    var tbl = h("table", "");
-    /* The lead line above carries the family in prose; the table still needs a
-       name of its own for a reader who meets it out of that context. */
-    tbl.appendChild(h("caption", "sr-only", rankLabel(fam) + " requests, every seat's cost"));
-
-    /* Every column adds, so every head but the first carries the plus that
-       says so and the last carries the equals. */
-    var thead = h("thead", ""), hr = h("tr", "");
-    hr.appendChild(h("th", "n", "Rank"));
-    hr.appendChild(h("th", "", "Seat"));
-    cols.forEach(function (c, i) {
-      var th = h("th", "n"), box = h("span", "score-head");
-      box.appendChild(h("span", "score-win", (i ? "+ " : "") + windowShort(c)));
-      var fac = h("span", "", "over target ×" + wtText(c.weight));
-      fac.appendChild(secRef(chartOf(c.kind).id, chartOf(c.kind).name, fam + ":head:" + c.kind + c.scope));
-      box.appendChild(fac);
-      th.appendChild(box);
-      hr.appendChild(th);
+    function line(name, text) {
+      if (host.childNodes.length) host.appendChild(document.createTextNode(" · "));
+      host.appendChild(h("b", "", name));
+      host.appendChild(document.createTextNode(" " + text));
+    }
+    line("Standard cost", std.length ? "= " + std.join(", plus ") : "= 0: no window that applies to it carries weight");
+    fams.forEach(function (fam) {
+      var scoped = famPace(st, fam).scoped_weight;
+      if (!termShown(scoped)) { line(fam + " cost", "is the same figure: the cap weighs nothing in it"); return; }
+      var cap = termClause(fam + " cap's", scoped);
+      line(fam + " cost", std.length ? "= that, plus " + cap : "= " + cap);
     });
-    hr.appendChild(h("th", "n", "= cost"));
-    thead.appendChild(hr);
-    tbl.appendChild(thead);
+    host.appendChild(document.createTextNode(" · the gaps are the labels beside the marks · the lowest cost wins"));
+  }
 
-    /* Where the printed totals cannot be trusted to order the seats, so the
+  /* The state swatch the legend draws, for a seat's row: the state's colour,
+     its pattern, and its glyph where it has one, so a row and the legend name
+     the state alike and neither rests on colour. */
+  function stateSwatch(meta) {
+    var box = h("span", "rank-state");
+    var sw = h("span", "sw");
+    sw.style.backgroundColor = meta.color;
+    if (meta.pattern) sw.setAttribute("data-pattern", meta.pattern);
+    box.appendChild(sw);
+    if (meta.glyph) {
+      var gl = h("span", "gl", meta.glyph);
+      gl.style.color = meta.color;
+      box.appendChild(gl);
+    }
+    return box;
+  }
+
+  function rankList(st, seats, ranks, fam) {
+    var now = nowMs();
+    var known = seats.some(function (a) { return famScore(a, fam) !== null; });
+    var block = h("div", "rank-fam");
+    var head = h("p", "rank-fam-head");
+    head.appendChild(h("span", "rank-fam-name", rankLabel(fam)));
+    /* With no seat left to take the family the head says where the work
+       goes, in the live bar's own words: the overflow tier where the log
+       shows traffic on one, else the seat with the fewest live
+       conversations. */
+    if (!known) head.appendChild(h("span", "rank-fam-note", "ranking unknown this refresh"));
+    else if (!ranks.lead[fam]) {
+      head.appendChild(h("span", "rank-fam-note", overflowInLog(st)
+        ? "no seat is eligible; traffic is landing on the overflow key"
+        : "no seat is eligible; the seat with the fewest live conversations takes the next new conversation"));
+    }
+    block.appendChild(head);
+    if (!known) return block;
+
+    var order = seats.slice().sort(function (x, y) { return ranks.byFam[fam][x.auth_id] - ranks.byFam[fam][y.auth_id]; });
+
+    /* Where the printed costs cannot be trusted to order the seats, so the
        figure carries the neighbour it cannot be read against.
 
-       A total is the sum of its terms as each was rounded, and the rank is the
-       scorer's own unrounded cost, so two costs close enough can print in
-       either order and one can print the larger figure at the better rank. Each
-       of a row's n terms is rounded to a display unit, which puts its total
-       within n/2 units of the cost the rank compared; two totals can therefore
-       come out in the wrong order only where the raw costs sit inside
-       (n_a + n_b)/2 - 1 units of each other. The cue fires on that span, and on
-       a seat printing another's figure outright. One unit is a tenth of a
-       point, which is 0.001 of a window's budget. */
+       A printed cost is the sum of its terms as each was rounded, and the
+       rank is the scorer's own unrounded cost, so two costs close enough can
+       print in either order and one can print the larger figure at the better
+       rank. Each of a cost's n terms is rounded to a display unit, which puts
+       the printed figure within n/2 units of the cost the rank compared; two
+       figures can therefore come out in the wrong order only where the raw
+       costs sit inside (n_a + n_b)/2 - 1 units of each other. The cue fires on
+       that span, and on a seat printing another's figure outright. One unit
+       is a tenth of a point, which is 0.001 of a window's budget. */
     var printing = Object.create(null), byRank = [];
-    seats.forEach(function (a) {
+    order.forEach(function (a) {
       var sc = famScore(a, fam);
       if (!sc || !sc.eligible || !scored(sc) || !num(sc.cost)) return;
       var key = costText(sc);
       (printing[key] = printing[key] || []).push(a);
       byRank.push(a);
     });
-    byRank.sort(function (x, y) { return ranks.byFam[fam][x.auth_id] - ranks.byFam[fam][y.auth_id]; });
 
-    function costOf(x) { var s = famScore(x, fam); return s ? s.cost : NaN; }
+    function costOf(x) { var sc = famScore(x, fam); return sc ? sc.cost : NaN; }
 
-    /* How many terms a total is the sum of, which is what bounds the distance
-       between it and the cost the rank compared. */
+    /* How many terms a printed cost is the sum of, which is what bounds the
+       distance between it and the cost the rank compared. */
     function termsOf(x) {
       var list = (famScore(x, fam) || {}).windows || [], n = 0;
       for (var i = 0; i < list.length; i++) if (counted(list[i])) n++;
@@ -3404,7 +3395,7 @@ main[data-stale="true"] { opacity: .62; }
     }
 
     /* The ranked neighbours whose unrounded costs sit close enough that the two
-       printed totals can come out in the wrong order. */
+       printed figures can come out in the wrong order. */
     function nearNeighbours(a) {
       var i = byRank.indexOf(a), mine = costOf(a), mineN = termsOf(a);
       if (i < 0 || !num(mine)) return [];
@@ -3415,40 +3406,24 @@ main[data-stale="true"] { opacity: .62; }
       });
     }
 
-    var tb = h("tbody", "");
-    seats.forEach(function (a) {
-      var sc = famScore(a, fam), tr = h("tr", "");
+    var ul = h("ul", "rank-list");
+    ul.setAttribute("aria-label", rankLabel(fam) + " requests, every seat by cost, lowest first");
+    order.forEach(function (a) {
+      var sc = famScore(a, fam), li = h("li", "rank-row");
       var rank = ranks.byFam[fam][a.auth_id];
       var elig = !!(sc && sc.eligible);
-      tr.appendChild(h("td", "n mono score-rank", elig && rank !== undefined ? "#" + (rank + 1) : "—"));
-
-      var seatTd = h("td", "");
-      seatTd.appendChild(seatMark(a));
-      if (ranks.lead[fam] === a.auth_id) {
-        seatTd.appendChild(document.createTextNode(" "));
-        seatTd.appendChild(chip("takes it", "info", "✓"));
-      }
-      tr.appendChild(seatTd);
-
-      var terms = cols.map(function (c) { return windowIn(sc, c.kind, c.scope); });
-      /* Each window's term is its weight times how far it runs over target,
-         which the payload gives as the negation of that. Every term is
-         rounded to the tenth of a point the column prints, and the total is
-         the sum of those rounded tenths, so the row adds up exactly where a
-         reader checks it. That is costTenths, which every other cost figure
-         on the page comes from as well. */
-      var shown = terms.map(function (ws) {
-        return ws && num(ws.slack) && num(ws.weight) ? Math.round(ws.weight * -ws.slack * 1000) : null;
-      });
-      cols.forEach(function (c, i) { tr.appendChild(termCell(terms[i], shown[i] === null ? null : shown[i] / 1000)); });
-
-      /* A seat that cannot take the request carries why in place of its cost:
-         the arithmetic ran, and it loses whatever the terms come to. */
-      var totTd = h("td", "n");
-      if (sc === null) totTd.appendChild(h("span", "score-val", "unknown"));
-      else if (!sc.eligible) totTd.appendChild(chip(reasonText(sc.reason), "critical", "✕"));
-      else {
-        var tot = h("span", "score-val score-total", costText(sc));
+      var verdict = famVerdict(a, fam, now);
+      var meta = STATE_META[seatState(a, fam)];
+      li.setAttribute("data-fk", "rank:" + fam + ":" + a.auth_id);
+      if (ranks.lead[fam] === a.auth_id) li.setAttribute("data-lead", "true");
+      li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : "—"));
+      var sw = stateSwatch(meta);
+      sw.setAttribute("role", "img");
+      sw.setAttribute("aria-label", meta.label);
+      li.appendChild(sw);
+      li.appendChild(seatMark(a));
+      var cost = h("span", "rank-cost", costText(sc));
+      if (elig) {
         var same = (printing[costText(sc)] || []).filter(function (o) { return o !== a; });
         var near = nearNeighbours(a).filter(function (o) { return same.indexOf(o) < 0; });
         if (same.length || near.length) {
@@ -3473,54 +3448,29 @@ main[data-stale="true"] { opacity: .62; }
           }
           if (near.length) {
             notes.push("within rounding of " + near.map(seatLabel).join(", ") +
-              " · the rank compares the unrounded costs, so these totals need not run in rank order");
+              " · the rank compares the unrounded costs, so these figures need not run in rank order");
           }
-          tipOnly(tot, notes.join(" · "));
-          tot.setAttribute("data-fk", "cost:" + fam + ":" + a.auth_id);
+          tipOnly(cost, notes.join(" · "));
+          cost.setAttribute("data-fk", "cost:" + fam + ":" + a.auth_id);
         }
-        totTd.appendChild(tot);
+      } else {
+        /* The icon says the seat is out; the tooltip says why, and when the
+           work returns where the provider names an instant. */
+        li.setAttribute("data-out", "true");
+        tipOnly(li, verdict.text);
       }
-      tr.appendChild(totTd);
-
-      tb.appendChild(tr);
+      li.appendChild(cost);
+      ul.appendChild(li);
     });
-    tbl.appendChild(tb);
-    var scroll = h("div", "score-scroll");
-    scroll.appendChild(tbl);
-    block.appendChild(scroll);
+    block.appendChild(ul);
     return block;
   }
 
-  /* The sum the tables lay out, in the weights the plugin is running with,
-     and the sign its figures carry, which is the page's one sign. */
-  function renderCostLegend(st, wts) {
-    var leg = $("score-legend");
-    leg.textContent = "";
-    var fams = scopedFamilies(st);
-    var terms = [];
-    if (termShown(wts.weekly_weight)) terms.push("7d all models over target ×" + wtText(wts.weekly_weight));
-    if (fams.length && termShown(wts.scoped_weight)) {
-      terms.push(fams.join("/") + " cap over target ×" + wtText(wts.scoped_weight));
-    }
-    if (termShown(wts.session_weight)) terms.push("5h session over target ×" + wtText(wts.session_weight));
-    leg.appendChild(h("li", "", terms.length ? "cost = " + terms.join(" + ") : "no window carries weight, so every cost is 0"));
-    leg.appendChild(h("li", "", SIGN_KEY + ", in points of a window's budget"));
-    leg.appendChild(h("li", "", "each term is rounded to a tenth; the cost is their sum, so a row adds across · the lowest cost wins"));
-    /* Only where a cap is a term at all: at a zero scoped weight it is a term
-       in no table, and the weekly chart's note is where that zero is read. */
-    if (fams.length && termShown(wts.scoped_weight)) {
-      leg.appendChild(h("li", "", "a family cap applies only to its own family's requests, so it is a term in that family's table alone"));
-    }
-  }
-
-  function renderScore(st, seats, ranks) {
-    /* The legend states the formula the plugin is configured with, which the
-       Standard payload carries; each table lays out one family's own
-       arithmetic, so it reads the weights that scored that family. */
-    renderCostLegend(st, (st.config && st.config.pace) || {});
-    var host = $("score-tables");
+  function renderRank(st, seats, ranks) {
+    renderFormula(st);
+    var host = $("pace-rank");
     host.textContent = "";
-    ranks.fams.forEach(function (fam) { host.appendChild(scoreTable(st, seats, ranks, fam, famPace(st, fam))); });
+    ranks.fams.forEach(function (fam) { host.appendChild(rankList(st, seats, ranks, fam)); });
   }
 
   /* ------------------------------------------------------------ decisions */
@@ -4116,62 +4066,9 @@ main[data-stale="true"] { opacity: .62; }
     }
   }
 
-  /* A pointer from a figure to the section that plots it. The index it shows
-     is assigned at render and skips a hidden section, so writeSecRefs writes
-     it rather than the caller baking one in; the section's name rides along
-     because a reader who hears "02" alone has heard a number. */
-  function secRef(target, name, fk) {
-    var b = h("button", "secref");
-    b.type = "button";
-    b.setAttribute("data-secref", target);
-    b.setAttribute("data-secref-name", name);
-    if (fk) b.setAttribute("data-fk", "secref:" + fk + ":" + target);
-    b.addEventListener("click", function () { goToSection(target); });
-    return b;
-  }
-
-  /* Every reference's number and label, from the sections as they now stand.
-     A reference to a section that is not on screen points at nothing, so it
-     is not on screen either. */
-  function writeSecRefs() {
-    var refs = document.querySelectorAll("[data-secref]");
-    for (var i = 0; i < refs.length; i++) {
-      var sec = $(refs[i].getAttribute("data-secref"));
-      var idx = sec && !sec.hidden && sec.querySelector(".sec-idx");
-      var text = idx ? idx.textContent : "";
-      refs[i].hidden = !text;
-      refs[i].textContent = text;
-      refs[i].setAttribute("aria-label",
-        "go to section " + text + ", " + refs[i].getAttribute("data-secref-name"));
-    }
-  }
-
-  /* Takes the reader to a section and marks it while the eye arrives. A
-     reader who asked for less motion gets the jump and the mark without the
-     ease or the fade: the mark is CSS, so only its timer is here. */
-  var litSection = null, litTimer = null;
-
-  function goToSection(id) {
-    var sec = $(id);
-    if (!sec || sec.hidden) return;
-    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    try { sec.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" }); }
-    catch (e) { sec.scrollIntoView(); }
-    if (litTimer) window.clearTimeout(litTimer);
-    if (litSection) litSection.classList.remove("lit");
-    litSection = sec;
-    sec.classList.add("lit");
-    litTimer = window.setTimeout(function () {
-      sec.classList.remove("lit");
-      litSection = null;
-      litTimer = null;
-    }, 1500);
-  }
-
   /* The index counts the sections actually on screen: with no credentials the
      first three are absent, and a bindings table numbered 04 would read as
-     three sections that failed to render. Every cross-reference is rewritten
-     from the same pass, so a number never outlives the count it came from. */
+     three sections that failed to render. */
   function renumberSections() {
     var secs = $("app").querySelectorAll("section");
     var n = 0;
@@ -4182,7 +4079,6 @@ main[data-stale="true"] { opacity: .62; }
       n++;
       idx.textContent = (n < 10 ? "0" : "") + n;
     }
-    writeSecRefs();
   }
 
   function render() {
@@ -4205,15 +4101,13 @@ main[data-stale="true"] { opacity: .62; }
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
     $("sec-session").hidden = empty;
-    $("sec-score").hidden = empty;
     $("sec-decisions").hidden = false;
     $("sec-bindings").hidden = false;
 
     if (!empty) {
       renderTimeline(st, seats, ranks);
-      renderPace(st, seats);
+      renderPace(st, seats, ranks);
       renderSession(st, seats);
-      renderScore(st, seats, ranks);
     }
     renderDecisions(st);
     renderBindings(st);
