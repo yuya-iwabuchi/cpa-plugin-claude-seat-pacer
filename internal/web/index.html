@@ -418,11 +418,12 @@ svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .16; }
    a stop the keyboard reaches comes back whole, so its ring is never dimmed. */
 svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.seg:focus-visible { opacity: 1; }
 /* The gap label reads in ink over the curve and grid; the gap tick under
-   the mark carries the seat's colour. In a dense chart labels wait for the
-   seat to be pointed at or focused, in the legend or on the point. */
+   the mark carries the seat's colour. A label that crowding pushed off its
+   mark waits for the seat to be pointed at or focused, in the legend or on
+   the point, and shows with the tick that leads back to its mark. */
 svg.pace text.gap-label { fill: var(--ink-2); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.gap-label,
-svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) line.tick { visibility: hidden; }
+svg.pace g.pt[data-crowded]:not([data-focused]):not(:focus):not(:hover) text.gap-label,
+svg.pace g.pt[data-crowded]:not([data-focused]):not(:focus):not(:hover) line.tick { visibility: hidden; }
 /* The recorded path up to the mark is a hairline in the seat's colour at full
    strength, so it keeps the mark's contrast and the ringed mark still reads
    as the present. */
@@ -438,11 +439,6 @@ svg.pace text.curve-label { paint-order: stroke; stroke: var(--surface-1); strok
    smaller, and holds its ink, because a figure behind an alpha reads under the
    ratio this page holds text to. */
 svg.pace text.gap-label.gap-label-half { font-size: 9px; }
-/* The seat's cost, at the head of its weekly line, in the seat's text hue;
-   the ranked list beside the plot is where the costs are read against one
-   another. */
-svg.pace text.score { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-svg.pace[data-dense] g.pt:not([data-focused]):not(:focus):not(:hover) text.score { visibility: hidden; }
 svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
 svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
@@ -453,7 +449,7 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
    inputs, the list the answer, and the list's column is bounded so the plot
    keeps most of the card at every desktop width. On a phone the list drops
    under the plot, and its families sit side by side where two fit. */
-.pace-body { display: grid; grid-template-columns: minmax(0, 1fr) clamp(220px, 24%, 300px); gap: 14px 26px; align-items: start; }
+.pace-body { display: grid; grid-template-columns: minmax(0, 1fr) clamp(220px, 24%, 300px); gap: 14px; align-items: start; }
 .pace-body > #pace-curve { min-width: 0; }
 .pace-rank { display: grid; gap: 14px; align-content: start; }
 @media (max-width: 760px) {
@@ -2445,11 +2441,12 @@ th[aria-sort] button { color: var(--ink-1); }
   var PACE_DAYS = 7;
   var PT_R = 4.6;            /* the weekly point's radius; the cap's diamond matches its area */
   var PT_D = 6;
+  var MARK_R = PT_D + 1;     /* the square a mark holds against labels: the diamond's reach plus its stroke */
   /* Gap labels: a 10px monospace line, its box and the distance it keeps from
-     its mark. Past LABEL_DENSE labels the chart is dense: a label shows only
-     for the seat pointed at or focused, so no two are up at once. A plot has
-     room for about one label per LABEL_PX of width before that. */
-  var LABEL_H = 12, LABEL_GAP = 9, LABEL_DENSE = 12, LABEL_PX = 35;
+     its mark. A label is up only while its box crosses its mark's y, which is
+     the one place it is that mark's beyond doubt; one that crowding pushed
+     further waits for its seat to be pointed at or focused. */
+  var LABEL_H = 12, LABEL_GAP = 9;
 
   /* A family cap's weight, as every label that carries one writes it. */
   function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
@@ -2522,15 +2519,23 @@ th[aria-sort] button { color: var(--ink-1); }
     labels.push({ el: t, g: g, cx: cx, my: cy, up: cy > ty, col: col, w: t.getComputedTextLength() + 2 });
   }
 
-  /* Sets each queued label where placeLabels put it, with a tick back to the
-     mark for one that had to move more than a line away. */
+  /* Sets each queued label where placeLabels put it. Every mark on the chart,
+     labelled or not, is ground no label may cover. A label pushed more than
+     half a line off its mark is crowded: it gets a tick back to the mark and
+     its point holds it back until the seat is pointed at or focused. */
   function settleLabels(labels, plot, root) {
-    placeLabels(labels, plot);
+    var marks = [], pts = root.querySelectorAll("g.pt > circle.hit");
+    for (var i = 0; i < pts.length; i++) {
+      var cx = +pts[i].getAttribute("cx"), cy = +pts[i].getAttribute("cy");
+      marks.push({ x0: cx - MARK_R, x1: cx + MARK_R, y0: cy - MARK_R, y1: cy + MARK_R });
+    }
+    placeLabels(labels, plot, marks);
     labels.forEach(function (l) {
       l.el.setAttribute("x", String(l.x));
       l.el.setAttribute("y", String(l.yc + 3.5));
       l.el.setAttribute("text-anchor", l.right ? "start" : "end");
-      if (Math.abs(l.yc - l.my) > LABEL_H) {
+      if (Math.abs(l.yc - l.my) > LABEL_H / 2) {
+        l.g.setAttribute("data-crowded", "true");
         var tx = l.right ? l.x - 2 : l.x + 2;
         svg("line", {
           "class": "tick", x1: l.cx, y1: l.my, x2: tx, y2: l.yc,
@@ -2538,11 +2543,7 @@ th[aria-sort] button { color: var(--ink-1); }
         }, l.g);
       }
     });
-    if (labels.length > Math.min(LABEL_DENSE, Math.floor((plot.x1 - plot.x0) / LABEL_PX))) root.setAttribute("data-dense", "true");
   }
-
-  /* The seat's colour token as its text-safe variant. */
-  function seatTextColor(a) { return seatColor(a).replace(/\)$/, "-text)"); }
 
   /* A legend row: a swatch styled by css text, then a caption. */
   function legendRow(leg, swatchCss, caption) {
@@ -2586,22 +2587,19 @@ th[aria-sort] button { color: var(--ink-1); }
     return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
   }
 
-  /* Places every head label so no two boxes meet. A label sits to the right
-     of its mark, centred on it: time runs left to right, so the history line
-     arrives at the mark from the left and the right side is empty. Only a
-     box that would leave the plot's right edge goes to the left instead.
-     A label that meets another moves along the gap's own direction — up for
-     a mark under the curve, down for one over — until it is clear, bouncing
-     off the plot edge, and never back across the mark's x. The labels of
-     one mark share a side, so a gap and a cost read as one head. A
-     label that ends more than one line from its mark gets a tick back to
-     it. */
-  function placeLabels(labels, plot) {
-    var placed = [];
+  /* Places every head label so no box meets another's, or a mark. A label
+     sits to the right of its mark, centred on it: time runs left to right,
+     so the history line arrives at the mark from the left and the right side
+     is empty. Only a box that would leave the plot's right edge goes to the
+     left instead. A label that meets something moves along the gap's own
+     direction — up for a mark under the curve, down for one over — until it
+     is clear, bouncing off the plot edge, and never back across the mark's
+     x. marks are the boxes every mark on the chart holds, placed before any
+     label. */
+  function placeLabels(labels, plot, marks) {
+    var placed = marks.slice();
     var fitsRight = function (l) { return l.cx + LABEL_GAP + l.w <= plot.x1 + 0.5; };
-    labels.forEach(function (l) {
-      l.right = labels.every(function (o) { return o.g !== l.g || fitsRight(o); });
-    });
+    labels.forEach(function (l) { l.right = fitsRight(l); });
     function boxAt(l, right, yc) {
       var x0 = right ? l.cx + LABEL_GAP : l.cx - LABEL_GAP - l.w;
       return { x0: x0, x1: x0 + l.w, y0: yc - LABEL_H / 2, y1: yc + LABEL_H / 2 };
@@ -2646,12 +2644,12 @@ th[aria-sort] button { color: var(--ink-1); }
 
     /* The plot takes the card's width and a height that follows it, bounded so
        a phone still gets a readable chart and a wide screen not a wall. The
-       ratio holds the plot to about what the ranked list beside it already
-       costs the card, so the section stands beside section 01 on a laptop
-       viewport; the gridlines stay a quarter of the budget apart and every
-       gap is printed on its own mark besides. */
+       ratio gives the y axis room for seats a few points apart to keep their
+       labels beside their marks, and still stands the section with section
+       01 on a laptop viewport; the gridlines stay a quarter of the budget
+       apart. */
     var W = Math.max(280, host.clientWidth || 480);
-    var H = Math.round(clamp(W * 0.25, 196, 340));
+    var H = Math.round(clamp(W * 0.375, 294, 510));
     var m = { l: 46, r: 22, t: 16, b: 40 };
     var pw = W - m.l - m.r, ph = H - m.t - m.b;
 
@@ -2761,13 +2759,6 @@ th[aria-sort] button { color: var(--ink-1); }
       var targetSlope = targetRate(pace, ws.elapsed, PACE_DAYS * 24);
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
         head(g, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), weighted ? "gap-label-half" : null);
-      }
-      /* The cost ranks the seat, so it sits once at the head of the weekly
-         line, in the seat's colour, and moves with the other labels. */
-      if (!weighted && scored(a.score)) {
-        var sc = svgText(g, cx, cy + 3.5, "cost " + costText(a.score), "score", { "font-size": 10.5 });
-        sc.style.fill = seatTextColor(a);
-        labels.push({ el: sc, g: g, cx: cx, my: cy, up: !(num(ws.slack) && ws.slack < 0), col: col, w: sc.getComputedTextLength() + 2 });
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
@@ -2889,8 +2880,9 @@ th[aria-sort] button { color: var(--ink-1); }
     p.appendChild(document.createTextNode(". A point below the curve is under target, with budget still to " +
       "spend. The dotted tick between a mark and the curve is the gap, in points of the weekly budget. The label " +
       "beside the mark gives that gap: " + SIGN_KEY +
-      ". The bold figure by the circle is the seat's cost, the number that ranks it; the list beside the " +
-      "plot orders every seat by it, lowest first."));
+      ". Where marks crowd, a label that would sit off its mark waits until that mark is pointed at or " +
+      "focused. The seat's cost, the number that ranks it, is in the list beside the plot, which orders " +
+      "every seat by it, lowest first."));
     note.appendChild(p);
 
     var t = h("p", "");
