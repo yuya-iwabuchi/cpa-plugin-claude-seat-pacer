@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 func sessionAt(util float64, resets time.Time) model.Window {

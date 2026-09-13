@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 var t0 = time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)

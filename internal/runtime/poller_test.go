@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/quota"
 )
 
 const secretToken = "sk-ant-oat01-SECRET-TOKEN-DO-NOT-LOG"

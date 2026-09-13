@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
 
 const (
 	testMgmtBase     = "/v0/management"
-	testResourceBase = "/v0/resource/plugins/cpa-claude-quota-scheduler"
-	testMgmtPrefix   = testMgmtBase + "/plugins/cpa-claude-quota-scheduler"
+	testResourceBase = "/v0/resource/plugins/claude-seat-pacer"
+	testMgmtPrefix   = testMgmtBase + "/plugins/claude-seat-pacer"
 )
 
 func (tp *testPlugin) registerManagement(t *testing.T) ManagementRegistrationResponse {

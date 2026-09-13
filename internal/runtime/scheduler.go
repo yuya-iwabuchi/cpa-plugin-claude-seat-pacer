@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/pace"
 )
 
 // pickEnvelope answers scheduler.pick. It never returns an error: an error

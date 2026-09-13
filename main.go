@@ -1,6 +1,6 @@
-// Command cpa-claude-quota-scheduler is a CLIProxyAPI plugin that routes
-// requests across multiple Claude OAuth credentials by burn pace while keeping
-// each conversation pinned to one credential so Anthropic prompt caches keep
+// Command claude-seat-pacer is a CLIProxyAPI plugin that routes requests
+// across multiple Claude OAuth subscription seats by burn pace while keeping
+// each conversation pinned to one seat so Anthropic prompt caches keep
 // hitting.
 //
 // This file is the C ABI boundary only: it installs the plugin vtable, guards
@@ -68,8 +68,8 @@ import (
 	"fmt"
 	"unsafe"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/runtime"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
 
 // The status route serves a forced usage read only to a Source that offers
@@ -80,10 +80,10 @@ var _ web.Syncer = (*runtime.Plugin)(nil)
 // Plugin identity. The host rejects a plugin with any of these blank. The
 // Makefile reads pluginVersion from this line to name the installed library.
 const (
-	pluginName    = "cpa-claude-quota-scheduler"
+	pluginName    = "claude-seat-pacer"
 	pluginVersion = "0.1.0"
 	pluginAuthor  = "yuya-iwabuchi"
-	pluginRepo    = "https://github.com/yuya-iwabuchi/cpa-claude-quota-scheduler"
+	pluginRepo    = "https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer"
 )
 
 // configFields are the knobs the Management Center renders inputs for. The

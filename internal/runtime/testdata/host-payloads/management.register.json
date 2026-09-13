@@ -1,1 +1,1 @@
-{"BasePath":"/v0/management","Plugin":{"Name":"cpa-probe","Version":"0.0.1","Author":"yuya-iwabuchi","GitHubRepository":"https://github.com/yuya-iwabuchi/cpa-claude-quota-scheduler","Logo":"","ConfigFields":[]},"ResourceBasePath":"/v0/resource/plugins/cpa-probe"}
+{"BasePath":"/v0/management","Plugin":{"Name":"cpa-probe","Version":"0.0.1","Author":"yuya-iwabuchi","GitHubRepository":"https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer","Logo":"","ConfigFields":[]},"ResourceBasePath":"/v0/resource/plugins/cpa-probe"}

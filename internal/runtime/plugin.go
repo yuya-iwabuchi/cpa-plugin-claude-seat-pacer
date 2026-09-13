@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/session"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/quota"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/session"
 )
 
 // Options configures a Plugin. Name, Version, Author and Repository are the
@@ -170,7 +170,7 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 			// timeout, so the line goes out on a tracked goroutine rather
 			// than holding the request behind the host's logger.
 			p.host.spawn(func() {
-				p.host.log("error", "cpa-claude-quota-scheduler recovered from a panic", map[string]any{
+				p.host.log("error", "claude-seat-pacer recovered from a panic", map[string]any{
 					"method": method,
 					"panic":  fmt.Sprintf("%v", r),
 				})
@@ -259,13 +259,13 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 		if err := json.Unmarshal(payload, &req); err != nil {
 			// An undecodable request is answered like an empty config block:
 			// the plugin registers inert rather than failing to load.
-			p.host.log("warn", "cpa-claude-quota-scheduler could not decode the lifecycle request", map[string]any{"error": err.Error()})
+			p.host.log("warn", "claude-seat-pacer could not decode the lifecycle request", map[string]any{"error": err.Error()})
 			req = LifecycleRequest{}
 		}
 	}
 	cfg, err := decodeConfig(req.ConfigYAML)
 	if err != nil {
-		p.host.log("warn", "cpa-claude-quota-scheduler config is invalid; plugin is inert", map[string]any{"error": err.Error()})
+		p.host.log("warn", "claude-seat-pacer config is invalid; plugin is inert", map[string]any{"error": err.Error()})
 	}
 	p.applyConfig(cfg)
 

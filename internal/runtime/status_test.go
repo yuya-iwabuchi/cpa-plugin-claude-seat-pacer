@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 func TestStatusFillsEveryField(t *testing.T) {
@@ -32,7 +32,7 @@ func TestStatusFillsEveryField(t *testing.T) {
 	if !status.Now.Equal(later) {
 		t.Errorf("Now = %v", status.Now)
 	}
-	if status.Plugin.Name != "cpa-claude-quota-scheduler" || status.Plugin.Version == "" || status.Plugin.HostSchemaVersion != 4 || !status.Plugin.StartedAt.Equal(testNow) {
+	if status.Plugin.Name != "claude-seat-pacer" || status.Plugin.Version == "" || status.Plugin.HostSchemaVersion != 4 || !status.Plugin.StartedAt.Equal(testNow) {
 		t.Errorf("Plugin = %+v", status.Plugin)
 	}
 	if !status.Config.Enabled || status.Config.Pace.LandingTarget != 1.10 {
@@ -201,7 +201,7 @@ func TestHistoryFileIsWrittenAfterAPollAndReadAtStart(t *testing.T) {
 	// own poll lands, behind the new reading.
 	again := &testPlugin{host: tp.host}
 	again.Plugin = New(Options{
-		Name: "cpa-claude-quota-scheduler", Version: "0.0.0-test", Author: "a", Repository: "https://example.invalid/repo",
+		Name: "claude-seat-pacer", Version: "0.0.0-test", Author: "a", Repository: "https://example.invalid/repo",
 		Host: tp.host.call, HistoryFile: tp.opts.HistoryFile,
 		Now: func() time.Time { return testNow.Add(2 * time.Minute) },
 	})

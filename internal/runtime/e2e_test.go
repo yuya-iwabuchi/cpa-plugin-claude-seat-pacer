@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // TestE2EStickyRoutingThroughRealHost builds this plugin as a shared library,
@@ -47,7 +47,7 @@ func TestE2EStickyRoutingThroughRealHost(t *testing.T) {
 	const (
 		apiKey        = "e2e-api-key"
 		managementKey = "e2e-management-key"
-		pluginID      = "cpa-claude-quota-scheduler"
+		pluginID      = "claude-seat-pacer"
 		modelID       = "claude-sonnet-4-6"
 		sessionOne    = "11111111-1111-1111-1111-111111111111"
 		sessionTwo    = "22222222-2222-2222-2222-222222222222"

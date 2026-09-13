@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/web"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/pace"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/quota"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
 
 func main() {
@@ -98,7 +98,7 @@ iframe{border:0;width:100%;height:100%;display:block}
 .tools{position:absolute;top:12px;right:16px;display:flex;gap:8px}
 .tools span{width:34px;height:34px;border-radius:8px;background:#fff;border:1px solid #c9cdd6;box-shadow:0 2px 6px rgba(0,0,0,.12);display:grid;place-items:center;font-size:15px}
 </style>
-<div class="bar">Management Center · Plugins · Claude Quota</div>
+<div class="bar">Management Center · Plugins · Claude Seat Pacer</div>
 <div class="frame"><iframe src="index.html" title="plugin"></iframe>
 <div class="tools"><span>&#8635;</span><span>&#127760;</span><span>&#9790;</span><span>&#8594;</span></div></div>
 `
@@ -228,7 +228,7 @@ func newFixture(anchor time.Time) *fixture {
 		anchor: anchor,
 		cfg:    cfg,
 		plugin: model.PluginInfo{
-			Name:              "cpa-claude-quota-scheduler",
+			Name:              "claude-seat-pacer",
 			Version:           "0.4.2+dev",
 			HostSchemaVersion: 1,
 			StartedAt:         anchor.Add(-6*time.Hour - 13*time.Minute),

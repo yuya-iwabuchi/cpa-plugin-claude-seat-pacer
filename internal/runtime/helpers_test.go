@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // testNow is the fixed clock every unit test runs at; it matches the pace
@@ -270,7 +270,7 @@ func newTestPlugin(t *testing.T, configYAML string) *testPlugin {
 	t.Helper()
 	tp := &testPlugin{host: newFakeHost()}
 	tp.Plugin = New(Options{
-		Name:       "cpa-claude-quota-scheduler",
+		Name:       "claude-seat-pacer",
 		Version:    "0.0.0-test",
 		Author:     "yuya-iwabuchi",
 		Repository: "https://example.invalid/repo",

@@ -85,7 +85,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/runtime"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
 )
 
 // stateFile is the observation log path, set with -ldflags -X main.stateFile=.
@@ -110,7 +110,7 @@ const (
 	pluginName    = "cpa-probe"
 	pluginVersion = "0.0.1"
 	pluginAuthor  = "yuya-iwabuchi"
-	pluginRepo    = "https://github.com/yuya-iwabuchi/cpa-claude-quota-scheduler"
+	pluginRepo    = "https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer"
 )
 
 var (

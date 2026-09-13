@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // MaxBodyBytes caps the usage response. A Doer reads at most MaxBodyBytes+1

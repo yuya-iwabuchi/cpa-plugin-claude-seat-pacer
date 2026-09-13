@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude Quota</title>
+<title>Claude Seat Pacer</title>
 <style>
 /* ---------------------------------------------------------------- tokens */
 :root {
@@ -676,9 +676,9 @@ th[aria-sort] button { color: var(--ink-1); }
 
 <header class="mast">
   <div class="mast-inner">
-    <h1 class="brand-name">Claude quota</h1>
-    <p class="brand-line">Spreads requests across the Claude seats by how fast each is
-      spending. Each conversation stays on its first seat.</p>
+    <h1 class="brand-name">Claude Seat Pacer</h1>
+    <p class="brand-line">Spreads requests by how fast each seat is spending. Each conversation
+      stays on its first seat, so its prompt cache keeps hitting.</p>
   </div>
 </header>
 
@@ -771,7 +771,7 @@ th[aria-sort] button { color: var(--ink-1); }
       <div class="sec-head">
         <span class="sec-idx"></span>
         <h2>Weekly window</h2>
-        <span class="sec-sub" id="pace-sub">the budget the scheduler paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it</span>
+        <span class="sec-sub" id="pace-sub">the budget the plugin paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -2630,7 +2630,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var host = $("pace-curve");
     host.textContent = "";
     var fams = scopedFamilies(st);
-    var paced = "the budget the scheduler paces against: each seat's 7-day utilization";
+    var paced = "the budget the plugin paces against: each seat's 7-day utilization";
     var ranked = " \u00B7 the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it";
     /* The cap is named only where a diamond is drawn for it: a weight of zero
        retires the cap from the cost, and the plot draws no mark for a window
@@ -4395,7 +4395,7 @@ th[aria-sort] button { color: var(--ink-1); }
   var themeBtn = $("theme-toggle");
   var THEMES = ["auto", "light", "dark"];
   try {
-    var saved = window.localStorage.getItem("cqs-theme");
+    var saved = window.localStorage.getItem("pacer-theme");
     if (saved && THEMES.indexOf(saved) >= 0) state.theme = saved;
   } catch (e) { /* storage may be blocked; auto is a fine default */ }
   /* A ?theme= on the page URL pins the scheme for a screenshot or a link. */
@@ -4405,7 +4405,7 @@ th[aria-sort] button { color: var(--ink-1); }
     if (state.theme === "auto") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", state.theme);
     themeBtn.textContent = "Theme: " + state.theme;
-    try { window.localStorage.setItem("cqs-theme", state.theme); } catch (e) { /* ignored */ }
+    try { window.localStorage.setItem("pacer-theme", state.theme); } catch (e) { /* ignored */ }
   }
   themeBtn.addEventListener("click", function () {
     state.theme = THEMES[(THEMES.indexOf(state.theme) + 1) % THEMES.length];

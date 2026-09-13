@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/session"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/session"
 )
 
 // Bridge headers. request.intercept_before derives the conversation identity
@@ -19,12 +19,12 @@ import (
 // x-client-request-id, x-anthropic-additional-protection and the anthropic-,
 // x-stainless-, x-claude-code- and x-claude-remote- prefixes
 // (CLIProxyAPI internal/runtime/executor/claude_executor_request.go:680-701,
-// :935-945). The X-Cqs- prefix matches none of those, so renaming a bridge
+// :935-945). The X-Pacer- prefix matches none of those, so renaming a bridge
 // header onto one of the forwarded prefixes would leak it upstream.
 const (
-	HeaderSessionKey    = "X-Cqs-Session-Key"
-	HeaderSessionParent = "X-Cqs-Session-Parent"
-	HeaderSubagent      = "X-Cqs-Subagent"
+	HeaderSessionKey    = "X-Pacer-Session-Key"
+	HeaderSessionParent = "X-Pacer-Session-Parent"
+	HeaderSubagent      = "X-Pacer-Subagent"
 )
 
 // bridgeHeaders is the set the plugin owns end to end. The host merges an

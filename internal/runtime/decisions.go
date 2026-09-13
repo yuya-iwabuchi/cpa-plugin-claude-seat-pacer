@@ -3,7 +3,7 @@ package runtime
 import (
 	"sync"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // decisionLog is a bounded ring of routing decisions. The pick path appends

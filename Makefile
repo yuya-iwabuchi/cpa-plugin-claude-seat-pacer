@@ -2,7 +2,7 @@
 # extension is selected per GOOS rather than hardcoded.
 GOOS   ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
-NAME   := cpa-claude-quota-scheduler
+NAME   := claude-seat-pacer
 
 ifeq ($(GOOS),darwin)
 EXT := dylib

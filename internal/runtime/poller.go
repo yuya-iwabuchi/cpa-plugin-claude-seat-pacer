@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/quota"
 )
 
 // Poll scheduling. The first poll waits for the host to finish wiring its auth
@@ -65,7 +65,7 @@ func defaultHistoryFile() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".cli-proxy-api", "plugins", "cpa-claude-quota-scheduler", "history.json")
+	return filepath.Join(home, ".cli-proxy-api", "plugins", "claude-seat-pacer", "history.json")
 }
 
 // loadHistory reads the history file once, ahead of the first poll, so the
@@ -80,7 +80,7 @@ func (p *Plugin) loadHistory(cfg model.Config) {
 		return
 	}
 	if err := p.quota.LoadHistory(p.opts.HistoryFile); err != nil {
-		p.host.log("warn", "cpa-claude-quota-scheduler could not read the utilization history", map[string]any{"error": err.Error()})
+		p.host.log("warn", "claude-seat-pacer could not read the utilization history", map[string]any{"error": err.Error()})
 		return
 	}
 	p.mu.Lock()
@@ -103,7 +103,7 @@ func (p *Plugin) saveHistory(cfg model.Config) {
 		return
 	}
 	if err := p.quota.SaveHistory(p.opts.HistoryFile); err != nil {
-		p.host.log("warn", "cpa-claude-quota-scheduler could not write the utilization history", map[string]any{"error": err.Error()})
+		p.host.log("warn", "claude-seat-pacer could not write the utilization history", map[string]any{"error": err.Error()})
 		return
 	}
 	p.mu.Lock()
@@ -224,7 +224,7 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		p.mu.Lock()
 		p.listErr = err.Error()
 		p.mu.Unlock()
-		p.host.log("warn", "cpa-claude-quota-scheduler could not list credentials", map[string]any{"error": err.Error()})
+		p.host.log("warn", "claude-seat-pacer could not list credentials", map[string]any{"error": err.Error()})
 		return listRetryWait
 	}
 
@@ -243,7 +243,7 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		p.mu.Lock()
 		p.listErr = errNoGovernedCredential
 		p.mu.Unlock()
-		p.host.log("warn", "cpa-claude-quota-scheduler: "+errNoGovernedCredential, map[string]any{"listed": len(entries)})
+		p.host.log("warn", "claude-seat-pacer: "+errNoGovernedCredential, map[string]any{"listed": len(entries)})
 		return listRetryWait
 	}
 
@@ -364,7 +364,7 @@ func (p *Plugin) warnSingleCandidate() {
 
 	sort.Strings(pending)
 	for _, provider := range pending {
-		p.host.log("warn", "cpa-claude-quota-scheduler: a single candidate was offered; spreading cannot work", map[string]any{
+		p.host.log("warn", "claude-seat-pacer: a single candidate was offered; spreading cannot work", map[string]any{
 			"provider": provider,
 			"hint":     "every credential in the pool must share one priority value",
 		})
@@ -401,7 +401,7 @@ func (p *Plugin) fetchOne(ctx context.Context, client *quota.Client, id string, 
 	// stamped with it rather than with the client's.
 	snap.ObservedAt = p.now()
 	if err != nil {
-		p.host.log("warn", "cpa-claude-quota-scheduler usage fetch failed", map[string]any{
+		p.host.log("warn", "claude-seat-pacer usage fetch failed", map[string]any{
 			"auth_id":  id,
 			"category": string(quota.Category(err)),
 			"error":    err.Error(),

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // resetTolerance absorbs clock skew between this host and Anthropic when

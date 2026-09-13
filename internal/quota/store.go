@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // Store holds the newest snapshot per credential and is safe for concurrent

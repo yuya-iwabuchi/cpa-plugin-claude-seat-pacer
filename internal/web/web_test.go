@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // stubSource records what the handler asked for and returns a canned status.
@@ -51,7 +51,7 @@ func richStatus() model.Status {
 	return model.Status{
 		Now: base,
 		Plugin: model.PluginInfo{
-			Name:              "cpa-claude-quota-scheduler",
+			Name:              "claude-seat-pacer",
 			Version:           "0.4.2",
 			HostSchemaVersion: 1,
 			StartedAt:         base.Add(-3 * time.Hour),

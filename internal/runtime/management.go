@@ -11,7 +11,7 @@ import (
 )
 
 // menuLabel is the Management Center menu entry for the status page.
-const menuLabel = "Claude Quota"
+const menuLabel = "Claude Seat Pacer"
 
 // Resource paths under the plugin's resource prefix. The host matches a
 // resource route by exact path and rejects a bare "/" (the trailing slash is
@@ -84,7 +84,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	prefix := p.managementPrefix(mgmtBase)
 	resp := ManagementRegistrationResponse{
 		Routes: []ManagementRoute{
-			{Method: http.MethodGet, Path: prefix + routeStatus, Description: "Quota, pace scores, bindings and routing decisions as JSON. Takes ?model=<id>."},
+			{Method: http.MethodGet, Path: prefix + routeStatus, Description: "Quota windows, pace scores, bindings and routing decisions as JSON. Takes ?model=<id>."},
 			{Method: http.MethodPost, Path: prefix + routeRefresh, Description: "Poll every governed credential's usage endpoint now."},
 			{Method: http.MethodPost, Path: prefix + routeUnbind, Description: "Drop every session binding on one credential. Takes ?auth_id=<id>."},
 			{Method: http.MethodPost, Path: prefix + routeSweep, Description: "Drop session bindings idle past the affinity TTL."},

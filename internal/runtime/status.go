@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/model"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/pace"
-	"github.com/yuya-iwabuchi/cpa-claude-quota-scheduler/internal/quota"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/pace"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/quota"
 )
 
 // defaultStatusModel is the model the status view scores for before any

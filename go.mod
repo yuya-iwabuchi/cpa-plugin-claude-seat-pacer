@@ -1,4 +1,4 @@
-module github.com/yuya-iwabuchi/cpa-claude-quota-scheduler
+module github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
 
 go 1.25
 

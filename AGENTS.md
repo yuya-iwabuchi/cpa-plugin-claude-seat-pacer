@@ -6,8 +6,8 @@ against CLIProxyAPI v7.2.149 source; the deployment target is 7.2.145+.
 ## What this plugin is
 
 A CLIProxyAPI plugin that routes requests across multiple Claude OAuth
-subscription credentials by **burn pace** while keeping each conversation
-pinned to one credential so Anthropic prompt caches keep hitting.
+subscription seats by **burn pace** while keeping each conversation pinned
+to one seat so Anthropic prompt caches keep hitting.
 
 Declared capabilities: `request_interceptor`, `scheduler`, `usage_plugin`,
 `management_api`.
