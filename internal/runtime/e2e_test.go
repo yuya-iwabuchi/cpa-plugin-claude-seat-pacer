@@ -34,7 +34,7 @@ import (
 // id, the second to the other credential. Skips unless CPA_SOURCE_DIR points
 // at a CLIProxyAPI checkout.
 //
-//	CPA_SOURCE_DIR=~/dev/.research-cpa/CLIProxyAPI GOTOOLCHAIN=auto go test ./internal/runtime -run E2E -v
+//	CPA_SOURCE_DIR=/path/to/CLIProxyAPI GOTOOLCHAIN=auto go test ./internal/runtime -run E2E -v
 func TestE2EStickyRoutingThroughRealHost(t *testing.T) {
 	hostSource := strings.TrimSpace(os.Getenv("CPA_SOURCE_DIR"))
 	if hostSource == "" {

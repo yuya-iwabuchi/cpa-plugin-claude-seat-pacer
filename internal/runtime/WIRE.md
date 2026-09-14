@@ -26,7 +26,7 @@ The host source is not vendored, so the test skips unless `CPA_SOURCE_DIR`
 points at a CLIProxyAPI checkout:
 
 ```sh
-CPA_SOURCE_DIR=~/dev/.research-cpa/CLIProxyAPI GOTOOLCHAIN=auto \
+CPA_SOURCE_DIR=/path/to/CLIProxyAPI GOTOOLCHAIN=auto \
   go test ./internal/runtime -run HeaderBridge -v -count=1
 ```
 
