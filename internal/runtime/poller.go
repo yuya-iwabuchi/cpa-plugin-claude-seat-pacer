@@ -71,12 +71,20 @@ func defaultHistoryFile() string {
 // loadHistory reads the history file once, ahead of the first poll, so the
 // charts show the previous run's samples from the first status response. It
 // runs on the poll goroutine, never on the pick path.
+//
+// The load counts as done only once the file has actually been read, which is
+// what saveHistory waits for: a run with persistence off, or one whose read
+// failed, must not write the file it never took the previous samples from.
+// Persistence turned on by a reload therefore still loads before it saves,
+// and a read that failed is retried on the next poll.
 func (p *Plugin) loadHistory(cfg model.Config) {
+	if !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
+		return
+	}
 	p.mu.Lock()
 	done := p.historyLoaded
-	p.historyLoaded = true
 	p.mu.Unlock()
-	if done || !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
+	if done {
 		return
 	}
 	if err := p.quota.LoadHistory(p.opts.HistoryFile); err != nil {
@@ -84,6 +92,7 @@ func (p *Plugin) loadHistory(cfg model.Config) {
 		return
 	}
 	p.mu.Lock()
+	p.historyLoaded = true
 	p.historySaved = p.quota.HistoryVersion()
 	p.mu.Unlock()
 }

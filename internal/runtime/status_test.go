@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -225,5 +226,70 @@ func TestHistoryFileIsWrittenAfterAPollAndReadAtStart(t *testing.T) {
 	}
 	if _, err := os.Stat(off.opts.HistoryFile); !os.IsNotExist(err) {
 		t.Errorf("history file exists with persistence off: %v", err)
+	}
+}
+
+// seededPlugin registers a plugin whose history file already holds path's
+// contents, so the load the poller runs at registration sees them.
+func seededPlugin(t *testing.T, path, configYAML string) *testPlugin {
+	t.Helper()
+	tp := &testPlugin{host: newFakeHost()}
+	tp.Plugin = New(Options{
+		Name: "claude-seat-pacer", Version: "0.0.0-test", Author: "yuya-iwabuchi",
+		Repository: "https://example.invalid/repo",
+		Host:       tp.host.call, HistoryFile: path,
+		Now: func() time.Time { return testNow },
+	})
+	tp.startDelay = time.Hour
+	tp.fetchStagger = 0
+	t.Cleanup(tp.Shutdown)
+	pollFixture(t, tp)
+	tp.register(t, MethodPluginRegister, configYAML)
+	return tp
+}
+
+// TestHistoryFileSurvivesAPollThatNeverLoadedIt covers the two runs that must
+// not write the file: one with persistence off, which never reads it, and one
+// whose read failed. Either would otherwise replace a previous run's samples
+// with only what it recorded itself.
+func TestHistoryFileSurvivesAPollThatNeverLoadedIt(t *testing.T) {
+	const saved = `{"version":1,"seats":{"claude-a.json":[{"kind":"five_hour","cycles":[{"resets_at":"2026-09-04T21:00:00Z","samples":[[1757001600,0.5]]}]}]}}`
+
+	// Persistence off leaves the file exactly as it was, and persistence
+	// turned on by a reload loads it before the next poll saves.
+	path := filepath.Join(t.TempDir(), "history.json")
+	if err := os.WriteFile(path, []byte(saved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	off := seededPlugin(t, path, testConfigYAML+"quota:\n  persist-history: false\n")
+	if err := off.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != saved {
+		t.Fatalf("history file with persistence off = %s (%v), want it untouched", body, err)
+	}
+
+	off.register(t, MethodPluginReconfigure, testConfigYAML)
+	if err := off.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	row := off.Status(testNow, "").Auths[0]
+	if row.AuthID != "claude-a.json" || len(row.History) == 0 || row.History[0].Samples() != 2 {
+		t.Errorf("history after persistence was turned on = %+v, want the saved sample and the new one", row.History)
+	}
+
+	// A read that failed leaves the file for the next run rather than
+	// replacing it with this run's samples.
+	const unreadable = `{"version":99,"seats":{}}`
+	badPath := filepath.Join(t.TempDir(), "history.json")
+	if err := os.WriteFile(badPath, []byte(unreadable), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bad := seededPlugin(t, badPath, testConfigYAML)
+	if err := bad.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(badPath); err != nil || string(body) != unreadable {
+		t.Fatalf("history file after a failed read = %s (%v), want it untouched", body, err)
 	}
 }
