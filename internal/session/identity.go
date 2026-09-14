@@ -255,6 +255,13 @@ func fromUserID(ids bodyIDs) (rawIdentity, bool) {
 		return rawIdentity{}, false
 	}
 
+	// Trimmed as every other rule trims its material: a whitespace-only id
+	// reads as absent, so it neither forms a key every client emitting one
+	// shares nor marks a request as a subagent's.
+	obj.SessionID = strings.TrimSpace(obj.SessionID)
+	obj.ParentSessionID = strings.TrimSpace(obj.ParentSessionID)
+	obj.AgentID = strings.TrimSpace(obj.AgentID)
+
 	if obj.SessionID != "" {
 		out := rawIdentity{
 			key:    obj.SessionID,

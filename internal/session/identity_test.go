@@ -696,3 +696,32 @@ func benchmarkExtract(b *testing.B, body []byte) {
 		}
 	}
 }
+
+// TestUserIDObjectIDsAreTrimmed covers a whitespace-only id in
+// metadata.user_id: untrimmed it forms a normal-looking key that every client
+// emitting one shares, pinning all of that traffic to one seat, and a
+// whitespace agent id marks every such request a subagent's.
+func TestUserIDObjectIDsAreTrimmed(t *testing.T) {
+	blank := claudeCodeBody(t, map[string]any{"session_id": " \t\n ", "agent_id": "  "})
+	got := Extract(nil, blank)
+	if got.Source == SourceUserIDObject {
+		t.Errorf("Extract = %+v, want a whitespace-only session id to read as absent", got)
+	}
+	if got.Subagent {
+		t.Errorf("Extract = %+v, want a whitespace-only agent id to name no subagent", got)
+	}
+
+	// A padded id resolves to the same conversation as the bare one.
+	padded := claudeCodeBody(t, map[string]any{"session_id": "  sess-obj \n"})
+	bare := claudeCodeBody(t, map[string]any{"session_id": "sess-obj"})
+	if a, b := Extract(nil, padded), Extract(nil, bare); a.Key != b.Key || a.Key != hashKey("sess-obj") {
+		t.Errorf("padded = %+v, bare = %+v, want both keyed on the trimmed id", a, b)
+	}
+
+	// Padding around an agent id does not split a subagent off its parent.
+	sub := claudeCodeBody(t, map[string]any{"session_id": "sess-obj", "agent_id": " worker "})
+	flat := claudeCodeBody(t, map[string]any{"session_id": "sess-obj", "agent_id": "worker"})
+	if a, b := Extract(nil, sub), Extract(nil, flat); a.Key != b.Key || !a.Subagent {
+		t.Errorf("padded agent = %+v, bare agent = %+v, want one subagent key", a, b)
+	}
+}
