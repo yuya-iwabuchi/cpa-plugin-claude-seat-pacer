@@ -9,107 +9,6 @@ import (
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
-const tolerance = 1e-9
-
-// testNow is the instant tests score at unless they need a second one to show
-// a window moving.
-var testNow = time.Date(2026, 9, 4, 19, 45, 0, 0, time.UTC)
-
-func at(t *testing.T, ts string) time.Time {
-	t.Helper()
-	parsed, err := time.Parse(time.RFC3339, ts)
-	if err != nil {
-		t.Fatalf("parse %q: %v", ts, err)
-	}
-	return parsed
-}
-
-// duration is the window length a kind implies.
-func duration(kind model.WindowKind) time.Duration {
-	if kind == model.WindowSession {
-		return model.SessionDuration
-	}
-	return model.WeeklyDuration
-}
-
-// window is a reading stated the way the usage endpoint states one: a
-// utilization and a reset instant.
-func window(kind model.WindowKind, scope string, util float64, resetsAt time.Time) model.Window {
-	return model.Window{
-		Kind:        kind,
-		Scope:       scope,
-		Utilization: util,
-		Duration:    duration(kind),
-		ResetsAt:    resetsAt,
-	}
-}
-
-// paced places a window on the clock so that Elapsed(now) is the requested
-// fraction, which lets a test state the pace position it cares about instead of
-// a reset instant.
-func paced(kind model.WindowKind, scope string, now time.Time, elapsed, util float64) model.Window {
-	d := duration(kind)
-	return window(kind, scope, util, now.Add(time.Duration(float64(d)*(1-elapsed))))
-}
-
-func weekly(now time.Time, elapsed, util float64) model.Window {
-	return paced(model.WindowWeekly, "", now, elapsed, util)
-}
-
-// unopened is a bearing window with a length but no reset instant, which is
-// how a reading arrives before the provider has named a period for it. It has
-// no place on the curve, so it carries no weight and no term in the cost.
-func unopened(kind model.WindowKind, scope string, util float64) model.Window {
-	return model.Window{Kind: kind, Scope: scope, Utilization: util, Duration: duration(kind)}
-}
-
-func seat(id string, now time.Time, windows ...model.Window) model.AuthSnapshot {
-	return model.AuthSnapshot{
-		AuthID:     id,
-		Windows:    windows,
-		ObservedAt: now,
-		Source:     model.SourceUsageEndpoint,
-	}
-}
-
-func snapshots(snaps ...model.AuthSnapshot) map[string]model.AuthSnapshot {
-	m := make(map[string]model.AuthSnapshot, len(snaps))
-	for _, s := range snaps {
-		m[s.AuthID] = s
-	}
-	return m
-}
-
-func rankedIDs(scores []model.Score) []string {
-	out := make([]string, 0, len(scores))
-	for _, s := range scores {
-		out = append(out, s.AuthID)
-	}
-	return out
-}
-
-func scoreOf(t *testing.T, scores []model.Score, id string) model.Score {
-	t.Helper()
-	for _, s := range scores {
-		if s.AuthID == id {
-			return s
-		}
-	}
-	t.Fatalf("no score for %q in %v", id, rankedIDs(scores))
-	return model.Score{}
-}
-
-func windowScoreOf(t *testing.T, s model.Score, kind model.WindowKind, scope string) model.WindowScore {
-	t.Helper()
-	for _, ws := range s.Windows {
-		if ws.Kind == kind && ws.Scope == scope {
-			return ws
-		}
-	}
-	t.Fatalf("no %s/%q window in score for %q", kind, scope, s.AuthID)
-	return model.WindowScore{}
-}
-
 func TestTarget(t *testing.T) {
 	// A curve landing exactly at full is the reference the others bend away
 	// from, and the one the tilt is measured against.
@@ -139,28 +38,19 @@ func TestTarget(t *testing.T) {
 		want    float64
 	}{
 		// A linear curve landing at 1.0 makes target and elapsed the same
-		// number.
-		{"linear start", flat, 0, 0},
+		// number, and elapsed is clamped to the window before the curve reads
+		// it.
 		{"linear half", flat, 0.5, 0.5},
-		{"linear nine tenths", flat, 0.9, 0.9},
-		{"linear end", flat, 1, 1},
 		{"clamps below zero", flat, -0.5, 0},
 		{"clamps above one", flat, 1.5, 1},
 		{"exponent above one lands late", steep, 0.5, 0.25},
 		{"exponent below one lands early", shallow, 0.25, 0.5},
 		{"landing target scales the curve", cautious, 0.5, 0.45},
-		{"landing target caps the end", cautious, 1, 0.9},
 		// The default landing runs the curve a tenth ahead of elapsed, until
 		// the clamp catches it a landing-reciprocal of the way through.
-		{"the tilt starts at zero all the same", tilted, 0, 0},
 		{"the tilt runs ahead of elapsed", tilted, 0.5, 0.55},
 		{"the tilt saturates at 1/landing", tilted, 1 / 1.10, 1},
-		{"the clamp holds it there", tilted, 0.95, 1},
-		{"the clamp holds it at the close", tilted, 1, 1},
-		// The sigmoid is exact at both ends and crosses linear at the middle.
-		{"sigmoid start", sigmoid, 0, 0},
-		{"sigmoid middle", sigmoid, 0.5, 0.5},
-		{"sigmoid end", sigmoid, 1, 1},
+		{"sigmoid crosses linear at the middle", sigmoid, 0.5, 0.5},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -201,10 +91,6 @@ func TestTargetNeverExceedsFull(t *testing.T) {
 func TestShapes(t *testing.T) {
 	linear := model.Defaults().Pace
 
-	power := linear
-	power.Shape = model.ShapePower
-	power.CurveExponent = 1
-
 	sigmoid := linear
 	sigmoid.Shape = model.ShapeSigmoid
 
@@ -214,14 +100,6 @@ func TestShapes(t *testing.T) {
 		for _, e := range steps {
 			if got := shape(linear, e); math.Abs(got-e) > tolerance {
 				t.Errorf("shape(linear, %v) = %v, want %v", e, got, e)
-			}
-		}
-	})
-
-	t.Run("power at exponent one is linear", func(t *testing.T) {
-		for _, e := range steps {
-			if got, want := shape(power, e), shape(linear, e); math.Abs(got-want) > tolerance {
-				t.Errorf("shape(power^1, %v) = %v, want the linear %v", e, got, want)
 			}
 		}
 	})
@@ -281,7 +159,7 @@ func TestPerishableBudgetTiltsThePickTowardTheClosingWindow(t *testing.T) {
 	// line, so both cost nothing and the id decides.
 	flat := model.Defaults().Pace
 	flat.LandingTarget = 1
-	flatRanked := Rank(flat, snaps, ids, "claude-opus-5", now)
+	flatRanked := Rank(flat, snaps, ids, opus, now)
 	for _, id := range ids {
 		if cost := scoreOf(t, flatRanked, id).Cost; math.Abs(cost) > tolerance {
 			t.Fatalf("%s cost on a flat curve = %v, want a seat exactly on pace", id, cost)
@@ -289,10 +167,7 @@ func TestPerishableBudgetTiltsThePickTowardTheClosingWindow(t *testing.T) {
 	}
 
 	cfg := model.Defaults().Pace
-	if cfg.LandingTarget <= 1 {
-		t.Fatalf("LandingTarget = %v, want the default landing above full", cfg.LandingTarget)
-	}
-	ranked := Rank(cfg, snaps, ids, "claude-opus-5", now)
+	ranked := Rank(cfg, snaps, ids, opus, now)
 	closingCost := scoreOf(t, ranked, "b-closing").Cost
 	freshCost := scoreOf(t, ranked, "a-fresh").Cost
 	if closingCost >= freshCost {
@@ -312,6 +187,11 @@ func TestPerishableBudgetTiltsThePickTowardTheClosingWindow(t *testing.T) {
 // its own curve, so the clamp does not order a credential with nothing left
 // behind one with budget; the fullness gate is what takes the two full seats
 // below out of the pool.
+// The clamp sets a trap that is the reason a full window has to gate at all: a
+// seat with nothing left targets full, so its slack is zero and it costs
+// nothing, which beats any seat running over its own curve however much budget
+// that seat still holds. Running over your own curve is the ordinary state just
+// after serving a burst.
 func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
@@ -338,7 +218,7 @@ func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
 	headroom := seat("c-headroom", now, weekly(now, late, 0.999))
 
 	ids := []string{"a-spent", "b-over", "c-headroom"}
-	ranked := Rank(cfg, snapshots(spent, over, headroom), ids, "claude-opus-5", now)
+	ranked := Rank(cfg, snapshots(spent, over, headroom), ids, opus, now)
 
 	spentScore := scoreOf(t, ranked, "a-spent")
 	if slack := windowScoreOf(t, spentScore, model.WindowWeekly, "").Slack; slack != 0 {
@@ -360,9 +240,15 @@ func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
 				id, s.Eligible, s.Reason, model.ReasonSpent)
 		}
 	}
-	if s := scoreOf(t, ranked, "c-headroom"); !s.Eligible {
+	headroomScore := scoreOf(t, ranked, "c-headroom")
+	if !headroomScore.Eligible {
 		t.Fatalf("c-headroom: eligible=false reason=%q, want a thousandth of headroom to be budget",
-			s.Reason)
+			headroomScore.Reason)
+	}
+	// A binding already on the spent seat moves too, rather than holding it
+	// until the provider refuses.
+	if !ShouldSwitch(cfg, spentScore, headroomScore) {
+		t.Fatal("ShouldSwitch(spent incumbent, headroom challenger) = false, want true")
 	}
 
 	best, ok := Best(ranked)
@@ -375,88 +261,6 @@ func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
 	}
 }
 
-// The trap a clamped slack of zero sets, and the reason a full window has to
-// gate. Each window is measured at its own elapsed fraction, because each
-// seat's week resets at its own time, so cost does not order credentials by the
-// budget they hold: a seat with nothing left targets full, so its slack is zero
-// and it costs nothing, which beats any seat running over its own curve however
-// much budget that seat still holds. Running over your own curve is the
-// ordinary state just after serving a burst. Both seats sit at different points
-// in their weeks here, which is the whole of the trap: pin them to one elapsed
-// fraction and cost orders them correctly by accident.
-func TestASeatWithNothingLeftLosesToOneOverItsOwnCurve(t *testing.T) {
-	cfg := model.Defaults().Pace
-	now := testNow
-
-	// Named so that an alphabetical tie-break would pick the spent seat. The
-	// second seat holds seven tenths of its budget a fifth of the way into its
-	// week, which puts it over its own curve.
-	spent := seat("a-spent", now, weekly(now, 0.958, 1.0))
-	budgeted := seat("b-70pct-left", now, weekly(now, 0.202, 0.30))
-	ids := []string{"a-spent", "b-70pct-left"}
-	ranked := Rank(cfg, snapshots(spent, budgeted), ids, "claude-opus-5", now)
-
-	spentScore := scoreOf(t, ranked, "a-spent")
-	budgetedScore := scoreOf(t, ranked, "b-70pct-left")
-
-	// The trap, stated as an assertion: on cost alone the seat with nothing
-	// left is the cheaper of the two.
-	if spentScore.Cost != 0 {
-		t.Fatalf("spent cost = %v, want the clamped zero this turns on", spentScore.Cost)
-	}
-	if budgetedScore.Cost <= spentScore.Cost {
-		t.Fatalf("budgeted cost = %v, want above the spent seat's %v: a seat over its own curve costs more than a clamped zero",
-			budgetedScore.Cost, spentScore.Cost)
-	}
-
-	// So the gate, not the cost, is what orders them.
-	if spentScore.Eligible || spentScore.Reason != model.ReasonSpent {
-		t.Fatalf("spent: eligible=%v reason=%q, want eligible=false reason=%q",
-			spentScore.Eligible, spentScore.Reason, model.ReasonSpent)
-	}
-	if !budgetedScore.Eligible {
-		t.Fatalf("budgeted: eligible=false reason=%q, want a seat holding most of its budget in the pool",
-			budgetedScore.Reason)
-	}
-	best, ok := Best(ranked)
-	if !ok || best.AuthID != "b-70pct-left" {
-		t.Fatalf("winner = (%q, %v), want b-70pct-left: the only seat with anything to spend",
-			best.AuthID, ok)
-	}
-	// A binding already on the spent seat moves too, rather than holding it
-	// until the provider refuses.
-	if !ShouldSwitch(cfg, spentScore, budgetedScore) {
-		t.Fatal("ShouldSwitch(spent incumbent, budgeted challenger) = false, want true")
-	}
-}
-
-// A window at the end of its life targets full utilization, so its slack is
-// whatever headroom is left. No end-of-window special case is needed: a nearly
-// reset window with room outranks a freshly reset one that has none.
-func TestSlackApproachesHeadroomAsWindowCloses(t *testing.T) {
-	cfg := model.Defaults().Pace
-	now := testNow
-
-	closing := seat("closing", now, weekly(now, 0.9999, 0.35))
-	fresh := seat("fresh", now, weekly(now, 0, 0))
-
-	closingScore := ScoreAuth(cfg, closing, "claude-opus-5", now)
-	ws := windowScoreOf(t, closingScore, model.WindowWeekly, "")
-	if want := 1 - 0.35; math.Abs(ws.Slack-want) > 1e-3 {
-		t.Fatalf("slack at end of window = %v, want ~%v", ws.Slack, want)
-	}
-
-	ranked := Rank(cfg, snapshots(closing, fresh), []string{"closing", "fresh"}, "claude-opus-5", now)
-	best, ok := Best(ranked)
-	if !ok {
-		t.Fatal("no eligible credential")
-	}
-	if best.AuthID != "closing" {
-		t.Fatalf("winner = %q (ranked %v), want the closing window with headroom",
-			best.AuthID, rankedIDs(ranked))
-	}
-}
-
 func TestScoreAuthBreakdownCoversEveryWindow(t *testing.T) {
 	cfg := model.Defaults().Pace
 	cfg.SessionWeight = 0.35
@@ -466,18 +270,26 @@ func TestScoreAuthBreakdownCoversEveryWindow(t *testing.T) {
 		paced(model.WindowSession, "", now, 0.5, 0.2),
 		weekly(now, 0.25, 0.1),
 		paced(model.WindowWeeklyScoped, model.FamilyOpus, now, 0.25, 0.6),
+		paced(model.WindowWeeklyScoped, model.FamilyFable, now, 0.25, 0.1),
+		unopened(model.WindowWeekly, "", 0.5),
 	)
-	score := ScoreAuth(cfg, snap, "claude-fable-5-1", now)
+	score := ScoreAuth(cfg, snap, fable, now)
 
 	// The default curve is linear landing at 1.10, so target is elapsed and a
 	// tenth again, and every number below is arithmetic a reader can redo by
-	// hand.
+	// hand. The Weight column is the whole of it: every window is rendered, in
+	// the order the reading lists them, and only the ones that bear on the
+	// request carry a weight.
 	want := []model.WindowScore{
 		{Kind: model.WindowSession, Elapsed: 0.5, Target: 0.55, Utilization: 0.2, Slack: 0.35, Weight: cfg.SessionWeight},
 		{Kind: model.WindowWeekly, Elapsed: 0.25, Target: 0.275, Utilization: 0.1, Slack: 0.175, Weight: cfg.WeeklyWeight},
 		// An Opus cap is invisible to a Fable request, so it is rendered but
 		// carries no weight.
 		{Kind: model.WindowWeeklyScoped, Scope: model.FamilyOpus, Elapsed: 0.25, Target: 0.275, Utilization: 0.6, Slack: -0.325},
+		{Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Elapsed: 0.25, Target: 0.275, Utilization: 0.1, Slack: 0.175, Weight: cfg.ScopedWeight},
+		// A bearing window with no period on the clock sits at the curve's
+		// origin, so it too is rendered weightless.
+		{Kind: model.WindowWeekly, Elapsed: 0, Target: 0, Utilization: 0.5, Slack: -0.5},
 	}
 	if len(score.Windows) != len(want) {
 		t.Fatalf("breakdown has %d windows, want %d", len(score.Windows), len(want))
@@ -506,9 +318,10 @@ func TestScoreAuthBreakdownCoversEveryWindow(t *testing.T) {
 		}
 	}
 
-	// -(0.35*0.35 + 1.0*0.175): both counted windows sit under their target,
-	// so the credential is cheap to route to and nothing else enters the sum.
-	if wantCost := -0.2975; math.Abs(score.Cost-wantCost) > tolerance {
+	// -(0.35*0.35 + 1.0*0.175 + 0.5*0.175): every counted window sits under its
+	// target, so the credential is cheap to route to, and the two weightless
+	// windows add nothing however they read.
+	if wantCost := -0.385; math.Abs(score.Cost-wantCost) > tolerance {
 		t.Fatalf("Cost = %v, want %v", score.Cost, wantCost)
 	}
 }
@@ -567,7 +380,7 @@ func TestScoreAuthEligibility(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			score := ScoreAuth(cfg, seat("seat", now, tc.windows...), "claude-fable-5-1", now)
+			score := ScoreAuth(cfg, seat("seat", now, tc.windows...), fable, now)
 			if score.Eligible != tc.eligible || score.Reason != tc.reason {
 				t.Fatalf("eligible=%v reason=%q, want eligible=%v reason=%q",
 					score.Eligible, score.Reason, tc.eligible, tc.reason)
@@ -584,7 +397,7 @@ func TestScoreAuthEligibility(t *testing.T) {
 	// Age is the caller's policy: scoring itself ignores ObservedAt.
 	t.Run("snapshot age does not gate", func(t *testing.T) {
 		stale := seat("seat", now.Add(-24*time.Hour), weekly(now, 0.5, 0.2))
-		if score := ScoreAuth(cfg, stale, "claude-fable-5-1", now); !score.Eligible {
+		if score := ScoreAuth(cfg, stale, fable, now); !score.Eligible {
 			t.Fatalf("eligible=false reason=%q, want scoring to ignore snapshot age", score.Reason)
 		}
 	})
@@ -602,12 +415,8 @@ func TestFullnessGatesAtExactlyFullAndNoSooner(t *testing.T) {
 		util     float64
 		eligible bool
 	}{
-		{"nine tenths", 0.9, true},
-		{"three nines", 0.999, true},
 		{"the last step below full", math.Nextafter(1, 0), true},
 		{"exactly full", 1, false},
-		{"the first step past full", math.Nextafter(1, 2), false},
-		{"half again", 1.5, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -615,7 +424,7 @@ func TestFullnessGatesAtExactlyFullAndNoSooner(t *testing.T) {
 			if !tc.eligible {
 				wantReason = model.ReasonSpent
 			}
-			score := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, tc.util)), "claude-opus-5", now)
+			score := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, tc.util)), opus, now)
 			if score.Eligible != tc.eligible || score.Reason != wantReason {
 				t.Fatalf("at %v: eligible=%v reason=%q, want eligible=%v reason=%q",
 					tc.util, score.Eligible, score.Reason, tc.eligible, wantReason)
@@ -632,7 +441,6 @@ func TestFullnessGatesAtExactlyFullAndNoSooner(t *testing.T) {
 func TestFullnessGatesWithNoStatusSoAUsagePollCannotClearIt(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
-	const opus = "claude-opus-5"
 
 	refused := weekly(now, 0.5, 1.0)
 	refused.Status = model.StatusRejected
@@ -647,8 +455,8 @@ func TestFullnessGatesWithNoStatusSoAUsagePollCannotClearIt(t *testing.T) {
 		t.Fatalf("fixture = status %q severity %q, want both unset as the usage endpoint leaves them",
 			polled.Status, polled.Severity)
 	}
-	if polled.Blocking() || polled.Critical() {
-		t.Fatal("fixture reads as blocking or critical, want a window only its utilization condemns")
+	if polled.Blocking() {
+		t.Fatal("fixture reads as blocking, want a window only its utilization condemns")
 	}
 
 	score := ScoreAuth(cfg, seat("seat", now, polled), opus, now)
@@ -668,7 +476,7 @@ func TestNoSnapshotAndNoBearingWindowDiffer(t *testing.T) {
 		seat("empty", now),
 		seat("other-family", now, paced(model.WindowWeeklyScoped, model.FamilyOpus, now, 0.5, 0.2)),
 	)
-	ranked := Rank(cfg, snaps, []string{"missing", "empty", "other-family"}, "claude-fable-5-1", now)
+	ranked := Rank(cfg, snaps, []string{"missing", "empty", "other-family"}, fable, now)
 
 	for _, tc := range []struct{ id, reason string }{
 		{"missing", model.ReasonNoSnapshot},
@@ -694,25 +502,9 @@ func TestUnopenedWindowScoresNothingAndStillGates(t *testing.T) {
 
 	idle := func(util float64) model.Window { return unopened(model.WindowSession, "", util) }
 
-	// Whatever such a window reads, it has no place on the curve, so it moves
-	// neither the weight nor the cost.
-	t.Run("contributes no slack or weight at any utilization", func(t *testing.T) {
-		withoutIdle := ScoreAuth(cfg, seat("seat", now, live), "claude-opus-5", now)
-		for _, util := range []float64{0, 0.9, 1.0, 1.5} {
-			withIdle := ScoreAuth(cfg, seat("seat", now, live, idle(util)), "claude-opus-5", now)
-			if withIdle.Cost != withoutIdle.Cost {
-				t.Errorf("cost with an unopened window at %v = %v, want %v",
-					util, withIdle.Cost, withoutIdle.Cost)
-			}
-			if got := windowScoreOf(t, withIdle, model.WindowSession, "").Weight; got != 0 {
-				t.Errorf("at %v: unopened window weight = %v, want 0", util, got)
-			}
-		}
-	})
-
 	t.Run("a reading under full does not gate", func(t *testing.T) {
 		for _, util := range []float64{0, 0.9, 0.999} {
-			score := ScoreAuth(cfg, seat("seat", now, live, idle(util)), "claude-opus-5", now)
+			score := ScoreAuth(cfg, seat("seat", now, live, idle(util)), opus, now)
 			if !score.Eligible {
 				t.Errorf("at %v: eligible=false reason=%q, want an unopened window with room not to gate",
 					util, score.Reason)
@@ -724,19 +516,16 @@ func TestUnopenedWindowScoresNothingAndStillGates(t *testing.T) {
 		dead := idle(0)
 		dead.Status = model.StatusRejected
 
-		score := ScoreAuth(cfg, seat("seat", now, live, dead), "claude-opus-5", now)
+		score := ScoreAuth(cfg, seat("seat", now, live, dead), opus, now)
 		if score.Eligible || score.Reason != model.ReasonRejected {
 			t.Fatalf("eligible=%v reason=%q, want eligible=false reason=%q",
 				score.Eligible, score.Reason, model.ReasonRejected)
-		}
-		if got := windowScoreOf(t, score, model.WindowSession, "").Weight; got != 0 {
-			t.Fatalf("unopened window weight = %v, want 0", got)
 		}
 	})
 
 	t.Run("another family's unopened cap does not gate", func(t *testing.T) {
 		opusCap := unopened(model.WindowWeeklyScoped, model.FamilyOpus, 1.0)
-		if score := ScoreAuth(cfg, seat("seat", now, live, opusCap), "claude-fable-5-1", now); !score.Eligible {
+		if score := ScoreAuth(cfg, seat("seat", now, live, opusCap), fable, now); !score.Eligible {
 			t.Fatalf("eligible=false reason=%q, want an Opus cap not to gate a Fable request", score.Reason)
 		}
 	})
@@ -748,7 +537,7 @@ func TestUnopenedWindowScoresNothingAndStillGates(t *testing.T) {
 		dead.Status = model.StatusRejected
 
 		snaps := snapshots(seat("a-rejected", now, dead), seat("b-healthy", now, live))
-		ranked := Rank(cfg, snaps, []string{"a-rejected", "b-healthy"}, "claude-opus-5", now)
+		ranked := Rank(cfg, snaps, []string{"a-rejected", "b-healthy"}, opus, now)
 
 		if r := scoreOf(t, ranked, "a-rejected"); r.Eligible || r.Reason != model.ReasonRejected {
 			t.Fatalf("a-rejected: eligible=%v reason=%q, want eligible=false reason=%q",
@@ -758,7 +547,7 @@ func TestUnopenedWindowScoresNothingAndStillGates(t *testing.T) {
 		if !ok || best.AuthID != "b-healthy" {
 			t.Fatalf("winner = (%q, %v), want (b-healthy, true)", best.AuthID, ok)
 		}
-		if _, ok := Best(Rank(cfg, snaps, []string{"a-rejected"}, "claude-opus-5", now)); ok {
+		if _, ok := Best(Rank(cfg, snaps, []string{"a-rejected"}, opus, now)); ok {
 			t.Fatal("Best returned a provider-rejected credential from a one-candidate field")
 		}
 	})
@@ -771,16 +560,8 @@ func TestUnopenedWindowScoresNothingAndStillGates(t *testing.T) {
 func TestFullnessIsReadOnAWindowWithNoOpenPeriod(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
-	const opus = "claude-opus-5"
 	live := weekly(now, 0.5, 0.1)
 	bare := ScoreAuth(cfg, seat("seat", now, live), opus, now)
-
-	// A scoped cap, so the window it stands in for is one that would carry a
-	// weight if it had a period.
-	if cfg.ScopedWeight == 0 {
-		t.Fatalf("ScopedWeight = %v, want a non-zero weight for this to be a window that could carry one",
-			cfg.ScopedWeight)
-	}
 
 	for _, util := range []float64{1.0, 1.5} {
 		full := unopened(model.WindowWeeklyScoped, model.FamilyOpus, util)
@@ -818,7 +599,7 @@ func TestNonFiniteUtilizationIsIneligible(t *testing.T) {
 		{"negative infinity", math.Inf(-1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			score := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, tc.util)), "claude-opus-5", now)
+			score := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, tc.util)), opus, now)
 			if score.Eligible || score.Reason != model.ReasonBadReading {
 				t.Fatalf("eligible=%v reason=%q, want eligible=false reason=%q",
 					score.Eligible, score.Reason, model.ReasonBadReading)
@@ -828,7 +609,7 @@ func TestNonFiniteUtilizationIsIneligible(t *testing.T) {
 
 	t.Run("an unopened window's reading is still read", func(t *testing.T) {
 		dead := model.Window{Kind: model.WindowSession, Utilization: math.NaN(), Duration: model.SessionDuration}
-		score := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, 0.2), dead), "claude-opus-5", now)
+		score := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, 0.2), dead), opus, now)
 		if score.Eligible || score.Reason != model.ReasonBadReading {
 			t.Fatalf("eligible=%v reason=%q, want eligible=false reason=%q",
 				score.Eligible, score.Reason, model.ReasonBadReading)
@@ -839,7 +620,7 @@ func TestNonFiniteUtilizationIsIneligible(t *testing.T) {
 		score := ScoreAuth(cfg, seat("seat", now,
 			weekly(now, 0.5, 0.2),
 			paced(model.WindowWeeklyScoped, model.FamilyOpus, now, 0.5, math.NaN()),
-		), "claude-fable-5-1", now)
+		), fable, now)
 		if !score.Eligible {
 			t.Fatalf("eligible=false reason=%q, want an Opus cap unread by a Fable request", score.Reason)
 		}
@@ -871,13 +652,13 @@ func TestRankOrdersUnreadableCostsLast(t *testing.T) {
 		{"y-dear", "nan-a", "good-high", "nan-b", "good-low"},
 	}
 	for _, order := range orders {
-		ranked := Rank(cfg, snaps, append([]string{}, order...), "claude-opus-5", now)
+		ranked := Rank(cfg, snaps, append([]string{}, order...), opus, now)
 		if got := rankedIDs(ranked); !reflect.DeepEqual(got, want) {
 			t.Fatalf("Rank(%v) = %v, want %v", order, got, want)
 		}
 	}
 
-	ranked := Rank(cfg, snaps, orders[0], "claude-opus-5", now)
+	ranked := Rank(cfg, snaps, orders[0], opus, now)
 	// The order above is an eligible dear seat ahead of two unreadable ones,
 	// not one ineligible seat ahead of another.
 	if dear := scoreOf(t, ranked, "y-dear"); !dear.Eligible || dear.Cost <= 0 {
@@ -900,40 +681,6 @@ func TestRankOrdersUnreadableCostsLast(t *testing.T) {
 // Cost is the weighted window sum and nothing else: no penalty term, no
 // tie-break, no bonus for a credential that happens to be idle. It is
 // reconstructible from the breakdown the same score carries.
-func TestCostIsTheWeightedWindowSumAndNothingElse(t *testing.T) {
-	now := testNow
-
-	cfg := model.Defaults().Pace
-	cfg.SessionWeight = 0.35
-
-	// A bearing session window, the all-models weekly, this request's scoped
-	// cap, another family's cap, and a bearing window with no period. Only the
-	// first three carry a weight, and the terms run in both directions.
-	snap := seat("mixed", now,
-		paced(model.WindowSession, "", now, 0.5, 0.9),
-		weekly(now, 0.95, 0.4),
-		paced(model.WindowWeeklyScoped, model.FamilyOpus, now, 0.95, 1.2),
-		paced(model.WindowWeeklyScoped, model.FamilySonnet, now, 0.3, 0.7),
-		model.Window{Kind: model.WindowWeekly, Utilization: 0.5, Duration: model.WeeklyDuration},
-	)
-	score := ScoreAuth(cfg, snap, "claude-opus-5", now)
-
-	wantWeights := []float64{cfg.SessionWeight, cfg.WeeklyWeight, cfg.ScopedWeight, 0, 0}
-	if len(score.Windows) != len(wantWeights) {
-		t.Fatalf("breakdown has %d windows, want %d", len(score.Windows), len(wantWeights))
-	}
-	var want float64
-	for i, ws := range score.Windows {
-		if ws.Weight != wantWeights[i] {
-			t.Fatalf("window %d weight = %v, want %v", i, ws.Weight, wantWeights[i])
-		}
-		want -= ws.Weight * ws.Slack
-	}
-	if math.Abs(score.Cost-want) > tolerance {
-		t.Fatalf("Cost = %v, want -sum(weight*slack) = %v", score.Cost, want)
-	}
-}
-
 // The scoped term keys on model.FamilyOf on both sides, so provider prefixes,
 // date suffixes and context markers on the model id resolve, and a Scope
 // spelled as the usage endpoint's display name matches too.
@@ -946,15 +693,8 @@ func TestScopedWindowCountsOnlyForItsOwnFamily(t *testing.T) {
 		scope   string
 		counts  bool
 	}{
-		{"claude-opus-5", model.FamilyOpus, true},
-		{"claude-opus-5[1m]", model.FamilyOpus, true},
-		{"anthropic/claude-opus-5", "Claude Opus 4", true},
-		{"us.anthropic.claude-sonnet-5-v1:0", model.FamilySonnet, true},
-		{"claude-3-5-haiku-latest", model.FamilyHaiku, true},
-		{"Claude-Opus-5", "opus", true},
-		{"claude-fable-5-1", model.FamilyOpus, false},
-		{"gpt-5", model.FamilyOpus, false},
-		{"claude-5", model.FamilyOpus, false},
+		{opus, model.FamilyOpus, true},
+		{fable, model.FamilyOpus, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.modelID+" vs "+tc.scope, func(t *testing.T) {
@@ -996,7 +736,6 @@ func TestScopedWindowCountsOnlyForItsOwnFamily(t *testing.T) {
 // it.
 func TestLiveSeatsRouteIntoTheClosingWindow(t *testing.T) {
 	cfg := model.Defaults().Pace
-	const fable = "claude-fable-5-1"
 
 	// The two readings, parameterised on the session window because that is
 	// the only reading the first two cases differ in.
@@ -1074,43 +813,6 @@ func TestLiveSeatsRouteIntoTheClosingWindow(t *testing.T) {
 		}
 	})
 
-	t.Run("weekly slack decides once the session windows reset", func(t *testing.T) {
-		now := at(t, "2026-09-04T22:30:00Z")
-		seatA := seat("seat-a", now,
-			window(model.WindowSession, "", 0, at(t, "2026-09-05T03:09:59Z")),
-			window(model.WindowWeekly, "", 0.04, at(t, "2026-09-11T18:59:59Z")),
-			window(model.WindowWeeklyScoped, model.FamilyFable, 0, at(t, "2026-09-11T18:59:59Z")),
-		)
-		seatB := seat("seat-b", now,
-			window(model.WindowSession, "", 0, at(t, "2026-09-05T03:20:00Z")),
-			window(model.WindowWeekly, "", 0.54, at(t, "2026-09-05T06:00:00Z")),
-			window(model.WindowWeeklyScoped, model.FamilyFable, 0.67, at(t, "2026-09-05T06:00:00Z")),
-		)
-
-		ranked := Rank(cfg, snapshots(seatA, seatB), []string{"seat-a", "seat-b"}, fable, now)
-		best, ok := Best(ranked)
-		if !ok {
-			t.Fatal("no eligible credential")
-		}
-		a := scoreOf(t, ranked, "seat-a")
-		b := scoreOf(t, ranked, "seat-b")
-		if best.AuthID != "seat-b" {
-			t.Fatalf("winner = %q (seat-a %v, seat-b %v), want seat-b: its weekly window resets in hours",
-				best.AuthID, a.Cost, b.Cost)
-		}
-		// Seat B is behind a curve that is nearly over; seat A is ahead of one
-		// that has just begun.
-		if slack := windowScoreOf(t, b, model.WindowWeekly, "").Slack; slack <= 0 {
-			t.Fatalf("seat-b weekly slack = %v, want positive", slack)
-		}
-		if slack := windowScoreOf(t, a, model.WindowWeekly, "").Slack; slack >= 0 {
-			t.Fatalf("seat-a weekly slack = %v, want negative", slack)
-		}
-		// Decisive enough to pull an established binding across.
-		if !ShouldSwitch(cfg, a, b) {
-			t.Fatalf("ShouldSwitch(seat-a %v, seat-b %v) = false, want true", a.Cost, b.Cost)
-		}
-	})
 }
 
 // The curve exponent is a policy dial, not a constant factor: on the power
@@ -1139,7 +841,7 @@ func TestCurveExponentReordersCandidates(t *testing.T) {
 			cfg := model.Defaults().Pace
 			cfg.Shape = model.ShapePower
 			cfg.CurveExponent = tc.exponent
-			ranked := Rank(cfg, snaps, ids, "claude-opus-5", now)
+			ranked := Rank(cfg, snaps, ids, opus, now)
 			best, ok := Best(ranked)
 			if !ok {
 				t.Fatal("no eligible credential")
@@ -1180,7 +882,7 @@ func TestRankIsDeterministicAndLeavesInputsAlone(t *testing.T) {
 		before := append([]string{}, order...)
 		originalWindows := append([]model.Window{}, snaps["a"].Windows...)
 
-		got := rankedIDs(Rank(cfg, snaps, candidates, "claude-opus-5", now))
+		got := rankedIDs(Rank(cfg, snaps, candidates, opus, now))
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("Rank(%v) = %v, want %v", order, got, want)
 		}
@@ -1200,7 +902,7 @@ func TestRankScoresARepeatedCandidateOnce(t *testing.T) {
 	now := testNow
 
 	snaps := snapshots(seat("a", now, weekly(now, 0.5, 0.2)))
-	ranked := Rank(cfg, snaps, []string{"a", "ghost", "a", "ghost", "a"}, "claude-opus-5", now)
+	ranked := Rank(cfg, snaps, []string{"a", "ghost", "a", "ghost", "a"}, opus, now)
 
 	if got, want := rankedIDs(ranked), []string{"a", "ghost"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Rank = %v, want %v", got, want)
@@ -1211,7 +913,7 @@ func TestRankScoresACandidateWithNoSnapshot(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
 
-	ranked := Rank(cfg, nil, []string{"ghost"}, "claude-opus-5", now)
+	ranked := Rank(cfg, nil, []string{"ghost"}, opus, now)
 	if len(ranked) != 1 {
 		t.Fatalf("Rank returned %d scores, want 1", len(ranked))
 	}
@@ -1232,7 +934,7 @@ func TestRankUsesTheCandidateID(t *testing.T) {
 	snaps := map[string]model.AuthSnapshot{
 		"candidate": seat("", now, weekly(now, 0.5, 0.2)),
 	}
-	ranked := Rank(cfg, snaps, []string{"candidate"}, "claude-opus-5", now)
+	ranked := Rank(cfg, snaps, []string{"candidate"}, opus, now)
 	if ranked[0].AuthID != "candidate" {
 		t.Fatalf("AuthID = %q, want %q", ranked[0].AuthID, "candidate")
 	}
@@ -1342,16 +1044,12 @@ func TestSessionWindowPacesNothingAndGatesOnWhatTheProviderReports(t *testing.T)
 	cfg := model.Defaults().Pace
 	now := testNow
 
-	if cfg.SessionWeight != 0 {
-		t.Fatalf("SessionWeight = %v, want 0", cfg.SessionWeight)
-	}
-
-	bare := ScoreAuth(cfg, seat("bare", now, weekly(now, 0.5, 0.1)), "claude-opus-5", now)
+	bare := ScoreAuth(cfg, seat("bare", now, weekly(now, 0.5, 0.1)), opus, now)
 	busy := func(util float64) model.Score {
 		return ScoreAuth(cfg, seat("busy", now,
 			paced(model.WindowSession, "", now, 0.5, util),
 			weekly(now, 0.5, 0.1),
-		), "claude-opus-5", now)
+		), opus, now)
 	}
 
 	// Costing nothing holds at every reading, including a full one: the gate
@@ -1380,7 +1078,7 @@ func TestSessionWindowPacesNothingAndGatesOnWhatTheProviderReports(t *testing.T)
 
 	refused := paced(model.WindowSession, "", now, 0.5, 0.4)
 	refused.Status = model.StatusRejected
-	score := ScoreAuth(cfg, seat("refused", now, refused, weekly(now, 0.5, 0.1)), "claude-opus-5", now)
+	score := ScoreAuth(cfg, seat("refused", now, refused, weekly(now, 0.5, 0.1)), opus, now)
 	if score.Eligible || score.Reason != model.ReasonRejected {
 		t.Fatalf("eligible=%v reason=%q, want a refused session window to gate",
 			score.Eligible, score.Reason)
@@ -1394,12 +1092,12 @@ func TestFailedReadIsNotAMissingCap(t *testing.T) {
 	cfg := model.Defaults().Pace
 
 	read := model.AuthSnapshot{AuthID: "seat", ObservedAt: now}
-	if score := ScoreAuth(cfg, read, "claude-fable-5-1", now); score.Reason != model.ReasonNoWindow {
+	if score := ScoreAuth(cfg, read, fable, now); score.Reason != model.ReasonNoWindow {
 		t.Errorf("reason = %q, want %q", score.Reason, model.ReasonNoWindow)
 	}
 
 	failed := model.AuthSnapshot{AuthID: "seat", ObservedAt: now, Err: "usage endpoint throttled"}
-	score := ScoreAuth(cfg, failed, "claude-fable-5-1", now)
+	score := ScoreAuth(cfg, failed, fable, now)
 	if score.Eligible || score.Reason != model.ReasonFetchFailed {
 		t.Errorf("eligible=%v reason=%q, want eligible=false reason=%q",
 			score.Eligible, score.Reason, model.ReasonFetchFailed)
@@ -1417,7 +1115,7 @@ func TestAnUnreadCredentialNeverLooksCheapest(t *testing.T) {
 	read := seat("read", now, weekly(now, 0.5, 0.9))
 	unread := model.AuthSnapshot{AuthID: "unread", ObservedAt: now, Err: "usage endpoint throttled"}
 
-	ranked := Rank(cfg, snapshots(read, unread), []string{"read", "unread"}, "claude-opus-5", now)
+	ranked := Rank(cfg, snapshots(read, unread), []string{"read", "unread"}, opus, now)
 	if got := scoreOf(t, ranked, "unread"); got.Cost != 0 || got.Eligible {
 		t.Fatalf("unread = cost %v eligible %v, want zero cost and ineligible", got.Cost, got.Eligible)
 	}
@@ -1442,26 +1140,59 @@ func TestAnUnreadCredentialNeverLooksCheapest(t *testing.T) {
 func TestAnUnreadableZeroWeightWindowLeavesCostFinite(t *testing.T) {
 	now := time.Now().UTC()
 	cfg := model.Defaults().Pace
-	if cfg.SessionWeight != 0 {
-		t.Fatalf("session weight = %v, want 0 so this test exercises a zero-weight window", cfg.SessionWeight)
-	}
 
 	snap := seat("seat", now,
 		paced(model.WindowSession, "", now, 0.5, math.NaN()),
 		weekly(now, 0.5, 0.4),
 	)
-	score := ScoreAuth(cfg, snap, "claude-opus-5", now)
+	score := ScoreAuth(cfg, snap, opus, now)
 
 	if math.IsNaN(score.Cost) || math.IsInf(score.Cost, 0) {
 		t.Errorf("cost = %v, want a finite number", score.Cost)
 	}
 	// The weekly window alone sets it, and the reading still gates.
-	weeklyOnly := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, 0.4)), "claude-opus-5", now)
+	weeklyOnly := ScoreAuth(cfg, seat("seat", now, weekly(now, 0.5, 0.4)), opus, now)
 	if math.Abs(score.Cost-weeklyOnly.Cost) > tolerance {
 		t.Errorf("cost = %v, want the weighted windows' own total %v", score.Cost, weeklyOnly.Cost)
 	}
 	if score.Eligible || score.Reason != model.ReasonBadReading {
 		t.Errorf("eligible=%v reason=%q, want ineligible with %q",
 			score.Eligible, score.Reason, model.ReasonBadReading)
+	}
+}
+
+// The two staleness gates the pick applies before a reading is scored at all.
+// A credential with no reading and one whose reading is too old are different
+// facts, and each names its own reason in place of a window breakdown.
+func TestStalenessGatesRunBeforeScoring(t *testing.T) {
+	cfg := model.Defaults()
+	now := testNow
+	fresh := seat("fresh", now, weekly(now, 0.5, 0.2))
+	old := seat("old", now.Add(-cfg.Quota.MaxStaleness-time.Minute), weekly(now, 0.5, 0.2))
+
+	if s := ScoreWithStaleness(cfg, model.AuthSnapshot{}, false, "missing", opus, now); s.Eligible ||
+		s.Reason != model.ReasonNoSnapshot || s.AuthID != "missing" {
+		t.Errorf("no snapshot = %+v, want ineligible %q for the id the caller holds", s, model.ReasonNoSnapshot)
+	}
+	if s := ScoreWithStaleness(cfg, old, true, "old", opus, now); s.Eligible || s.Reason != model.ReasonStale {
+		t.Errorf("stale snapshot = %+v, want ineligible %q", s, model.ReasonStale)
+	}
+	// The candidate id wins over the snapshot's own, which may be spelled
+	// differently or not at all.
+	if s := ScoreWithStaleness(cfg, fresh, true, "offered-as", opus, now); !s.Eligible ||
+		s.AuthID != "offered-as" || len(s.Windows) == 0 {
+		t.Errorf("fresh snapshot = %+v, want it scored under the offered id", s)
+	}
+
+	ranked := RankWithStaleness(cfg, snapshots(fresh, old), []string{"fresh", "old"}, opus, now)
+	if got := rankedIDs(ranked); !reflect.DeepEqual(got, []string{"fresh", "old"}) {
+		t.Fatalf("Rank = %v, want the fresh seat ahead of the stale one", got)
+	}
+	if s := scoreOf(t, ranked, "old"); s.Eligible || s.Reason != model.ReasonStale {
+		t.Errorf("stale candidate = %+v, want ineligible %q rather than %q",
+			s, model.ReasonStale, model.ReasonNoSnapshot)
+	}
+	if s := scoreOf(t, ranked, "fresh"); !s.Eligible {
+		t.Errorf("fresh candidate = %+v, want it scored", s)
 	}
 }

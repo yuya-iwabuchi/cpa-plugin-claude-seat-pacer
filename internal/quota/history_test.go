@@ -282,7 +282,7 @@ func TestImportBehindLiveReadings(t *testing.T) {
 
 // An estimated cycle is one reconstructed from a token log. The first observed
 // reading into it clears the flag and records where the estimate ends; both
-// forms survive a save and a load, and a file that predates the fields loads
+// forms survive a save and a load, and a file written without the fields loads
 // as observed throughout.
 func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 	resets := testNow.Add(3 * time.Hour)

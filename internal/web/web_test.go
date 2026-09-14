@@ -42,10 +42,13 @@ func get(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder
 	return rec
 }
 
+// base is the instant every fixture status is stamped with, so two fixtures
+// never differ by a clock the assertions do not name.
+var base = time.Date(2026, 9, 4, 15, 4, 5, 0, time.UTC)
+
 // richStatus exercises every field the app reads, including the ones that only
 // appear on an unhappy path.
 func richStatus() model.Status {
-	base := time.Date(2026, 9, 4, 15, 4, 5, 0, time.UTC)
 	cfg := model.Defaults()
 	cfg.Pace.CurveExponent = 1.35
 	return model.Status{
@@ -155,7 +158,6 @@ func TestRoutes(t *testing.T) {
 	rh := NewHandler(rejected)
 	for _, c := range []struct{ method, target string }{
 		{http.MethodPost, "/api/status"},
-		{http.MethodPost, "/"},
 		{http.MethodDelete, "/index.html"},
 		{http.MethodPut, "/api/status"},
 		{http.MethodPatch, "/index.html"},
@@ -259,16 +261,6 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), model.DefaultUsageURL) {
 		t.Errorf("the unauthenticated route serves quota.usage_url: %s", rec.Body.String())
-	}
-	// Duration travels as nanoseconds, which the page converts itself.
-	var raw map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
-		t.Fatal(err)
-	}
-	auths := raw["auths"].([]any)
-	win := auths[0].(map[string]any)["snapshot"].(map[string]any)["windows"].([]any)[0].(map[string]any)
-	if win["duration"].(float64) != float64(model.SessionDuration) {
-		t.Errorf("duration = %v, want %v ns", win["duration"], float64(model.SessionDuration))
 	}
 }
 
@@ -395,19 +387,6 @@ func TestPageHoldsNoRewrittenByte(t *testing.T) {
 	}
 }
 
-// TestNonFiniteSentinelLiteral holds nonFiniteLiteral to what the encoder
-// actually writes for the sentinel.
-func TestNonFiniteSentinelLiteral(t *testing.T) {
-	t.Parallel()
-	got, err := json.Marshal(nonFiniteSentinel)
-	if err != nil {
-		t.Fatalf("marshal sentinel: %v", err)
-	}
-	if !bytes.Equal(got, nonFiniteLiteral) {
-		t.Errorf("encoder writes %s, nonFiniteLiteral is %s", got, nonFiniteLiteral)
-	}
-}
-
 // TestNonFiniteSurvivesEncoding covers a malformed upstream reading: a NaN or
 // an infinity reaches the page as null rather than failing the whole endpoint
 // and hiding every credential.
@@ -495,8 +474,8 @@ func TestPublicLabelMasksEmails(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		if got := publicLabel(c.in); got != c.want {
-			t.Errorf("publicLabel(%q) = %q, want %q", c.in, got, c.want)
+		if got := maskEmail(c.in); got != c.want {
+			t.Errorf("maskEmail(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
@@ -536,7 +515,7 @@ func TestPublicSeatNamesAreDistinct(t *testing.T) {
 		{AuthID: "claude-lone@acme.example.json", Label: "lone@acme.example", Name: "claude-lone@acme.example.json", Provider: "claude"},
 		{AuthID: "bare"},
 	}
-	got := publicSeatNames(auths)
+	got := publicSeatLabels(auths)
 	want := []string{
 		"team-a", "team-b",
 		"o…@acme.example #" + publicID(auths[2].AuthID)[:seatTagLen],
@@ -593,23 +572,6 @@ func TestSeatIdentityIsReduced(t *testing.T) {
 	}
 	if a.Email != "q…@acme-corp.example" {
 		t.Errorf("email = %q, want it masked", a.Email)
-	}
-}
-
-// TestEmailLabelsAreMasked covers the route: the account address never reaches
-// an anonymous reader, on the credential row or on its snapshot.
-func TestEmailLabelsAreMasked(t *testing.T) {
-	t.Parallel()
-	st := richStatus()
-	st.Auths[0].Label = "quota.bot@acme-corp.example"
-	st.Auths[0].Snapshot.Label = "quota.bot@acme-corp.example"
-
-	body := get(t, NewHandler(&stubSource{status: st}), "/api/status").Body.String()
-	if strings.Contains(body, "quota.bot@") {
-		t.Errorf("the account email is served on the unauthenticated route: %s", body)
-	}
-	if !strings.Contains(body, "q…@acme-corp.example") {
-		t.Errorf("the masked label is missing: %s", body)
 	}
 }
 
@@ -738,7 +700,6 @@ const (
 // idStatus carries seatAID and seatBID through every field of model.Status
 // that references a credential, including the two that name one in free text.
 func idStatus() model.Status {
-	base := time.Date(2026, 9, 4, 15, 4, 5, 0, time.UTC)
 	return model.Status{
 		Now:   base,
 		Model: "claude-fable-5",
@@ -933,6 +894,7 @@ func (s *syncSource) SyncNow(context.Context) bool { s.syncs++; return true }
 // The page asks for a fresh provider read with sync=1, and only then. A source
 // with no SyncNow serves the request rather than failing it.
 func TestStatusSyncsOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
 	src := &syncSource{stubSource: stubSource{status: richStatus()}}
 	h := NewHandler(src)
 

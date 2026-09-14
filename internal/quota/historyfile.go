@@ -17,8 +17,10 @@ const historyFileVersion = 1
 // It carries credential ids, which are file names or account addresses, and
 // utilization fractions: nothing else, and no token.
 type historyFile struct {
-	Version int                              `json:"version"`
-	Seats   map[string][]model.WindowHistory `json:"seats"`
+	Version int `json:"version"`
+	// Auths is keyed by credential id. The JSON key is "seats", the name the
+	// format shipped with.
+	Auths map[string][]model.WindowHistory `json:"seats"`
 }
 
 // SaveHistory writes the store's whole history to path, by writing a sibling
@@ -28,7 +30,7 @@ func (s *Store) SaveHistory(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	body, err := json.Marshal(historyFile{Version: historyFileVersion, Seats: s.ExportHistory()})
+	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory()})
 	if err != nil {
 		return err
 	}
@@ -60,6 +62,6 @@ func (s *Store) LoadHistory(path string) error {
 	if f.Version != historyFileVersion {
 		return errors.New("history file is of an unknown version")
 	}
-	s.ImportHistory(f.Seats)
+	s.ImportHistory(f.Auths)
 	return nil
 }

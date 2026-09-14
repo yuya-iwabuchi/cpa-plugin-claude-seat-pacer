@@ -54,12 +54,12 @@ const refreshHeadroom = 5 * time.Second
 // loop for good.
 const pollBudget = 2 * time.Minute
 
-// minForcedPollGap floors how often the status route may force a usage read.
+// MinForcedPollGap floors how often the status route may force a usage read.
 // That route is served unauthenticated, so without a floor anything that can
 // reach the management port could drive the usage endpoint as fast as it likes
 // and earn the pool a throttle. A forced read is otherwise the same work the
 // loop does on its own.
-const minForcedPollGap = 10 * time.Second
+const MinForcedPollGap = 10 * time.Second
 
 // managementRegister answers management.register. The host re-issues it on
 // every reconfigure, so the same routes come back each time.
@@ -251,14 +251,14 @@ func jsonResponse(status int, body any) ManagementResponse {
 }
 
 // SyncNow re-reads every governed credential's usage unless the last poll is
-// more recent than minForcedPollGap, and reports whether it read. It runs
+// more recent than MinForcedPollGap, and reports whether it read. It runs
 // inline on the caller's goroutine, so a status response built after it
 // carries the fresh reading.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
 	p.mu.Lock()
 	polledAt := p.polledAt
 	p.mu.Unlock()
-	if !polledAt.IsZero() && p.now().Sub(polledAt) < minForcedPollGap {
+	if !polledAt.IsZero() && p.now().Sub(polledAt) < MinForcedPollGap {
 		return false
 	}
 

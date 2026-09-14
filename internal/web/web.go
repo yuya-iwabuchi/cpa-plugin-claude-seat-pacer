@@ -190,7 +190,6 @@ var jsonNull = []byte("null")
 func encodeStatus(status model.Status) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(true)
 	if err := enc.Encode(status); err != nil {
 		return nil, err
 	}
@@ -225,11 +224,11 @@ func reduceForPublic(st model.Status) model.Status {
 	}
 	st.Warnings = warnings
 
-	names := publicSeatNames(st.Auths)
+	names := publicSeatLabels(st.Auths)
 	auths := make([]model.AuthStatus, len(st.Auths))
 	for i, a := range st.Auths {
 		a.Label = names[i]
-		a.Email = publicLabel(seatEmail(a))
+		a.Email = maskEmail(seatEmail(a))
 		// The file name carries the account's local part more often than not,
 		// and everything it distinguishes is already in Label.
 		a.Name = ""
@@ -366,7 +365,7 @@ func publicText(s string, ids *strings.Replacer) string {
 	}
 	s = absoluteURL.ReplaceAllString(s, "…")
 	s = ids.Replace(s)
-	return bareEmail.ReplaceAllStringFunc(s, publicLabel)
+	return bareEmail.ReplaceAllStringFunc(s, maskEmail)
 }
 
 // seatEmail is the account address a credential row carries: the host's email
@@ -375,14 +374,14 @@ func seatEmail(a model.AuthStatus) string {
 	if a.Email != "" {
 		return a.Email
 	}
-	if bareEmail.MatchString(a.Label) && publicLabel(a.Label) != a.Label {
+	if bareEmail.MatchString(a.Label) && maskEmail(a.Label) != a.Label {
 		return a.Label
 	}
 	return ""
 }
 
-// publicSeatNames is the operator-facing name of every seat, in row order, as
-// the unauthenticated route publishes it. Every name is unique across the
+// publicSeatLabels is the Label of every seat, in row order, as the
+// unauthenticated route publishes it. Every name is unique across the
 // rows, so the two credentials one account holds in two organizations stay
 // apart on the page.
 //
@@ -390,18 +389,19 @@ func seatEmail(a model.AuthStatus) string {
 // set on the host, the credential's file name with the account address taken
 // out of it, and the masked address. Two rows that still share a name each
 // carry a tag of their published id, which is stable across restarts.
-func publicSeatNames(auths []model.AuthStatus) []string {
+func publicSeatLabels(auths []model.AuthStatus) []string {
 	names := make([]string, len(auths))
 	count := make(map[string]int, len(auths))
 	for i, a := range auths {
 		email := seatEmail(a)
+		residue := fileNameResidue(a.Name, email, a.Provider)
 		switch {
 		case a.Label != "" && a.Label != email:
-			names[i] = publicLabel(a.Label)
-		case fileNameResidue(a.Name, email, a.Provider) != "":
-			names[i] = fileNameResidue(a.Name, email, a.Provider)
+			names[i] = maskEmail(a.Label)
+		case residue != "":
+			names[i] = residue
 		default:
-			names[i] = publicLabel(email)
+			names[i] = maskEmail(email)
 		}
 		count[names[i]]++
 	}
@@ -440,9 +440,9 @@ func fileNameResidue(name, email, provider string) string {
 	name = strings.TrimSuffix(name, ".json")
 	name = bareEmail.ReplaceAllString(name, "")
 	if email != "" {
-		name = replaceFold(name, email, "")
+		name = deleteFold(name, email)
 		if at := strings.Index(email, "@"); at > 0 {
-			name = replaceFold(name, email[:at], "")
+			name = deleteFold(name, email[:at])
 		}
 	}
 	if provider != "" {
@@ -462,8 +462,8 @@ func fileNameResidue(name, email, provider string) string {
 	}
 }
 
-// replaceFold removes every case-insensitive occurrence of old from s.
-func replaceFold(s, old, repl string) string {
+// deleteFold removes every case-insensitive occurrence of old from s.
+func deleteFold(s, old string) string {
 	if old == "" {
 		return s
 	}
@@ -476,23 +476,23 @@ func replaceFold(s, old, repl string) string {
 			return b.String()
 		}
 		b.WriteString(s[:i])
-		b.WriteString(repl)
 		s, lower = s[i+len(old):], lower[i+len(old):]
 	}
 }
 
-// publicLabel masks a label that is an account email. The host label falls
-// back to the credential's email address, which this route would otherwise
-// hand to anyone who can reach the port; the domain still tells the operator
-// which organization a seat belongs to.
-func publicLabel(label string) string {
-	at := strings.LastIndex(label, "@")
-	if at <= 0 || at == len(label)-1 {
-		return label
+// maskEmail masks an account email down to its first letter and domain. The
+// host label falls back to the credential's email address, which this route
+// would otherwise hand to anyone who can reach the port; the domain still
+// tells the operator which organization a seat belongs to. A string that is
+// not an email comes back unchanged.
+func maskEmail(addr string) string {
+	at := strings.LastIndex(addr, "@")
+	if at <= 0 || at == len(addr)-1 {
+		return addr
 	}
-	local, domain := label[:at], label[at+1:]
+	local, domain := addr[:at], addr[at+1:]
 	if !strings.Contains(domain, ".") || strings.ContainsAny(domain, " \t") {
-		return label
+		return addr
 	}
 	first := []rune(local)[0]
 	return string(first) + "…@" + domain

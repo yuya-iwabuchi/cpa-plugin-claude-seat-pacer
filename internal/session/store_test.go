@@ -98,14 +98,6 @@ func TestStoreScopedByProviderAndModel(t *testing.T) {
 			t.Errorf("SessionKey = %q, want the bare conversation key %q", b.SessionKey, id.Key)
 		}
 	}
-
-	s.Drop("claude", "opus", id.Key)
-	if _, ok := s.Lookup("claude", "opus", id.Key, t0); ok {
-		t.Error("Drop left the binding reachable")
-	}
-	if _, ok := s.Lookup("claude", "sonnet", id.Key, t0); !ok {
-		t.Error("Drop removed another model's binding")
-	}
 }
 
 // The TTL bounds idle time, not total session length, so a conversation that
@@ -228,25 +220,6 @@ func TestStoreEvictionHoldsTheCap(t *testing.T) {
 	}
 }
 
-func TestStoreDrop(t *testing.T) {
-	s := NewStore(time.Hour, 8)
-	bind(s, "k1", "auth-1", t0)
-	bind(s, "k2", "auth-1", t0)
-
-	s.Drop("claude", "opus", "k1")
-	s.Drop("claude", "opus", "missing") // no-op
-
-	if s.Len() != 1 {
-		t.Fatalf("Len = %d, want 1", s.Len())
-	}
-	if _, ok := lookup(s, "k1", t0); ok {
-		t.Error("dropped binding is still reachable")
-	}
-	if _, ok := lookup(s, "k2", t0); !ok {
-		t.Error("Drop removed the wrong binding")
-	}
-}
-
 func TestStoreDropAuth(t *testing.T) {
 	s := NewStore(time.Hour, 8)
 	bind(s, "k1", "auth-1", t0)
@@ -335,8 +308,6 @@ func TestStoreCountByAuthTracksEveryRemovalPath(t *testing.T) {
 	lookup(s, "k2", at(time.Hour))
 	check("expiry on lookup")
 
-	s.Drop("claude", "opus", "k3")
-	check("Drop")
 	s.DropAuth("auth-2")
 	check("DropAuth")
 	s.Sweep(at(2 * time.Hour))
@@ -425,7 +396,6 @@ func TestStoreEmpty(t *testing.T) {
 	if n := s.DropAuth("auth-1"); n != 0 {
 		t.Errorf("DropAuth = %d, want 0", n)
 	}
-	s.Drop("claude", "opus", "k1")
 }
 
 // A non-positive TTL or cap disables that bound, which model.Config.Normalize
@@ -461,7 +431,7 @@ func TestStoreConcurrentAccess(t *testing.T) {
 				now := at(time.Duration(i) * time.Second)
 				key := fmt.Sprintf("k%d", i%32)
 				auth := fmt.Sprintf("auth-%d", w%4)
-				switch i % 8 {
+				switch i % 7 {
 				case 0:
 					bind(s, key, auth, now)
 				case 1:
@@ -471,10 +441,8 @@ func TestStoreConcurrentAccess(t *testing.T) {
 				case 3:
 					s.Sweep(now)
 				case 4:
-					s.Drop("claude", "opus", key)
-				case 5:
 					s.DropAuth(auth)
-				case 6:
+				case 5:
 					if counts := s.CountByAuth(); len(counts) > 4 {
 						panic(fmt.Sprintf("CountByAuth named %d credentials, want at most the 4 in play", len(counts)))
 					}

@@ -106,7 +106,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			AuthID:   id,
 			Label:    snap.Label,
 			Snapshot: snap,
-			Score:    scoreWithStaleness(cfg, snap, hasSnap, id, modelID, now),
+			Score:    pace.ScoreWithStaleness(cfg, snap, hasSnap, id, modelID, now),
 			Bindings: counts[id],
 			Cache:    cache[id],
 			History:  p.quota.History(id, quota.HistoryPublishMax),
@@ -125,28 +125,17 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		rows = append(rows, row)
 	}
 
-	warnings := make([]string, 0, 4)
-	if !cfg.Enabled {
-		warnings = append(warnings, "plugin is disabled by configuration; the host's own selector routes every request")
-	}
-	if listErr != "" {
-		warnings = append(warnings, "credential listing is failing: "+listErr)
-	}
-	for _, provider := range single {
-		warnings = append(warnings, singleCandidateWarning(provider, rows))
-	}
+	seats := make(map[string]SeatWarningState, len(ordered))
 	for _, id := range ordered {
 		entry, listed := entries[id]
-		if !listed || entry.Disabled {
-			continue
+		_, hasSnap := snapshots[id]
+		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap}
+		if poll, ok := polls[id]; ok {
+			state.PollErr, state.PollCategory = poll.err, poll.category
 		}
-		if state, ok := polls[id]; ok && state.err != "" {
-			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", id, state.category, state.err))
-		}
-		if _, ok := snapshots[id]; !ok {
-			warnings = append(warnings, fmt.Sprintf("no quota snapshot for %s; it cannot take a new conversation", id))
-		}
+		seats[id] = state
 	}
+	warnings := Warnings(cfg.Enabled, listErr, single, rows, seats)
 
 	decisions := p.decisions.newestFirst()
 	bound := bindings.All()
@@ -165,20 +154,6 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		Decisions:  decisions,
 		Warnings:   warnings,
 	}
-}
-
-// scoreWithStaleness is the pace evaluation the pick would use for one
-// credential, with the same staleness gate the pick applies.
-func scoreWithStaleness(cfg model.Config, snap model.AuthSnapshot, hasSnap bool, id, modelID string, now time.Time) model.Score {
-	switch {
-	case !hasSnap:
-		return model.Score{AuthID: id, Reason: model.ReasonNoSnapshot}
-	case snap.Stale(now, cfg.Quota.MaxStaleness):
-		return model.Score{AuthID: id, Reason: model.ReasonStale}
-	}
-	score := pace.ScoreAuth(cfg.Pace, snap, modelID, now)
-	score.AuthID = id
-	return score
 }
 
 // hostStatus is the credential state as the host reports it.
@@ -220,4 +195,48 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 	default:
 		return fmt.Sprintf("provider %s offered a single candidate; the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", provider)
 	}
+}
+
+// SeatWarningState is what Warnings needs about one credential beyond its
+// status row: whether the host still lists it, whether a reading exists for
+// it, and the outcome of its last poll.
+type SeatWarningState struct {
+	Listed       bool
+	Disabled     bool
+	HasSnapshot  bool
+	PollErr      string
+	PollCategory string
+}
+
+// Warnings is the operator warning list a status view carries: the plugin
+// being off, a failing credential listing, a provider the host offered one
+// candidate for, and per credential a failing poll or a missing reading. A
+// credential the host no longer lists, or has disabled, warns about neither:
+// the poller skips it, so it holds no reading by design.
+//
+// Order follows rows, so the same state renders the same list twice.
+func Warnings(enabled bool, listErr string, singleCandidateProviders []string, rows []model.AuthStatus, seats map[string]SeatWarningState) []string {
+	warnings := make([]string, 0, 4)
+	if !enabled {
+		warnings = append(warnings, "plugin is disabled by configuration; the host's own selector routes every request")
+	}
+	if listErr != "" {
+		warnings = append(warnings, "credential listing is failing: "+listErr)
+	}
+	for _, provider := range singleCandidateProviders {
+		warnings = append(warnings, singleCandidateWarning(provider, rows))
+	}
+	for _, row := range rows {
+		seat := seats[row.AuthID]
+		if !seat.Listed || seat.Disabled {
+			continue
+		}
+		if seat.PollErr != "" {
+			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", row.AuthID, seat.PollCategory, seat.PollErr))
+		}
+		if !seat.HasSnapshot {
+			warnings = append(warnings, fmt.Sprintf("no quota snapshot for %s; it cannot take a new conversation", row.AuthID))
+		}
+	}
+	return warnings
 }

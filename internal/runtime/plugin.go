@@ -103,7 +103,6 @@ type resourceHandler struct {
 
 // pollState is the last poll outcome for one credential, for the status view.
 type pollState struct {
-	at       time.Time
 	err      string
 	category string
 }
@@ -342,21 +341,6 @@ func (p *Plugin) record(d model.Decision) {
 		p.lastModel = d.Model
 		p.mu.Unlock()
 	}
-}
-
-// headerValue looks a header up case-insensitively, so a map that arrives
-// non-canonical still hits.
-func headerValue(headers map[string][]string, name string) string {
-	if values, ok := headers[name]; ok && len(values) > 0 {
-		return values[0]
-	}
-	canonical := http.CanonicalHeaderKey(name)
-	for key, values := range headers {
-		if len(values) > 0 && http.CanonicalHeaderKey(key) == canonical {
-			return values[0]
-		}
-	}
-	return ""
 }
 
 // metadataString reads a string-valued metadata key, tolerating absence and

@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,46 +27,15 @@ import (
 // WIRE.md carries the invocation, including the environment the host build
 // needs.
 func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
-	hostSource := strings.TrimSpace(os.Getenv("CPA_SOURCE_DIR"))
-	if hostSource == "" {
-		t.Skip("set CPA_SOURCE_DIR to a CLIProxyAPI checkout to run the header-bridge probe")
-	}
-	if _, err := os.Stat(filepath.Join(hostSource, "cmd", "server")); err != nil {
-		t.Skipf("CPA_SOURCE_DIR %q has no cmd/server: %v", hostSource, err)
-	}
+	hostSource := requireHostSource(t)
 
 	const (
-		apiKey        = "probe-api-key"
-		managementKey = "probe-management-key"
-		pluginID      = "cpa-probe"
-		model         = "claude-sonnet-4-6"
+		pluginID = "cpa-probe"
+		model    = "claude-sonnet-4-6"
 	)
 
-	// Every upstream dial lands here and is refused, so the request fails
-	// after auth selection instead of reaching a provider. It also answers the
-	// probe's host.http.do target, which is why the report asserts on 502.
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "fixture proxy refuses upstream", http.StatusBadGateway)
-	}))
-	defer upstream.Close()
-
 	dir := t.TempDir()
-	pluginDir := filepath.Join(dir, "plugins")
-	authDir := filepath.Join(dir, "auth")
 	statePath := filepath.Join(dir, "probe-state.jsonl")
-	for _, path := range []string{pluginDir, authDir, filepath.Join(dir, "home")} {
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	extension, serverName := ".so", "cliproxyapi"
-	switch runtime.GOOS {
-	case "darwin":
-		extension = ".dylib"
-	case "windows":
-		extension, serverName = ".dll", "cliproxyapi.exe"
-	}
 
 	// CPA_CAPTURE_DIR refreshes testdata/host-payloads from a live host.
 	captureDir := strings.TrimSpace(os.Getenv("CPA_CAPTURE_DIR"))
@@ -80,110 +46,22 @@ func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	probePath := filepath.Join(pluginDir, pluginID+extension)
-	buildProbe := exec.Command("go", "build", "-buildmode=c-shared",
-		"-ldflags", "-X=main.stateFile="+statePath+" -X=main.captureDir="+captureDir,
-		"-o", probePath, "./testdata/probe")
-	buildProbe.Env = append(os.Environ(), "CGO_ENABLED=1")
-	if out, err := buildProbe.CombinedOutput(); err != nil {
-		t.Fatalf("build probe plugin: %v\n%s", err, out)
-	}
-
-	serverPath := filepath.Join(dir, serverName)
-	buildServer := exec.Command("go", "build", "-o", serverPath, "./cmd/server")
-	buildServer.Dir = hostSource
-	if out, err := buildServer.CombinedOutput(); err != nil {
-		t.Fatalf("build CLIProxyAPI: %v\n%s", err, out)
-	}
-
-	for index, name := range []string{"claude-a.json", "claude-b.json"} {
-		body := fmt.Sprintf(`{"type":"claude","email":"probe-%d@example.com","access_token":"probe-token-%d","refresh_token":"probe-refresh","expired":"2099-01-01T00:00:00Z"}`, index, index)
-		if err := os.WriteFile(filepath.Join(authDir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	port := unusedTCPPort(t)
-	configPath := filepath.Join(dir, "config.yaml")
-	configYAML := fmt.Sprintf(`host: "127.0.0.1"
-port: %d
-proxy-url: %q
-auth-dir: %q
-api-keys: [%q]
-remote-management:
-  allow-remote: false
-  secret-key: %q
-  disable-control-panel: true
-  disable-auto-update-panel: true
-logging-to-file: false
-debug: false
-disable-cooling: true
-plugins:
-  enabled: true
-  dir: %q
-  configs:
-    %s:
-      enabled: true
-      priority: 100
-      probe-marker: header-bridge
-`, port, upstream.URL, authDir, apiKey, managementKey, pluginDir, pluginID)
-	if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	logPath := filepath.Join(dir, "server.log")
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := exec.Command(serverPath, "-config", configPath, "-local-model")
-	server.Dir = hostSource
-	server.Stdout, server.Stderr = logFile, logFile
-	server.Env = append(os.Environ(),
-		"HOME="+filepath.Join(dir, "home"),
-		"HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=",
-		"NO_PROXY=127.0.0.1,localhost",
-	)
-	if err = server.Start(); err != nil {
-		_ = logFile.Close()
-		t.Fatal(err)
-	}
-	processDone := make(chan struct{})
-	go func() {
-		_ = server.Wait()
-		close(processDone)
-	}()
-	t.Cleanup(func() {
-		select {
-		case <-processDone:
-		default:
-			_ = server.Process.Kill()
-			<-processDone
-		}
-		_ = logFile.Close()
-		if t.Failed() {
-			t.Logf("server log:\n%s", readFile(logPath))
-			t.Logf("probe state:\n%s", readFile(statePath))
-		}
+	host := startHost(t, hostOptions{
+		hostSource:       hostSource,
+		dir:              dir,
+		pluginID:         pluginID,
+		pluginPackage:    "./testdata/probe",
+		pluginLDFlags:    "-X=main.stateFile=" + statePath + " -X=main.captureDir=" + captureDir,
+		credentialPrefix: "probe",
+		pluginSettings:   "      probe-marker: header-bridge\n",
+		modelID:          model,
+		clientTimeout:    5 * time.Second,
+		extraLogs:        map[string]string{"probe state": statePath},
 	})
 
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	client := &http.Client{Timeout: 5 * time.Second}
-	waitForModel(t, client, baseURL, apiKey, processDone, logPath, model)
-
-	body := fmt.Sprintf(`{"model":%q,"max_tokens":16,"messages":[{"role":"user","content":"ping"}]}`, model)
-	request, err := http.NewRequest(http.MethodPost, baseURL+"/v1/messages", bytes.NewReader([]byte(body)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Header.Set("Authorization", "Bearer "+apiKey)
-	request.Header.Set("Anthropic-Version", "2023-06-01")
-	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
-	if err != nil {
-		t.Fatalf("post /v1/messages: %v\nserver log:\n%s", err, readFile(logPath))
-	}
-	_ = response.Body.Close()
+	// The refusing upstream also answers the probe's host.http.do target,
+	// which is why the report asserts on 502.
+	host.post(t, fmt.Sprintf(`{"model":%q,"max_tokens":16,"messages":[{"role":"user","content":"ping"}]}`, model))
 
 	var entries []map[string]any
 	deadline := time.Now().Add(15 * time.Second)
@@ -211,7 +89,7 @@ plugins:
 		}
 	}
 	if len(injected) == 0 {
-		t.Fatalf("probe never ran request.intercept_before\nprobe state:\n%s\nserver log:\n%s", readFile(statePath), readFile(logPath))
+		t.Fatalf("probe never ran request.intercept_before\nprobe state:\n%s\nserver log:\n%s", readFile(statePath), readFile(host.logPath))
 	}
 
 	picks := 0
@@ -231,34 +109,34 @@ plugins:
 		}
 	}
 	if picks == 0 {
-		t.Fatalf("scheduler.pick was never called, so the bridge is untested\nprobe state:\n%s\nserver log:\n%s", readFile(statePath), readFile(logPath))
+		t.Fatalf("scheduler.pick was never called, so the bridge is untested\nprobe state:\n%s\nserver log:\n%s", readFile(statePath), readFile(host.logPath))
 	}
 	t.Logf("header bridge confirmed over %d pick(s); probe state:\n%s", picks, readFile(statePath))
 
 	// The probe mirrors both hooks through host.log, so the server log is the
 	// second, independent record of the same round trip.
-	hostLogLines := grepLines(readFile(logPath), "probe scheduler_pick")
+	hostLogLines := grepLines(readFile(host.logPath), "probe scheduler_pick")
 	if len(hostLogLines) == 0 {
-		t.Errorf("host.log callback produced no scheduler_pick line\nserver log:\n%s", readFile(logPath))
+		t.Errorf("host.log callback produced no scheduler_pick line\nserver log:\n%s", readFile(host.logPath))
 	}
 	t.Logf("host.log lines:\n%s", strings.Join(hostLogLines, "\n"))
 
 	// The probe's management route exercises host.auth.list, host.auth.get and
 	// host.http.do and returns what they produced, so one call checks four
 	// shapes at once.
-	reportURL := baseURL + "/v0/management/probe/report?http_probe=" + url.QueryEscape(upstream.URL+"/probe")
+	reportURL := host.baseURL + "/v0/management/probe/report?http_probe=" + url.QueryEscape(host.upstreamURL+"/probe")
 	report, err := http.NewRequest(http.MethodGet, reportURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	report.Header.Set("Authorization", "Bearer "+managementKey)
-	reportResponse, err := client.Do(report)
+	report.Header.Set("Authorization", "Bearer "+host.managementKey)
+	reportResponse, err := host.client.Do(report)
 	if err != nil {
 		t.Fatalf("get probe management route: %v", err)
 	}
 	reportBody, _ := readAll(reportResponse)
 	if reportResponse.StatusCode != http.StatusOK {
-		t.Fatalf("probe management route: status=%d body=%s\nserver log:\n%s", reportResponse.StatusCode, reportBody, readFile(logPath))
+		t.Fatalf("probe management route: status=%d body=%s\nserver log:\n%s", reportResponse.StatusCode, reportBody, readFile(host.logPath))
 	}
 	t.Logf("management.handle report:\n%s", reportBody)
 

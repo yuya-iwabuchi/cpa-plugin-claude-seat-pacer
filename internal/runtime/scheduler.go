@@ -8,6 +8,7 @@ import (
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/pace"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/session"
 )
 
 // pickEnvelope answers scheduler.pick. It never returns an error: an error
@@ -29,7 +30,7 @@ type pickInput struct {
 	now        time.Time
 	provider   string
 	candidates []string
-	identity   bridgeIdentity
+	identity   session.Identity
 	// retryOf names the credential that already failed this request, present
 	// only on a retry pick.
 	retryOf string
@@ -115,12 +116,12 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	decline := func(note string) SchedulerPickResponse {
 		p.record(model.Decision{
 			At:         now,
-			SessionKey: in.identity.key,
+			SessionKey: in.identity.Key,
 			Model:      req.Model,
 			Provider:   in.provider,
 			Kind:       model.DecisionDeclined,
 			Note:       note,
-			Subagent:   in.identity.subagent,
+			Subagent:   in.identity.Subagent,
 		})
 		return SchedulerPickResponse{Handled: false}
 	}
@@ -162,12 +163,12 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 			usable = true
 		}
 	}
-	if in.identity.key == "" && !usable {
+	if in.identity.Key == "" && !usable {
 		return decline("no session key and no usable quota snapshot")
 	}
-	in.scores = rankWithStaleness(cfg, in.snaps, in.candidates, req.Model, now)
+	in.scores = pace.RankWithStaleness(cfg, in.snaps, in.candidates, req.Model, now)
 
-	if cfg.Affinity.Enabled && in.identity.key != "" {
+	if cfg.Affinity.Enabled && in.identity.Key != "" {
 		if resp, ok := p.pickByAffinity(in); ok {
 			return resp
 		}
@@ -181,12 +182,12 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 	bindings := p.bindingStore()
 	id := in.identity
 
-	if in.cfg.Affinity.Subagents && id.subagent && id.parent != "" {
-		parent, ok := bindings.Lookup(in.provider, in.req.Model, id.parent, in.now)
+	if in.cfg.Affinity.Subagents && id.Subagent && id.ParentKey != "" {
+		parent, ok := bindings.Lookup(in.provider, in.req.Model, id.ParentKey, in.now)
 		// A credential the provider has already rejected is no better a home
 		// for the child than for the parent.
 		if ok && in.isCandidate(parent.AuthID) && !blockedFor(in.snaps[parent.AuthID], in.req.Model) {
-			bindings.Bind(in.provider, in.req.Model, id.key, parent.AuthID, in.now)
+			bindings.Bind(in.provider, in.req.Model, id.Key, parent.AuthID, in.now)
 			return p.decide(in, model.Decision{
 				ChosenAuthID: parent.AuthID,
 				Kind:         model.DecisionAffinityHit,
@@ -195,7 +196,7 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 		}
 	}
 
-	bound, ok := bindings.Lookup(in.provider, in.req.Model, id.key, in.now)
+	bound, ok := bindings.Lookup(in.provider, in.req.Model, id.Key, in.now)
 	if !ok {
 		return SchedulerPickResponse{}, false
 	}
@@ -258,7 +259,7 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 	if best, ok := pace.Best(in.scores); ok {
 		chosen = best.AuthID
 	} else {
-		if in.identity.key == "" {
+		if in.identity.Key == "" {
 			return p.declineWithScores(in, "no eligible candidate")
 		}
 		chosen = leastBound(in.candidates, p.bindingStore().CountByAuth())
@@ -270,9 +271,9 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 		d.Kind = model.DecisionFailover
 		d.PreviousAuthID = previous
 	}
-	if in.identity.key != "" && in.cfg.Affinity.Enabled {
-		p.bindingStore().Bind(in.provider, in.req.Model, in.identity.key, chosen, in.now)
-	} else if in.identity.key == "" {
+	if in.identity.Key != "" && in.cfg.Affinity.Enabled {
+		p.bindingStore().Bind(in.provider, in.req.Model, in.identity.Key, chosen, in.now)
+	} else if in.identity.Key == "" {
 		d.Note = joinNotes(d.Note, "no session key; not pinned")
 	}
 	return p.decide(in, d)
@@ -281,13 +282,13 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 func (p *Plugin) declineWithScores(in pickInput, note string) SchedulerPickResponse {
 	p.record(model.Decision{
 		At:         in.now,
-		SessionKey: in.identity.key,
+		SessionKey: in.identity.Key,
 		Model:      in.req.Model,
 		Provider:   in.provider,
 		Kind:       model.DecisionDeclined,
 		Note:       note,
 		Scores:     in.scores,
-		Subagent:   in.identity.subagent,
+		Subagent:   in.identity.Subagent,
 	})
 	return SchedulerPickResponse{Handled: false}
 }
@@ -296,10 +297,10 @@ func (p *Plugin) declineWithScores(in pickInput, note string) SchedulerPickRespo
 // answers the host with the chosen credential.
 func (p *Plugin) decide(in pickInput, d model.Decision) SchedulerPickResponse {
 	d.At = in.now
-	d.SessionKey = in.identity.key
+	d.SessionKey = in.identity.Key
 	d.Model = in.req.Model
 	d.Provider = in.provider
-	d.Subagent = in.identity.subagent
+	d.Subagent = in.identity.Subagent
 	if in.retryOf != "" {
 		d.Note = joinNotes(d.Note, "retry after "+in.retryOf)
 	}
@@ -327,28 +328,6 @@ func governedProvider(cfg model.Config, req SchedulerPickRequest) string {
 		}
 	}
 	return ""
-}
-
-// rankWithStaleness scores the candidates with a stale snapshot treated as no
-// snapshot, then names the reason so the status view distinguishes "never
-// read" from "read too long ago".
-func rankWithStaleness(cfg model.Config, snaps map[string]model.AuthSnapshot, candidates []string, modelID string, now time.Time) []model.Score {
-	fresh := make(map[string]model.AuthSnapshot, len(snaps))
-	stale := make(map[string]bool)
-	for id, snap := range snaps {
-		if snap.Stale(now, cfg.Quota.MaxStaleness) {
-			stale[id] = true
-			continue
-		}
-		fresh[id] = snap
-	}
-	scores := pace.Rank(cfg.Pace, fresh, candidates, modelID, now)
-	for i := range scores {
-		if stale[scores[i].AuthID] {
-			scores[i].Reason = model.ReasonStale
-		}
-	}
-	return scores
 }
 
 // blockedFor reports whether the provider has already refused a window that

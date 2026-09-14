@@ -326,7 +326,7 @@ func TestSyncNowIsThrottledAndLeavesTheScheduleAlone(t *testing.T) {
 
 	// Past the floor it reads again.
 	tp.mu.Lock()
-	tp.polledAt = tp.polledAt.Add(-minForcedPollGap - time.Second)
+	tp.polledAt = tp.polledAt.Add(-MinForcedPollGap - time.Second)
 	tp.mu.Unlock()
 	if !tp.SyncNow(context.Background()) {
 		t.Error("a forced read past the throttle window was refused")

@@ -230,9 +230,8 @@ func (c *Config) Normalize() {
 	case shape == ShapeLinear || shape == ShapePower || shape == ShapeSigmoid:
 		c.Pace.Shape = shape
 	case shape == "" && c.Pace.CurveExponent != d.Pace.CurveExponent:
-		// An exponent is only ever set to bend the curve, and only the power
-		// shape reads one. A config that carries an exponent but names no
-		// shape predates the shape key, so it keeps the curve it asked for.
+		// Only the power shape reads an exponent, so an exponent set with no
+		// shape named names the power shape.
 		c.Pace.Shape = ShapePower
 	default:
 		c.Pace.Shape = d.Pace.Shape

@@ -5,11 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -36,171 +32,56 @@ import (
 //
 //	CPA_SOURCE_DIR=/path/to/CLIProxyAPI GOTOOLCHAIN=auto go test ./internal/runtime -run E2E -v
 func TestE2EStickyRoutingThroughRealHost(t *testing.T) {
-	hostSource := strings.TrimSpace(os.Getenv("CPA_SOURCE_DIR"))
-	if hostSource == "" {
-		t.Skip("set CPA_SOURCE_DIR to a CLIProxyAPI checkout to run the end-to-end test")
-	}
-	if _, err := os.Stat(filepath.Join(hostSource, "cmd", "server")); err != nil {
-		t.Skipf("CPA_SOURCE_DIR %q has no cmd/server: %v", hostSource, err)
-	}
+	hostSource := requireHostSource(t)
 
 	const (
-		apiKey        = "e2e-api-key"
-		managementKey = "e2e-management-key"
-		pluginID      = "claude-seat-pacer"
-		modelID       = "claude-sonnet-4-6"
-		sessionOne    = "11111111-1111-1111-1111-111111111111"
-		sessionTwo    = "22222222-2222-2222-2222-222222222222"
+		pluginID   = "claude-seat-pacer"
+		modelID    = "claude-sonnet-4-6"
+		sessionOne = "11111111-1111-1111-1111-111111111111"
+		sessionTwo = "22222222-2222-2222-2222-222222222222"
 	)
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "fixture proxy refuses upstream", http.StatusBadGateway)
-	}))
-	defer upstream.Close()
-
-	dir := t.TempDir()
-	pluginDir := filepath.Join(dir, "plugins")
-	authDir := filepath.Join(dir, "auth")
-	for _, path := range []string{pluginDir, authDir, filepath.Join(dir, "home")} {
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	extension, serverName := ".so", "cliproxyapi"
-	switch runtime.GOOS {
-	case "darwin":
-		extension = ".dylib"
-	case "windows":
-		extension, serverName = ".dll", "cliproxyapi.exe"
-	}
-
-	// The plugin id is the library file name, so the build output is named
-	// for it.
-	buildPlugin := exec.Command("go", "build", "-buildmode=c-shared", "-o", filepath.Join(pluginDir, pluginID+extension), ".")
-	buildPlugin.Dir = filepath.Join("..", "..")
-	buildPlugin.Env = append(os.Environ(), "CGO_ENABLED=1")
-	if out, err := buildPlugin.CombinedOutput(); err != nil {
-		t.Fatalf("build plugin: %v\n%s", err, out)
-	}
-
-	serverPath := filepath.Join(dir, serverName)
-	buildServer := exec.Command("go", "build", "-o", serverPath, "./cmd/server")
-	buildServer.Dir = hostSource
-	if out, err := buildServer.CombinedOutput(); err != nil {
-		t.Fatalf("build CLIProxyAPI: %v\n%s", err, out)
-	}
-
-	for index, name := range []string{"claude-a.json", "claude-b.json"} {
-		body := fmt.Sprintf(`{"type":"claude","email":"e2e-%d@example.com","access_token":"e2e-token-%d","refresh_token":"e2e-refresh","expired":"2099-01-01T00:00:00Z"}`, index, index)
-		if err := os.WriteFile(filepath.Join(authDir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	port := unusedTCPPort(t)
-	configPath := filepath.Join(dir, "config.yaml")
-	configYAML := fmt.Sprintf(`host: "127.0.0.1"
-port: %d
-proxy-url: %q
-auth-dir: %q
-api-keys: [%q]
-remote-management:
-  allow-remote: false
-  secret-key: %q
-  disable-control-panel: true
-  disable-auto-update-panel: true
-logging-to-file: false
-debug: false
-disable-cooling: true
-request-retry: 0
+	host := startHost(t, hostOptions{
+		hostSource:       hostSource,
+		dir:              t.TempDir(),
+		pluginID:         pluginID,
+		pluginPackage:    ".",
+		pluginBuildDir:   filepath.Join("..", ".."),
+		credentialPrefix: "e2e",
+		// One pick per request: a refused upstream would otherwise make the
+		// host try the other credential inside the same request, and that
+		// retry pick would legitimately fail the session over.
+		hostSettings: `request-retry: 0
 max-retry-credentials: 1
 routing:
   session-affinity: false
-plugins:
-  enabled: true
-  dir: %q
-  configs:
-    %s:
-      enabled: true
-      priority: 100
-      quota:
+`,
+		pluginSettings: `      quota:
         poll-interval: 30s
         request-timeout: 2s
-`, port, upstream.URL, authDir, apiKey, managementKey, pluginDir, pluginID)
-	if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	logPath := filepath.Join(dir, "server.log")
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := exec.Command(serverPath, "-config", configPath, "-local-model")
-	server.Dir = hostSource
-	server.Stdout, server.Stderr = logFile, logFile
-	server.Env = append(os.Environ(),
-		"HOME="+filepath.Join(dir, "home"),
-		"HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=",
-		"NO_PROXY=127.0.0.1,localhost",
-	)
-	if err = server.Start(); err != nil {
-		_ = logFile.Close()
-		t.Fatal(err)
-	}
-	processDone := make(chan struct{})
-	go func() {
-		_ = server.Wait()
-		close(processDone)
-	}()
-	t.Cleanup(func() {
-		select {
-		case <-processDone:
-		default:
-			_ = server.Process.Kill()
-			<-processDone
-		}
-		_ = logFile.Close()
-		if t.Failed() {
-			t.Logf("server log:\n%s", readFile(logPath))
-		}
+`,
+		modelID:       modelID,
+		clientTimeout: 10 * time.Second,
 	})
-
-	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	client := &http.Client{Timeout: 10 * time.Second}
-	waitForModel(t, client, baseURL, apiKey, processDone, logPath, modelID)
 
 	send := func(sessionID string) {
 		t.Helper()
-		body := fmt.Sprintf(`{"model":%q,"max_tokens":16,"metadata":{"user_id":"user_e2e_account_e2e_session_%s"},"messages":[{"role":"user","content":"ping"}]}`, modelID, sessionID)
-		request, err := http.NewRequest(http.MethodPost, baseURL+"/v1/messages", bytes.NewReader([]byte(body)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		request.Header.Set("Authorization", "Bearer "+apiKey)
-		request.Header.Set("Anthropic-Version", "2023-06-01")
-		request.Header.Set("Content-Type", "application/json")
-		response, err := client.Do(request)
-		if err != nil {
-			t.Fatalf("post /v1/messages: %v\nserver log:\n%s", err, readFile(logPath))
-		}
-		_ = response.Body.Close()
+		host.post(t, fmt.Sprintf(`{"model":%q,"max_tokens":16,"metadata":{"user_id":"user_e2e_account_e2e_session_%s"},"messages":[{"role":"user","content":"ping"}]}`, modelID, sessionID))
 	}
 	status := func() model.Status {
 		t.Helper()
-		request, err := http.NewRequest(http.MethodGet, baseURL+"/v0/management/plugins/"+pluginID+"/status", nil)
+		request, err := http.NewRequest(http.MethodGet, host.baseURL+"/v0/management/plugins/"+pluginID+"/status", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		request.Header.Set("Authorization", "Bearer "+managementKey)
-		response, err := client.Do(request)
+		request.Header.Set("Authorization", "Bearer "+host.managementKey)
+		response, err := host.client.Do(request)
 		if err != nil {
 			t.Fatalf("get status: %v", err)
 		}
 		raw, _ := readAll(response)
 		if response.StatusCode != http.StatusOK {
-			t.Fatalf("status route: %d %s\nserver log:\n%s", response.StatusCode, raw, readFile(logPath))
+			t.Fatalf("status route: %d %s\nserver log:\n%s", response.StatusCode, raw, readFile(host.logPath))
 		}
 		var out model.Status
 		if err := json.Unmarshal(raw, &out); err != nil {
@@ -243,7 +124,7 @@ plugins:
 	// Credential rows come from the poll loop, whose first tick lands a couple
 	// of seconds after registration, so the routing assertions above run before
 	// there is anything to show for the credentials themselves.
-	waitForPoll(t, status, processDone, logPath)
+	waitForPoll(t, status, host.done, host.logPath)
 	second := status()
 	if len(second.Decisions) != 4 {
 		t.Fatalf("decisions after a second session = %d, want 4:\n%s", len(second.Decisions), mustIndent(t, second.Decisions))
@@ -270,7 +151,7 @@ plugins:
 	t.Logf("warnings: %v", second.Warnings)
 
 	// The resource routes reach the status app without the management key.
-	resource, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/api/status")
+	resource, err := host.client.Get(host.baseURL + "/v0/resource/plugins/" + pluginID + "/api/status")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +188,7 @@ plugins:
 		}
 	}
 
-	page, err := client.Get(baseURL + "/v0/resource/plugins/" + pluginID + "/index.html")
+	page, err := host.client.Get(host.baseURL + "/v0/resource/plugins/" + pluginID + "/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +198,7 @@ plugins:
 	}
 
 	// Nothing that reached the host log carries credential material.
-	serverLog := readFile(logPath)
+	serverLog := readFile(host.logPath)
 	for _, secret := range []string{"e2e-token", "e2e-refresh"} {
 		if strings.Contains(serverLog, secret) {
 			t.Errorf("server log contains %q", secret)

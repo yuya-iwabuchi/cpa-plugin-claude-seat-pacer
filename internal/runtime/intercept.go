@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/httpx"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/session"
 )
 
@@ -71,17 +72,14 @@ func clearBridge() RequestInterceptResponse {
 	return RequestInterceptResponse{ClearHeaders: bridgeHeaders}
 }
 
-// bridgeIdentity reads the bridge headers back at the pick.
-type bridgeIdentity struct {
-	key      string
-	parent   string
-	subagent bool
-}
-
-func readBridge(headers map[string][]string) bridgeIdentity {
-	return bridgeIdentity{
-		key:      headerValue(headers, HeaderSessionKey),
-		parent:   headerValue(headers, HeaderSessionParent),
-		subagent: headerValue(headers, HeaderSubagent) == "1",
+// readBridge reads the bridge headers back at the pick, where the request body
+// the interceptor derived them from is no longer in reach. Source stays empty:
+// the header carries the key, not the rule that produced it.
+func readBridge(headers map[string][]string) session.Identity {
+	h := httpx.NewIndex(headers)
+	return session.Identity{
+		Key:       h.Get(HeaderSessionKey),
+		ParentKey: h.Get(HeaderSessionParent),
+		Subagent:  h.Get(HeaderSubagent) == "1",
 	}
 }

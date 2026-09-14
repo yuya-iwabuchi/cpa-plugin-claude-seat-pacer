@@ -61,7 +61,8 @@ const (
 	MethodHostAuthGet  = "host.auth.get"
 )
 
-// Built-in schedulers a pick may delegate to.
+// Built-in schedulers a pick may delegate to. This is the host's full set,
+// and no pick here delegates, so neither name is referenced.
 // Source: sdk/pluginapi/types.go:461-466.
 const (
 	SchedulerBuiltinRoundRobin = "round-robin"
@@ -86,6 +87,9 @@ const (
 // execution that generates rather than one that only counts tokens;
 // service_tier; session_affinity_model, empty on a mixed route; and
 // selected_auth_index, the host.auth.get key for the selected credential.
+//
+// The block names the keys the host sends, so a name is here whether or not
+// this plugin reads it; only the referenced ones reach routing.
 const (
 	// MetadataRequestedModel is the client-requested model before aliasing.
 	MetadataRequestedModel = "requested_model"
@@ -333,6 +337,9 @@ type SchedulerAuthCandidate struct {
 // (internal/pluginhost/scheduler.go:26). Returning an error envelope instead
 // hard-fails the request with no fallback
 // (sdk/cliproxy/auth/conductor_selection.go:807).
+//
+// DelegateBuiltin carries the delegate half of that contract. Every pick here
+// answers with AuthID or declines, so nothing sets it.
 type SchedulerPickResponse struct {
 	AuthID          string `json:"AuthID,omitempty"`
 	DelegateBuiltin string `json:"DelegateBuiltin,omitempty"`

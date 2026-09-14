@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/httpx"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
@@ -69,7 +70,7 @@ func claimWindow(claim string) (windowKey, bool) {
 // replacing it. A window whose utilization is absent or unparsable is left
 // out. No window carries a severity: the headers report none.
 func ParseResponseHeaders(h map[string][]string, now time.Time) []model.Window {
-	get := headerGetter(h)
+	get := httpx.NewIndex(h).Lookup
 	set := newWindowSet()
 
 	for _, hw := range headerWindows {
@@ -141,28 +142,5 @@ func markRepresentative(set *windowSet, get func(string) (string, bool), now tim
 		if reset, ok := get(headerReset); ok {
 			w.ResetsAt = windowReset(reset, now, w.Duration)
 		}
-	}
-}
-
-// headerGetter resolves header names case-insensitively, reporting each name's
-// first non-empty value. An empty value reads as absent, so a header the
-// provider sends blank never overwrites a reading.
-func headerGetter(h map[string][]string) func(string) (string, bool) {
-	byLower := make(map[string]string, len(h))
-	for name, values := range h {
-		key := strings.ToLower(name)
-		if _, seen := byLower[key]; seen {
-			continue
-		}
-		for _, v := range values {
-			if strings.TrimSpace(v) != "" {
-				byLower[key] = v
-				break
-			}
-		}
-	}
-	return func(name string) (string, bool) {
-		v, ok := byLower[strings.ToLower(name)]
-		return v, ok
 	}
 }

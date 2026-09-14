@@ -194,12 +194,6 @@ func (f *fakeBindings) Bind(provider, modelID, key, authID string, now time.Time
 	return b
 }
 
-func (f *fakeBindings) Drop(provider, modelID, key string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.items, bindKey(provider, modelID, key))
-}
-
 func (f *fakeBindings) DropAuth(authID string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -17,6 +17,8 @@ import (
 	"hash"
 	"regexp"
 	"strings"
+
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/httpx"
 )
 
 // Identity names the conversation a request belongs to.
@@ -83,7 +85,7 @@ const ephemeralCacheType = "ephemeral"
 // message. Header lookups are case-insensitive. A body that is empty,
 // truncated or not JSON contributes no key.
 func Extract(headers map[string][]string, body []byte) Identity {
-	h := newHeaderIndex(headers)
+	h := httpx.NewIndex(headers)
 
 	if raw, ok := fromClaudeCodeHeaders(h); ok {
 		return raw.identity()
@@ -170,13 +172,13 @@ func scope(id, agentID string) string {
 // fromClaudeCodeHeaders reads rule a. The agent headers carry agent ids within
 // one session, so both the request's key and its parent's are that session id
 // scoped by the respective agent.
-func fromClaudeCodeHeaders(h headerIndex) (rawIdentity, bool) {
-	sessionID := h.get(headerSessionID)
+func fromClaudeCodeHeaders(h httpx.Index) (rawIdentity, bool) {
+	sessionID := h.Get(headerSessionID)
 	if sessionID == "" {
 		return rawIdentity{}, false
 	}
-	agentID := h.get(headerAgentID)
-	parentAgentID := h.get(headerParentAgentID)
+	agentID := h.Get(headerAgentID)
+	parentAgentID := h.Get(headerParentAgentID)
 
 	raw := rawIdentity{
 		key:    scope(sessionID, agentID),
@@ -194,9 +196,9 @@ func fromClaudeCodeHeaders(h headerIndex) (rawIdentity, bool) {
 }
 
 // fromSessionHeaders reads rule b.
-func fromSessionHeaders(h headerIndex) (rawIdentity, bool) {
+func fromSessionHeaders(h httpx.Index) (rawIdentity, bool) {
 	for _, name := range sessionHeaders {
-		if v := h.get(name); v != "" {
+		if v := h.Get(name); v != "" {
 			return rawIdentity{key: v, source: "header:" + strings.ToLower(name)}, true
 		}
 	}
@@ -469,25 +471,4 @@ func writeString(h hash.Hash, s string) {
 // hashKey produces, so every key the package emits is one format.
 func digest(h hash.Hash) string {
 	return hex.EncodeToString(h.Sum(nil)[:keyBytes])
-}
-
-// headerIndex resolves header names case-insensitively, since a header map may
-// arrive canonicalized or not.
-type headerIndex map[string]string
-
-func newHeaderIndex(headers map[string][]string) headerIndex {
-	idx := make(headerIndex, len(headers))
-	for name, values := range headers {
-		for _, v := range values {
-			if v = strings.TrimSpace(v); v != "" {
-				idx[strings.ToLower(name)] = v
-				break
-			}
-		}
-	}
-	return idx
-}
-
-func (h headerIndex) get(name string) string {
-	return h[strings.ToLower(name)]
 }

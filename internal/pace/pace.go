@@ -204,6 +204,45 @@ func Rank(cfg model.PaceConfig, snaps map[string]model.AuthSnapshot, candidateID
 	return scores
 }
 
+// ScoreWithStaleness is ScoreAuth behind the gates a pick applies first: a
+// credential with no reading, or one whose reading is older than
+// QuotaConfig.MaxStaleness, is not scored at all and carries the reason in
+// place of a window breakdown. The id the caller holds is authoritative, since
+// a snapshot may carry an empty or differently spelled AuthID.
+func ScoreWithStaleness(cfg model.Config, snap model.AuthSnapshot, hasSnap bool, id, modelID string, now time.Time) model.Score {
+	switch {
+	case !hasSnap:
+		return model.Score{AuthID: id, Reason: model.ReasonNoSnapshot}
+	case snap.Stale(now, cfg.Quota.MaxStaleness):
+		return model.Score{AuthID: id, Reason: model.ReasonStale}
+	}
+	score := ScoreAuth(cfg.Pace, snap, modelID, now)
+	score.AuthID = id
+	return score
+}
+
+// RankWithStaleness is Rank with a snapshot older than QuotaConfig.MaxStaleness
+// treated as no snapshot, then named as stale so a reader distinguishes "never
+// read" from "read too long ago".
+func RankWithStaleness(cfg model.Config, snaps map[string]model.AuthSnapshot, candidateIDs []string, modelID string, now time.Time) []model.Score {
+	fresh := make(map[string]model.AuthSnapshot, len(snaps))
+	stale := make(map[string]bool)
+	for id, snap := range snaps {
+		if snap.Stale(now, cfg.Quota.MaxStaleness) {
+			stale[id] = true
+			continue
+		}
+		fresh[id] = snap
+	}
+	scores := Rank(cfg.Pace, fresh, candidateIDs, modelID, now)
+	for i := range scores {
+		if stale[scores[i].AuthID] {
+			scores[i].Reason = model.ReasonStale
+		}
+	}
+	return scores
+}
+
 // better is the ranking order: eligible first, then a comparable Cost ahead of
 // a NaN one, then lower Cost, then lower AuthID. NaN compares false against
 // every number, so it needs its own branch for the order to stay transitive.

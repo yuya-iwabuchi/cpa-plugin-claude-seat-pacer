@@ -12,6 +12,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/pace"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/quota"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
 
@@ -179,18 +181,14 @@ type fixture struct {
 	forcedAt atomic.Int64
 }
 
-// forcedPollGap is the plugin's throttle on a forced read, restated here so a
-// run of clicks on the page's Sync button meets the same limit it meets in
-// production.
-const forcedPollGap = 10 * time.Second
-
 // SyncNow reports whether it read, and reads at most once every
-// forcedPollGap. The harness holds no upstream to re-read, so a read here
-// moves only the stamp the page counts from.
+// runtime.MinForcedPollGap, the plugin's own throttle on a forced read. The
+// harness holds no upstream to re-read, so a read here moves only the stamp
+// the page counts from.
 func (f *fixture) SyncNow(context.Context) bool {
 	now := time.Now()
 	last := f.forcedAt.Load()
-	if last != 0 && now.Sub(time.Unix(0, last)) < forcedPollGap {
+	if last != 0 && now.Sub(time.Unix(0, last)) < runtime.MinForcedPollGap {
 		return false
 	}
 	f.forcedAt.Store(now.UnixNano())
@@ -216,9 +214,7 @@ func (f *fixture) pollTimes(now time.Time) (polled, next time.Time) {
 
 func newFixture(anchor time.Time) *fixture {
 	// The pace curve is whatever Defaults ships: linear, landing past full, so
-	// the target leads elapsed and reaches 100% before the window closes. Set
-	// cfg.Pace.Shape to model.ShapePower with a CurveExponent, or to
-	// model.ShapeSigmoid with a Steepness, to draw a bent one.
+	// the target leads elapsed and reaches 100% before the window closes.
 	cfg := model.Defaults()
 	// Defaults leave the plugin off, and a status view of a plugin that routes
 	// nothing is a different page.
@@ -366,75 +362,77 @@ func withSessionUtil(s model.AuthSnapshot, util float64, status, severity string
 	return out
 }
 
-// rebuildWarnings restates every warning runtime.Status emits, for whichever
-// credentials and config the scenario leaves in place. Nothing warns about the
-// host's own routing.session-affinity: no signal the plugin receives
-// distinguishes it.
+// rebuildWarnings is the warning list runtime.Status would build for whichever
+// credentials and config the scenario leaves in place. A pool of one stands in
+// for the single-candidate pick the plugin only learns about from the host.
+// Nothing warns about the host's own routing.session-affinity: no signal the
+// plugin receives distinguishes it.
 func (f *fixture) rebuildWarnings() {
-	f.warnings = nil
-	if !f.cfg.Enabled {
-		f.warnings = append(f.warnings,
-			"plugin is disabled by configuration; the host's own selector routes every request")
+	rows := append([]model.AuthStatus(nil), f.auths...)
+	sort.Slice(rows, func(i, j int) bool { return rows[i].AuthID < rows[j].AuthID })
+	seats := make(map[string]runtime.SeatWarningState, len(rows))
+	for _, row := range rows {
+		snap, ok := f.snapshots[row.AuthID]
+		seats[row.AuthID] = runtime.SeatWarningState{
+			Listed:       true,
+			Disabled:     row.HostStatus == "disabled",
+			HasSnapshot:  ok,
+			PollErr:      snap.Err,
+			PollCategory: snap.ErrCategory,
+		}
 	}
-	if f.listErr != "" {
-		f.warnings = append(f.warnings, "credential listing is failing: "+f.listErr)
-	}
+	var single []string
 	if len(f.auths) == 1 {
-		f.warnings = append(f.warnings, fmt.Sprintf("provider %s offered a single candidate; "+
-			"the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", "claude"))
+		single = []string{"claude"}
 	}
-	for _, a := range f.auths {
-		if a.HostStatus == "disabled" {
-			continue
-		}
-		snap, ok := f.snapshots[a.AuthID]
-		if !ok {
-			f.warnings = append(f.warnings, fmt.Sprintf(
-				"no quota snapshot for %s; it cannot take a new conversation", a.AuthID))
-			continue
-		}
-		if snap.Err != "" {
-			f.warnings = append(f.warnings, fmt.Sprintf("quota poll failing for %s (%s): %s",
-				a.AuthID, snap.ErrCategory, snap.Err))
-		}
-	}
+	f.warnings = runtime.Warnings(f.cfg.Enabled, f.listErr, single, rows, seats)
 }
 
-// scoreWithStaleness mirrors the gates internal/runtime applies before scoring:
-// a credential with no reading, or one older than quota.max-staleness, is not
-// evaluated at all, and the score carries the reason instead of a window
-// breakdown.
-func scoreWithStaleness(cfg model.Config, snap model.AuthSnapshot, hasSnap bool, modelID string, now time.Time) model.Score {
-	switch {
-	case !hasSnap:
-		return model.Score{AuthID: snap.AuthID, Reason: model.ReasonNoSnapshot}
-	case snap.Stale(now, cfg.Quota.MaxStaleness):
-		return model.Score{AuthID: snap.AuthID, Reason: model.ReasonStale}
+// rankAt is the score list a decision carries, over the readings as they stood
+// at that instant: each one is stamped with the age the fixture gives its
+// credential, so the rank meets the same staleness gate the pick applies.
+func (f *fixture) rankAt(snaps map[string]model.AuthSnapshot, ids []string, modelID string, at time.Time) []model.Score {
+	stamped := make(map[string]model.AuthSnapshot, len(snaps))
+	for id, snap := range snaps {
+		snap.AuthID = id
+		snap.ObservedAt = at.Add(-f.observedAge[id])
+		stamped[id] = snap
 	}
-	return pace.ScoreAuth(cfg.Pace, snap, modelID, now)
+	return pace.RankWithStaleness(f.cfg, stamped, ids, modelID, at)
 }
 
-// Status evaluates both fixture credentials for modelID at now.
-func (f *fixture) Status(now time.Time, modelID string) model.Status {
-	if modelID == "" {
-		modelID = modelFable
-	}
+// rows is one status row per fixture credential, in the id order
+// runtime.Status sorts by. A credential with no reading carries an empty
+// window list rather than a nil one, which is what the host-backed status
+// substitutes and what the page renders against.
+func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 	auths := make([]model.AuthStatus, 0, len(f.auths))
 	for _, a := range f.auths {
 		snap, ok := f.snapshots[a.AuthID]
 		snap.AuthID = a.AuthID
 		if ok {
 			snap.ObservedAt = now.Add(-f.observedAge[a.AuthID])
+		} else {
+			snap.Windows = []model.Window{}
 		}
 		a.Snapshot = snap
-		a.Score = scoreWithStaleness(f.cfg, snap, ok, modelID, now)
-		a.Score.AuthID = a.AuthID
+		a.Score = pace.ScoreWithStaleness(f.cfg, snap, ok, a.AuthID, modelID, now)
 		a.History = []model.WindowHistory{}
 		if ok {
 			a.History = f.history(snap, now)
 		}
 		auths = append(auths, a)
 	}
+	sort.Slice(auths, func(i, j int) bool { return auths[i].AuthID < auths[j].AuthID })
+	return auths
+}
+
+// Status evaluates every fixture credential for modelID at now.
+func (f *fixture) Status(now time.Time, modelID string) model.Status {
+	if modelID == "" {
+		modelID = modelFable
+	}
+	auths := f.rows(now, modelID)
 	polled, next := f.pollTimes(now)
 	return model.Status{
 		Now:        now,
@@ -522,7 +520,7 @@ func (f *fixture) buildDecisions() []model.Decision {
 			if s.ago >= 22*time.Minute {
 				snaps = f.snapshotsPast
 			}
-			d.Scores = pace.Rank(f.cfg.Pace, snaps, ids, s.modelID, at)
+			d.Scores = f.rankAt(snaps, ids, s.modelID, at)
 		}
 		out = append(out, d)
 	}
@@ -551,7 +549,6 @@ func (f *fixture) exhausted() {
 			w.Status, w.Severity, w.Active = model.StatusRejected, model.SeverityCritical, true
 		}
 		f.snapshots[id] = snap
-		f.snapshotsPast[id] = withSessionUtil(snap, 0.93, model.StatusAllowedWarning, model.SeverityWarning)
 	}
 	f.observedAge[seatBID] = 51 * time.Second
 	f.decisions = f.exhaustedDecisions()
@@ -590,7 +587,7 @@ func (f *fixture) exhaustedDecisions() []model.Decision {
 			At: at, SessionKey: keys[i], Model: modelFable, Provider: "claude",
 			ChosenAuthID: seat, Kind: model.DecisionAffinityHit,
 			Note:   "binding kept; every seat is rate-limited for this model",
-			Scores: pace.Rank(f.cfg.Pace, f.snapshots, ids, modelFable, at),
+			Scores: f.rankAt(f.snapshots, ids, modelFable, at),
 		})
 	}
 	return out
@@ -609,7 +606,7 @@ type manySeat struct {
 
 var manySeats = []manySeat{
 	{id: "claude-alice-team-a.json", name: "claude-alice-team-a.json", email: "alice@example.com", session: 0.31, weekly: 0.22, scoped: 0.18},
-	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.61, scoped: 0.70, state: "over"},
+	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.61, scoped: 0.70},
 	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.35, scoped: 0.90, state: "critical"},
 	{id: "claude-oncall@acme.example.json", name: "claude-oncall@acme.example.json", email: "oncall@acme.example", session: 1.00, weekly: 0.58, scoped: 0.44, state: "rejected"},
 	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 0.91, scoped: 0.52, state: "spent"},
@@ -618,7 +615,7 @@ var manySeats = []manySeat{
 	{id: "claude-team-infra.json", name: "claude-team-infra.json", email: "svc.infra@acme.example", session: 0.0, weekly: 0.0, scoped: 0.0, state: "nosnap"},
 	{id: "claude-team-mobile.json", name: "claude-team-mobile.json", email: "svc.mobile@acme.example", session: 0.67, weekly: 0.47, scoped: 0.51, state: "scoped-rejected"},
 	{id: "claude-team-web.json", name: "claude-team-web.json", email: "svc.web@acme.example", session: 0.20, weekly: 0.15, scoped: 0.09, state: "disabled"},
-	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.81, state: "over"},
+	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.81},
 	{id: "claude-team-qa.json", name: "claude-team-qa.json", email: "svc.qa@acme.example", session: 0.38, weekly: 0.29, scoped: 0.24},
 }
 
@@ -755,7 +752,6 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 	}
 	if ms.state != "nosnap" && ms.state != "disabled" {
 		f.snapshots[ms.id] = snap
-		f.snapshotsPast[ms.id] = withSessionUtil(snap, ms.session*0.6, model.StatusAllowed, model.SeverityNormal)
 	}
 	f.auths = append(f.auths, a)
 	for b := 0; b < a.Bindings; b++ {
@@ -778,15 +774,20 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 	for i := 0; i < 48; i++ {
 		at := f.anchor.Add(-time.Duration(20+70*i) * time.Second)
 		kind := kinds[i%len(kinds)]
-		d := model.Decision{At: at, Model: modelFable, Provider: "claude", Kind: kind}
+		d := model.Decision{At: at, Provider: "claude", Kind: kind}
+		// A decision that lands on a binding reports the binding's model; one
+		// that does not reports what the request asked for.
+		requested := modelFable
 		if i%4 == 1 {
-			d.Model = modelOpus
+			requested = modelOpus
 		}
 		switch kind {
 		case model.DecisionDeclined:
+			d.Model = requested
 			d.Note = "every snapshot was older than max-staleness"
 		case model.DecisionColdPick:
-			d.Scores = pace.Rank(f.cfg.Pace, f.snapshots, ids, d.Model, at)
+			d.Model = requested
+			d.Scores = f.rankAt(f.snapshots, ids, d.Model, at)
 			d.SessionKey = fmt.Sprintf("%08x9a35b18e", 0x6c2a90f3+i)
 			if len(d.Scores) > 0 && d.Scores[0].Eligible {
 				d.ChosenAuthID = d.Scores[0].AuthID
@@ -803,7 +804,7 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 			if kind == model.DecisionFailover {
 				d.PreviousAuthID = ids[(i+1)%len(ids)]
 				d.Note = "bound credential was not among the candidates the host offered"
-				d.Scores = pace.Rank(f.cfg.Pace, f.snapshots, ids, d.Model, at)
+				d.Scores = f.rankAt(f.snapshots, ids, d.Model, at)
 			}
 		}
 		out = append(out, d)

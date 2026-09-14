@@ -20,8 +20,6 @@ type BindingStore interface {
 	Lookup(provider, modelID, sessionKey string, now time.Time) (model.Binding, bool)
 	// Bind pins a conversation to a credential, replacing any prior binding.
 	Bind(provider, modelID, sessionKey, authID string, now time.Time) model.Binding
-	// Drop removes one binding.
-	Drop(provider, modelID, sessionKey string)
 	// DropAuth unbinds every conversation on a credential and reports how many.
 	DropAuth(authID string) int
 	// All returns every binding, newest LastSeen first.

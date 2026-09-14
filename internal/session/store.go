@@ -140,15 +140,6 @@ func (s *Store) Bind(provider, modelID, sessionKey, authID string, now time.Time
 	return e.binding
 }
 
-// Drop removes one binding.
-func (s *Store) Drop(provider, modelID, sessionKey string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if el, ok := s.index[indexKey(provider, modelID, sessionKey)]; ok {
-		s.remove(el)
-	}
-}
-
 // DropAuth unbinds every session on a credential and returns how many it
 // removed. A credential that has gone away or been disabled must not keep
 // sessions pinned to it.

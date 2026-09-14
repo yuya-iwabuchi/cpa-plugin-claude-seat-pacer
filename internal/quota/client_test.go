@@ -99,8 +99,8 @@ func TestClientFetchSuccess(t *testing.T) {
 	if session.Blocking() {
 		t.Error("critical severity is an advisory level, not an observed refusal")
 	}
-	if !session.Critical() {
-		t.Error("a session window at critical severity should report critical")
+	if session.Severity != model.SeverityCritical {
+		t.Errorf("session severity = %q, want the endpoint's %q", session.Severity, model.SeverityCritical)
 	}
 	if fable, ok := snap.Window(model.WindowWeeklyScoped, "Fable"); !ok || fable.Utilization != 0.67 {
 		t.Errorf("fable window = %+v, ok = %v", fable, ok)

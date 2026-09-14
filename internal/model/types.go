@@ -117,15 +117,6 @@ func (w Window) Blocking() bool {
 	return w.Status == StatusRejected
 }
 
-// Critical reports whether the provider rates this window's remaining headroom
-// as critical. It is an advisory level from the usage endpoint, raised well
-// before the window is spent, so it colours the status view and leaves routing
-// to pace: a window this far past its target already scores far enough below
-// its peers to lose every pick it should lose.
-func (w Window) Critical() bool {
-	return w.Severity == SeverityCritical
-}
-
 // BearsOn reports whether this window caps a request for a model family. The
 // session and all-models weekly windows cap every request; a scoped weekly
 // window caps only its own family, and an empty family names no scoped window,
@@ -373,16 +364,6 @@ type CacheStats struct {
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 	FreshInputTokens    int64 `json:"fresh_input_tokens"`
 	OutputTokens        int64 `json:"output_tokens"`
-}
-
-// HitRate is the share of input-side tokens served from cache, or 0 when no
-// input-side tokens have been recorded.
-func (c CacheStats) HitRate() float64 {
-	total := c.CacheReadTokens + c.CacheCreationTokens + c.FreshInputTokens
-	if total <= 0 {
-		return 0
-	}
-	return float64(c.CacheReadTokens) / float64(total)
 }
 
 // PluginInfo identifies the running plugin build and its host to the status

@@ -231,7 +231,7 @@ func TestAnExponentWithoutAShapeImpliesPower(t *testing.T) {
 		exponent float64
 		want     string
 	}{
-		{"exponent alone predates the shape key", "", 1.35, ShapePower},
+		{"an exponent alone names the power shape", "", 1.35, ShapePower},
 		{"the default exponent implies nothing", "", d.Pace.CurveExponent, d.Pace.Shape},
 		{"an unset exponent implies nothing", "", 0, d.Pace.Shape},
 		{"a named shape always wins", ShapeSigmoid, 1.35, ShapeSigmoid},

@@ -280,7 +280,7 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		keep[id] = struct{}{}
 		p.quota.Put(snap)
 		p.mu.Lock()
-		state := pollState{at: snap.ObservedAt}
+		var state pollState
 		if err != nil {
 			state.err = err.Error()
 			state.category = string(quota.Category(err))
