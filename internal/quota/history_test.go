@@ -348,3 +348,48 @@ func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 		t.Errorf("a file without the fields loaded as estimated: %+v", pc)
 	}
 }
+
+// TestHistoryBreaksTheCycleAfterItsResetPasses covers a provider still naming
+// the expired reset once the window has rolled: windowReset drops an instant
+// that far in the past, leaving the fresh window's near-zero reading nothing
+// to roll on, and it would otherwise land in the cycle that just ended and
+// draw a plunge to zero instead of a break in the line.
+func TestHistoryBreaksTheCycleAfterItsResetPasses(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(5 * time.Minute)
+	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.90, resets)))
+
+	// Three minutes past the reset, and the provider's stale instant is gone.
+	after := resets.Add(3 * time.Minute)
+	s.MergeHeaders("auth-1", []model.Window{sessionAt(0.001, time.Time{})}, after)
+
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 2 {
+		t.Fatalf("cycles = %+v, want the post-reset reading in a cycle of its own", h.Cycles)
+	}
+	if n := len(h.Cycles[0].Samples); n != 1 || h.Cycles[0].Samples[0].Utilization != 0.90 {
+		t.Errorf("ended cycle = %+v, want only the pre-reset reading", h.Cycles[0].Samples)
+	}
+
+	// The reading that finally carries the real reset rolls the fresh cycle
+	// onto it rather than opening one per reading.
+	next := resets.Add(model.SessionDuration)
+	s.MergeHeaders("auth-1", []model.Window{sessionAt(0.004, time.Time{})}, after.Add(2*time.Minute))
+	s.MergeHeaders("auth-1", []model.Window{sessionAt(0.02, next)}, after.Add(4*time.Minute))
+	h = historyOf(t, s, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 2 {
+		t.Fatalf("cycles = %d, want the fresh cycle to absorb its own readings", len(h.Cycles))
+	}
+	if !h.Cycles[1].ResetsAt.Equal(next) {
+		t.Errorf("fresh cycle resets_at = %v, want %v", h.Cycles[1].ResetsAt, next)
+	}
+
+	// A reading inside the tolerance still belongs to the cycle it names, so
+	// clock skew alone never splits one.
+	skew := NewStore()
+	skew.Put(endpointSnapshot("auth-2", testNow, sessionAt(0.90, resets)))
+	skew.MergeHeaders("auth-2", []model.Window{sessionAt(0.91, resets)}, resets.Add(time.Minute))
+	if h := historyOf(t, skew, "auth-2", model.WindowSession); len(h.Cycles) != 1 {
+		t.Errorf("cycles = %+v, want one; a reading within the tolerance split the cycle", h.Cycles)
+	}
+}
