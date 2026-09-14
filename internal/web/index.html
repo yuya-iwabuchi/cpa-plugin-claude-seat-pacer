@@ -51,13 +51,6 @@
   --seat-6:       #8e3b7a;
   --seat-x:       #898781;
   /* The same hues darkened to 4.5:1 on the card, for text set in a seat's colour. */
-  --seat-1-text:  #6b4ed6;
-  --seat-2-text:  #03827c;
-  --seat-3-text:  #996d00;
-  --seat-4-text:  #c93a86;
-  --seat-5-text:  #56688d;
-  --seat-6-text:  #8e3b7a;
-  --seat-x-text:  #74726d;
 
   --pos-text:     #006300;
   --neg-text:     #b8332f;
@@ -89,13 +82,6 @@
     --seat-4:     #e26aa9;
     --seat-5:     #8ea0c9;
     --seat-6:     #c56aae;
-    --seat-1-text: #a08cf0;
-    --seat-2-text: #1fb3ab;
-    --seat-3-text: #d3a11c;
-    --seat-4-text: #e26aa9;
-    --seat-5-text: #8ea0c9;
-    --seat-6-text: #c56aae;
-    --seat-x-text: #898781;
     --pos-text:   #0ca30c;
     --neg-text:   #e66767;
     --focus:      #3987e5;
@@ -126,13 +112,6 @@
   --seat-4:     #e26aa9;
   --seat-5:     #8ea0c9;
   --seat-6:     #c56aae;
-  --seat-1-text: #a08cf0;
-  --seat-2-text: #1fb3ab;
-  --seat-3-text: #d3a11c;
-  --seat-4-text: #e26aa9;
-  --seat-5-text: #8ea0c9;
-  --seat-6-text: #c56aae;
-  --seat-x-text: #898781;
   --pos-text:   #0ca30c;
   --neg-text:   #e66767;
   --focus:      #3987e5;
@@ -1268,6 +1247,7 @@ th[aria-sort] button { color: var(--ink-1); }
   var REASON_TEXT = {
     "fetch-failed": "usage read failing",
     "no-snapshot": "not read yet",
+    "stale-snapshot": "reading too old",
     "no-bearing-window": "no window applies"
   };
 
@@ -1621,6 +1601,11 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function focusTip(el) {
     var r = el.getBoundingClientRect();
+    /* An element scrolled or reflowed off screen has nothing to caption. */
+    if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) {
+      hideTip();
+      return;
+    }
     showTip(el, r.left + r.width / 2, r.bottom - 6);
   }
 
@@ -1678,6 +1663,11 @@ th[aria-sort] button { color: var(--ink-1); }
   window.addEventListener("scroll", function () {
     if (tipByFocus && tipFor) focusTip(tipFor);
     else hideTip();
+  }, true);
+  /* A fold opening above a focused element moves it without a scroll event;
+     the tip re-anchors on the next frame, once layout has settled. */
+  document.addEventListener("toggle", function () {
+    if (tipByFocus && tipFor) window.requestAnimationFrame(function () { if (tipFor) focusTip(tipFor); });
   }, true);
 
   /* --------------------------------------------------------------- seats */
@@ -3330,7 +3320,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "\n" + resetText(s.resets, now) +
         "\nlast hour " + lastHour;
       if (s.cur.length >= 2) {
-        estCur = historyLine(root, s.curCycle, s.cur, xOf, Y, col, tailTo(cx, cy));
+        estCur = historyLine(gSegs, s.curCycle, s.cur, xOf, Y, col, tailTo(cx, cy));
         anyEst = anyEst || estCur > 0;
         /* One focusable stretch per SEG_MS of the line, carrying the
            conversations the log shows on the seat in that stretch. */

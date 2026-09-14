@@ -235,7 +235,7 @@ func Warnings(enabled bool, listErr string, singleCandidateProviders []string, r
 			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", row.AuthID, seat.PollCategory, seat.PollErr))
 		}
 		if !seat.HasSnapshot {
-			warnings = append(warnings, fmt.Sprintf("no quota snapshot for %s; it cannot take a new conversation", row.AuthID))
+			warnings = append(warnings, fmt.Sprintf("%s has not been read yet; it cannot take a new conversation", row.AuthID))
 		}
 	}
 	return warnings

@@ -731,7 +731,7 @@ func idStatus() model.Status {
 				{AuthID: seatBID, Reason: model.ReasonSpent},
 			},
 		}},
-		Warnings: []string{"no quota snapshot for " + seatBID + "; it cannot take a new conversation"},
+		Warnings: []string{seatBID + " has not been read yet; it cannot take a new conversation"},
 	}
 }
 
@@ -781,7 +781,7 @@ func TestCredentialIDsArePublished(t *testing.T) {
 		{"decisions[0].scores[0].auth_id", got.Decisions[0].Scores[0].AuthID, a},
 		{"decisions[0].scores[1].auth_id", got.Decisions[0].Scores[1].AuthID, b},
 		{"decisions[0].note", got.Decisions[0].Note, "retry after " + b},
-		{"warnings[0]", got.Warnings[0], "no quota snapshot for " + b + "; it cannot take a new conversation"},
+		{"warnings[0]", got.Warnings[0], b + " has not been read yet; it cannot take a new conversation"},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %q, want %q", c.where, c.got, c.want)

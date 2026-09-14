@@ -63,6 +63,7 @@ Defaults, all optional:
         ttl: 1h                 # idle time before a conversation's binding expires
         subagents: true         # a subagent shares its parent conversation's seat
         override-threshold: true # keep a binding even when its seat trails the pace curve
+        max-sessions: 65536     # bindings held before the oldest idle one is dropped
       pace:
         shape: linear           # linear, power or sigmoid
         curve-exponent: 1.0     # power shape only; above 1 holds back early
@@ -74,8 +75,10 @@ Defaults, all optional:
         hysteresis-margin: 0.05 # cost gap a challenger must beat to move a binding
       quota:
         poll-interval: 2m       # usage-endpoint read cadence; minimum 30s
+        request-timeout: 10s    # one usage read
         max-staleness: 15m      # a reading older than this makes the seat ineligible
         persist-history: true   # keep utilization history across host restarts
+        usage-url: https://api.anthropic.com/api/oauth/usage
       web:
         enabled: true           # serve the status page
         history-limit: 500      # routing decisions kept for the page
@@ -87,7 +90,9 @@ to its default; a block that does not parse loads the plugin disabled.
 ## What you see
 
 The Management Center gains a "Claude Seat Pacer" entry that opens the status
-page, also served at `/v0/resource/plugins/claude-seat-pacer/index.html`. It
+page, also served at `/v0/resource/plugins/claude-seat-pacer/index.html`; the
+JSON behind it is at `.../api/status?model=<id>` on the same unauthenticated
+prefix. It
 shows every seat's quota windows, utilization history, pace score and
 eligibility for a chosen model; the live conversation bindings per seat; the
 recent routing decisions with the scores behind each; and warnings for whatever
@@ -107,9 +112,12 @@ slacks, so the seat furthest behind its curve wins. The target is
 seat near its reset is expected to have spent more, so it is favoured while its
 budget can still be used. A seat is ineligible when Anthropic has rejected a
 request on one of its windows, a window reads as full, a reading is not a
-number, or its snapshot is missing or older than `max-staleness`. A
-conversation stays on its seat while the host still offers it and the provider
-has not refused it for the model; with the default `override-threshold` it
+number, none of its windows covers the requested model family, its usage read
+is failing, or its snapshot is missing or older than `max-staleness`. A
+conversation stays on its seat while the host still offers it; a provider
+refusal for the model moves it only when another seat can take that model,
+because a move with nowhere better to go is a cache miss for nothing. With the
+default `override-threshold` it
 stays even when the seat trails the curve or is spent, because the cache hit is
 worth more than the rebalance. When no seat is eligible a conversation still
 gets one stable home, the seat with the fewest live conversations; a request

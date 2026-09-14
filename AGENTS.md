@@ -1,7 +1,6 @@
 # Agent brief
 
-Load-bearing facts for anyone (human or agent) changing this plugin. Verified
-against CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit `2a6b87ac`); the
+Verified against CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit `2a6b87ac`); the
 deployment target is 7.2.145+, a lower bound nothing in this repository tests.
 
 ## What this plugin is
@@ -19,8 +18,7 @@ Declared capabilities: `request_interceptor`, `scheduler`, `usage_plugin`,
 Measured over 2,096 real requests: 96.5% of input-side tokens are cache reads,
 and caching removes 86% of input-side cost. Anthropic documents that caches are
 isolated between organizations, so moving a live conversation to a credential in
-another org is a guaranteed full miss costing ~12.5x on that request. A router
-that ignores stickiness loses more than it saves.
+another org is a guaranteed full miss costing ~12.5x on that request.
 
 **2. `request.intercept_before` is the only way to learn the conversation id.**
 `scheduler.pick` receives `Headers` and `Metadata` but **not the request body**,
@@ -86,6 +84,7 @@ internal/pace        the scoring curve and the staleness gates; pure functions o
 internal/session     conversation identity extraction + binding store
 internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
 internal/web         embedded status app served on the plugin's resource routes
+cmd/webdev           fixture server that renders the status app from synthetic seats
 ```
 
 `model` and `httpx` are the leaves: every other package imports `model`, and
