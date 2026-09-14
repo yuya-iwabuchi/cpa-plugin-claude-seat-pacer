@@ -779,3 +779,27 @@ func TestScopedKeysDoNotCollideWithBareOnes(t *testing.T) {
 		t.Errorf("scope is ambiguous: session %q under agent %q reads as %q under %q", "a", "b#c", "a#b", "c")
 	}
 }
+
+// TestHeaderIndexIsDeterministicAcrossCasings covers a request carrying two
+// capitalizations of one header: a map range visits them in a different order
+// every time, so an index without a tie-break hands the conversation a
+// different key per request and affinity loses it.
+func TestHeaderIndexIsDeterministicAcrossCasings(t *testing.T) {
+	headers := map[string][]string{
+		"Session-Id": {"upper"},
+		"session-id": {"lower"},
+		"SESSION-ID": {"shout"},
+	}
+	first := Extract(headers, nil)
+	if first.Key == "" {
+		t.Fatal("no key")
+	}
+	for i := 0; i < 200; i++ {
+		if got := Extract(headers, nil); got.Key != first.Key {
+			t.Fatalf("call %d gave key %q, first call gave %q", i, got.Key, first.Key)
+		}
+	}
+	if want := wantKey("header:session-id", "shout"); first.Key != want {
+		t.Errorf("key = %q, want the value under the first-sorting spelling", first.Key)
+	}
+}

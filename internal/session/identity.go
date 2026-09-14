@@ -494,10 +494,19 @@ type headerIndex map[string]string
 
 func newHeaderIndex(headers map[string][]string) headerIndex {
 	idx := make(headerIndex, len(headers))
+	// spelling records which capitalization supplied each lowered name, and
+	// the one sorting first wins. A map range visits a request carrying both
+	// Session-Id and session-id in a different order every time, so without a
+	// tie-break the key flips per request and affinity loses the conversation.
+	spelling := make(map[string]string, len(headers))
 	for name, values := range headers {
 		for _, v := range values {
 			if v = strings.TrimSpace(v); v != "" {
-				idx[strings.ToLower(name)] = v
+				key := strings.ToLower(name)
+				if prior, seen := spelling[key]; seen && prior <= name {
+					break
+				}
+				spelling[key], idx[key] = name, v
 				break
 			}
 		}
