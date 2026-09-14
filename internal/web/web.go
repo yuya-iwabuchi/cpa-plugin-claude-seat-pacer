@@ -205,8 +205,9 @@ func reduceForPublic(st model.Status) model.Status {
 	// above all: it is operator-set and may name internal infrastructure. A
 	// cadence names nothing, and the page states it beside the countdown.
 	st.Config = model.Config{
-		Pace:  finitePace(st.Config.Pace),
-		Quota: model.QuotaConfig{PollInterval: st.Config.Quota.PollInterval},
+		Enabled: st.Config.Enabled,
+		Pace:    finitePace(st.Config.Pace),
+		Quota:   model.QuotaConfig{PollInterval: st.Config.Quota.PollInterval},
 	}
 
 	ids := authIDReplacer(st)

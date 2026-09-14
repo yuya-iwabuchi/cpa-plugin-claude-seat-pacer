@@ -33,7 +33,7 @@
      13%-tinted chip plate; the light plane needs darker ink than the dark one.
      --warning rules a banner edge, which means nothing on its own. */
   --good:         #0a7d0a;
-  --info:         #2a78d6;
+  --info:         #2568bd;
   --serious:      #c0521f;
   --critical:     #d03b3b;
   --warning:      #fab219;
@@ -1750,7 +1750,9 @@ th[aria-sort] button { color: var(--ink-1); }
         " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits"),
       snap.err || snap.err_category ? "fetch error " + (snap.err_category || "") + (snap.err ? ": " + snap.err : "") : null,
       hs !== "active" ? "host " + hs : null,
-      !obs ? "not read yet · the poller has returned no usage reading for this credential, which " +
+      hs === "disabled" && !obs ? "host disabled · the poller never reads a disabled credential, so it has no usage " +
+        "reading and takes no new conversation; re-enable it in the host's auth files to bring it back"
+        : !obs ? "not read yet · the poller has returned no usage reading for this credential, which " +
         "usually lands within one poll interval; until it does the seat takes no new conversation · " +
         "if it stays, check the host log for a quota poll failing line"
         : (a.score && a.score.reason === "stale-snapshot" ? "snapshot stale, " + relText(obs, now) : null)
@@ -1891,7 +1893,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var sc = famScore(a, fam);
     if (!sc) return { ok: false, word: "unknown", text: "unknown" };
     if (sc.eligible) return { ok: true, word: "eligible", text: "eligible" };
-    return { ok: false, word: holdText(sc.reason, null, now), text: holdText(sc.reason, seatReturnsAt(a, fam), now) };
+    return { ok: false, word: holdWord(a, sc.reason, null, now), text: holdWord(a, sc.reason, seatReturnsAt(a, fam), now) };
   }
 
   /* The chips a seat's header row carries: a verdict per request family with
@@ -2140,8 +2142,8 @@ th[aria-sort] button { color: var(--ink-1); }
          gives way before the name does, because it is on the 7-day lane
          below in any case and a name cut to two letters identifies no
          seat. */
-      var everywhere = fams.every(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
-      var tail = svgText(gh, gut - 14, headY, everywhere ? weeklyGapText(a.score) : "",
+      var anywhere = fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
+      var tail = svgText(gh, gut - 14, headY, anywhere ? weeklyGapText(a.score) : "",
         "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
       if (gut - nameX - chipsW - tail.getComputedTextLength() - 18 < NAME_MIN) tail.textContent = "";
       fitText(nameEl, gut - nameX - chipsW - tail.getComputedTextLength() - 18);
@@ -2296,7 +2298,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var parts = [];
     if (hs !== "active") parts.push({ t: "host " + hs });
     if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "fetch error") });
-    parts.push(obs ? { age: obs } : { t: "not read yet" });
+    parts.push(obs ? { age: obs } : { t: hs === "disabled" ? "not polled" : "not read yet" });
     parts.push({ t: intFmt(a.bindings) + " live" });
     if (hr !== null) parts.push({ t: pct(hr, 0) + " cache hits" });
     var el = svgText(parent, x, y, "", "t-mono t-muted", { "font-size": 10 });
@@ -4129,6 +4131,14 @@ th[aria-sort] button { color: var(--ink-1); }
     return reasonText(reason);
   }
 
+  /* The word a seat's cross carries: a credential the host has disabled is
+     never polled, so "not read yet" would promise a reading that will not
+     come; the host state is the reason. */
+  function holdWord(a, reason, back, now) {
+    if (reason === "no-snapshot" && (a.host_status || "") === "disabled") return "host disabled";
+    return holdText(reason, back, now);
+  }
+
   /* Whether a window holds its seat back with a reset to name: a refusal of
      the window, or a reading of it at full. Both are observations the provider
      reports, which is what the scheduler gates on, and both name the instant
@@ -4166,6 +4176,15 @@ th[aria-sort] button { color: var(--ink-1); }
     return soonest;
   }
 
+  /* Where traffic goes while the plugin is switched off in the host config:
+     the host's own selector, which this page cannot see into. The bar says
+     so in the place a reader looks for the pick, so a ranking the plugin
+     still computes is never mistaken for one it applies. */
+  var DISABLED_TEXT = "plugin disabled · the host's own selector routes";
+  var DISABLED_TIP = "plugins.configs.claude-seat-pacer.enabled is false: the plugin still reads usage " +
+    "and ranks the seats for this page, but it declines every pick, so the host routes each request " +
+    "by its own priority order and no conversation is pinned to a seat.";
+
   function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
@@ -4173,11 +4192,13 @@ th[aria-sort] button { color: var(--ink-1); }
     (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
     var overflow = overflowInLog(st);
     var seats = (st.auths || []).length;
+    var off = !!(st.config && st.config.enabled === false);
     ranks.fams.forEach(function (fam) {
       var span = h("span", "pick");
       span.appendChild(h("span", "pick-fam", rankLabel(fam)));
       var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
-      if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
+      if (off) span.appendChild(tipOnly(h("span", "pick-none pick-wrap", DISABLED_TEXT), DISABLED_TIP));
+      else if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
       else if (seats && overflow) {
         span.appendChild(tipOnly(h("span", "pick-none pick-wrap", OVERFLOW_TEXT), OVERFLOW_TIP));
@@ -4443,6 +4464,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var next = parseT(st && st.next_poll_at);
     host.textContent = "";
     if (document.documentElement.getAttribute("data-stale") === "true") { host.textContent = STALE_TEXT; return; }
+    if (state.paused) { host.textContent = "refresh paused"; return; }
     if (!next) { host.textContent = st ? "first sync pending" : "—"; return; }
     host.appendChild(stamp(next, "", "sync"));
   }
@@ -4607,6 +4629,7 @@ th[aria-sort] button { color: var(--ink-1); }
     toggle.setAttribute("aria-pressed", state.paused ? "true" : "false");
     toggle.textContent = state.paused ? "Resume refresh" : "Pause refresh";
     setLive();
+    renderSync();
     if (!state.paused) refresh(true);
   });
 
