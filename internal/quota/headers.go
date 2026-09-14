@@ -1,6 +1,7 @@
 package quota
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -77,8 +78,10 @@ func ParseResponseHeaders(h map[string][]string, now time.Time) []model.Window {
 		if !ok {
 			continue
 		}
+		// ParseFloat accepts NaN, Inf and infinity with a nil error, so a
+		// non-finite reading is rejected by value rather than by err alone.
 		utilization, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-		if err != nil {
+		if err != nil || math.IsNaN(utilization) || math.IsInf(utilization, 0) {
 			continue
 		}
 		w := set.at(hw.kind, hw.scope)
