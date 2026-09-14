@@ -122,6 +122,12 @@ func (p *Plugin) saveHistory(cfg model.Config) {
 
 // stopPoller stops the poll loop and waits for it. It is idempotent, and a
 // later plugin.register starts a fresh loop.
+//
+// The final save takes pollMu, the lock a poll's own save already runs under.
+// Joining the loop goroutine does not cover a management refresh, which runs
+// p.poll inline on the HTTP goroutine, and SaveHistory writes one fixed
+// sibling path before renaming it: two writers there would leave a truncated
+// history file behind.
 func (p *Plugin) stopPoller() {
 	p.lifeMu.Lock()
 	defer p.lifeMu.Unlock()
@@ -131,6 +137,8 @@ func (p *Plugin) stopPoller() {
 	close(p.poller.stop)
 	<-p.poller.done
 	p.poller = nil
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
 	p.saveHistory(p.config())
 }
 

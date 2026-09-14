@@ -550,3 +550,34 @@ func TestPollKeepsHistoryForCredentialsItDoesNotFetch(t *testing.T) {
 		t.Errorf("history after the credential returned = %+v, want the earlier sample adopted", h)
 	}
 }
+
+// TestStopPollerSavesUnderThePollLock covers the second writer to the history
+// file's fixed sibling path: joining the poll loop leaves out a management
+// refresh, which runs a poll and its save inline on the HTTP goroutine, so the
+// stop path waits on the same lock a poll's own save holds.
+func TestStopPollerSavesUnderThePollLock(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	tp.pollMu.Lock()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		tp.Shutdown()
+	}()
+	select {
+	case <-stopped:
+		tp.pollMu.Unlock()
+		t.Fatal("the stop path wrote the history file while a poll held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	tp.pollMu.Unlock()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop path never finished once the poll lock was free")
+	}
+}
