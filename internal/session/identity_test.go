@@ -270,8 +270,8 @@ func TestExtractResolutionOrder(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := Extract(tc.headers, tc.body)
-			if want := hashKey(tc.material); got.Key != want {
-				t.Errorf("Key = %q, want %q (hash of %q)", got.Key, want, tc.material)
+			if want := wantKey(tc.source, tc.material); got.Key != want {
+				t.Errorf("Key = %q, want %q (hash of %q under %q)", got.Key, want, tc.material, tc.source)
 			}
 			if got.Source != tc.source {
 				t.Errorf("Source = %q, want %q", got.Source, tc.source)
@@ -313,7 +313,7 @@ func TestExtractSubagent(t *testing.T) {
 		{
 			name:           "agent id alone marks a subagent and links the session root",
 			headers:        hdr(headerSessionID, "sess-a", headerAgentID, "explore"),
-			keyMaterial:    "sess-a#explore",
+			keyMaterial:    "6:sess-a#explore",
 			parentMaterial: "sess-a",
 			subagent:       true,
 		},
@@ -324,8 +324,8 @@ func TestExtractSubagent(t *testing.T) {
 				headerAgentID, "explore",
 				headerParentAgentID, "plan",
 			),
-			keyMaterial:    "sess-a#explore",
-			parentMaterial: "sess-a#plan",
+			keyMaterial:    "6:sess-a#explore",
+			parentMaterial: "6:sess-a#plan",
 			subagent:       true,
 		},
 		{
@@ -335,7 +335,7 @@ func TestExtractSubagent(t *testing.T) {
 				headerAgentID, "explore",
 				headerParentAgentID, "main",
 			),
-			keyMaterial:    "sess-a#explore",
+			keyMaterial:    "6:sess-a#explore",
 			parentMaterial: "sess-a",
 			subagent:       true,
 		},
@@ -360,7 +360,7 @@ func TestExtractSubagent(t *testing.T) {
 		{
 			name:           "agent id without a parent session id scopes the session",
 			body:           claudeCodeBody(t, map[string]any{"session_id": "sess-a", "agent_id": "explore"}),
-			keyMaterial:    "sess-a#explore",
+			keyMaterial:    "6:sess-a#explore",
 			parentMaterial: "sess-a",
 			subagent:       true,
 		},
@@ -379,15 +379,22 @@ func TestExtractSubagent(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := Extract(tc.headers, tc.body)
-			if want := hashKey(tc.keyMaterial); got.Key != want {
-				t.Errorf("Key = %q, want %q (hash of %q)", got.Key, want, tc.keyMaterial)
+			source := SourceClaudeCodeHeader
+			if tc.headers == nil {
+				source = SourceUserIDObject
+			}
+			if got.Source != source {
+				t.Fatalf("Source = %q, want %q", got.Source, source)
+			}
+			if want := wantKey(source, tc.keyMaterial); got.Key != want {
+				t.Errorf("Key = %q, want %q (hash of %q under %q)", got.Key, want, tc.keyMaterial, source)
 			}
 			if got.Subagent != tc.subagent {
 				t.Errorf("Subagent = %v, want %v", got.Subagent, tc.subagent)
 			}
 			wantParent := ""
 			if tc.parentMaterial != "" {
-				wantParent = hashKey(tc.parentMaterial)
+				wantParent = wantKey(source, tc.parentMaterial)
 			}
 			if got.ParentKey != wantParent {
 				t.Errorf("ParentKey = %q, want %q", got.ParentKey, wantParent)
@@ -650,7 +657,7 @@ func TestExtractLargeBody(t *testing.T) {
 	if len(withID) < 4<<20 {
 		t.Fatalf("fixture is only %d bytes", len(withID))
 	}
-	if got := Extract(nil, withID); got.Key != hashKey(ccSessionID) || got.Source != SourceUserIDSuffix {
+	if got := Extract(nil, withID); got.Key != wantKey(SourceUserIDSuffix, ccSessionID) || got.Source != SourceUserIDSuffix {
 		t.Errorf("Extract = %+v, want session %q from %q", got, ccSessionID, SourceUserIDSuffix)
 	}
 
@@ -714,7 +721,7 @@ func TestUserIDObjectIDsAreTrimmed(t *testing.T) {
 	// A padded id resolves to the same conversation as the bare one.
 	padded := claudeCodeBody(t, map[string]any{"session_id": "  sess-obj \n"})
 	bare := claudeCodeBody(t, map[string]any{"session_id": "sess-obj"})
-	if a, b := Extract(nil, padded), Extract(nil, bare); a.Key != b.Key || a.Key != hashKey("sess-obj") {
+	if a, b := Extract(nil, padded), Extract(nil, bare); a.Key != b.Key || a.Key != wantKey(SourceUserIDObject, "sess-obj") {
 		t.Errorf("padded = %+v, bare = %+v, want both keyed on the trimmed id", a, b)
 	}
 
@@ -723,5 +730,52 @@ func TestUserIDObjectIDsAreTrimmed(t *testing.T) {
 	flat := claudeCodeBody(t, map[string]any{"session_id": "sess-obj", "agent_id": "worker"})
 	if a, b := Extract(nil, sub), Extract(nil, flat); a.Key != b.Key || !a.Subagent {
 		t.Errorf("padded agent = %+v, bare agent = %+v, want one subagent key", a, b)
+	}
+}
+
+// wantKey is the key a rule produces for its material. The rule that found the
+// material namespaces the hash, so the same string under two identifiers names
+// two conversations.
+func wantKey(source, material string) string {
+	return hashKey(source + fieldSep + material)
+}
+
+// TestKeysAreNamespacedByRule covers one string arriving under three
+// identifiers: unnamespaced they hash alike and three unrelated conversations
+// share a seat binding.
+func TestKeysAreNamespacedByRule(t *testing.T) {
+	keys := map[string]string{}
+	for _, c := range []struct {
+		name    string
+		headers map[string][]string
+		body    []byte
+	}{
+		{"thread header", hdr("X-Thread-Id", "1"), nil},
+		{"session header", hdr("X-Session-Id", "1"), nil},
+		{"conversation_id", nil, mustJSON(t, map[string]any{"conversation_id": "1"})},
+		{"prompt_cache_key", nil, mustJSON(t, map[string]any{"prompt_cache_key": "1"})},
+	} {
+		got := Extract(c.headers, c.body)
+		if got.Key == "" {
+			t.Fatalf("%s: no key", c.name)
+		}
+		if prior, seen := keys[got.Key]; seen {
+			t.Errorf("%s collides with %s on key %q", c.name, prior, got.Key)
+		}
+		keys[got.Key] = c.name
+	}
+}
+
+// TestScopedKeysDoNotCollideWithBareOnes covers the agent separator appearing
+// in a session id of its own: without the length prefix session "a" running
+// agent "b" and the bare session "a#b" name one conversation.
+func TestScopedKeysDoNotCollideWithBareOnes(t *testing.T) {
+	scoped := Extract(hdr(headerSessionID, "a", headerAgentID, "b"), nil)
+	bare := Extract(hdr(headerSessionID, "a#b"), nil)
+	if scoped.Key == bare.Key {
+		t.Errorf("session %q under agent %q and bare session %q share key %q", "a", "b", "a#b", scoped.Key)
+	}
+	if scope("a", "b#c") == scope("a#b", "c") {
+		t.Errorf("scope is ambiguous: session %q under agent %q reads as %q under %q", "a", "b#c", "a#b", "c")
 	}
 }
