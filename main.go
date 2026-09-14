@@ -48,16 +48,22 @@ static void store_host_api(const cliproxy_host_api* host) {
 	stored_host = host;
 }
 
+// stored_host is read once into a local and used only through that local.
+// cliproxy_plugin_shutdown nulls it after Shutdown, whose drain gives up after
+// a bounded wait, so a callback can still arrive here; a single load is the
+// narrowest window a plain pointer allows, since C89 offers no atomic.
 static int call_host_api(const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
-	if (stored_host == NULL || stored_host->call == NULL) {
+	const cliproxy_host_api* host = stored_host;
+	if (host == NULL || host->call == NULL) {
 		return 1;
 	}
-	return stored_host->call(stored_host->host_ctx, method, request, request_len, response);
+	return host->call(host->host_ctx, method, request, request_len, response);
 }
 
 static void free_host_buffer(void* ptr, size_t len) {
-	if (stored_host != NULL && stored_host->free_buffer != NULL && ptr != NULL) {
-		stored_host->free_buffer(ptr, len);
+	const cliproxy_host_api* host = stored_host;
+	if (host != NULL && host->free_buffer != NULL && ptr != NULL) {
+		host->free_buffer(ptr, len);
 	}
 }
 */
