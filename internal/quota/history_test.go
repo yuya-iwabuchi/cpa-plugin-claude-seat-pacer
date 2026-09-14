@@ -261,6 +261,34 @@ func TestHistorySurvivesSaveAndLoad(t *testing.T) {
 	}
 }
 
+// TestPrunedHistorySurvivesASave covers the recovery path Prune opens: a seat
+// the listing drops keeps its history in pending, and a save taken before the
+// seat returns carries that history to disk, so a restart in between does not
+// lose it.
+func TestPrunedHistorySurvivesASave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.3)))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionWindow(0.4)))
+	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.5)))
+
+	// auth-1 leaves the listing; its history moves to pending.
+	s.Prune(map[string]struct{}{"auth-2": {}})
+	if err := s.SaveHistory(path); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path); err != nil {
+		t.Fatal(err)
+	}
+	// auth-1 is listed again and reads once; it adopts the two saved samples.
+	fresh.Put(endpointSnapshot("auth-1", testNow.Add(4*time.Minute), sessionWindow(0.45)))
+	if h := historyOf(t, fresh, "auth-1", model.WindowSession); h.Samples() != 3 {
+		t.Errorf("session samples after prune, save, load, return = %d, want 3", h.Samples())
+	}
+}
+
 func TestImportBehindLiveReadings(t *testing.T) {
 	resets := testNow.Add(3 * time.Hour)
 	live := NewStore()

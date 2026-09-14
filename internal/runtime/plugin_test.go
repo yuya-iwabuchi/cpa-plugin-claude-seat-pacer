@@ -14,8 +14,14 @@ func TestRegisterThenReconfigureIsIdempotent(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 
 	res := tp.register(t, MethodPluginRegister, testConfigYAML)
-	if res.SchemaVersion != SchemaVersion {
-		t.Errorf("schema_version = %d, want %d", res.SchemaVersion, SchemaVersion)
+	// The declared value is pinned to the literal, not to the constant it is
+	// built from: a plugin that declares the host's current schema silently
+	// requires a host at least as new as its build SDK.
+	if res.SchemaVersion != 1 {
+		t.Errorf("schema_version = %d, want 1", res.SchemaVersion)
+	}
+	if ABIVersion != 1 {
+		t.Errorf("ABIVersion = %d, want 1", ABIVersion)
 	}
 	if res.Metadata.Name == "" || res.Metadata.Version == "" || res.Metadata.Author == "" || res.Metadata.GitHubRepository == "" {
 		t.Errorf("metadata has a blank mandatory field: %+v", res.Metadata)

@@ -633,6 +633,64 @@ func TestWarningsDropURLs(t *testing.T) {
 	}
 }
 
+// A host error that names the auth directory must not tell an anonymous
+// reader where the credentials live.
+func TestWarningsDropFilesystemPaths(t *testing.T) {
+	t.Parallel()
+	st := richStatus()
+	st.Warnings = []string{
+		`credential listing is failing: open /home/op/.cli-proxy-api/auths: permission denied`,
+		`quota poll failing for auth-a (auth): read "/var/lib/cpa/auths/claude-a.json": no such file`,
+	}
+	src := &stubSource{status: st}
+
+	rec := get(t, NewHandler(src), "/api/status")
+	var got model.Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for i, w := range got.Warnings {
+		if strings.Contains(w, "/home/") || strings.Contains(w, "/var/") || strings.Contains(w, ".cli-proxy-api") {
+			t.Errorf("warnings[%d] still names a path: %q", i, w)
+		}
+	}
+	if !strings.Contains(got.Warnings[0], "permission denied") {
+		t.Errorf("warnings[0] lost its error text: %q", got.Warnings[0])
+	}
+}
+
+// Two seats with no id and no name still get distinct labels, and the empty
+// id does not panic the tag.
+func TestPublicSeatLabelsSurviveAnEmptyID(t *testing.T) {
+	t.Parallel()
+	got := publicSeatLabels([]model.AuthStatus{{AuthID: ""}, {AuthID: ""}})
+	if len(got) != 2 || got[0] == "" || got[1] == "" || got[0] == got[1] {
+		t.Errorf("labels for two empty ids = %q, want two distinct non-empty labels", got)
+	}
+}
+
+// A snapshot that exists with no windows ships an empty list, like every
+// other list on the wire, so the page's "no windows" branch matches
+// production rather than a fixture.
+func TestSnapshotWithNoWindowsShipsAnEmptyList(t *testing.T) {
+	t.Parallel()
+	st := richStatus()
+	st.Auths[0].Snapshot = model.AuthSnapshot{AuthID: st.Auths[0].AuthID, ObservedAt: base}
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	auth := got["auths"].([]any)[0].(map[string]any)
+	win, ok := auth["snapshot"].(map[string]any)["windows"]
+	if !ok || win == nil {
+		t.Fatalf("snapshot.windows = %v, want an empty list", win)
+	}
+	if l, isList := win.([]any); !isList || len(l) != 0 {
+		t.Errorf("snapshot.windows = %v, want []", win)
+	}
+}
+
 // TestBindingsAreBounded covers the payload cap: the store runs to
 // affinity.max-sessions and this route re-encodes it every poll.
 func TestBindingsAreBounded(t *testing.T) {

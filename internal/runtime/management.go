@@ -255,21 +255,22 @@ func jsonResponse(status int, body any) ManagementResponse {
 // inline on the caller's goroutine, so a status response built after it
 // carries the fresh reading.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
+	// The slot is claimed under the lock before the poll runs, so concurrent
+	// callers inside one window share a single read rather than each running
+	// a full poll before the first has stamped polledAt. Only the read time
+	// moves: the loop's timer is untouched by a forced read, so nextPollAt
+	// still names the wake it will actually take.
 	p.mu.Lock()
-	polledAt := p.polledAt
-	p.mu.Unlock()
-	if !polledAt.IsZero() && p.now().Sub(polledAt) < MinForcedPollGap {
+	now := p.now()
+	if !p.polledAt.IsZero() && now.Sub(p.polledAt) < MinForcedPollGap {
+		p.mu.Unlock()
 		return false
 	}
+	p.polledAt = now
+	p.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
 	defer cancel()
 	_ = p.refresh(ctx)
-
-	// Only the read time moves. The loop's timer is untouched by a forced
-	// read, so nextPollAt still names the wake it will actually take.
-	p.mu.Lock()
-	p.polledAt = p.now()
-	p.mu.Unlock()
 	return true
 }

@@ -385,6 +385,31 @@ func TestRetryAfterIsHonouredUpToTheCap(t *testing.T) {
 	}
 }
 
+// A Retry-After header read the way every other header is: case-folded, first
+// non-empty value, trimmed. Two spellings of the name no longer pick a winner
+// by map order, and a blank first value no longer hides a usable second one.
+func TestRetryAfterReadsLikeEveryOtherHeader(t *testing.T) {
+	cases := []struct {
+		name string
+		h    map[string][]string
+		want time.Duration
+	}{
+		{"lower-case name", map[string][]string{"retry-after": {"2"}}, 2 * time.Second},
+		{"blank then value", map[string][]string{"Retry-After": {"", " 3 "}}, 3 * time.Second},
+		{"two spellings agree on the first sorting one", map[string][]string{"retry-after": {"5"}, "Retry-After": {"1"}}, time.Second},
+		{"absent", map[string][]string{"X-Other": {"9"}}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := 0; i < 50; i++ {
+				if got := retryAfterOf(tc.h); got != tc.want {
+					t.Fatalf("retryAfterOf = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
 // Only a throttle is retried: every other failure means the same thing twice.
 func TestOtherFailuresAreNotRetried(t *testing.T) {
 	cases := []struct {

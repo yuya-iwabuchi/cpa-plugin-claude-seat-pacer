@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -330,5 +331,47 @@ func TestSyncNowIsThrottledAndLeavesTheScheduleAlone(t *testing.T) {
 	tp.mu.Unlock()
 	if !tp.SyncNow(context.Background()) {
 		t.Error("a forced read past the throttle window was refused")
+	}
+}
+
+// TestConcurrentSyncNowRunsOnePoll covers the throttle on the unauthenticated
+// sync route: callers that arrive inside one window share a single read, so a
+// burst cannot multiply the usage endpoint's traffic by its own size.
+func TestConcurrentSyncNowRunsOnePoll(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	before := tp.host.count(MethodHostHTTPDo)
+
+	// Every caller sits on the gate until all have called SyncNow, so the
+	// throttle decision is made by all of them before any poll completes.
+	tp.host.httpGate = make(chan struct{})
+	const callers = 8
+	var wg sync.WaitGroup
+	ran := make(chan bool, callers)
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ran <- tp.SyncNow(context.Background())
+		}()
+	}
+	// Let the goroutines reach the throttle check, then release the poll.
+	time.Sleep(50 * time.Millisecond)
+	close(tp.host.httpGate)
+	wg.Wait()
+	close(ran)
+
+	polls := 0
+	for r := range ran {
+		if r {
+			polls++
+		}
+	}
+	if polls != 1 {
+		t.Errorf("%d of %d concurrent forced reads ran a poll, want exactly 1", polls, callers)
+	}
+	perPoll := tp.host.count(MethodHostHTTPDo) - before
+	if perPoll > 2 {
+		t.Errorf("host.http.do was called %d times for one forced read of two seats", perPoll)
 	}
 }

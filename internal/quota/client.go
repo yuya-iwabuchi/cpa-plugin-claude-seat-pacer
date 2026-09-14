@@ -7,12 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/httpx"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
-// MaxBodyBytes caps the usage response. A Doer reads at most MaxBodyBytes+1
-// bytes, so Fetch can tell a capped body from a full one and rejects the capped
-// one; an endpoint that streams without end therefore cannot exhaust the host.
+// MaxBodyBytes caps the usage response. Fetch rejects a body past it, so a
+// response the Doer hands back whole is never parsed past this size; a Doer
+// that reads only MaxBodyBytes+1 bytes also keeps an endless stream from
+// exhausting the host, and the one the plugin ships does not.
 const MaxBodyBytes = 256 << 10
 
 // userAgent identifies the caller to Anthropic as an OAuth CLI client, which
@@ -58,9 +60,9 @@ func NewClient(d Doer, usageURL string, timeout time.Duration) *Client {
 // Store.Put, which keeps the credential's prior readings and updates only the
 // error.
 //
-// ObservedAt dates the reading rather than the attempt: it is stamped once the
-// response is in hand, so a header merge that lands mid round-trip stays the
-// newer observation of the windows it covers.
+// ObservedAt is stamped with this client's clock once the response is in
+// hand; the poller re-stamps it with the plugin's own clock, which is the one
+// staleness is judged against.
 func (c *Client) Fetch(ctx context.Context, authID, authIndex, accessToken string) (model.AuthSnapshot, error) {
 	snap := model.AuthSnapshot{
 		AuthID:    authID,
@@ -113,17 +115,15 @@ func retryWait(err error) (time.Duration, bool) {
 // use for, and a value it cannot read reports 0, which leaves the default
 // backoff in charge.
 func retryAfterOf(h map[string][]string) time.Duration {
-	for name, values := range h {
-		if !strings.EqualFold(name, "Retry-After") || len(values) == 0 {
-			continue
-		}
-		secs, err := strconv.Atoi(strings.TrimSpace(values[0]))
-		if err != nil || secs < 0 {
-			return 0
-		}
-		return time.Duration(secs) * time.Second
+	raw, ok := httpx.NewIndex(h).Lookup("Retry-After")
+	if !ok {
+		return 0
 	}
-	return 0
+	secs, err := strconv.Atoi(raw)
+	if err != nil || secs < 0 {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // get performs the usage request and reports the response body.

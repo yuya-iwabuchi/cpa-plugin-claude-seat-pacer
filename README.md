@@ -74,7 +74,7 @@ Defaults, all optional:
         session-weight: 0       # weight of the 5-hour window; it is a rate limit, not a budget
         hysteresis-margin: 0.05 # cost gap a challenger must beat to move a binding
       quota:
-        poll-interval: 2m       # usage-endpoint read cadence; minimum 30s
+        poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
         request-timeout: 10s    # one usage read
         max-staleness: 15m      # a reading older than this makes the seat ineligible
         persist-history: true   # keep utilization history across host restarts

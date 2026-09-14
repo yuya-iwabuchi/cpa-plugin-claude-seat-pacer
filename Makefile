@@ -27,7 +27,7 @@ build:
 	@echo "built $(OUT)"
 
 test:
-	go test ./...
+	go test -race ./...
 
 vet:
 	go vet ./...
@@ -35,7 +35,7 @@ vet:
 fmt:
 	@test -z "$$(gofmt -l .)" || { echo "unformatted:"; gofmt -l .; exit 1; }
 
-check: fmt vet test
+check: fmt vet test build
 
 # Write by rename, never by overwrite: a running host keeps the old library
 # mmap'd and rewriting those pages in place crashes it. Loading a new build

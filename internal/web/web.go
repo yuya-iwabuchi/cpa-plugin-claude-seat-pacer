@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -350,6 +351,10 @@ func authIDReplacer(st model.Status) *strings.Replacer {
 // quote: a transport error quotes one inside its message.
 var absoluteURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']*`)
 
+// absolutePath is a filesystem path an os error names, which would tell an
+// unauthenticated reader where the host keeps its credentials.
+var absolutePath = regexp.MustCompile(`(?:^|[\s"'(:])(?:/[^\s"'():]+){2,}`)
+
 // bareEmail matches an account address inside free text. A credential this
 // status no longer holds a row for is still named by a decision note that
 // outlives it, and that name is an email address.
@@ -365,6 +370,13 @@ func publicText(s string, ids *strings.Replacer) string {
 		return ""
 	}
 	s = absoluteURL.ReplaceAllString(s, "…")
+	s = absolutePath.ReplaceAllStringFunc(s, func(m string) string {
+		// Keep the delimiter the match opened on; only the path itself goes.
+		if m[0] == '/' {
+			return "…"
+		}
+		return m[:1] + "…"
+	})
 	s = ids.Replace(s)
 	return bareEmail.ReplaceAllStringFunc(s, maskEmail)
 }
@@ -410,7 +422,13 @@ func publicSeatLabels(auths []model.AuthStatus) []string {
 		if count[names[i]] < 2 {
 			continue
 		}
-		tag := "#" + publicID(a.AuthID)[:seatTagLen]
+		// An empty id hashes to nothing; the row index stands in for it.
+		tag := "#" + publicID(a.AuthID)
+		if len(tag) < 1+seatTagLen {
+			tag = "#" + strconv.Itoa(i)
+		} else {
+			tag = tag[:1+seatTagLen]
+		}
 		if names[i] == "" {
 			names[i] = tag
 		} else {
@@ -510,7 +528,7 @@ func finite(f float64) float64 {
 
 func finiteWindows(windows []model.Window) []model.Window {
 	if len(windows) == 0 {
-		return windows
+		return []model.Window{}
 	}
 	out := make([]model.Window, len(windows))
 	for i, w := range windows {

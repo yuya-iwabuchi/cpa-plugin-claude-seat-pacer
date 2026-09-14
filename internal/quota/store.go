@@ -346,12 +346,18 @@ func (s *Store) HistoryVersion() uint64 {
 }
 
 // ExportHistory copies every credential's whole recorded history, keyed by
-// credential id, which is the form the history file holds.
+// credential id, which is the form the history file holds. A history held
+// in pending is a credential's too: it is what a seat the listing dropped
+// adopts on its return, and a save between the drop and the return must not
+// lose it.
 func (s *Store) ExportHistory() map[string][]model.WindowHistory {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make(map[string][]model.WindowHistory, len(s.entries))
+	out := make(map[string][]model.WindowHistory, len(s.entries)+len(s.pending))
+	for id, hs := range s.pending {
+		out[id] = hs
+	}
 	for id, e := range s.entries {
 		out[id] = e.exportAll()
 	}
