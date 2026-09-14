@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -45,4 +46,29 @@ func cHelperBody(t *testing.T, src, name string) string {
 		t.Fatalf("%s has no closing brace", name)
 	}
 	return rest[:j+2]
+}
+
+// TestBufferTooLargeGuardsGoBytes holds the bound to what C.GoBytes takes: its
+// length is a C int, so a size_t past MaxInt32 wraps negative and
+// runtime.gobytes throws a fatal error that no recover in this file catches.
+func TestBufferTooLargeGuardsGoBytes(t *testing.T) {
+	for _, tc := range []struct {
+		n    uint64
+		want bool
+	}{
+		{0, false},
+		{1 << 20, false},
+		{math.MaxInt32 - 1, false},
+		{math.MaxInt32, false},
+		{math.MaxInt32 + 1, true},
+		{1 << 33, true},
+		{math.MaxUint64, true},
+	} {
+		if got := bufferTooLarge(tc.n); got != tc.want {
+			t.Errorf("bufferTooLarge(%d) = %v, want %v", tc.n, got, tc.want)
+		}
+		if !tc.want && int64(int32(tc.n)) != int64(tc.n) {
+			t.Errorf("bufferTooLarge(%d) admits a length that truncates to %d", tc.n, int32(tc.n))
+		}
+	}
 }

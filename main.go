@@ -72,6 +72,7 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"unsafe"
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
@@ -163,6 +164,10 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 		writeResponse(response, errorEnvelope("invalid_method", "method is required"))
 		return 1
 	}
+	if bufferTooLarge(uint64(requestLen)) {
+		writeResponse(response, errorEnvelope("invalid_request", "request envelope is too large"))
+		return 1
+	}
 	var payload []byte
 	if request != nil && requestLen > 0 {
 		payload = C.GoBytes(unsafe.Pointer(request), C.int(requestLen))
@@ -244,5 +249,16 @@ func callHost(method string, payload []byte) ([]byte, error) {
 		return nil, nil
 	}
 	defer C.free_host_buffer(response.ptr, response.len)
+	if bufferTooLarge(uint64(response.len)) {
+		return nil, fmt.Errorf("host callback %s returned an oversized response", method)
+	}
 	return C.GoBytes(response.ptr, C.int(response.len)), nil
+}
+
+// bufferTooLarge reports whether a C buffer length is past what C.GoBytes
+// accepts. Its length argument is a C int, so a size_t beyond MaxInt32 wraps
+// negative there and runtime.gobytes throws — a fatal error, not a panic, so
+// no recover in this file reaches it.
+func bufferTooLarge(n uint64) bool {
+	return n > math.MaxInt32
 }
