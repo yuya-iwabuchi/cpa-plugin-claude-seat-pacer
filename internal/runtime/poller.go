@@ -303,7 +303,12 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		p.mu.Unlock()
 		return cfg.Quota.PollInterval
 	}
-	p.quota.Prune(keep)
+	// Snapshots follow the host's listing rather than the fetch set: a
+	// credential that is disabled, runtime-only or carries no access token is
+	// never fetched, and a runtime-only one is served header readings through
+	// Store.MergeHeaders. Pruning against the fetch set would discard every
+	// such credential's recorded history on each poll.
+	p.quota.Prune(listed)
 
 	p.mu.Lock()
 	p.listErr = ""

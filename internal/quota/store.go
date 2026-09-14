@@ -57,6 +57,16 @@ func newEntry(snap model.AuthSnapshot, n int) *entry {
 	return &entry{snap: snap, seenAt: make(map[windowKey]time.Time, n), history: make(map[windowKey]*ring, n)}
 }
 
+// exportAll copies every window's whole recorded history, in the order the
+// windows were first seen.
+func (e *entry) exportAll() []model.WindowHistory {
+	out := make([]model.WindowHistory, 0, len(e.order))
+	for _, key := range e.order {
+		out = append(out, e.history[key].export(key.kind, key.scope, 0))
+	}
+	return out
+}
+
 func (e *entry) copy() model.AuthSnapshot {
 	out := e.snap
 	out.Windows = slices.Clone(e.snap.Windows)
@@ -283,20 +293,30 @@ func (s *Store) All() []model.AuthSnapshot {
 // Prune drops every credential outside keep, which is how a credential removed
 // from the host's pool stops appearing in the status view. An empty keep set
 // drops all of them.
+//
+// A dropped credential's recorded history moves to pending rather than going
+// with its entry, so a credential absent from one listing and back in the next
+// adopts the samples it already had instead of restarting from empty. A
+// pending history no entry has claimed by the following prune is forgotten,
+// which bounds what a departed credential holds.
 func (s *Store) Prune(keep map[string]struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for id := range s.entries {
-		if _, ok := keep[id]; !ok {
-			delete(s.entries, id)
-			s.history++
-		}
-	}
 	for id := range s.pending {
 		if _, ok := keep[id]; !ok {
 			delete(s.pending, id)
 		}
+	}
+	for id, e := range s.entries {
+		if _, ok := keep[id]; ok {
+			continue
+		}
+		if hs := e.exportAll(); len(hs) > 0 {
+			s.pending[id] = hs
+		}
+		delete(s.entries, id)
+		s.history++
 	}
 }
 
@@ -333,11 +353,7 @@ func (s *Store) ExportHistory() map[string][]model.WindowHistory {
 
 	out := make(map[string][]model.WindowHistory, len(s.entries))
 	for id, e := range s.entries {
-		hs := make([]model.WindowHistory, 0, len(e.order))
-		for _, key := range e.order {
-			hs = append(hs, e.history[key].export(key.kind, key.scope, 0))
-		}
-		out[id] = hs
+		out[id] = e.exportAll()
 	}
 	return out
 }
