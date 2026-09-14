@@ -33,6 +33,11 @@ func main() {
 	failAfter := flag.Int("fail-after", -1,
 		"fail status requests after this many successes; 0 fails the first, -1 never fails")
 	flag.Parse()
+	// The many scenario spreads its bindings across the seats, so it needs at
+	// least one.
+	if *seats < 1 {
+		*seats = 1
+	}
 
 	src := newFixture(time.Now())
 	switch *scenario {

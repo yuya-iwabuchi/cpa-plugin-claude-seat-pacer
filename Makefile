@@ -21,7 +21,9 @@ INSTALLED  := $(PLUGIN_DIR)/$(GOOS)/$(GOARCH)/$(NAME)-v$(VERSION).$(EXT)
 
 build:
 	@mkdir -p $(dir $(OUT))
-	CGO_ENABLED=1 go build -buildmode=c-shared -o $(OUT) .
+# -trimpath keeps the builder's filesystem paths out of the library's file
+# table; the shipped artifact names only module paths.
+	CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o $(OUT) .
 	@echo "built $(OUT)"
 
 test:
