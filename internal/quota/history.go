@@ -37,7 +37,8 @@ type ring struct {
 }
 
 // record appends one observed reading. A reading whose reset instant differs
-// from the current cycle's by more than resetTolerance opens a new cycle; one
+// from the current cycle's by more than resetTolerance opens a new cycle, as
+// does one taken more than resetTolerance past the current cycle's reset; one
 // whose utilization matches the last two samples extends the flat run by
 // moving its end forward; one within historyFineStep of the last sample
 // replaces it. Readings out of order, with no instant or with a non-finite
@@ -59,7 +60,10 @@ func (r *ring) put(at time.Time, w model.Window, estimated bool) {
 	s := model.Sample{At: at.Truncate(time.Second), Utilization: math.Round(w.Utilization*utilizationScale) / utilizationScale}
 
 	n := len(r.cycles)
-	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) {
+	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) || closed(r.cycles[n-1], s.At) {
+		// A cycle opened by a reading the provider is still stamping with the
+		// expired reset inherits that stale instant; the first reading to
+		// carry the real one rolls the cycle onto it.
 		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
 		r.compact()
 		return
@@ -94,6 +98,22 @@ func rolled(cycle, reading time.Time) bool {
 		return false
 	}
 	return reading.Sub(cycle).Abs() > resetTolerance
+}
+
+// closed reports whether a reading taken at `at` falls past the end of a
+// cycle. A provider that keeps stamping the expired reset, or one whose reset
+// windowReset drops for being too far in the past, gives a post-reset reading
+// nothing for rolled to see, so the near-zero utilization of the fresh window
+// would land in the cycle that just ended and draw a plunge to zero where the
+// chart should break the line. The tolerance is the same one rolled uses, so
+// clock skew alone never splits a cycle, and a cycle whose newest sample is
+// already past the edge is the fresh one and splits no further.
+func closed(c model.Cycle, at time.Time) bool {
+	if c.ResetsAt.IsZero() || len(c.Samples) == 0 {
+		return false
+	}
+	edge := c.ResetsAt.Add(resetTolerance)
+	return at.After(edge) && !c.Samples[len(c.Samples)-1].At.After(edge)
 }
 
 // compact applies the coarse tier and the cap. Every sample older than

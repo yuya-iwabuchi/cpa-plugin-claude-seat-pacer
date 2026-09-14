@@ -507,3 +507,77 @@ func TestFetchesAreStaggered(t *testing.T) {
 		t.Errorf("usage reads = %d, want the poll cut short at the stagger", len(at))
 	}
 }
+
+// TestPollKeepsHistoryForCredentialsItDoesNotFetch covers a credential the
+// host lists but the poll never fetches — disabled, runtime-only, or carrying
+// no access token. Response headers give such a seat a snapshot and a
+// recorded history, and pruning against the fetch set would discard both on
+// the very next poll.
+func TestPollKeepsHistoryForCredentialsItDoesNotFetch(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+
+	headerWindow := []model.Window{{
+		Kind: model.WindowSession, Utilization: 0.42,
+		ResetsAt: testNow.Add(2 * time.Hour), Duration: model.SessionDuration,
+	}}
+	for _, id := range []string{"claude-off.json", "claude-key"} {
+		tp.quota.MergeHeaders(id, headerWindow, testNow)
+	}
+
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	for _, id := range []string{"claude-off.json", "claude-key"} {
+		if h := tp.quota.History(id, 0); len(h) != 1 || h[0].Samples() != 1 {
+			t.Errorf("history for %s after one poll = %+v, want the header sample kept", id, h)
+		}
+	}
+
+	// A credential the host stops listing does go, and a new reading for the
+	// same id picks its samples back up.
+	tp.host.mu.Lock()
+	tp.host.files = tp.host.files[:2]
+	tp.host.mu.Unlock()
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh after removal: %v", err)
+	}
+	if h := tp.quota.History("claude-off.json", 0); h != nil {
+		t.Errorf("an unlisted credential kept its status row: %+v", h)
+	}
+	tp.quota.MergeHeaders("claude-off.json", headerWindow, testNow.Add(time.Hour))
+	if h := tp.quota.History("claude-off.json", 0); len(h) != 1 || h[0].Samples() != 2 {
+		t.Errorf("history after the credential returned = %+v, want the earlier sample adopted", h)
+	}
+}
+
+// TestStopPollerSavesUnderThePollLock covers the second writer to the history
+// file's fixed sibling path: joining the poll loop leaves out a management
+// refresh, which runs a poll and its save inline on the HTTP goroutine, so the
+// stop path waits on the same lock a poll's own save holds.
+func TestStopPollerSavesUnderThePollLock(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	tp.pollMu.Lock()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		tp.Shutdown()
+	}()
+	select {
+	case <-stopped:
+		tp.pollMu.Unlock()
+		t.Fatal("the stop path wrote the history file while a poll held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	tp.pollMu.Unlock()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop path never finished once the poll lock was free")
+	}
+}

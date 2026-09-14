@@ -48,16 +48,22 @@ static void store_host_api(const cliproxy_host_api* host) {
 	stored_host = host;
 }
 
+// stored_host is read once into a local and used only through that local.
+// cliproxy_plugin_shutdown nulls it after Shutdown, whose drain gives up after
+// a bounded wait, so a callback can still arrive here; a single load is the
+// narrowest window a plain pointer allows, since C89 offers no atomic.
 static int call_host_api(const char* method, const uint8_t* request, size_t request_len, cliproxy_buffer* response) {
-	if (stored_host == NULL || stored_host->call == NULL) {
+	const cliproxy_host_api* host = stored_host;
+	if (host == NULL || host->call == NULL) {
 		return 1;
 	}
-	return stored_host->call(stored_host->host_ctx, method, request, request_len, response);
+	return host->call(host->host_ctx, method, request, request_len, response);
 }
 
 static void free_host_buffer(void* ptr, size_t len) {
-	if (stored_host != NULL && stored_host->free_buffer != NULL && ptr != NULL) {
-		stored_host->free_buffer(ptr, len);
+	const cliproxy_host_api* host = stored_host;
+	if (host != NULL && host->free_buffer != NULL && ptr != NULL) {
+		host->free_buffer(ptr, len);
 	}
 }
 */
@@ -66,6 +72,7 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"unsafe"
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
@@ -157,6 +164,10 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 		writeResponse(response, errorEnvelope("invalid_method", "method is required"))
 		return 1
 	}
+	if bufferTooLarge(uint64(requestLen)) {
+		writeResponse(response, errorEnvelope("invalid_request", "request envelope is too large"))
+		return 1
+	}
 	var payload []byte
 	if request != nil && requestLen > 0 {
 		payload = C.GoBytes(unsafe.Pointer(request), C.int(requestLen))
@@ -238,5 +249,16 @@ func callHost(method string, payload []byte) ([]byte, error) {
 		return nil, nil
 	}
 	defer C.free_host_buffer(response.ptr, response.len)
+	if bufferTooLarge(uint64(response.len)) {
+		return nil, fmt.Errorf("host callback %s returned an oversized response", method)
+	}
 	return C.GoBytes(response.ptr, C.int(response.len)), nil
+}
+
+// bufferTooLarge reports whether a C buffer length is past what C.GoBytes
+// accepts. Its length argument is a C int, so a size_t beyond MaxInt32 wraps
+// negative there and runtime.gobytes throws — a fatal error, not a panic, so
+// no recover in this file reaches it.
+func bufferTooLarge(n uint64) bool {
+	return n > math.MaxInt32
 }

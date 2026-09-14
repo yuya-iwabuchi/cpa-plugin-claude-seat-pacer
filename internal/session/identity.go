@@ -16,6 +16,7 @@ import (
 	"errors"
 	"hash"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/httpx"
@@ -137,13 +138,18 @@ type rawIdentity struct {
 // identity hashes the material and resolves subagent status. A request is a
 // subagent's when its agent id is something other than the root agent, or when
 // its parent resolves to a different conversation than itself.
+//
+// The rule that produced the material is hashed with it, so two clients that
+// happen to send the same string under different identifiers — an
+// X-Thread-Id, a conversation_id and a prompt_cache_key all reading "1" —
+// name three conversations rather than one.
 func (r rawIdentity) identity() Identity {
 	if r.key == "" {
 		return Identity{}
 	}
-	id := Identity{Key: hashKey(r.key), Source: r.source}
+	id := Identity{Key: hashKey(r.source + fieldSep + r.key), Source: r.source}
 	if r.parent != "" {
-		if parent := hashKey(r.parent); parent != id.Key {
+		if parent := hashKey(r.source + fieldSep + r.parent); parent != id.Key {
 			id.ParentKey = parent
 			id.Subagent = true
 		}
@@ -162,11 +168,15 @@ func isSubagent(agentID string) bool {
 // scope namespaces a conversation id by the agent running inside it, so a
 // subagent gets a key of its own while the root agent keeps the bare id. It is
 // the only way to separate agents that share one session id.
+//
+// The id's length leads, so the split between the two parts is unambiguous
+// and a session id holding the separator cannot read as another session
+// scoped by an agent.
 func scope(id, agentID string) string {
 	if id == "" || !isSubagent(agentID) {
 		return id
 	}
-	return id + "#" + agentID
+	return strconv.Itoa(len(id)) + ":" + id + "#" + agentID
 }
 
 // fromClaudeCodeHeaders reads rule a. The agent headers carry agent ids within
@@ -256,6 +266,13 @@ func fromUserID(ids bodyIDs) (rawIdentity, bool) {
 	default:
 		return rawIdentity{}, false
 	}
+
+	// Trimmed as every other rule trims its material: a whitespace-only id
+	// reads as absent, so it neither forms a key every client emitting one
+	// shares nor marks a request as a subagent's.
+	obj.SessionID = strings.TrimSpace(obj.SessionID)
+	obj.ParentSessionID = strings.TrimSpace(obj.ParentSessionID)
+	obj.AgentID = strings.TrimSpace(obj.AgentID)
 
 	if obj.SessionID != "" {
 		out := rawIdentity{

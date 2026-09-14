@@ -71,12 +71,20 @@ func defaultHistoryFile() string {
 // loadHistory reads the history file once, ahead of the first poll, so the
 // charts show the previous run's samples from the first status response. It
 // runs on the poll goroutine, never on the pick path.
+//
+// The load counts as done only once the file has actually been read, which is
+// what saveHistory waits for: a run with persistence off, or one whose read
+// failed, must not write the file it never took the previous samples from.
+// Persistence turned on by a reload therefore still loads before it saves,
+// and a read that failed is retried on the next poll.
 func (p *Plugin) loadHistory(cfg model.Config) {
+	if !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
+		return
+	}
 	p.mu.Lock()
 	done := p.historyLoaded
-	p.historyLoaded = true
 	p.mu.Unlock()
-	if done || !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
+	if done {
 		return
 	}
 	if err := p.quota.LoadHistory(p.opts.HistoryFile); err != nil {
@@ -84,6 +92,7 @@ func (p *Plugin) loadHistory(cfg model.Config) {
 		return
 	}
 	p.mu.Lock()
+	p.historyLoaded = true
 	p.historySaved = p.quota.HistoryVersion()
 	p.mu.Unlock()
 }
@@ -113,6 +122,12 @@ func (p *Plugin) saveHistory(cfg model.Config) {
 
 // stopPoller stops the poll loop and waits for it. It is idempotent, and a
 // later plugin.register starts a fresh loop.
+//
+// The final save takes pollMu, the lock a poll's own save already runs under.
+// Joining the loop goroutine does not cover a management refresh, which runs
+// p.poll inline on the HTTP goroutine, and SaveHistory writes one fixed
+// sibling path before renaming it: two writers there would leave a truncated
+// history file behind.
 func (p *Plugin) stopPoller() {
 	p.lifeMu.Lock()
 	defer p.lifeMu.Unlock()
@@ -122,6 +137,8 @@ func (p *Plugin) stopPoller() {
 	close(p.poller.stop)
 	<-p.poller.done
 	p.poller = nil
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
 	p.saveHistory(p.config())
 }
 
@@ -303,7 +320,12 @@ func (p *Plugin) poll(ctx context.Context) time.Duration {
 		p.mu.Unlock()
 		return cfg.Quota.PollInterval
 	}
-	p.quota.Prune(keep)
+	// Snapshots follow the host's listing rather than the fetch set: a
+	// credential that is disabled, runtime-only or carries no access token is
+	// never fetched, and a runtime-only one is served header readings through
+	// Store.MergeHeaders. Pruning against the fetch set would discard every
+	// such credential's recorded history on each poll.
+	p.quota.Prune(listed)
 
 	p.mu.Lock()
 	p.listErr = ""

@@ -345,3 +345,26 @@ func TestParseResponseHeadersDoesNotScale(t *testing.T) {
 		})
 	}
 }
+
+// TestParseResponseHeadersRejectsNonFiniteUtilization covers a reading
+// strconv.ParseFloat accepts with a nil error: a non-finite utilization would
+// otherwise reach the scorer and fail every status encode.
+func TestParseResponseHeadersRejectsNonFiniteUtilization(t *testing.T) {
+	for _, raw := range []string{"NaN", "nan", "Inf", "+Inf", "-Inf", "infinity", "-INFINITY"} {
+		t.Run(raw, func(t *testing.T) {
+			got := ParseResponseHeaders(map[string][]string{
+				"Anthropic-Ratelimit-Unified-5h-Utilization": {raw},
+				"Anthropic-Ratelimit-Unified-5h-Reset":       {epoch(21, 0)},
+				"Anthropic-Ratelimit-Unified-7d-Utilization": {"0.25"},
+			}, at(20, 0))
+			for _, w := range got {
+				if w.Kind == model.WindowSession {
+					t.Fatalf("session window kept a %q utilization: %v", raw, w.Utilization)
+				}
+			}
+			if len(got) != 1 || got[0].Utilization != 0.25 {
+				t.Fatalf("windows = %+v, want only the 7d reading", got)
+			}
+		})
+	}
+}

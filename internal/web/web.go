@@ -240,6 +240,7 @@ func reduceForPublic(st model.Status) model.Status {
 		a.Snapshot.Label = names[i]
 		a.Snapshot.Err = publicText(a.Snapshot.Err, ids)
 		a.Snapshot.Windows = finiteWindows(a.Snapshot.Windows)
+		a.History = finiteHistory(a.History)
 		a.Score = finiteScore(a.Score)
 		a.Score.AuthID = publicID(a.Score.AuthID)
 		auths[i] = a
@@ -515,6 +516,31 @@ func finiteWindows(windows []model.Window) []model.Window {
 	for i, w := range windows {
 		w.Utilization = finite(w.Utilization)
 		out[i] = w
+	}
+	return out
+}
+
+// finiteHistory replaces every non-finite sample utilization with the
+// sentinel. Sample.MarshalJSON refuses a non-finite value outright, so one
+// such sample would otherwise fail the whole status encode.
+func finiteHistory(hs []model.WindowHistory) []model.WindowHistory {
+	if len(hs) == 0 {
+		return hs
+	}
+	out := make([]model.WindowHistory, len(hs))
+	for i, h := range hs {
+		cycles := make([]model.Cycle, len(h.Cycles))
+		for j, c := range h.Cycles {
+			samples := make([]model.Sample, len(c.Samples))
+			for k, s := range c.Samples {
+				s.Utilization = finite(s.Utilization)
+				samples[k] = s
+			}
+			c.Samples = samples
+			cycles[j] = c
+		}
+		h.Cycles = cycles
+		out[i] = h
 	}
 	return out
 }

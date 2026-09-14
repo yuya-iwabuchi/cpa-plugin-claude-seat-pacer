@@ -920,3 +920,32 @@ func TestStatusSyncsOnlyWhenAsked(t *testing.T) {
 		t.Errorf("a source without SyncNow answered %d, want 200", rec.Code)
 	}
 }
+
+// TestNonFiniteHistorySampleSurvivesEncoding covers a recorded sample that is
+// not finite: Sample.MarshalJSON refuses one outright, so without sanitising
+// the history a single bad sample fails the whole response.
+func TestNonFiniteHistorySampleSurvivesEncoding(t *testing.T) {
+	t.Parallel()
+	st := richStatus()
+	st.Auths[0].History[0].Cycles[0].Samples[0].Utilization = math.NaN()
+	st.Auths[0].History[0].Cycles[0].Samples[1].Utilization = math.Inf(1)
+
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v\nbody: %s", err, rec.Body.String())
+	}
+	auth := raw["auths"].([]any)[0].(map[string]any)
+	samples := auth["history"].([]any)[0].(map[string]any)["cycles"].([]any)[0].(map[string]any)["samples"].([]any)
+	for i, s := range samples {
+		if v := s.([]any)[1]; v != nil {
+			t.Errorf("sample %d utilization = %v, want null", i, v)
+		}
+	}
+	if got := st.Auths[0].History[0].Cycles[0].Samples[0].Utilization; !math.IsNaN(got) {
+		t.Errorf("source history was mutated: %v", got)
+	}
+}
