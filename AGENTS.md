@@ -1,7 +1,8 @@
 # Agent brief
 
 Load-bearing facts for anyone (human or agent) changing this plugin. Verified
-against CLIProxyAPI v7.2.149 source; the deployment target is 7.2.145+.
+against CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit `2a6b87ac`); the
+deployment target is 7.2.145+, a lower bound nothing in this repository tests.
 
 ## What this plugin is
 
@@ -18,8 +19,8 @@ Declared capabilities: `request_interceptor`, `scheduler`, `usage_plugin`,
 Measured over 2,096 real requests: 96.5% of input-side tokens are cache reads,
 and caching removes 86% of input-side cost. Anthropic documents that caches are
 isolated between organizations, so moving a live conversation to a credential in
-another org is a guaranteed full miss costing ~12.5x on that request. Stickiness
-is therefore not a nicety — a router that ignores it loses more than it saves.
+another org is a guaranteed full miss costing ~12.5x on that request. A router
+that ignores stickiness loses more than it saves.
 
 **2. `request.intercept_before` is the only way to learn the conversation id.**
 `scheduler.pick` receives `Headers` and `Metadata` but **not the request body**,
@@ -79,15 +80,17 @@ which is which. Do not "normalise" the tags.
 ```
 main.go              cgo boundary, panic guard, method dispatch
 internal/model       domain types + config; imports nothing else here
-internal/quota       usage-endpoint client, response-header parsing, snapshots
-internal/pace        the scoring curve; pure functions over model types
+internal/httpx       case-insensitive header index; imports nothing else here
+internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history
+internal/pace        the scoring curve and the staleness gates; pure functions over model types
 internal/session     conversation identity extraction + binding store
-internal/runtime     wire types, hook handlers, plugin lifecycle, decision log
-internal/web         embedded status app served on the plugin's routes
+internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
+internal/web         embedded status app served on the plugin's resource routes
 ```
 
-`internal/model` is the only package the others share. `pace` and `session` are
-pure and fully unit-testable without the host.
+`model` and `httpx` are the leaves: every other package imports `model`, and
+`quota`, `session` and `runtime` import `httpx`. `pace` and `session` are pure
+and fully unit-testable without the host.
 
 ## Rules for changes
 
@@ -97,3 +100,11 @@ pure and fully unit-testable without the host.
 - Tests must not reach the network. The usage client does no networking of
   its own: every request goes through an injected Doer, which tests stub.
 - Never log a token, a refresh token, or a request body.
+- A comment states a present-tense fact the code cannot show. Change history
+  and rationale go in the commit or PR.
+- `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
+  script from the file's bytes, and the HTML tokenizer rewrites both, so either
+  byte ships a hash no browser matches (`TestPageHoldsNoRewrittenByte`).
+- `pluginName` in `main.go` and `NAME` in the Makefile stay equal: the host
+  derives the plugin id from the library filename, and the config block, the
+  management routes and the history directory all carry that id.
