@@ -1,0 +1,24 @@
+# The gate every change passes: gofmt, vet, the race detector, and the shared
+# library the host loads. macOS is the platform the artifact ships from, and
+# -buildmode=c-shared needs cgo, so the job runs where a real build does.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make check
