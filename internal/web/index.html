@@ -332,15 +332,23 @@ section { margin-top: 24px; border-radius: 12px; }
   box-shadow: var(--shadow);
   padding: 8px 16px;
 }
-/* A region that scrolls sideways says so at its right edge while more of it
-   is off screen: the script sets data-more on it from its scroll position,
-   and an inset shade marks the cut. An inset shadow paints on the box, not
-   the content, so it holds its place as the content scrolls under it. */
+/* A region that scrolls says so at the edge it is cut on while more of it is
+   off screen: the script sets data-more on it from its scroll position, and
+   an inset shade marks the cut. An inset shadow paints on the box, not the
+   content, so it holds its place as the content scrolls under it. The value
+   is a token list, so a region cut on both axes carries both shades. */
 :root { --scroll-cut: rgba(11,11,11,.34); }
 :root[data-theme="dark"] { --scroll-cut: rgba(255,255,255,.26); }
 @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --scroll-cut: rgba(255,255,255,.26); } }
-[data-more="right"] { box-shadow: inset -44px 0 30px -30px var(--scroll-cut); }
-.card[data-more="right"] { box-shadow: var(--shadow), inset -44px 0 30px -30px var(--scroll-cut); }
+/* Each axis keeps its own slot, transparent until its token is present, so
+   one rule composes every combination. */
+[data-more] {
+  --cut-right: 0 0 transparent; --cut-down: 0 0 transparent;
+  box-shadow: var(--cut-right), var(--cut-down);
+}
+[data-more~="right"] { --cut-right: inset -44px 0 30px -30px var(--scroll-cut); }
+[data-more~="down"] { --cut-down: inset 0 -44px 30px -30px var(--scroll-cut); }
+.card[data-more] { box-shadow: var(--shadow), var(--cut-right), var(--cut-down); }
 
 /* ----------------------------------------------------------------- seats */
 .seat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--seat-color); flex: none; }
@@ -629,7 +637,14 @@ th button {
 th button:hover { color: var(--ink-1); }
 th[aria-sort] button { color: var(--ink-1); }
 .sort-glyph { font-family: var(--mono); font-size: 10px; }
-.tbl-card { overflow-x: auto; }
+/* The binding table runs to hundreds of rows, so it scrolls inside its card
+   to the same bounded height the routing log keeps, and the page below it
+   stays reachable however many conversations are live. */
+.tbl-card { overflow-x: auto; max-height: 380px; overflow-y: auto; }
+/* The header stays on screen while the body scrolls under it, so a row is
+   readable at any depth and the sort controls are always in reach. It carries
+   the card's own background, because the rows pass beneath it. */
+.tbl-card thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-1); }
 .scores { margin-top: 4px; }
 .scores caption { padding-bottom: 8px; }
 .scores th, .scores td { padding: 6px 10px; font-size: 12px; }
@@ -3923,6 +3938,9 @@ th[aria-sort] button { color: var(--ink-1); }
   function renderBindings(st) {
     if (!regionChanged("bindings", [st.bindings, state.sort, seatNames(st)])) return;
     var host = $("bindings");
+    /* The table scrolls inside its card; a rebuild puts the reader back where
+       they were. */
+    var scrollTop = host.scrollTop;
     host.textContent = "";
     var rows = (st.bindings || []).slice();
 
@@ -3981,6 +3999,7 @@ th[aria-sort] button { color: var(--ink-1); }
         var focused = captureFocus();
         renderBindings(state.data);
         markClipped();
+        markScrollers();
         restoreFocus(focused);
       });
       th.appendChild(btn);
@@ -4014,6 +4033,7 @@ th[aria-sort] button { color: var(--ink-1); }
     });
     tbl.appendChild(tb);
     host.appendChild(tbl);
+    host.scrollTop = scrollTop;
   }
 
   /* --------------------------------------------------------------- shell */
@@ -4352,11 +4372,14 @@ th[aria-sort] button { color: var(--ink-1); }
     }
   }
 
-  /* Marks every region that scrolls sideways with whether more of it lies
-     to the right, read on render and on its own scroll. */
-  var SCROLLERS = "#timeline, .pace-card, .tbl-card, .dec-body";
+  /* Marks every region that scrolls with whether more of it lies past the
+     right or the bottom edge, read on render and on its own scroll. */
+  var SCROLLERS = "#timeline, .pace-card, .tbl-card, .dec-body, .log";
   function markMore(el) {
-    if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) el.setAttribute("data-more", "right");
+    var more = [];
+    if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) more.push("right");
+    if (el.scrollTop + el.clientHeight < el.scrollHeight - 1) more.push("down");
+    if (more.length) el.setAttribute("data-more", more.join(" "));
     else el.removeAttribute("data-more");
   }
   function markScrollers() {
