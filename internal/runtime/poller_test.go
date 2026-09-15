@@ -581,3 +581,138 @@ func TestStopPollerSavesUnderThePollLock(t *testing.T) {
 		t.Fatal("the stop path never finished once the poll lock was free")
 	}
 }
+
+// resetWindow is a session reading whose window closes at resetsAt, the shape a
+// response-header merge gives a credential the poll never fetches.
+func resetWindow(resetsAt time.Time) []model.Window {
+	return []model.Window{{
+		Kind: model.WindowSession, Utilization: 0.61,
+		ResetsAt: resetsAt, Duration: model.SessionDuration,
+	}}
+}
+
+// testPollInterval is the cadence the fixture polls at. The fixture's own
+// readings reset 1.5h before testNow (session) and days after it (weekly), so a
+// planted window is what decides these wakes.
+const testPollInterval = 2 * time.Minute
+
+// TestAResetAheadOfTheIntervalShortensTheNextWake covers the reason the feature
+// exists: the seat's utilization drops to zero at the reset, and the page would
+// otherwise carry the pre-reset reading for the rest of the interval.
+func TestAResetAheadOfTheIntervalShortensTheNextWake(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.quota.MergeHeaders("claude-off.json", resetWindow(testNow.Add(30*time.Second)), testNow)
+
+	wait := tp.pollAndSchedule(context.Background())
+	if want := 30*time.Second + resetSettle; wait != want {
+		t.Errorf("wait = %v, want %v", wait, want)
+	}
+	tp.mu.Lock()
+	next := tp.nextPollAt
+	tp.mu.Unlock()
+	if want := testNow.Add(30*time.Second + resetSettle); !next.Equal(want) {
+		t.Errorf("nextPollAt = %v, want %v: the status page counts down to the wake the loop takes", next, want)
+	}
+}
+
+func TestAResetBeyondTheIntervalLeavesTheWakeAlone(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.quota.MergeHeaders("claude-off.json", resetWindow(testNow.Add(5*time.Minute)), testNow)
+
+	if wait := tp.pollAndSchedule(context.Background()); wait != testPollInterval {
+		t.Errorf("wait = %v, want the %v interval", wait, testPollInterval)
+	}
+	tp.mu.Lock()
+	next := tp.nextPollAt
+	tp.mu.Unlock()
+	if want := testNow.Add(testPollInterval); !next.Equal(want) {
+		t.Errorf("nextPollAt = %v, want %v", next, want)
+	}
+}
+
+// TestSeatsResettingTogetherShareOneWake covers a pool whose windows close
+// within the settle delay of one another: the settle batches them, so the
+// resets cost one read between them rather than one each.
+func TestSeatsResettingTogetherShareOneWake(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.quota.MergeHeaders("claude-off.json", resetWindow(testNow.Add(30*time.Second)), testNow)
+	tp.quota.MergeHeaders("claude-key", resetWindow(testNow.Add(31*time.Second)), testNow)
+
+	wait := tp.pollAndSchedule(context.Background())
+	if want := 30*time.Second + resetSettle; wait != want {
+		t.Fatalf("wait = %v, want the earlier reset's %v", wait, want)
+	}
+	// Both windows have closed by the time that wake lands, so neither seat
+	// asks for a wake of its own afterwards.
+	if got := nextPollWait(tp.quota.All(), testNow.Add(wait), testPollInterval); got != testPollInterval {
+		t.Errorf("wake after the shared poll = %v, want the %v interval", got, testPollInterval)
+	}
+}
+
+// TestAResetAtHandNeverWakesTheLoopAtOnce covers the tight loop: a wake of zero
+// or less would spin the poll goroutine, and a reset already served must not
+// shorten anything at all.
+func TestAResetAtHandNeverWakesTheLoopAtOnce(t *testing.T) {
+	justAhead := []model.AuthSnapshot{{AuthID: "a", Windows: resetWindow(testNow.Add(time.Nanosecond))}}
+	if got := nextPollWait(justAhead, testNow, testPollInterval); got < resetSettle {
+		t.Errorf("wake for a reset a nanosecond ahead = %v, want at least the %v floor", got, resetSettle)
+	}
+	for _, resetsAt := range []time.Time{testNow, testNow.Add(-time.Nanosecond), testNow.Add(-3 * time.Hour)} {
+		snaps := []model.AuthSnapshot{{AuthID: "a", Windows: resetWindow(resetsAt)}}
+		if got := nextPollWait(snaps, testNow, testPollInterval); got != testPollInterval {
+			t.Errorf("wake for a reset at %v = %v, want the %v interval", resetsAt, got, testPollInterval)
+		}
+	}
+}
+
+// TestTheWakeAfterAResetDrivenPollIsTheInterval walks two iterations of the
+// loop: the instant that shortened the first wake is in the past by the second,
+// so the loop returns to the interval instead of polling every settle delay.
+func TestTheWakeAfterAResetDrivenPollIsTheInterval(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.quota.MergeHeaders("claude-off.json", resetWindow(testNow.Add(30*time.Second)), testNow)
+
+	wait := tp.pollAndSchedule(context.Background())
+	if want := 30*time.Second + resetSettle; wait != want {
+		t.Fatalf("first wait = %v, want %v", wait, want)
+	}
+
+	woke := testNow.Add(wait)
+	tp.now = func() time.Time { return woke }
+	if second := tp.pollAndSchedule(context.Background()); second != testPollInterval {
+		t.Errorf("wait after the reset-driven poll = %v, want the %v interval", second, testPollInterval)
+	}
+	tp.mu.Lock()
+	next := tp.nextPollAt
+	tp.mu.Unlock()
+	if want := woke.Add(testPollInterval); !next.Equal(want) {
+		t.Errorf("nextPollAt = %v, want %v", next, want)
+	}
+}
+
+// TestAStoreWithNoFutureResetWakesAsBefore covers the fail-safe: a store that is
+// empty, or that holds nothing resetting, schedules exactly what the poll asked
+// for.
+func TestAStoreWithNoFutureResetWakesAsBefore(t *testing.T) {
+	if got := nextPollWait(nil, testNow, testPollInterval); got != testPollInterval {
+		t.Errorf("wake on an empty store = %v, want the %v interval", got, testPollInterval)
+	}
+	noReset := []model.AuthSnapshot{{AuthID: "a", Windows: resetWindow(time.Time{})}}
+	if got := nextPollWait(noReset, testNow, testPollInterval); got != testPollInterval {
+		t.Errorf("wake on a window with no reset instant = %v, want the %v interval", got, testPollInterval)
+	}
+
+	// A poll that could not list credentials retries sooner than the interval,
+	// and an empty store leaves that retry where it is.
+	tp := newTestPlugin(t, testConfigYAML)
+	if wait := tp.pollAndSchedule(context.Background()); wait != listRetryWait {
+		t.Errorf("wait after a failed listing = %v, want the %v retry", wait, listRetryWait)
+	}
+	if len(tp.quota.All()) != 0 {
+		t.Fatal("the store was not empty")
+	}
+}
