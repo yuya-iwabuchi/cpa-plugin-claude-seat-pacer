@@ -1,9 +1,12 @@
 # Claude Seat Pacer
 
-A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin that
-spreads Claude requests across your OAuth subscription seats by how fast each
-one is spending its quota, and keeps every conversation on the seat it started
-on so its prompt cache keeps hitting.
+Spreads Claude requests across your seats by burn pace, and pins each conversation so its cache keeps hitting.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png">
+  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, the seats ranked by pace score with the winner highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
+</picture>
 
 ## Why
 
@@ -11,15 +14,15 @@ Prompt caching carries a Claude Code session: on real traffic about 96% of
 input tokens are cache reads, which cuts input cost roughly 7x. Caches never
 cross an Anthropic organization, so a router that moves a live conversation to
 another seat pays a full-price miss on that request. Weekly quota is
-perishable: budget left on a seat when its window resets is gone. Round-robin
-ignores the first fact and fallback routing ignores the second; this plugin
-pins each conversation to one seat and starts new conversations on the seat
-whose budget expires soonest.
+perishable: budget left on a seat when its window resets is gone. This
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin pins each
+conversation to one seat and starts new conversations on the seat whose budget
+expires soonest.
 
 ## Install
 
-Supported host: CLIProxyAPI 7.2.145 or newer, verified against 7.2.149. The
-build needs Go 1.25 and a C toolchain.
+The plugin builds from source. There is no prebuilt release and no Plugin
+Store listing yet; both are the next milestone.
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
@@ -32,6 +35,11 @@ make install
 (`PLUGIN_DIR` overrides the root). The host loads plugins once at startup, so
 restart it: `brew services restart cliproxyapi` on Homebrew, or however your
 CLIProxyAPI runs.
+
+### Requirements
+
+Supported host: CLIProxyAPI 7.2.145 or newer, verified against 7.2.149. The
+build needs Go 1.25 and a C toolchain.
 
 ## Configure
 
@@ -53,6 +61,10 @@ one `priority` value: the host offers the plugin only the highest tier, and a
 single-seat tier leaves nothing to spread across. The status page warns when
 that happens.
 
+### All settings
+
+The dials people touch are `landing-target`, `affinity.ttl`,
+`override-threshold` and `poll-interval`; the rest hold up unattended.
 Defaults, all optional:
 
 ```yaml
@@ -87,20 +99,20 @@ Defaults, all optional:
 Durations take Go syntax (`30s`, `2m`, `1h`). A value out of range falls back
 to its default; a block that does not parse loads the plugin disabled.
 
-## What you see
+## Status page
 
-The Management Center gains a "Claude Seat Pacer" entry that opens the status
-page, also served at `/v0/resource/plugins/claude-seat-pacer/index.html`; the
-JSON behind it is at `.../api/status?model=<id>` on the same unauthenticated
-prefix. It
-shows every seat's quota windows, utilization history, pace score and
+The page shows every seat's quota windows, utilization history, pace score and
 eligibility for a chosen model; the live conversation bindings per seat; the
 recent routing decisions with the scores behind each; and warnings for whatever
 leaves the plugin inert or degraded (disabled by config, a failing credential
-listing, a single-candidate pool, a seat whose usage read fails). The page is
-unauthenticated, so seat ids are hashed and emails masked. Authenticated routes
-under `/v0/management/plugins/claude-seat-pacer/` are `GET status`,
-`POST refresh`, `POST unbind?auth_id=`, and `POST bindings/sweep`.
+listing, a single-candidate pool, a seat whose usage read fails).
+
+The Management Center gains a "Claude Seat Pacer" entry that opens it. The page
+is also served at `/v0/resource/plugins/claude-seat-pacer/index.html`, with
+the JSON behind it at `.../api/status?model=<id>` on the same unauthenticated
+prefix. Authenticated routes under `/v0/management/plugins/claude-seat-pacer/`
+are `GET status`, `POST refresh`, `POST unbind?auth_id=`, and
+`POST bindings/sweep`.
 
 ## How the pick works
 
@@ -117,20 +129,65 @@ is failing, or its snapshot is missing or older than `max-staleness`. A
 conversation stays on its seat while the host still offers it; a provider
 refusal for the model moves it only when another seat can take that model,
 because a move with nowhere better to go is a cache miss for nothing. With the
-default `override-threshold` it
-stays even when the seat trails the curve or is spent, because the cache hit is
-worth more than the rebalance. When no seat is eligible a conversation still
-gets one stable home, the seat with the fewest live conversations; a request
-with neither a session id nor a usable reading is declined to the host's own
-selector.
+default `override-threshold` it stays even when the seat trails the curve or is
+spent, because the cache hit is worth more than the rebalance. When no seat is
+eligible a conversation still gets one stable home, the seat with the fewest
+live conversations; a request with neither a session id nor a usable reading
+is declined to the host's own selector.
 
-## Files
+## Privacy and data
+
+The plugin calls one external endpoint, `usage-url`, and reads it with each
+seat's own OAuth access token, as the host already holds it; the read reports
+per-window utilization.
+
+The status page and its JSON are served without the management key, so seat
+ids are hashed and emails masked before they ship, and operator warnings drop
+filesystem paths.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` holds per-seat
 utilization samples so the page's charts survive a host restart. It carries
 credential ids and utilization fractions, nothing else and no token.
 
+No token, refresh token, or request body is ever logged; an error message that
+would carry an access token is scrubbed before it is recorded.
+
+## Troubleshooting
+
+**The host does not list the plugin.** The host derives the plugin id from the
+library filename, minus the extension and the `-v<version>` suffix, and the
+config block, the management routes and the history directory all carry that
+id. Keep the installed filename as `make install` writes it, and restart the
+host after installing.
+
+**The plugin loads but every request goes to the host's own selector.** Either
+`enabled` is false, or the host offered a single candidate because the seats
+sit on different `priority` tiers. The status page warns in both cases and
+names which; set `enabled: true`, or give every seat in the pool the same
+`priority`.
+
+**Conversations do not stick to a seat.** The host's `routing.session-affinity`
+is still on. The plugin owns affinity and a plugin pick never seeds the host's
+cache, so both cannot hold it; set it to `false`. Nothing the plugin receives
+distinguishes the two states, so the status page does not warn about this one.
+
+**Seats show as ineligible.** Their readings are missing or older than
+`max-staleness`, or their usage read is failing. The status page names the
+reason per seat and carries the poll error; wait one `poll-interval`, or
+`POST refresh` to read now.
+
+**The config block seems ignored.** A block that does not parse loads the
+plugin with defaults and `enabled: false`, and a key holding an out-of-range
+value falls back to its default. The status page warns that the plugin is
+disabled; fix the YAML and restart the host.
+
+## Contributing
+
+Questions and reports go to [Issues](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/issues).
+Pull requests are welcome when they pass `make check`. [CONTRIBUTING.md](CONTRIBUTING.md)
+covers the commit convention and points at the architecture notes.
+
 ## Licence
 
-MIT; see `LICENSE`. `NOTICE` carries the attribution for the CLIProxyAPI ABI
-types this plugin mirrors.
+MIT (SPDX: `MIT`); see `LICENSE`. `NOTICE` carries the attribution for the
+CLIProxyAPI ABI types this plugin mirrors.
