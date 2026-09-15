@@ -1058,11 +1058,10 @@ func paceReading(shape []pacePoint, frac float64) pacePoint {
 // the flat one of them draws over a night is the flat all of them draw. The
 // replay is the rises the recording shows: each step adds what the recording
 // added, so the curve carries that week's overnight flats, its bursts and the
-// rate at which it tracked the pace target. Whatever that rise leaves between
-// the replay and the seat's endpoint is spread over the span in proportion to
-// elapsed, which keeps the recording's distance from the target at every point
-// and moves the whole curve, not its shape, onto the reading the snapshot
-// carries.
+// rate at which it tracked the pace target. The rises are scaled by one factor
+// so their sum is the reading the snapshot carries; nothing is added between
+// them, so a step the recording spent nothing on stays exactly flat and an
+// idle night is one flat on the chart, not a slope of twenty-minute increments.
 //
 // Utilization is read from the recording rather than interpolated between its
 // readings, so the staircase the poller recorded survives the resampling and an
@@ -1086,20 +1085,28 @@ func paceCurve(shape []pacePoint, elapsed, end float64, n int) []float64 {
 	// as far back in the recording as the seat is into its cycle.
 	offset := 1 - elapsed
 	prev := paceReading(shape, offset).util
+	rises := make([]float64, n)
+	replayed := 0.0
 	for i := 1; i < n; i++ {
 		f := math.Min(elapsed*float64(i)/float64(n-1), hold)
 		cur := paceReading(shape, offset+f).util
-		d := cur - prev
-		if d < 0 {
-			d = 0
+		if d := cur - prev; d > 0 {
+			rises[i] = d
+			replayed += d
 		}
-		out[i] = out[i-1] + d
 		prev = cur
 	}
-	replayed := out[n-1]
-	for i := range out {
-		f := math.Min(elapsed*float64(i)/float64(n-1), hold)
-		out[i] = math.Min(math.Max(out[i]+(end-replayed)*f/hold, 0), 1)
+	// The gap between what the recording rose and where the seat ends is
+	// closed inside the rises, each scaled by one factor, and never spread
+	// over time: a step that recorded no spend stays exactly flat, so an
+	// idle night stays a flat on the chart rather than becoming a slope of
+	// twenty-minute increments.
+	gain := 1.0
+	if replayed > 0 {
+		gain = end / replayed
+	}
+	for i := 1; i < n; i++ {
+		out[i] = math.Min(out[i-1]+rises[i]*gain, 1)
 	}
 	// Utilization never falls inside a cycle, and the last sample is the
 	// reading the snapshot carries, so the rise is clamped from both ends.
