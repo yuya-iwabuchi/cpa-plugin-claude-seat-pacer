@@ -32,6 +32,12 @@ const fetchStagger = 400 * time.Millisecond
 // once the poll loop has stopped.
 const hostDrainTimeout = 5 * time.Second
 
+// resetSettle spaces a reset-driven poll from the window reset it follows: the
+// provider publishes the fresh window a moment after the instant itself, so a
+// read landing exactly on the reset still answers with the closing window's
+// utilization.
+const resetSettle = 4 * time.Second
+
 // errNoGovernedCredential is the listing failure a poll records when the host
 // names no credential this plugin governs.
 const errNoGovernedCredential = "the host listed no credential this plugin governs"
@@ -176,13 +182,57 @@ func (p *Plugin) runPoller(pl *poller) {
 			return
 		case <-timer.C:
 		}
-		wait := p.pollOnce(ctx)
-		p.mu.Lock()
-		p.polledAt = p.now()
-		p.nextPollAt = p.polledAt.Add(wait)
-		p.mu.Unlock()
-		timer.Reset(wait)
+		timer.Reset(p.pollAndSchedule(ctx))
 	}
+}
+
+// pollAndSchedule runs one poll and records when the next one falls due. The
+// wake it returns is the one the loop takes, so nextPollAt names it and the
+// status view's "next in" counts down to the poll that actually happens.
+func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
+	wait := p.pollOnce(ctx)
+	now := p.now()
+	wait = nextPollWait(p.quota.All(), now, wait)
+	p.mu.Lock()
+	p.polledAt = now
+	p.nextPollAt = now.Add(wait)
+	p.mu.Unlock()
+	return wait
+}
+
+// nextPollWait is the delay before the next poll: interval, or the time to the
+// earliest window reset still ahead of now plus resetSettle when that lands
+// sooner. A seat's utilization drops to zero on the provider's side the moment
+// one of its windows resets, and both the page and the scorer carry the
+// pre-reset reading until a poll replaces it.
+//
+// Only a reset still in the future shortens a wake, which is what keeps the
+// loop off a reset it has already served: the poll a reset drives leaves that
+// instant in the past, and the wake after it is the plain interval. A reset a
+// hair ahead of now would undercut the settle the provider needs, so the wait
+// floors at resetSettle and is never zero or negative. Several seats resetting
+// inside one settle window share the single poll at its end.
+//
+// MinForcedPollGap does not apply. It bounds what the status route's visitors
+// may ask of the usage endpoint, and this is the loop's own scheduled poll. A
+// reset seconds after a regular poll does cost one extra read; window resets
+// are few, and each instant shortens exactly one wake.
+func nextPollWait(snaps []model.AuthSnapshot, now time.Time, interval time.Duration) time.Duration {
+	var earliest time.Time
+	for _, snap := range snaps {
+		for _, w := range snap.Windows {
+			if w.ResetsAt.IsZero() || !w.ResetsAt.After(now) {
+				continue
+			}
+			if earliest.IsZero() || w.ResetsAt.Before(earliest) {
+				earliest = w.ResetsAt
+			}
+		}
+	}
+	if earliest.IsZero() {
+		return interval
+	}
+	return min(max(earliest.Sub(now)+resetSettle, resetSettle), interval)
 }
 
 // pollOnce runs one background poll under the deadline a manual refresh uses,
