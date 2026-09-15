@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	"sort"
 	"strings"
@@ -605,22 +606,32 @@ func (f *fixture) exhaustedDecisions() []model.Decision {
 type manySeat struct {
 	id, label, name, email  string
 	session, weekly, scoped float64
+	// elapsedDays is how far into its weekly cycle the seat sits, which is
+	// where its mark lands on the pace plot's x axis. Zero spreads the seat
+	// across the axis by index instead.
+	elapsedDays float64
 	// state picks the exceptional condition the seat carries, "" for none.
 	state string
 }
 
+// The first five rows are the pool `many -seats 5` renders, and they are the
+// pool the README's hero shows: half a day, two days, three and a half, five
+// and six and a half into their own weeks, so their marks spread across the
+// pace plot, and utilizations that put three seats under the target curve, the
+// critical one over it and still eligible, and the last spent. The rest carry
+// the exceptional states, one per row.
 var manySeats = []manySeat{
-	{id: "claude-alice-team-a.json", name: "claude-alice-team-a.json", email: "alice@example.com", session: 0.31, weekly: 0.22, scoped: 0.18},
-	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.61, scoped: 0.70},
-	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.35, scoped: 0.90, state: "critical"},
-	{id: "claude-oncall@acme.example.json", name: "claude-oncall@acme.example.json", email: "oncall@acme.example", session: 1.00, weekly: 0.58, scoped: 0.44, state: "rejected"},
-	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 0.91, scoped: 0.52, state: "spent"},
+	{id: "claude-alice-team-a.json", name: "claude-alice-team-a.json", email: "alice@example.com", session: 0.31, weekly: 0.055, scoped: 0.04, elapsedDays: 0.5},
+	{id: "claude-alice-team-b.json", name: "claude-alice-team-b.json", email: "alice@example.com", session: 0.88, weekly: 0.27, scoped: 0.19, elapsedDays: 2},
+	{id: "claude-ops@acme.example.json", name: "claude-ops@acme.example.json", email: "ops@acme.example", session: 0.12, weekly: 0.60, scoped: 0.90, elapsedDays: 3.5, state: "critical"},
+	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.42, elapsedDays: 5},
+	{id: "claude-seat-e.json", label: "Seat E", name: "claude-seat-e.json", session: 0.45, weekly: 1.0, scoped: 0.52, elapsedDays: 6.5, state: "spent"},
 	{id: "claude-quota.bot@acme-corp.example.json", name: "claude-quota.bot@acme-corp.example.json", email: "quota.bot@acme-corp.example", session: 0.05, weekly: 0.09, scoped: 0.0, state: "stale"},
 	{id: "claude-team-data.json", name: "claude-team-data.json", email: "svc.data@acme.example", session: 0.52, weekly: 0.40, scoped: 0.33, state: "error"},
 	{id: "claude-team-infra.json", name: "claude-team-infra.json", email: "svc.infra@acme.example", session: 0.0, weekly: 0.0, scoped: 0.0, state: "nosnap"},
 	{id: "claude-team-mobile.json", name: "claude-team-mobile.json", email: "svc.mobile@acme.example", session: 0.67, weekly: 0.47, scoped: 0.51, state: "scoped-rejected"},
 	{id: "claude-team-web.json", name: "claude-team-web.json", email: "svc.web@acme.example", session: 0.20, weekly: 0.15, scoped: 0.09, state: "disabled"},
-	{id: "claude-team-ml.json", name: "claude-team-ml.json", email: "svc.ml@acme.example", session: 0.74, weekly: 0.66, scoped: 0.81},
+	{id: "claude-oncall@acme.example.json", name: "claude-oncall@acme.example.json", email: "oncall@acme.example", session: 1.00, weekly: 0.58, scoped: 0.44, state: "rejected"},
 	{id: "claude-team-qa.json", name: "claude-team-qa.json", email: "svc.qa@acme.example", session: 0.38, weekly: 0.29, scoped: 0.24},
 }
 
@@ -702,6 +713,16 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		},
 	}
 	f.observedAge[ms.id] = time.Duration(20+13*i) * time.Second
+	elapsed := ms.elapsedDays
+	if elapsed <= 0 {
+		// Seats past the scripted five take axis positions those five leave
+		// open: a quarter-day lattice offset from theirs, which repeats only
+		// after 25 seats and never lands on one of their marks.
+		elapsed = 0.875 + math.Mod(1+1.5*float64(i), 6.25)
+	}
+	// Both weekly windows reset together, as a provider resets a seat's whole
+	// week at one instant.
+	weeklyReset := f.anchor.Add(time.Duration((7 - elapsed) * float64(24*time.Hour)))
 	snap := model.AuthSnapshot{
 		AuthID: ms.id, Label: label, Source: model.SourceUsageEndpoint,
 		Windows: []model.Window{
@@ -713,13 +734,13 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 			},
 			{
 				Kind: model.WindowWeekly, Utilization: ms.weekly,
-				ResetsAt: f.anchor.Add(time.Duration(6+11*i) * time.Hour),
+				ResetsAt: weeklyReset,
 				Duration: model.WeeklyDuration,
 				Status:   model.StatusAllowed, Severity: model.SeverityNormal,
 			},
 			{
 				Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: ms.scoped,
-				ResetsAt: f.anchor.Add(time.Duration(30+9*i) * time.Hour),
+				ResetsAt: weeklyReset,
 				Duration: model.WeeklyDuration,
 				Status:   model.StatusAllowed, Severity: model.SeverityNormal,
 			},
@@ -741,7 +762,6 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		snap.Windows[2].Status = model.StatusRejected
 		snap.Windows[2].Severity = model.SeverityCritical
 	case "spent":
-		snap.Windows[1].Utilization = 1.02
 		snap.Windows[1].Status = model.StatusAllowedWarning
 		snap.Windows[1].Severity = model.SeverityWarning
 	case "stale":
@@ -819,17 +839,25 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 
 // history synthesizes the utilization record the poller would have built for
 // a snapshot, through a real quota store so it is thinned the way the plugin
-// thins: every window climbs from the start of its current cycle to its
-// present reading, with the completed cycle before it landing somewhere of its
-// own. The seat's id shapes the curves so a pool does not draw the same line
-// twelve times; a third of the seats get a steep last forty minutes on the
-// 5-hour window, which is the case the chart's conversation markers exist for,
-// and another third hold every window flat through the middle half of its
+// thins. The seat's id seeds every draw, so a pool draws a different line per
+// seat and a reload draws the same ones.
+//
+// The two weekly windows walk rather than curve: the seat spends in bursts of
+// a few steps separated by idle runs of a couple of hours to most of a day,
+// each spending step drawing from a long-tailed distribution, and a band around
+// the straight line to the endpoint pulls the walk back whenever it runs ahead
+// or falls behind. That is the shape a real week has — overnight and weekend
+// flats, a median step near a point of utilization, and a tenth of the steps
+// carrying a third of the rise. The 5-hour window keeps a smooth power curve,
+// which is what a window that short and steep looks like; a third of the seats
+// get a steeper last forty minutes, the case the chart's conversation markers
+// exist for, and another third hold it flat through the middle half of the
 // cycle, so the store folds that stretch to two readings hours apart and the
 // chart's step between them is visible.
 //
 // The completed cycle is an estimate reconstructed from a token log, as a
-// backfilled file holds it. Seats with seed%3 == 1 also start the current
+// backfilled file holds it, and a weekly one walks at an hour a step because a
+// log is coarser than a poll. Seats with seed%3 == 1 also start the current
 // cycle as an estimate over its first 45%, so the chart shows a mixed cycle:
 // estimated, then observed from the plugin's first reading.
 func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.WindowHistory {
@@ -848,6 +876,7 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 		if w.Duration > 24*time.Hour {
 			step = 20 * time.Minute
 		}
+		walks := w.Kind != model.WindowSession
 		start := w.ResetsAt.Add(-w.Duration)
 		prevLanding := 0.55 + float64(seed%46)/100
 		if w.Kind == model.WindowSession {
@@ -856,13 +885,21 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 		var prev, cur model.Cycle
 		prev.ResetsAt, prev.Estimated = start, true
 		cur.ResetsAt = w.ResetsAt
-		for t := start.Add(-w.Duration); t.Before(start); t = t.Add(step) {
-			e := 1 - start.Sub(t).Seconds()/w.Duration.Seconds()
-			prev.Samples = append(prev.Samples, model.Sample{At: t, Utilization: prevLanding * math.Pow(e, shape)})
+		if walks {
+			prevStep := time.Hour
+			prevStart := start.Add(-w.Duration)
+			for i, u := range paceWalk(seed+101, int(w.Duration/prevStep)+1, prevStep, prevLanding) {
+				prev.Samples = append(prev.Samples, model.Sample{At: prevStart.Add(time.Duration(i) * prevStep), Utilization: u})
+			}
+		} else {
+			for t := start.Add(-w.Duration); t.Before(start); t = t.Add(step) {
+				e := 1 - start.Sub(t).Seconds()/w.Duration.Seconds()
+				prev.Samples = append(prev.Samples, model.Sample{At: t, Utilization: prevLanding * math.Pow(e, shape)})
+			}
 		}
 		span := now.Sub(start).Seconds()
-		steep := w.Kind == model.WindowSession && seed%3 == 0
-		idle := seed%3 == 2
+		steep := !walks && seed%3 == 0
+		idle := !walks && seed%3 == 2
 		knee := 1 - (40*time.Minute).Seconds()/span
 		mixedUntil := start.Add(-time.Second)
 		if seed%3 == 1 {
@@ -873,9 +910,18 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 			r.Utilization = util
 			store.Put(model.AuthSnapshot{AuthID: snap.AuthID, ObservedAt: at, Source: model.SourceUsageEndpoint, Windows: []model.Window{r}})
 		}
-		for t := start; !t.After(now); t = t.Add(step) {
+		n := int(now.Sub(start)/step) + 1
+		var walk []float64
+		if walks {
+			walk = paceWalk(seed+7, n, step, w.Utilization)
+		}
+		for i := 0; i < n; i++ {
+			t := start.Add(time.Duration(i) * step)
 			frac := t.Sub(start).Seconds() / span
 			u := w.Utilization * math.Pow(frac, shape)
+			if walks {
+				u = walk[i]
+			}
 			if idle && frac > 0.25 && frac < 0.75 {
 				u = w.Utilization * math.Pow(0.25, shape)
 			}
@@ -903,4 +949,108 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time) []model.Window
 	}
 	store.ImportHistory(map[string][]model.WindowHistory{snap.AuthID: saved})
 	return store.History(snap.AuthID, quota.HistoryPublishMax)
+}
+
+// paceWalk draws one cycle's utilization: n samples spaced step apart, rising
+// from 0 to end, never decreasing and never over full before the last.
+//
+// Spending alternates with idling. An idle run is two hours to eight, and one
+// run in four stretches past that by up to half a day; a spending run is forty
+// minutes to two hours, and each of its steps draws a lognormal amount with a
+// one-in-30 multiplier on top, which is what puts a tenth of the steps in
+// charge of roughly a third of the rise. Every cycle holds one planted idle run
+// of at least nine hours, and a third of the seeds hold one over a day, so
+// overnight and weekend gaps are the rule and not the exception. A band around
+// straight line to end bounds the drift either way: past the top rail the walk
+// holds until the line catches up, past the bottom rail it spends through what
+// would have been idle and each step is scaled by how far behind it is. The
+// increments are then scaled as a whole to land on end exactly, which leaves
+// every flat flat.
+func paceWalk(seed, n int, step time.Duration, end float64) []float64 {
+	if n < 1 {
+		return nil
+	}
+	out := make([]float64, n)
+	out[n-1] = end
+	if n < 4 || end <= 0 || step <= 0 {
+		return out
+	}
+	rng := rand.New(rand.NewSource(int64(seed)))
+	perHour := float64(time.Hour) / float64(step)
+	runOf := func(hours float64) int { return max(1, int(hours*perHour)) }
+	// A window at full stopped spending before now and has held flat since.
+	last := n - 1
+	if end >= 1 {
+		last = max(3, int(0.86*float64(n-1)))
+	}
+	// A day idle costs a seat a seventh of its week, so the band has to be
+	// wide enough to hold one run without the rails fighting it.
+	band := math.Max(0.06, 0.2*end)
+	plantLen := runOf(9 + 7*rng.Float64())
+	if seed%3 == 0 {
+		plantLen = runOf(26 + 14*rng.Float64())
+	}
+	plantLen = min(plantLen, last*45/100)
+	plantAt := min(1+last/6+rng.Intn(max(1, last/2)), max(1, last-plantLen))
+	inc := make([]float64, last+1)
+	idling, runLeft, planted, cum := false, 1+rng.Intn(6), 0, 0.0
+	for i := 1; i <= last; i++ {
+		if i == plantAt {
+			planted = plantLen
+		}
+		if planted > 0 {
+			planted--
+			continue
+		}
+		if runLeft == 0 {
+			idling = !idling
+			if idling {
+				runLeft = runOf(2 + 6*rng.Float64())
+				if rng.Intn(4) == 0 {
+					runLeft += runOf(12 * rng.Float64())
+				}
+			} else {
+				runLeft = runOf(0.7 + 1.3*rng.Float64())
+			}
+		}
+		runLeft--
+		dev := cum - end*float64(i)/float64(last)
+		if dev > band || (idling && dev > -band) {
+			continue
+		}
+		// The nominal step is the cycle's rise spread over the steps that
+		// spend, about one in six; the lognormal around it sets a median near
+		// a point of utilization against a ninetieth percentile near three,
+		// the one-in-30 multiplier gives the rest of the tail, and the cap
+		// keeps any one step from carrying more than a fifth of the cycle.
+		d := end / float64(last) * 5.8 * 0.7 * math.Exp(rng.NormFloat64()*0.85)
+		if rng.Intn(30) == 0 {
+			d *= 3 + 5*rng.Float64()
+		}
+		if dev < 0 {
+			// Behind the line, the seat spends harder the further behind it
+			// is, so the catch-up after a long flat spreads over hours rather
+			// than standing the curve on end.
+			d *= 1 - 1.2*dev/band
+		}
+		d = math.Min(d, math.Min(0.09, 0.22*end))
+		cum += d
+		inc[i] = d
+	}
+	run, scale := 0.0, 1.0
+	if cum > 0 {
+		scale = end / cum
+	}
+	for i := 1; i <= last; i++ {
+		if cum <= 0 {
+			run = end * float64(i) / float64(last)
+		} else {
+			run += inc[i] * scale
+		}
+		out[i] = math.Min(run, 1)
+	}
+	for i := last; i < n; i++ {
+		out[i] = end
+	}
+	return out
 }
