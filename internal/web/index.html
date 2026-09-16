@@ -209,6 +209,16 @@ a { color: inherit; }
 .lb-stack { display: flex; flex-direction: column; }
 .lb-stack > span:empty::before { content: "\A0"; }
 .lb-stack > span + span { color: var(--ink-2); }
+/* The way back from a hidden seat rides the bar that is on screen at every
+   scroll depth, because a seat that left the page with nothing left to say so
+   is a seat the reader cannot find again. */
+.lb-stack > .lb-hidden { font: 500 11.5px/1.4 var(--mono); color: var(--ink-3); }
+.lb-hidden button {
+  font: inherit; color: var(--ink-1); background: none;
+  border: 0; border-bottom: 1px solid var(--axis); border-radius: 0;
+  padding: 0; cursor: pointer; white-space: nowrap;
+}
+.lb-hidden button:hover { border-bottom-color: var(--ink-1); }
 /* One pick per request family, each on a line of its own and each named, with
    the family labels sharing a column so the seats line up under one another.
    The block takes the room a full account address needs and no more, capped
@@ -418,6 +428,17 @@ svg.tl g.lane:hover rect.hit { fill: var(--surface-2); }
 svg.tl g.head { cursor: default; }
 svg.tl g.head:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
 svg.tl g.head:hover rect.hit { fill: var(--surface-2); }
+/* Taking a seat off this page is a discreet move, so its control keeps out of
+   the row until the row is pointed at or the control itself is tabbed to. It
+   is a stop in either case, so the keyboard reaches every seat's control in
+   the same order the rows read. */
+svg.tl g.hide { opacity: 0; cursor: pointer; }
+svg.tl g.row:hover g.hide,
+svg.tl g.hide:hover,
+svg.tl g.hide:focus-visible { opacity: 1; }
+svg.tl g.hide:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
+svg.tl g.hide .hide-mark { fill: none; stroke: var(--ink-3); stroke-width: 1.3; stroke-linecap: round; }
+svg.tl g.hide:hover .hide-mark, svg.tl g.hide:focus-visible .hide-mark { stroke: var(--ink-1); }
 /* The gap label has a lane of its own, so it never meets another. On an
    ineligible seat it steps one ink token down, as the rest of that gutter does. */
 svg.tl text.gap-label { fill: var(--ink-2); }
@@ -578,13 +599,14 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
    the reader's place in it is kept across a refresh. Its rows run edge to
    edge, because each is a hover target with its own inset, so the card keeps
    no side padding of its own. */
-.log { padding: 4px 0; max-height: 380px; overflow-y: auto; }
+.log-card { padding: 4px 0; }
+.log { max-height: 380px; overflow-y: auto; }
 .dec { border-bottom: 1px solid var(--rule); }
 .dec:last-child { border-bottom: 0; }
 .dec > summary {
   display: grid; align-items: center; gap: 12px; cursor: pointer;
   grid-template-columns: 78px 106px 92px 216px 190px minmax(140px, 1fr);
-  padding: 9px 16px; list-style: none;
+  padding: 8px 16px; min-height: 38px; list-style: none;
 }
 .dec > summary > .chip { justify-self: start; }
 @media (max-width: 1000px) {
@@ -596,13 +618,16 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .dec-time { font: 500 11.5px/1 var(--mono); color: var(--ink-2); }
 .dec-key  { font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
 .dec-model { font: 500 11.5px/1.3 var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
-/* The request family a decision was scored for, so the reader knows which
-   ranking its candidate table is. */
-.dec-fam {
-  display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px;
+/* The request family a decision was scored for, and the provider a binding
+   runs on: one plate, so a fact of the same size reads the same in both
+   cards. The family plate sits after the model it qualifies, so it carries
+   the gap. */
+.dec-fam, .bind-provider {
+  display: inline-block; padding: 1px 5px; border-radius: 4px;
   font: 600 9.5px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase;
-  color: var(--ink-2); border: 1px solid var(--axis); vertical-align: 1px;
+  color: var(--ink-2); border: 1px solid var(--axis);
 }
+.dec-fam { margin-left: 6px; vertical-align: 1px; }
 .dec-route { font: 500 12px/1.3 var(--sans); min-width: 0; }
 .dec-route .arrow { color: var(--ink-3); font-family: var(--mono); }
 .dec-route .prev { color: var(--ink-3); }
@@ -615,9 +640,10 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
    way the binding table does, rather than widening the page under the sticky
    bar. */
 .dec-body { padding: 4px 16px 18px; overflow-x: auto; }
+/* Outside the scrolling list, so it never meets the shade that marks the cut
+   and never scrolls away from the rows it counts. */
 .log-note {
-  margin: 0; padding: 11px 16px; border-top: 1px solid var(--rule);
-  position: sticky; bottom: 0; background: var(--surface-1);
+  margin: 0; padding: 11px 16px 7px; border-top: 1px solid var(--rule);
   font: 500 11px/1.4 var(--mono); color: var(--ink-3);
 }
 .caret { display: inline-block; width: 9px; color: var(--ink-3); font-family: var(--mono); }
@@ -644,7 +670,17 @@ th[aria-sort] button { color: var(--ink-1); }
 /* The binding table runs to hundreds of rows, so it scrolls inside its card
    to the same bounded height the routing log keeps, and the page below it
    stays reachable however many conversations are live. */
-.tbl-card { overflow-x: auto; max-height: 380px; overflow-y: auto; }
+.tbl-card { padding: 4px 0; overflow-x: auto; max-height: 380px; overflow-y: auto; }
+/* The binding rows speak the routing log's language: the same mono at the
+   same size, the seat as a dot and a name, the provider on the same plate the
+   log puts a family on, and the one row height the log's state chip sets. The
+   rows keep the card's inset rather than the card, because each is a hover
+   target that runs edge to edge, as a log row does. */
+.tbl-card caption { padding: 8px 16px 9px; }
+.tbl-card th, .tbl-card td { padding: 4px 16px; }
+.tbl-card tbody td { height: 38px; font: 500 11.5px/1.35 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.tbl-card tbody .bind-key { color: var(--ink-3); }
+.tbl-card tbody .seat-mark { font: 500 12px/1.3 var(--sans); color: var(--ink-1); }
 /* The header stays on screen while the body scrolls under it, so a row is
    readable at any depth and the sort controls are always in reach. It carries
    the card's own background, because the rows pass beneath it. */
@@ -757,6 +793,9 @@ th[aria-sort] button { color: var(--ink-1); }
       <div class="lb-val lb-stack">
         <span id="seat-total">&mdash;</span>
         <span id="seat-eligible"></span>
+        <!-- Present only while this browser is hiding a seat: the count and
+             the one control that brings them all back. -->
+        <span class="lb-hidden" id="seat-hidden" hidden></span>
       </div>
     </div>
     <div class="lb">
@@ -816,6 +855,16 @@ th[aria-sort] button { color: var(--ink-1); }
       directory holds at least one Claude OAuth credential, that the plugin is
       enabled in the host config, and the host log for a
       <code>quota poll failing</code> line.</p>
+    </div>
+
+    <!-- Every seat hidden is not an empty pool, and the card above would say
+         it was. The seats are still routed to; only this browser is drawing
+         none of them. -->
+    <div id="hidden-state" class="card empty" hidden style="margin-top:24px">
+      <p><strong>Every seat is hidden on this page.</strong>
+      The pool is unchanged and the plugin still routes to each seat; this
+      browser is set to draw none of them, so the three seat sections have
+      nothing to show. <em>Show</em> in the bar above brings them back.</p>
     </div>
 
     <section id="sec-seats" hidden tabindex="-1">
@@ -915,7 +964,14 @@ th[aria-sort] button { color: var(--ink-1); }
         <span class="sec-sub">newest first; open a decision to see how every seat scored</span>
         <span class="sec-line"></span>
       </div>
-      <div class="card log" id="decisions"></div>
+      <!-- The note says how much of the log is on screen, which is a fact
+           about the card rather than a row of it: outside the scroller it
+           neither scrolls out of reach nor sits over the cue that marks the
+           cut. -->
+      <div class="card log-card">
+        <div class="log" id="decisions"></div>
+        <p class="log-note" id="log-note" hidden></p>
+      </div>
     </section>
 
   </main>
@@ -944,7 +1000,9 @@ th[aria-sort] button { color: var(--ink-1); }
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
   var DENSE_AT = 4;          /* more seats than this and the rows draw compact */
-  var SEAT_HUES = 6;         /* --seat-1 … --seat-6; every later seat is neutral */
+  /* --seat-1 … --seat-6, the slots a seat's id picks from; a seat that finds
+     none free is neutral. */
+  var SEAT_HUES = 6;
 
   var state = {
     paused: false,
@@ -1421,9 +1479,10 @@ th[aria-sort] button { color: var(--ink-1); }
      A source that does not is disambiguated here with a tag of the id, which
      is derived from nothing but the credential and so survives a restart.
 
-     Colours: assigned in id order, not rank order, so a seat keeps its hue
-     when the ranking moves under it. Past the six hues a seat is neutral and
-     its name carries the identity. */
+     Colours: derived from the id, not from rank or position, so a seat keeps
+     its hue when the ranking moves under it and the same pool draws the same
+     colours in any order and on any install. Past the six hues a seat is
+     neutral and its name carries the identity. */
   var seatNameByID = Object.create(null);
   var seatColorByID = Object.create(null);
 
@@ -1439,10 +1498,39 @@ th[aria-sort] button { color: var(--ink-1); }
       else if (count[l] > 1) l += " #" + String(a.auth_id || "").slice(0, 4);
       seatNameByID[a.auth_id] = l;
     });
+    /* Every seat asks for the slot its own id names, and a slot goes to the
+       lowest id that asked for it. Only the seats left over walk, and they
+       walk over what no seat asked for, so a seat loses its hue to another
+       seat that wanted the same slot and to nothing else. Id order is the one
+       order every install agrees on, so both passes read the same everywhere.
+       A seat that finds no slot is neutral and its name carries the identity. */
     auths.sort(function (x, y) { return String(x.auth_id).localeCompare(String(y.auth_id)); });
-    auths.forEach(function (a, i) {
-      seatColorByID[a.auth_id] = i < SEAT_HUES ? "var(--seat-" + (i + 1) + ")" : "var(--seat-x)";
+    var holder = Object.create(null), spill = [];
+    auths.forEach(function (a) {
+      var want = hueSlot(a.auth_id);
+      if (holder[want]) { spill.push(a); return; }
+      holder[want] = true;
+      seatColorByID[a.auth_id] = "var(--seat-" + (want + 1) + ")";
     });
+    spill.forEach(function (a) {
+      var want = hueSlot(a.auth_id);
+      seatColorByID[a.auth_id] = "var(--seat-x)";
+      for (var i = 1; i < SEAT_HUES; i++) {
+        var slot = (want + i) % SEAT_HUES;
+        if (holder[slot]) continue;
+        holder[slot] = true;
+        seatColorByID[a.auth_id] = "var(--seat-" + (slot + 1) + ")";
+        return;
+      }
+    });
+  }
+
+  /* The slot an id asks for: the first 32 bits of the hashed credential id,
+     which are uniform over the hues. An id too short to read asks for the
+     first slot and takes its chances in the walk. */
+  function hueSlot(id) {
+    var n = parseInt(String(id || "").slice(0, 8), 16);
+    return isFinite(n) ? n % SEAT_HUES : 0;
   }
 
   function seatLabel(a) {
@@ -1478,8 +1566,8 @@ th[aria-sort] button { color: var(--ink-1); }
      is what "no seat can serve" looks like while requests keep succeeding. */
   function overflowInLog(st) {
     var seated = Object.create(null);
-    (st.auths || []).forEach(function (a) { seated[a.auth_id] = true; });
-    return (st.decisions || []).some(function (d) {
+    stableAuths(st.auths).forEach(function (a) { seated[a.auth_id] = true; });
+    return visibleDecisions(st).some(function (d) {
       return d.chosen_auth_id && !seated[d.chosen_auth_id];
     });
   }
@@ -1510,12 +1598,53 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Seats in id order: the order colours are assigned in, and the one every
-     per-seat view keeps so a change of ranking moves badges, not rows. */
+  /* Seats this browser is not drawing, by published id. The plugin keeps
+     routing to a hidden seat and the status payload keeps carrying it: this
+     is a view filter and nothing else, so the ranking, the counts and the
+     picks every surface below shows are of the seats on screen and can differ
+     from the pick the plugin actually makes. That is the price of the filter
+     and the page does not disguise it. */
+  var hiddenSeats = Object.create(null);
+  var HIDDEN_KEY = "pacer-hidden";
+
+  function loadHidden() {
+    var raw;
+    try { raw = window.localStorage.getItem(HIDDEN_KEY); } catch (e) { return; }
+    var list;
+    try { list = JSON.parse(raw || "[]"); } catch (e) { return; }
+    if (!list || typeof list.length !== "number") return;
+    for (var i = 0; i < list.length; i++) {
+      if (typeof list[i] === "string" && list[i]) hiddenSeats[list[i]] = true;
+    }
+  }
+
+  function saveHidden() {
+    try { window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(Object.keys(hiddenSeats))); }
+    catch (e) { /* storage may be blocked; the filter still holds for this page */ }
+  }
+
+  /* Seats in id order, minus the ones this browser hides: the order colours
+     are assigned in, and the one every per-seat view keeps so a change of
+     ranking moves badges, not rows. Every seat list on the page comes through
+     here, which is what makes one filter reach all of them. */
   function stableAuths(auths) {
-    return (auths || []).slice().sort(function (x, y) {
-      return String(x.auth_id).localeCompare(String(y.auth_id));
+    return (auths || []).filter(function (a) { return !hiddenSeats[a.auth_id]; })
+      .sort(function (x, y) {
+        return String(x.auth_id).localeCompare(String(y.auth_id));
+      });
+  }
+
+  /* The two payloads that name a seat without being one. A log entry naming a
+     hidden seat as its pick or as the seat it moved off would put the name
+     back on the page, so both go with it. */
+  function visibleDecisions(st) {
+    return (st.decisions || []).filter(function (d) {
+      return !hiddenSeats[d.chosen_auth_id] && !hiddenSeats[d.previous_auth_id];
     });
+  }
+
+  function visibleBindings(st) {
+    return (st.bindings || []).filter(function (b) { return !hiddenSeats[b.auth_id]; });
   }
 
   function firstEligible(ranked, fam) {
@@ -1528,9 +1657,9 @@ th[aria-sort] button { color: var(--ink-1); }
     var fams = familiesOf(st), byFam = Object.create(null), lead = Object.create(null);
     fams.forEach(function (fam) {
       byFam[fam] = Object.create(null);
-      var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
+      var known = stableAuths(st.auths).some(function (a) { return famScore(a, fam) !== null; });
       if (!known) return;
-      var ranked = rankAuths(st.auths, fam);
+      var ranked = rankAuths(stableAuths(st.auths), fam);
       ranked.forEach(function (a, i) { byFam[fam][a.auth_id] = i; });
       var first = firstEligible(ranked, fam);
       if (first) lead[fam] = first.auth_id;
@@ -1867,6 +1996,10 @@ th[aria-sort] button { color: var(--ink-1); }
      run to: the weekly gap goes before the name does, because a name cut to
      two letters identifies no seat. */
   var NAME_MIN = 62;
+  /* The room the hide control keeps at the end of every seat's header, gap
+     included. It is reserved whether or not the control is showing, so a row
+     does not reflow under the pointer. */
+  var HIDE_W = 18, HIDE_RES = 28;
   /* The plot a date on the axis needs to itself: a "Sep 16" set at 10.5px is
      about 40 of it, and the rest is the gap to the next one. */
   var DAY_LABEL_PX = 54;
@@ -1976,6 +2109,47 @@ th[aria-sort] button { color: var(--ink-1); }
     return { g: g, w: w };
   }
 
+  /* Takes one seat off this page and leaves the pool alone. The glyph is a
+     struck-through eye rather than a cross, because a cross on this page
+     already means a seat a family cannot use. The way back is the live bar,
+     which is on screen wherever the reader is when the row goes. */
+  function hideControl(parent, x, y, a) {
+    var g = svg("g", { "class": "hide", tabindex: 0, role: "button" }, parent);
+    var label = "hide " + seatLabel(a) + " from this page";
+    g.setAttribute("data-fk", "hide:" + a.auth_id);
+    g.setAttribute("aria-label", label);
+    g.setAttribute("data-tip", label);
+    svg("rect", { "class": "hit", x: x, y: y - 9, width: HIDE_W, height: 18, rx: 4, fill: "transparent" }, g);
+    var ex = x + 2;
+    svg("path", { "class": "hide-mark", d: "M" + ex + " " + y + "q7 -5.5 14 0q-7 5.5 -14 0" }, g);
+    svg("circle", { "class": "hide-mark", cx: ex + 7, cy: y, r: 1.8 }, g);
+    svg("line", { "class": "hide-mark", x1: ex + 1, y1: y + 5, x2: ex + 13, y2: y - 5 }, g);
+    g.addEventListener("click", function () { hideSeat(a.auth_id); });
+    g.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+      ev.preventDefault();
+      hideSeat(a.auth_id);
+    });
+    return g;
+  }
+
+  /* The row the reader acted on is about to leave the document, so focus goes
+     to the control that undoes it rather than to the top of the page. */
+  function hideSeat(id) {
+    hiddenSeats[id] = true;
+    saveHidden();
+    hideTip();
+    render();
+    var back = document.querySelector("[data-fk=\"show-hidden\"]");
+    if (back) back.focus();
+  }
+
+  function showAllSeats() {
+    hiddenSeats = Object.create(null);
+    saveHidden();
+    render();
+  }
+
   /* The last column of a lane's gutter: when that window rolls. The stamp
      ticks with the rest of the page and its tooltip is the instant itself, in
      the reader's own zone. The hit box is the whole column, so a figure that
@@ -2067,7 +2241,7 @@ th[aria-sort] button { color: var(--ink-1); }
       seatChips(a, ranks).forEach(function (c) {
         need += textW(root, "✕ " + c.label, { "font-size": 9.5, "class": "fam-text" }) + 14 + 6;
       });
-      need += textW(root, weeklyGapText(a.score), { "font-size": 11, "class": "t-mono" }) + 18 + 14;
+      need += textW(root, weeklyGapText(a.score), { "font-size": 11, "class": "t-mono" }) + 18 + 14 + HIDE_RES;
       gut = Math.max(gut, need);
     });
     gut = Math.round(Math.min(gut, Math.max(GUT, width * GUT_SHARE)));
@@ -2133,7 +2307,7 @@ th[aria-sort] button { color: var(--ink-1); }
          family where they differ. The name is trimmed to the measured space,
          so the tooltip is also where a long name is read whole. */
       var headY = row.top + (compact ? 17 : 18);
-      var gRow = svg("g", {}, gRows);
+      var gRow = svg("g", { "class": "row" }, gRows);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gRow);
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
       gh.setAttribute("aria-label", seatAria(a, ranks));
@@ -2162,17 +2336,18 @@ th[aria-sort] button { color: var(--ink-1); }
          below in any case and a name cut to two letters identifies no
          seat. */
       var anywhere = fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
-      var tail = svgText(gh, gut - 14, headY, anywhere ? weeklyGapText(a.score) : "",
+      var tail = svgText(gh, gut - 14 - HIDE_RES, headY, anywhere ? weeklyGapText(a.score) : "",
         "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
-      if (gut - nameX - chipsW - tail.getComputedTextLength() - 18 < NAME_MIN) tail.textContent = "";
-      fitText(nameEl, gut - nameX - chipsW - tail.getComputedTextLength() - 18);
+      if (gut - nameX - chipsW - tail.getComputedTextLength() - 18 - HIDE_RES < NAME_MIN) tail.textContent = "";
+      fitText(nameEl, gut - nameX - chipsW - tail.getComputedTextLength() - 18 - HIDE_RES);
       var cx = nameX + nameEl.getComputedTextLength() + 8;
       chips.forEach(function (c) {
         c.g.setAttribute("transform", "translate(" + cx + ",0)");
         cx += c.w + 6;
       });
 
-      if (geo.sub) seatSubLine(gh, nameX, headY + 14, a, gut - nameX - 14);
+      if (geo.sub) seatSubLine(gh, nameX, headY + 14, a, gut - nameX - 14 - HIDE_RES);
+      hideControl(gRow, gut - 14 - HIDE_W, headY - 4, a);
 
 
       var markOpacity = eligible ? 1 : MARK_DIM;
@@ -3197,7 +3372,7 @@ th[aria-sort] button { color: var(--ink-1); }
      whether the log reaches back to from at all. */
   function activeOn(st, authID, from, to) {
     var seen = Object.create(null), out = [], oldest = null, n = 0;
-    (st.decisions || []).forEach(function (d) {
+    visibleDecisions(st).forEach(function (d) {
       var at = parseT(d.at);
       if (!at) return;
       if (oldest === null || at.getTime() < oldest) oldest = at.getTime();
@@ -3747,13 +3922,16 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   function renderDecisions(st) {
-    if (!regionChanged("decisions", [st.decisions, seatNames(st), scopedFamilies(st)])) return;
+    if (!regionChanged("decisions", [visibleDecisions(st), seatNames(st), scopedFamilies(st)])) return;
     var host = $("decisions");
+    var note = $("log-note");
+    note.textContent = "";
+    note.hidden = true;
     /* The list scrolls inside its card; a rebuild puts the reader back where
        they were. */
     var scrollTop = host.scrollTop;
     host.textContent = "";
-    var all = (st.decisions || []).slice().sort(function (a, b) {
+    var all = visibleDecisions(st).sort(function (a, b) {
       return (parseT(b.at) || 0) - (parseT(a.at) || 0);
     });
     var list = all.slice(0, MAX_DECISIONS);
@@ -3768,7 +3946,7 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     var byID = {};
-    (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    stableAuths(st.auths).forEach(function (a) { byID[a.auth_id] = a; });
     var fams = scopedFamilies(st);
     /* A seat mark for a credential the status still lists; a credential with
        no seat row is one this plugin does not govern, named as that rather
@@ -3849,8 +4027,8 @@ th[aria-sort] button { color: var(--ink-1); }
     state.openDecisions = open;
 
     if (all.length > list.length) {
-      host.appendChild(h("p", "log-note",
-        "showing " + list.length + " of " + all.length + " retained decisions"));
+      note.textContent = "showing " + list.length + " of " + all.length + " retained decisions";
+      note.hidden = false;
     }
     host.scrollTop = scrollTop;
   }
@@ -3940,13 +4118,13 @@ th[aria-sort] button { color: var(--ink-1); }
   ];
 
   function renderBindings(st) {
-    if (!regionChanged("bindings", [st.bindings, state.sort, seatNames(st)])) return;
+    if (!regionChanged("bindings", [visibleBindings(st), state.sort, seatNames(st)])) return;
     var host = $("bindings");
     /* The table scrolls inside its card; a rebuild puts the reader back where
        they were. */
     var scrollTop = host.scrollTop;
     host.textContent = "";
-    var rows = (st.bindings || []).slice();
+    var rows = visibleBindings(st);
 
     if (!rows.length) {
       var p = h("p", "");
@@ -3958,7 +4136,7 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     var byID = {};
-    (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    stableAuths(st.auths).forEach(function (a) { byID[a.auth_id] = a; });
 
     var key = state.sort.key, dir = state.sort.dir;
     rows.sort(function (a, b) {
@@ -4017,11 +4195,14 @@ th[aria-sort] button { color: var(--ink-1); }
       var tr = h("tr", "");
       var k = h("td", "");
       var sk = b.session_key || "";
-      var code = h("code", "mono", sk.slice(0, 12) + (sk.length > 12 ? "…" : ""));
+      var code = h("code", "mono bind-key", sk.slice(0, 12) + (sk.length > 12 ? "…" : ""));
       if (sk.length > 12) tipOnly(code, sk);
       k.appendChild(code);
       tr.appendChild(k);
-      tr.appendChild(h("td", "", b.provider || "—"));
+      var pv = h("td", "");
+      if (b.provider) pv.appendChild(h("span", "bind-provider", b.provider));
+      else pv.appendChild(document.createTextNode("—"));
+      tr.appendChild(pv);
       tr.appendChild(h("td", "mono", b.model || "—"));
       var seatTd = h("td", "");
       seatTd.appendChild(byID[b.auth_id] ? seatMark(byID[b.auth_id]) : h("span", "mono", b.auth_id || "—"));
@@ -4047,7 +4228,7 @@ th[aria-sort] button { color: var(--ink-1); }
      registered against, and how long it has been up. The footer stays out of
      the document until one of the three arrives. */
   function renderHeader(st, ranks) {
-    var seats = st.auths || [];
+    var seats = stableAuths(st.auths);
     var p = st.plugin || {};
     var facts = $("plugin-facts");
     facts.textContent = "";
@@ -4071,6 +4252,7 @@ th[aria-sort] button { color: var(--ink-1); }
       ? seats.length + (seats.length === 1 ? " seat" : " seats")
       : "—";
     $("seat-eligible").textContent = seats.length ? eligible + " eligible" : "";
+    renderHidden(st);
 
     var newest = null;
     seats.forEach(function (a) {
@@ -4116,6 +4298,26 @@ th[aria-sort] button { color: var(--ink-1); }
       : "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
   }
 
+  /* The count of seats this browser is holding back, and the control that
+     ends it. It rides the live bar so it is on screen at every scroll depth:
+     a seat taken off the page leaves no trace where its row was, so this is
+     the only thing saying the page is showing less than the pool. The names
+     are the tooltip, so the line stays one figure wide. */
+  function renderHidden(st) {
+    var host = $("seat-hidden");
+    host.textContent = "";
+    var gone = (st.auths || []).filter(function (a) { return hiddenSeats[a.auth_id]; });
+    if (!gone.length) { host.hidden = true; return; }
+    host.hidden = false;
+    host.appendChild(document.createTextNode(gone.length + " hidden \u00b7 "));
+    var btn = h("button", "", "show");
+    btn.type = "button";
+    btn.setAttribute("data-fk", "show-hidden");
+    tipOnly(btn, "draw every seat again \u00b7 hidden: " + gone.map(seatLabel).join(", "));
+    btn.addEventListener("click", showAllSeats);
+    host.appendChild(btn);
+  }
+
   /* Where the next new conversation lands, one line per request family and
      every line named: scoring differs by family, so an unlabelled seat would
      leave the reader to work out which ranking it won. A family whose ranking
@@ -4134,7 +4336,7 @@ th[aria-sort] button { color: var(--ink-1); }
      routing log is where that is recorded. */
   function blockedText(st, fam) {
     var reasons = Object.create(null), n = 0;
-    (st.auths || []).forEach(function (a) {
+    stableAuths(st.auths).forEach(function (a) {
       var sc = famScore(a, fam);
       if (!sc || sc.eligible) return;
       n++;
@@ -4193,7 +4395,7 @@ th[aria-sort] button { color: var(--ink-1); }
      own returns. */
   function returnsAt(st, fam) {
     var soonest = null;
-    (st.auths || []).forEach(function (a) {
+    stableAuths(st.auths).forEach(function (a) {
       var back = seatReturnsAt(a, fam);
       if (back && (!soonest || back < soonest)) soonest = back;
     });
@@ -4213,14 +4415,14 @@ th[aria-sort] button { color: var(--ink-1); }
     var next = $("next-pick");
     next.textContent = "";
     var byID = Object.create(null);
-    (st.auths || []).forEach(function (a) { byID[a.auth_id] = a; });
+    stableAuths(st.auths).forEach(function (a) { byID[a.auth_id] = a; });
     var overflow = overflowInLog(st);
-    var seats = (st.auths || []).length;
+    var seats = stableAuths(st.auths).length;
     var off = !!(st.config && st.config.enabled === false);
     ranks.fams.forEach(function (fam) {
       var span = h("span", "pick");
       span.appendChild(h("span", "pick-fam", rankLabel(fam)));
-      var known = (st.auths || []).some(function (a) { return famScore(a, fam) !== null; });
+      var known = stableAuths(st.auths).some(function (a) { return famScore(a, fam) !== null; });
       if (off) span.appendChild(tipOnly(h("span", "pick-none pick-wrap", DISABLED_TEXT), DISABLED_TIP));
       else if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
@@ -4275,7 +4477,7 @@ th[aria-sort] button { color: var(--ink-1); }
      these families scores the same way — Standard. */
   function scopedFamilies(st) {
     var seen = Object.create(null), out = [];
-    (st.auths || []).forEach(function (a) {
+    stableAuths(st.auths).forEach(function (a) {
       var wins = a.snapshot && a.snapshot.windows || [];
       wins.forEach(function (w) {
         if (w.kind !== "weekly_scoped" || !w.scope || seen[w.scope]) return;
@@ -4339,9 +4541,10 @@ th[aria-sort] button { color: var(--ink-1); }
     return true;
   }
 
-  /* The seat names a region renders alongside its own payload. */
+  /* The seat names a region renders alongside its own payload. Hiding a seat
+     shortens this, which is what rebuilds every region the filter touches. */
   function seatNames(st) {
-    return (st.auths || []).map(function (a) { return a.auth_id + "\u0000" + seatLabel(a); });
+    return stableAuths(st.auths).map(function (a) { return a.auth_id + "\u0000" + seatLabel(a); });
   }
 
   /* Focus survives a rebuild by key rather than by node: every generated stop
@@ -4410,7 +4613,9 @@ th[aria-sort] button { color: var(--ink-1); }
     renderWarnings(st);
 
     var empty = !seats.length;
-    $("empty-state").hidden = !empty;
+    var pooled = !!(st.auths || []).length;
+    $("empty-state").hidden = !(empty && !pooled);
+    $("hidden-state").hidden = !(empty && pooled);
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
     $("sec-session").hidden = empty;
@@ -4664,6 +4869,8 @@ th[aria-sort] button { color: var(--ink-1); }
      clear of the console's floating toolbar. */
   if (window.self !== window.top) document.documentElement.setAttribute("data-framed", "");
 
+
+  loadHidden();
 
   var themeBtn = $("theme-toggle");
   var THEMES = ["auto", "light", "dark"];
