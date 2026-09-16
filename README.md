@@ -61,6 +61,11 @@ one `priority` value: the host offers the plugin only the highest tier, and a
 single-seat tier leaves nothing to spread across. The status page warns when
 that happens.
 
+A seat is named by its credential's **note**, set on the auth-file card in the
+Management Center or as a `note` key in the credential file. Without one the
+host names it by its account email, which the status page masks to
+`y…@example.com`.
+
 ### All settings
 
 The dials people touch are `landing-target`, `affinity.ttl`,

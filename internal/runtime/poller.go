@@ -492,10 +492,16 @@ func authID(entry HostAuthFileEntry) string {
 	return entry.Name
 }
 
-// authLabel is the operator-facing name for a credential: the host label,
-// else the account email, else the file name. None of these is a secret.
+// authLabel is the operator-facing name for a credential: the credential's
+// note, else the host label, else the account email, else the file name. The
+// note is the one of these an operator writes, from the Management Center's
+// auth-file card or the file's note key; the host fills the label from the
+// account email, so a seat with no note is named by its address. None of
+// these is a secret.
 func authLabel(entry HostAuthFileEntry) string {
 	switch {
+	case strings.TrimSpace(entry.Note) != "":
+		return strings.TrimSpace(entry.Note)
 	case entry.Label != "":
 		return entry.Label
 	case entry.Email != "":

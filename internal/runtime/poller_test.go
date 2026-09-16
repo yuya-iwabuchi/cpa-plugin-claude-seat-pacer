@@ -716,3 +716,26 @@ func TestAStoreWithNoFutureResetWakesAsBefore(t *testing.T) {
 		t.Fatal("the store was not empty")
 	}
 }
+
+// TestSeatNameComesFromTheNoteBeforeTheLabel covers the name a seat carries:
+// the host fills a credential's label from its account email, so the note an
+// operator writes on the auth-file card is the one name that is not an
+// address. A blank note yields to the label, and a blank label to the email.
+func TestSeatNameComesFromTheNoteBeforeTheLabel(t *testing.T) {
+	cases := []struct {
+		name  string
+		entry HostAuthFileEntry
+		want  string
+	}{
+		{"note wins", HostAuthFileEntry{Note: "personal", Label: "a@example.com", Email: "a@example.com", Name: "claude-a.json"}, "personal"},
+		{"note is trimmed", HostAuthFileEntry{Note: "  personal  ", Label: "a@example.com"}, "personal"},
+		{"blank note yields to label", HostAuthFileEntry{Note: "   ", Label: "Seat B", Email: "b@example.com"}, "Seat B"},
+		{"no note or label yields to email", HostAuthFileEntry{Email: "c@example.com", Name: "claude-c.json"}, "c@example.com"},
+		{"file name last", HostAuthFileEntry{Name: "claude-d.json"}, "claude-d.json"},
+	}
+	for _, tc := range cases {
+		if got := authLabel(tc.entry); got != tc.want {
+			t.Errorf("%s: authLabel = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

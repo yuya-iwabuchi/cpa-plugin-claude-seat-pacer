@@ -1529,6 +1529,13 @@ th[aria-sort] button { color: var(--ink-1); }
     return isFinite(n) ? n % SEAT_HUES : 0;
   }
 
+  /* Whether a seat's name is its account address as the server masks it, so
+     the tooltip can say the name is not truncated but withheld. */
+  function maskedName(a) {
+    var l = a && (seatNameByID[a.auth_id] || a.label) || "";
+    return l.indexOf("\u2026@") > 0 && l === (a.email || "");
+  }
+
   function seatLabel(a) {
     if (!a) return "(unnamed)";
     return seatNameByID[a.auth_id] || a.label || a.auth_id || "(unnamed)";
@@ -1871,7 +1878,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var fams = ranks.fams;
     var rank = rankText(a, ranks), lead = leadText(leadsOf(a, ranks), fams);
     var out = fams.filter(function (fam) { var sc = famScore(a, fam); return sc && !sc.eligible; });
-    var verdict = seatLabel(a) + " · ";
+    var verdict = seatLabel(a) + (maskedName(a) ? " (address masked on this page; a note on the credential names the seat)" : "") + " · ";
     if (rank) {
       verdict += rank + (lead ? " · " + lead : "");
       if (out.length) verdict += " · " + out.map(function (fam) { return rankLabel(fam) + " " + famVerdict(a, fam, now).word; }).join(" · ");

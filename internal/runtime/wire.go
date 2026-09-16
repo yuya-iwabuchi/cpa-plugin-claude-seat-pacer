@@ -542,6 +542,7 @@ type HostAuthFileEntry struct {
 	Type          string    `json:"type,omitempty"`
 	Provider      string    `json:"provider,omitempty"`
 	Label         string    `json:"label,omitempty"`
+	Note          string    `json:"note,omitempty"`
 	Status        string    `json:"status,omitempty"`
 	StatusMessage string    `json:"status_message,omitempty"`
 	Disabled      bool      `json:"disabled,omitempty"`
