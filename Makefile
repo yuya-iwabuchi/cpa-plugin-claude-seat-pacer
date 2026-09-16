@@ -16,8 +16,9 @@ VERSION    := $(shell sed -n 's/.*pluginVersion = "\(.*\)".*/\1/p' main.go)
 PLUGIN_DIR ?= $(HOME)/.cli-proxy-api/plugins
 OUT        := dist/$(GOOS)/$(GOARCH)/$(NAME).$(EXT)
 INSTALLED  := $(PLUGIN_DIR)/$(GOOS)/$(GOARCH)/$(NAME)-v$(VERSION).$(EXT)
+ARCHIVE    := dist/$(NAME)_$(VERSION)_$(GOOS)_$(GOARCH).zip
 
-.PHONY: build test vet fmt check install clean
+.PHONY: build test vet fmt check dist install clean
 
 build:
 	@mkdir -p $(dir $(OUT))
@@ -36,6 +37,13 @@ fmt:
 	@test -z "$$(gofmt -l .)" || { echo "unformatted:"; gofmt -l .; exit 1; }
 
 check: fmt vet test build
+
+# The store matches a release asset by this exact file name and reads the
+# library from the archive root, so neither the archive's name nor the name of
+# the entry inside it is free. checksums.txt is assembled from the per-platform
+# .sha256 files in the release workflow, because one file covers every zip.
+dist: build
+	go run ./.github/scripts/package.go -lib $(OUT) -out $(ARCHIVE)
 
 # Write by rename, never by overwrite: a running host keeps the old library
 # mmap'd and rewriting those pages in place crashes it. Loading a new build

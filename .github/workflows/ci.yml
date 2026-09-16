@@ -1,6 +1,7 @@
-# The gate every change passes: gofmt, vet, the race detector, and the shared
-# library the host loads. macOS is the platform the artifact ships from, and
-# -buildmode=c-shared needs cgo, so the job runs where a real build does.
+# The gate every change passes. `check` runs the whole suite — gofmt, vet, the
+# race detector and the shared library — on the two platforms the plugin is
+# developed on. `crossbuild` proves the library still links on every platform a
+# release ships to, without paying for the race detector five times.
 name: CI
 
 on:
@@ -13,8 +14,12 @@ permissions:
 
 jobs:
   check:
-    name: check
-    runs-on: macos-latest
+    name: check (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -22,3 +27,28 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: make check
+
+  crossbuild:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64, ext: so, runner: ubuntu-latest}
+          - {goos: linux, goarch: arm64, ext: so, runner: ubuntu-24.04-arm}
+          - {goos: darwin, goarch: arm64, ext: dylib, runner: macos-latest}
+          - {goos: darwin, goarch: amd64, ext: dylib, runner: macos-13}
+          - {goos: windows, goarch: amd64, ext: dll, runner: windows-latest}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # -buildmode=c-shared needs cgo, and cgo has no cross toolchain here, so
+      # every target builds on a runner of its own architecture. GOOS and
+      # GOARCH stay unset for that reason: the native default is the target.
+      - name: build
+        shell: bash
+        run: CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "dist/claude-seat-pacer.${{ matrix.ext }}" .
