@@ -209,16 +209,6 @@ a { color: inherit; }
 .lb-stack { display: flex; flex-direction: column; }
 .lb-stack > span:empty::before { content: "\A0"; }
 .lb-stack > span + span { color: var(--ink-2); }
-/* The way back from a hidden seat rides the bar that is on screen at every
-   scroll depth, because a seat that left the page with nothing left to say so
-   is a seat the reader cannot find again. */
-.lb-stack > .lb-hidden { font: 500 11.5px/1.4 var(--mono); color: var(--ink-3); }
-.lb-hidden button {
-  font: inherit; color: var(--ink-1); background: none;
-  border: 0; border-bottom: 1px solid var(--axis); border-radius: 0;
-  padding: 0; cursor: pointer; white-space: nowrap;
-}
-.lb-hidden button:hover { border-bottom-color: var(--ink-1); }
 /* One pick per request family, each on a line of its own and each named, with
    the family labels sharing a column so the seats line up under one another.
    The block takes the room a full account address needs and no more, capped
@@ -437,6 +427,16 @@ svg.tl g.row:hover g.hide,
 svg.tl g.hide:hover,
 svg.tl g.hide:focus-visible { opacity: 1; }
 svg.tl g.hide:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
+/* The count of seats this browser holds back, and the control that ends it,
+   on the axis row where no seat's row is. It shows while the pointer is on the
+   card or the control has focus, so a screenshot of the card carries no trace
+   of the seats it leaves out. */
+svg.tl g.show-hidden { opacity: 0; cursor: pointer; }
+.tl-card:hover svg.tl g.show-hidden,
+svg.tl g.show-hidden:focus-visible { opacity: 1; }
+svg.tl g.show-hidden:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
+svg.tl g.show-hidden text { fill: var(--ink-3); }
+svg.tl g.show-hidden text.show-act { fill: var(--ink-1); text-decoration: underline; }
 svg.tl g.hide .hide-mark { fill: none; stroke: var(--ink-3); stroke-width: 1.3; stroke-linecap: round; }
 svg.tl g.hide:hover .hide-mark, svg.tl g.hide:focus-visible .hide-mark { stroke: var(--ink-1); }
 /* The gap label has a lane of its own, so it never meets another. On an
@@ -793,9 +793,6 @@ th[aria-sort] button { color: var(--ink-1); }
       <div class="lb-val lb-stack">
         <span id="seat-total">&mdash;</span>
         <span id="seat-eligible"></span>
-        <!-- Present only while this browser is hiding a seat: the count and
-             the one control that brings them all back. -->
-        <span class="lb-hidden" id="seat-hidden" hidden></span>
       </div>
     </div>
     <div class="lb">
@@ -1472,7 +1469,6 @@ th[aria-sort] button { color: var(--ink-1); }
     return "cost " + [costText(score)].concat(parts).join(" · ");
   }
 
-
   /* Seat identity, indexed once per payload.
 
      Names: the status route publishes one per seat, unique across the rows.
@@ -2133,6 +2129,31 @@ th[aria-sort] button { color: var(--ink-1); }
     return g;
   }
 
+  /* The seats this browser holds back, counted, and the one control that
+     draws them all again; nothing when none is hidden. The names are the
+     tooltip, so the line stays one figure wide. */
+  function showHiddenControl(parent, y, st) {
+    var gone = (st.auths || []).filter(function (a) { return hiddenSeats[a.auth_id]; });
+    if (!gone.length) return null;
+    var g = svg("g", { "class": "show-hidden", tabindex: 0, role: "button" }, parent);
+    g.setAttribute("data-fk", "show-hidden");
+    g.setAttribute("aria-label", "show the " + gone.length + " hidden " + (gone.length === 1 ? "seat" : "seats"));
+    g.setAttribute("data-tip", "draw every seat again \u00b7 hidden: " + gone.map(seatLabel).join(", "));
+    var t = svgText(g, 34, y, gone.length + " hidden \u00b7 ", "t-mono", { "font-size": 10.5 });
+    var act = svg("tspan", { "class": "show-act" }, t);
+    act.textContent = "show";
+    var w = t.getComputedTextLength();
+    svg("rect", { "class": "hit", x: 30, y: y - 12, width: w + 8, height: 18, rx: 4, fill: "transparent" }, g);
+    g.insertBefore(g.lastChild, t);
+    g.addEventListener("click", showAllSeats);
+    g.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+      ev.preventDefault();
+      showAllSeats();
+    });
+    return g;
+  }
+
   /* The row the reader acted on is about to leave the document, so focus goes
      to the control that undoes it rather than to the top of the page. */
   function hideSeat(id) {
@@ -2282,6 +2303,7 @@ th[aria-sort] button { color: var(--ink-1); }
       x1: gut, x2: gut + plotW, y1: plotH + 0.5, y2: plotH + 0.5,
       stroke: "var(--axis)", "stroke-width": 1
     }, gGrid);
+    showHiddenControl(gGrid, plotH + 20, st);
 
     /* Rows. */
     layout.forEach(function (row) {
@@ -2348,7 +2370,6 @@ th[aria-sort] button { color: var(--ink-1); }
 
       if (geo.sub) seatSubLine(gh, nameX, headY + 14, a, gut - nameX - 14 - HIDE_RES);
       hideControl(gRow, gut - 14 - HIDE_W, headY - 4, a);
-
 
       var markOpacity = eligible ? 1 : MARK_DIM;
 
@@ -2580,7 +2601,6 @@ th[aria-sort] button { color: var(--ink-1); }
       "v" + (hgt - 2 * r) + "a" + r + " " + r + " 0 0 1 " + (-r) + " " + r +
       "h" + (-(w - r)) + "Z";
   }
-
 
   /* ------------------------------------------------------- history lines */
 
@@ -4252,7 +4272,6 @@ th[aria-sort] button { color: var(--ink-1); }
       ? seats.length + (seats.length === 1 ? " seat" : " seats")
       : "—";
     $("seat-eligible").textContent = seats.length ? eligible + " eligible" : "";
-    renderHidden(st);
 
     var newest = null;
     seats.forEach(function (a) {
@@ -4296,26 +4315,6 @@ th[aria-sort] button { color: var(--ink-1); }
       ? "one row per seat, in a fixed order, ranked for Standard and " + fams.join(", ") +
         " requests; each family's #1 eligible seat takes its next new conversation"
       : "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
-  }
-
-  /* The count of seats this browser is holding back, and the control that
-     ends it. It rides the live bar so it is on screen at every scroll depth:
-     a seat taken off the page leaves no trace where its row was, so this is
-     the only thing saying the page is showing less than the pool. The names
-     are the tooltip, so the line stays one figure wide. */
-  function renderHidden(st) {
-    var host = $("seat-hidden");
-    host.textContent = "";
-    var gone = (st.auths || []).filter(function (a) { return hiddenSeats[a.auth_id]; });
-    if (!gone.length) { host.hidden = true; return; }
-    host.hidden = false;
-    host.appendChild(document.createTextNode(gone.length + " hidden \u00b7 "));
-    var btn = h("button", "", "show");
-    btn.type = "button";
-    btn.setAttribute("data-fk", "show-hidden");
-    tipOnly(btn, "draw every seat again \u00b7 hidden: " + gone.map(seatLabel).join(", "));
-    btn.addEventListener("click", showAllSeats);
-    host.appendChild(btn);
   }
 
   /* Where the next new conversation lands, one line per request family and
@@ -4868,7 +4867,6 @@ th[aria-sort] button { color: var(--ink-1); }
   /* Framed by the Management Center, the page keeps its top-right corner
      clear of the console's floating toolbar. */
   if (window.self !== window.top) document.documentElement.setAttribute("data-framed", "");
-
 
   loadHidden();
 
