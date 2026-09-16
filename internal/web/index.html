@@ -479,6 +479,10 @@ svg.pace text.curve-label { paint-order: stroke; stroke: var(--surface-1); strok
    smaller, and holds its ink, because a figure behind an alpha reads under the
    ratio this page holds text to. */
 svg.pace text.gap-label.gap-label-half { font-size: 9px; }
+/* A focused stretch of line is marked by the halo its hit path draws; the
+   page's box outline is for elements with an edge to trace, and a line has
+   none. */
+svg.pace g.seg:focus-visible { outline: none; }
 svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
 svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }

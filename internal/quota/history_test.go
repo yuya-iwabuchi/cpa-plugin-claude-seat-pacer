@@ -421,3 +421,33 @@ func TestHistoryBreaksTheCycleAfterItsResetPasses(t *testing.T) {
 		t.Errorf("cycles = %+v, want one; a reading within the tolerance split the cycle", h.Cycles)
 	}
 }
+
+// TestALowerReadingInsideACycleIsNotRecorded covers the two sources feeding
+// one ring: the usage endpoint reports a window to a hundredth of a percent
+// and a response header to a whole percent, so a header reading landing
+// between two endpoint reads can print one point under the last sample.
+// Utilization only rises until the window resets, so that reading is the
+// coarser source lagging, and the ring keeps the higher sample.
+func TestALowerReadingInsideACycleIsNotRecorded(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(3 * time.Hour)
+	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.24, resets)))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Minute), sessionAt(0.24, resets)))
+	// A header read six minutes on, rounded to a whole percent, reads lower.
+	s.MergeHeaders("auth-1", []model.Window{sessionAt(0.23, resets)}, testNow.Add(16*time.Minute))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(20*time.Minute), sessionAt(0.27, resets)))
+
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	var prev float64
+	for _, c := range h.Cycles {
+		for _, smp := range c.Samples {
+			if smp.Utilization < prev {
+				t.Fatalf("history decreases: %.3f after %.3f", smp.Utilization, prev)
+			}
+			prev = smp.Utilization
+		}
+	}
+	if h.Samples() != 3 {
+		t.Errorf("samples = %d, want 3: the lower reading is not recorded", h.Samples())
+	}
+}

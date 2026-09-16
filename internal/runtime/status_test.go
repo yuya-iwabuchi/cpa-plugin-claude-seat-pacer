@@ -156,7 +156,9 @@ func TestStatusPublishesUtilizationHistory(t *testing.T) {
 	tp.callOK(t, MethodUsageHandle, mustJSON(t, UsageRecord{
 		AuthID: "claude-a.json", Model: fableModel, RequestedAt: testNow.Add(2 * time.Minute),
 		ResponseHeaders: map[string][]string{
-			"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.42"},
+			// The fixture's poll read this window at 0.80; the header reads
+			// higher, as a reading inside a cycle does.
+			"Anthropic-Ratelimit-Unified-5h-Utilization": {"0.84"},
 			"Anthropic-Ratelimit-Unified-5h-Reset":       {strconv.FormatInt(testNow.Add(3*time.Hour).Unix(), 10)},
 		},
 	}), nil)
@@ -178,8 +180,8 @@ func TestStatusPublishesUtilizationHistory(t *testing.T) {
 		if session == nil || session.Samples() != 2 {
 			t.Fatalf("session history = %+v, want the poll and the header reading", row.History)
 		}
-		if got := session.Cycles[len(session.Cycles)-1].Samples[1].Utilization; got != 0.42 {
-			t.Errorf("newest sample = %v, want the header's 0.42", got)
+		if got := session.Cycles[len(session.Cycles)-1].Samples[1].Utilization; got != 0.84 {
+			t.Errorf("newest sample = %v, want the header's 0.84", got)
 		}
 	}
 }
