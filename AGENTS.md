@@ -28,8 +28,10 @@ mutations it returns survive into `opts.Headers`, which the host clones verbatim
 into `SchedulerOptions.Headers`. So the interceptor derives the key and injects
 a private header; the scheduler reads it back.
 
-This header bridge is emergent behaviour, not a documented contract. The E2E
-test asserts it round-trips. Do not remove that test.
+This header bridge is emergent behaviour, not a documented contract.
+`TestHeaderBridgeSurvivesToSchedulerPick` asserts it round-trips through a real
+host; it skips without `CPA_SOURCE_DIR`, and `internal/runtime/WIRE.md` carries
+the run. Do not remove that test.
 
 ## Host invariants that constrain the code
 
@@ -37,11 +39,16 @@ test asserts it round-trips. Do not remove that test.
   plugin. Any blocking call there parks a goroutine permanently and blocks
   `dlclose`. The pick reads an in-memory snapshot only; all fetching happens on
   a background goroutine.
-- **One panic fuses the plugin permanently**, across every capability it
-  declares, including the interceptor. `recover()` does not cross the C
-  boundary, so every exported entry point installs its own.
+- **An escaped panic terminates the proxy.** `recover()` does not cross the C
+  boundary: the host's guard, and the fuse it trips to disable every capability
+  a plugin declares until the library is replaced, run in the host's own Go
+  runtime and never see a panic raised inside this one. Every exported entry
+  point in `main.go` installs its own recover, and `runtime.Plugin.Call` a
+  second, so a failure degrades to a decline.
 - **`pick` is called concurrently with no serialization.** Config is held in an
-  `atomic.Pointer`; mutable state is behind a mutex held only for map access.
+  `atomic.Pointer`; the quota store, binding store and decision log lock
+  internally; everything else mutable sits behind a mutex held only for field
+  access and never across a host callback.
 - **Never return an error envelope from `scheduler.pick`.** It hard-fails the
   request with no fallback to the host's selector. `Handled: false` is the safe
   decline, and it is the default for anything the plugin is unsure about.
@@ -49,17 +56,32 @@ test asserts it round-trips. Do not remove that test.
   Disabled, cooling, model-incompatible and already-tried credentials are gone
   before the plugin is asked, and lower priority tiers are never offered. All
   credentials in the pool must share one `priority` value or spreading silently
-  does nothing. Detect single-candidate lists and warn.
+  does nothing. The pick records a single-candidate list; the poller logs it
+  once and the status page warns while it holds.
 - **A plugin pick never seeds the host's affinity cache.** `SessionCache.Touch`
   refuses to create entries, so a hybrid where the host keeps affinity and the
   plugin only biases cold starts cannot bootstrap. This plugin owns affinity;
   run with `routing.session-affinity: false`.
-- **Only one scheduler plugin is ever consulted** (first non-fused by priority).
-  Mutually exclusive with other scheduler plugins.
-- **Home mode bypasses the scheduler hook entirely.** Surface that rather than
-  appearing to do nothing.
-- **Declare `schema_version: 1`**, not the host's current value, or the plugin
-  silently requires a host at least as new as its build SDK.
+- **`host.affinity.lookup` is a read-only observation and changes none of the
+  above.** The callback (host 7.2.156+, commit `0796d6d1`) takes provider,
+  model and session id and answers `bound`, `unbound`, `ambiguous` or
+  `unsupported`, plus the bound credential's auth index. A plugin that answers
+  `Handled: true` from `scheduler.pick` short-circuits the host's built-in
+  selector, so `SessionAffinitySelector` never runs and never creates a
+  binding: where this plugin owns the pick, no conversation it routes is ever
+  `bound`, and `Manager.LookupSessionAffinity` answers `unsupported` outright
+  while a plugin scheduler is wired. The callback exists for a plugin that does
+  not own `scheduler.pick` — one that only rewrites credential priority, say.
+- **Only one scheduler plugin is ever consulted**: the first non-fused one by
+  plugin priority, then id. Mutually exclusive with other scheduler plugins.
+- **Home mode bypasses the scheduler hook entirely.** The host dispatches
+  through Home before it consults any plugin scheduler, while
+  `request.intercept_before` still runs. No field the plugin receives names
+  the mode, so the status page cannot warn about it; the symptom is a decision
+  log that stays empty under live traffic.
+- **Declare `schema_version: 1`**, not the host's current value: the host
+  refuses a plugin whose declared version exceeds its own, so a higher value
+  makes every older host refuse the load.
 
 ## Wire format
 
@@ -104,6 +126,8 @@ and fully unit-testable without the host.
 - `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
   script from the file's bytes, and the HTML tokenizer rewrites both, so either
   byte ships a hash no browser matches (`TestPageHoldsNoRewrittenByte`).
-- `pluginName` in `main.go` and `NAME` in the Makefile stay equal: the host
-  derives the plugin id from the library filename, and the config block, the
-  management routes and the history directory all carry that id.
+- `pluginName` in `main.go`, `NAME` in the Makefile, the history path in
+  `internal/runtime/poller.go` and the library name in `.github/workflows/`
+  stay equal: the host derives the plugin id from the library filename, and
+  the config block, the management routes and the history directory all carry
+  that id.
