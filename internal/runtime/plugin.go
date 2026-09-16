@@ -159,8 +159,9 @@ func (p *Plugin) config() model.Config {
 
 // Call answers one host method with a response envelope. ok is false when the
 // envelope is an error. It never panics: recover() does not cross the C
-// boundary, and one escaped panic fuses the plugin for every capability it
-// declares, so the guard sits here and again in the cgo shim.
+// boundary, so a panic the plugin lets escape terminates the proxy instead of
+// reaching the host's guard, and the recover sits here and again in the cgo
+// shim.
 func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
