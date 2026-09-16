@@ -56,10 +56,11 @@ plugins:
 ```
 
 The plugin owns conversation affinity, and a plugin pick never seeds the host's
-affinity cache, so both cannot hold it. Every Claude seat in the pool must share
-one `priority` value: the host offers the plugin only the highest tier, and a
-single-seat tier leaves nothing to spread across. The status page warns when
-that happens.
+affinity cache, so both cannot hold it. Give every Claude seat in the pool one
+`priority` value: the host offers the plugin only the highest tier, so a seat
+alone at the top takes every new conversation and the seats beneath it are a
+fallback the host uses on its own. That layout works, but the plugin has
+nothing to spread across; the status page names the seats when it sees it.
 
 A seat is named by its credential's **note**, set on the auth-file card in the
 Management Center or as a `note` key in the credential file. Without one the
@@ -165,11 +166,11 @@ config block, the management routes and the history directory all carry that
 id. Keep the installed filename as `make install` writes it, and restart the
 host after installing.
 
-**The plugin loads but every request goes to the host's own selector.** Either
-`enabled` is false, or the host offered a single candidate because the seats
-sit on different `priority` tiers. The status page warns in both cases and
-names which; set `enabled: true`, or give every seat in the pool the same
-`priority`.
+**The plugin loads but every new conversation lands on one seat.** Either
+`enabled` is false, or that seat sits alone on the highest `priority` tier and
+the rest are its fallback. The status page warns in both cases and names the
+seats; set `enabled: true`, or give every seat in the pool the same `priority`
+so the plugin can spread by pace.
 
 **Conversations do not stick to a seat.** The host's `routing.session-affinity`
 is still on. The plugin owns affinity and a plugin pick never seeds the host's

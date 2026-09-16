@@ -295,3 +295,25 @@ func TestHistoryFileSurvivesAPollThatNeverLoadedIt(t *testing.T) {
 		t.Fatalf("history file after a failed read = %s (%v), want it untouched", body, err)
 	}
 }
+
+// TestTierWarningNamesTheSeatsAndTheChoice covers the one single-candidate
+// cause that is a layout choice: the warning names the seat the host offers,
+// its tier, the seats beneath it, and what one priority value would change.
+func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
+	rows := []model.AuthStatus{
+		{AuthID: "claude-b.json", Provider: "claude", Priority: 10},
+		{AuthID: "claude-top.json", Provider: "claude", Priority: 11},
+		{AuthID: "claude-a.json", Provider: "claude", Priority: 10},
+		{AuthID: "gemini.json", Provider: "gemini", Priority: 99},
+	}
+	got := singleCandidateWarning("claude", rows)
+	want := "provider claude: the host offers only claude-top.json (priority 11); claude-a.json, claude-b.json are the fallback tier and take no new conversation until it is out. " +
+		"One priority value across the pool lets this plugin spread new conversations by pace instead"
+	if got != want {
+		t.Errorf("tier warning =\n  %q\nwant\n  %q", got, want)
+	}
+	one := singleCandidateWarning("claude", rows[1:3])
+	if !strings.Contains(one, "claude-a.json is the fallback tier") {
+		t.Errorf("a single lower seat reads as one: %q", one)
+	}
+}

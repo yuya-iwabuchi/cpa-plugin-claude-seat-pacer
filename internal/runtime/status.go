@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -174,17 +175,25 @@ func hostStatus(entry HostAuthFileEntry) string {
 // singleCandidateWarning names why a provider was offered one candidate. The
 // host filters the list before the plugin sees it and caps it at the highest
 // priority tier, so a lone candidate means the pool holds one credential, the
-// rest sit on a lower tier, or the rest are unavailable. Only the tier case is
-// a misconfiguration, and a pool the plugin cannot see claims no cause at all.
+// rest sit on a lower tier, or the rest are unavailable. A pool the plugin
+// cannot see claims no cause at all.
+//
+// The tier case names the seats: a lone top tier is a fallback layout the
+// host honours on its own, and it is also the one layout under which this
+// plugin has nothing to spread across, so the warning says what the host is
+// doing and what one priority value would change.
 func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
-	tiers := make(map[int]struct{}, len(rows))
-	pool := 0
+	tiers := make(map[int][]string, len(rows))
+	pool, top := 0, 0
 	for _, row := range rows {
 		if row.Provider != provider {
 			continue
 		}
 		pool++
-		tiers[row.Priority] = struct{}{}
+		tiers[row.Priority] = append(tiers[row.Priority], row.AuthID)
+		if len(tiers) == 1 || row.Priority > top {
+			top = row.Priority
+		}
 	}
 	switch {
 	case pool == 0:
@@ -192,10 +201,26 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 	case pool == 1:
 		return fmt.Sprintf("provider %s offered a single candidate, which is the only credential in the pool", provider)
 	case len(tiers) > 1:
-		return fmt.Sprintf("provider %s offered a single candidate; the host caps candidates at the highest priority tier, so every credential in the pool needs the same priority value", provider)
+		lower := make([]string, 0, pool-len(tiers[top]))
+		for prio, ids := range tiers {
+			if prio != top {
+				lower = append(lower, ids...)
+			}
+		}
+		slices.Sort(lower)
+		return fmt.Sprintf("provider %s: the host offers only %s (priority %d); %s %s the fallback tier and take no new conversation until it is out. "+
+			"One priority value across the pool lets this plugin spread new conversations by pace instead",
+			provider, strings.Join(tiers[top], ", "), top, strings.Join(lower, ", "), isAre(len(lower)))
 	default:
 		return fmt.Sprintf("provider %s offered a single candidate; the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", provider)
 	}
+}
+
+func isAre(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 // SeatWarningState is what Warnings needs about one credential beyond its
