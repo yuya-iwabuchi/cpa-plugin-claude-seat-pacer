@@ -198,9 +198,10 @@ disabled; fix the YAML and restart the host.
 
 ## Contributing
 
-Questions and reports go to [Issues](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/issues).
-Pull requests are welcome when they pass `make check`. [CONTRIBUTING.md](CONTRIBUTING.md)
-covers the commit convention and points at the architecture notes.
+Bug reports and questions go to [Issues](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/issues).
+Open an issue before writing code; a pull request with no issue behind it is
+closed. [CONTRIBUTING.md](CONTRIBUTING.md) has the policy, the build and the
+commit convention.
 
 ## Licence
 
