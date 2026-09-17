@@ -5,9 +5,14 @@ deployment target is 7.2.145+, a lower bound nothing in this repository tests.
 
 ## What this plugin is
 
-A CLIProxyAPI plugin that routes requests across multiple Claude OAuth
-subscription seats by **burn pace** while keeping each conversation pinned
-to one seat so Anthropic prompt caches keep hitting.
+A CLIProxyAPI plugin that spends the Claude OAuth subscription seat whose
+weekly budget expires soonest first, and keeps each conversation on one seat
+so Anthropic prompt caches keep hitting.
+
+The preference is a policy, not a bug to fix: `LandingTarget` defaults above
+full on purpose, because weekly quota left at reset is lost, and a pool that
+wants an even spread sets it to 1.0. Changing that default changes what the
+plugin is for.
 
 Declared capabilities: `request_interceptor`, `scheduler`, `usage_plugin`,
 `management_api`.

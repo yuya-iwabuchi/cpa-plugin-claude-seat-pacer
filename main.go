@@ -1,7 +1,6 @@
-// Command claude-seat-pacer is a CLIProxyAPI plugin that routes requests
-// across multiple Claude OAuth subscription seats by burn pace while keeping
-// each conversation pinned to one seat so Anthropic prompt caches keep
-// hitting.
+// Command claude-seat-pacer is a CLIProxyAPI plugin that spends the Claude
+// OAuth subscription seat whose weekly budget expires soonest first, and keeps
+// each conversation on one seat so Anthropic prompt caches keep hitting.
 //
 // This file is the C ABI boundary only: it installs the plugin vtable, guards
 // every entry point against panics, and forwards each call to
