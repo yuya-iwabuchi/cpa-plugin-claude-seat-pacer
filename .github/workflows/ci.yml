@@ -38,7 +38,7 @@ jobs:
           - {goos: linux, goarch: amd64, ext: so, runner: ubuntu-latest}
           - {goos: linux, goarch: arm64, ext: so, runner: ubuntu-24.04-arm}
           - {goos: darwin, goarch: arm64, ext: dylib, runner: macos-latest}
-          - {goos: darwin, goarch: amd64, ext: dylib, runner: macos-13}
+          - {goos: darwin, goarch: amd64, ext: dylib, runner: macos-15-intel}
           - {goos: windows, goarch: amd64, ext: dll, runner: windows-latest}
     steps:
       - uses: actions/checkout@v4
