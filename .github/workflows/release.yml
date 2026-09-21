@@ -1,0 +1,89 @@
+# Cutting a release: tag a commit on main `v<version>`, where <version> is the
+# pluginVersion in main.go, and push the tag. The package job refuses a tag
+# that disagrees with pluginVersion, because the version is part of every
+# asset's name and a mismatch ships an asset the store cannot find.
+#
+# The release carries one zip per platform beside a single checksums.txt
+# covering all of them, which is the shape the plugin store reads.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: package (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64, ext: so, runner: ubuntu-latest}
+          - {goos: linux, goarch: arm64, ext: so, runner: ubuntu-24.04-arm}
+          - {goos: darwin, goarch: arm64, ext: dylib, runner: macos-latest}
+          - {goos: darwin, goarch: amd64, ext: dylib, runner: macos-15-intel}
+          - {goos: windows, goarch: amd64, ext: dll, runner: windows-latest}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: read the version the tag must match
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -n 's/.*pluginVersion = "\(.*\)".*/\1/p' main.go)
+          test -n "$version" || { echo "pluginVersion not found in main.go"; exit 1; }
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME disagrees with pluginVersion $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # cgo cannot cross-compile here, so each platform builds natively and
+      # GOOS/GOARCH stay unset. The packager writes the zip and its sha256 line.
+      - name: build and package
+        shell: bash
+        run: |
+          library="dist/claude-seat-pacer.${{ matrix.ext }}"
+          CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "$library" .
+          go run ./.github/scripts/package.go -lib "$library" \
+            -out "release/claude-seat-pacer_${{ steps.version.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release/
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+      # One checksums.txt lists every platform's zip; the store verifies only
+      # the line matching the archive it selected.
+      - name: assemble the release directory
+        shell: bash
+        run: |
+          mkdir -p release
+          find staging -name '*.zip' -exec mv {} release/ \;
+          find staging -name '*.sha256' | sort | xargs cat > release/checksums.txt
+          test -s release/checksums.txt
+          ls -l release && cat release/checksums.txt
+      # The store installs from /releases/latest, which GitHub excludes
+      # prereleases from, so this publishes outright.
+      - name: publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag release/*
