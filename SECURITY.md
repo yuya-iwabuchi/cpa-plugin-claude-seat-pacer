@@ -22,8 +22,10 @@ Every release carries a `checksums.txt` and a build provenance attestation for
 each zip.
 
 `sha256sum --check --ignore-missing checksums.txt` catches a corrupted
-download. It cannot show who built the zip, because the same workflow
-publishes the checksums beside the zips.
+download. Windows has no `sha256sum`; there, `(Get-FileHash <zip>).Hash` in
+PowerShell prints the SHA-256 to compare with that zip's line, in upper case.
+Neither shows who built the zip, because the same workflow publishes the
+checksums beside the zips.
 
 The attestation can:
 

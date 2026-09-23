@@ -46,8 +46,9 @@ dist: build
 	go run ./.github/scripts/package.go -lib $(OUT) -out $(ARCHIVE)
 
 # Write by rename, never by overwrite: a running host keeps the old library
-# mmap'd and rewriting those pages in place crashes it. Loading a new build
-# still needs a host restart, because the library is dlopened once at startup.
+# mmap'd and rewriting those pages in place crashes it. The host loads a
+# library only at a file path it has not loaded, and a build of the same
+# version lands on the path already loaded, so loading it needs a host restart.
 install: build
 	@mkdir -p $(PLUGIN_DIR)/$(GOOS)/$(GOARCH)
 	cp $(OUT) $(INSTALLED).new
