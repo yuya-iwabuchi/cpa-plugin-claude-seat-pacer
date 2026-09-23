@@ -10,7 +10,8 @@ import (
 )
 
 // decodeConfig turns the plugin's YAML block into a normalized config and the
-// warnings Normalize raised over it. Keys
+// warnings raised over it: each dotted key that overrides a different nested
+// value, then Normalize's. Keys
 // the block omits keep their defaults, because yaml.v3 leaves absent fields
 // untouched, and Normalize then clamps whatever the block did set. Duration
 // fields accept Go duration strings such as "2m" and "15m".
@@ -25,31 +26,34 @@ import (
 // is not a mapping, such as pace.shape beside pace: 3, is unparsable.
 func decodeConfig(configYAML []byte) (model.Config, []string, error) {
 	cfg := model.Defaults()
-	if err := decodeYAML(configYAML, &cfg); err != nil {
+	warnings, err := decodeYAML(configYAML, &cfg)
+	if err != nil {
 		inert := model.Defaults()
 		inert.Enabled = false
 		return inert, nil, fmt.Errorf("parse plugin config: %w", err)
 	}
-	warnings := cfg.Normalize()
-	return cfg, warnings, nil
+	return cfg, append(warnings, cfg.Normalize()...), nil
 }
 
-// decodeYAML decodes a config block into cfg with its dotted keys expanded.
-// An empty block, or one holding only comments, leaves cfg untouched.
-func decodeYAML(configYAML []byte, cfg *model.Config) error {
+// decodeYAML decodes a config block into cfg with its dotted keys expanded,
+// and returns expandDottedKeys' warnings. An empty block, or one holding only
+// comments, leaves cfg untouched.
+func decodeYAML(configYAML []byte, cfg *model.Config) ([]string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(configYAML, &doc); err != nil {
-		return err
+		return nil, err
 	}
 	if len(doc.Content) == 0 {
-		return nil
+		return nil, nil
 	}
+	var warnings []string
 	if root := doc.Content[0]; root.Kind == yaml.MappingNode {
-		if err := expandDottedKeys(root); err != nil {
-			return err
+		var err error
+		if warnings, err = expandDottedKeys(root); err != nil {
+			return nil, err
 		}
 	}
-	return doc.Decode(cfg)
+	return warnings, doc.Decode(cfg)
 }
 
 // expandDottedKeys moves every key of the mapping that holds a dot into the
@@ -57,7 +61,10 @@ func decodeYAML(configYAML []byte, cfg *model.Config) error {
 // dotted keys apply after every other key, so each overrides its nested twin,
 // and among dotted keys naming one path the last wins. A null on the path
 // reads as an empty mapping.
-func expandDottedKeys(root *yaml.Node) error {
+//
+// It returns a warning for each dotted key that overrides a nested value
+// written differently, because an edit to that nested value has no effect.
+func expandDottedKeys(root *yaml.Node) ([]string, error) {
 	var dotted []*yaml.Node
 	kept := make([]*yaml.Node, 0, len(root.Content))
 	for i := 0; i+1 < len(root.Content); i += 2 {
@@ -70,6 +77,8 @@ func expandDottedKeys(root *yaml.Node) error {
 	}
 	root.Content = kept
 
+	var warnings []string
+	fromDotted := make(map[*yaml.Node]bool, len(dotted)/2)
 	for i := 0; i < len(dotted); i += 2 {
 		name, value := dotted[i].Value, dotted[i+1]
 		path := strings.Split(name, ".")
@@ -84,18 +93,36 @@ func expandDottedKeys(root *yaml.Node) error {
 				m.Content[at] = mappingNode()
 			}
 			if m.Content[at].Kind != yaml.MappingNode {
-				return fmt.Errorf("config key %s: %s is not a mapping", name, segment)
+				return nil, fmt.Errorf("config key %s: %s is not a mapping", name, segment)
 			}
 			m = m.Content[at]
 		}
 		last := path[len(path)-1]
 		if at := valueIndex(m, last); at >= 0 {
+			if !fromDotted[m.Content[at]] && !sameNode(m.Content[at], value) {
+				warnings = append(warnings, fmt.Sprintf("%s overrides %s; remove one", name, strings.Join(path, ": ")))
+			}
 			m.Content[at] = value
 		} else {
 			m.Content = append(m.Content, stringNode(last), value)
 		}
+		fromDotted[value] = true
 	}
-	return nil
+	return warnings, nil
+}
+
+// sameNode reports whether two YAML nodes are written alike: the same kind,
+// scalar text and children, whatever their styles and positions.
+func sameNode(a, b *yaml.Node) bool {
+	if a.Kind != b.Kind || a.Value != b.Value || len(a.Content) != len(b.Content) {
+		return false
+	}
+	for i := range a.Content {
+		if !sameNode(a.Content[i], b.Content[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // valueIndex is the index in a mapping's Content of the value stored under a

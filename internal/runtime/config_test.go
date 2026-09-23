@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -69,6 +70,39 @@ func TestADottedKeyOverridesItsNestedTwin(t *testing.T) {
 				t.Errorf("shape = %q, want the dotted sigmoid", cfg.Pace.Shape)
 			}
 		})
+	}
+}
+
+// A hand edit of the nested key after the Management Center saved the dotted
+// one changes nothing, so the status page names the key that won.
+func TestADottedKeyOverridingADifferentNestedValueWarns(t *testing.T) {
+	for _, tc := range []struct {
+		name, block, warning string
+	}{
+		{"different", "affinity:\n  ttl: 30m\naffinity.ttl: 2h\n", "affinity.ttl overrides affinity: ttl; remove one"},
+		{"dotted first", "pace.shape: sigmoid\npace:\n  shape: power\n", "pace.shape overrides pace: shape; remove one"},
+		{"same value", "affinity:\n  ttl: 2h\naffinity.ttl: \"2h\"\n", ""},
+		{"no nested twin", "affinity:\n  enabled: true\naffinity.ttl: 2h\n", ""},
+		{"two dotted keys", "affinity.ttl: 30m\naffinity.ttl: 2h\n", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, warnings, err := decodeConfig([]byte(tc.block))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var want []string
+			if tc.warning != "" {
+				want = []string{tc.warning}
+			}
+			if !reflect.DeepEqual(warnings, want) {
+				t.Errorf("warnings = %q, want %q", warnings, want)
+			}
+		})
+	}
+
+	tp := newTestPlugin(t, testConfigYAML+"affinity:\n  ttl: 30m\naffinity.ttl: 2h\n")
+	if !hasWarning(tp.Status(testNow, ""), "affinity.ttl overrides affinity: ttl") {
+		t.Errorf("warnings = %q, want the override on the status page", tp.Status(testNow, "").Warnings)
 	}
 }
 
