@@ -3721,14 +3721,19 @@ th[aria-sort] button { color: var(--ink-1); }
           if (i > 0 && i < s.cur.length) { pts.push(s.cur[i]); }
           if (pts.length >= 2) {
             var d = pathOf(pts, xOf, Y);
-            var du = pts[pts.length - 1].u - pts[0].u, dh = (pts[pts.length - 1].t - pts[0].t) / 3600000;
+            /* A fall inside the stretch is a clearing: its figures run from
+               the fresh window's first reading. */
+            var f0 = 0;
+            for (var q = 1; q < pts.length; q++) if (pts[q].u < pts[q - 1].u) f0 = q;
+            var p0 = pts[f0], last = pts[pts.length - 1];
+            var du = last.u - p0.u, dh = (last.t - p0.t) / 3600000;
             var act = activeOn(st, a.auth_id, pts[0].t, pts[pts.length - 1].t);
             var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, gSegs);
             g.setAttribute("data-seat", a.auth_id);
             g.setAttribute("data-fk", "seg:" + a.auth_id + ":" + k);
             var estHere = pts.some(function (p) { return p.est; });
             var segHead = clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) +
-              " · " + pct(pts[0].u) + " → " + pct(pts[pts.length - 1].u) +
+              (f0 ? " · cleared" : "") + " · " + pct(p0.u) + " → " + pct(last.u) +
               " · " + rateText(dh > 0 ? du * 100 / dh : null) +
               (estHere ? " · estimated" : "");
             var convo = conversationLines(act);
