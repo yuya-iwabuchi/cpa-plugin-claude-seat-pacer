@@ -544,13 +544,13 @@ func TestHistoryBreaksTheCycleAfterItsResetPasses(t *testing.T) {
 	}
 }
 
-// TestALowerReadingInsideACycleIsNotRecorded covers the two sources feeding
+// TestALowerReadingInsideACycleHoldsTheLevel covers the two sources feeding
 // one ring: the usage endpoint reports a window to a hundredth of a percent
 // and a response header to a whole percent, so a header reading landing
 // between two endpoint reads can print one point under the last sample.
 // Utilization only rises until the window resets, so that reading is the
 // coarser source lagging, and the ring keeps the higher level.
-func TestALowerReadingInsideACycleIsNotRecorded(t *testing.T) {
+func TestALowerReadingInsideACycleHoldsTheLevel(t *testing.T) {
 	s := NewStore()
 	resets := testNow.Add(3 * time.Hour)
 	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.24, resets)))
@@ -570,7 +570,7 @@ func TestALowerReadingInsideACycleIsNotRecorded(t *testing.T) {
 		}
 	}
 	if h.Samples() != 3 {
-		t.Errorf("samples = %d, want 3: the lower reading is not recorded", h.Samples())
+		t.Errorf("samples = %d, want 3: the lower reading extends the flat run at its level", h.Samples())
 	}
 }
 
