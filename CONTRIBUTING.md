@@ -9,12 +9,10 @@ it first.
 ## Changes
 
 Open an issue before writing code. The plugin runs inside a proxy that holds
-Claude OAuth tokens, so every change is reviewed as credential-handling code
-against the host invariants in [AGENTS.md](AGENTS.md), and whether a change is
-worth that review is settled in the issue before any code exists. A pull
-request with no issue behind it is closed with a pointer here. When an issue
-settles on a change you want to make, say so there and a pull request is
-arranged.
+Claude OAuth tokens, so every change is reviewed as credential-handling code,
+and whether a change is worth that review is settled in the issue first. A
+pull request with no issue behind it is closed. When an issue settles on a
+change you want to make, say so there and a pull request is arranged.
 
 The MIT licence permits a fork. When your needs diverge from this plugin's
 design, a fork is the intended path rather than a pull request that moves it.
