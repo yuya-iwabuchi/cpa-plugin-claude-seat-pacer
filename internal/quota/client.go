@@ -148,9 +148,9 @@ func (c *Client) get(ctx context.Context, accessToken string) ([]byte, error) {
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		// The doer runs a host callback on this goroutine, beyond the reach of
-		// the plugin's entry-point recovers, and a panic escaping it would
-		// terminate the host process. It becomes a failed fetch instead.
+		// This goroutine is beyond the reach of the plugin's entry-point
+		// recovers, and a panic escaping the doer would terminate the host
+		// process. It becomes a failed fetch instead.
 		defer func() {
 			if r := recover(); r != nil {
 				done <- outcome{err: fmt.Errorf("usage request panicked: %v", r)}

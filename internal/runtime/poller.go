@@ -183,12 +183,21 @@ func (p *Plugin) runPoller(pl *poller) {
 			return
 		case <-timer.C:
 		}
-		// A poll that panics costs itself only: the next one waits a regular
-		// interval and the loop carries on.
-		wait := p.config().Quota.PollInterval
-		p.guard("poll", func() { wait = p.pollAndSchedule(ctx) })
-		timer.Reset(wait)
+		timer.Reset(p.guardedPoll(ctx))
 	}
+}
+
+// guardedPoll runs one poll under guard and returns the wait before the next.
+// A poll that panics costs itself only: the next one waits a regular interval,
+// and nextPollAt names that wake so the page's countdown stays true.
+func (p *Plugin) guardedPoll(ctx context.Context) time.Duration {
+	wait := p.config().Quota.PollInterval
+	if p.guard("poll", func() { wait = p.pollAndSchedule(ctx) }) {
+		p.mu.Lock()
+		p.nextPollAt = p.now().Add(wait)
+		p.mu.Unlock()
+	}
+	return wait
 }
 
 // guard runs fn and recovers a panic from it, logging what panicked. The poll
