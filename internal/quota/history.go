@@ -207,8 +207,8 @@ func (r *ring) export(kind model.WindowKind, scope string, max int) model.Window
 // replay records every sample of a stored history in order, each as the
 // estimate or observation its cycle marks it, so a ring loaded from disk obeys
 // the same spacing, tiering and cap as one built live. The tiering and the cap
-// run once, after the last sample: compaction only drops samples older than
-// the newest, which no later reading in the run looks at.
+// run once, after the last sample: compaction never drops the newest cycle's
+// last two samples, the only ones a following reading is compared against.
 func (r *ring) replay(h model.WindowHistory) {
 	for _, c := range h.Cycles {
 		for _, s := range c.Samples {
