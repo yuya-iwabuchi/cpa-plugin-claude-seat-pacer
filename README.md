@@ -1,6 +1,6 @@
 # Claude Seat Pacer
 
-Spends the Claude seat that resets soonest first, and keeps each conversation on one seat so its prompt cache holds.
+Uses up each Claude seat's weekly quota before it resets, and keeps every conversation on one seat so its prompt cache keeps working.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
@@ -10,32 +10,34 @@ Spends the Claude seat that resets soonest first, and keeps each conversation on
 
 ## Why
 
-Weekly quota is perishable: whatever a seat has not spent when its window
-resets is gone. With one seat resetting tomorrow and another reset this
-morning, the seat to drain is tomorrow's, and the fresh one can wait a week.
-CLIProxyAPI's own routing spreads evenly or fills the first seat, and either
-way budget expires unspent.
+Every Claude subscription seat gets a weekly quota, and whatever it hasn't used
+when the week resets is gone. With several seats that adds up: the routing
+built into [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) either
+spreads requests evenly or fills one seat first, and either way some seat
+reaches its reset with quota to spare.
 
-Two facts shape how this [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
-plugin does it. A prompt cache never crosses an Anthropic organization, and on
-real Claude Code traffic about 96% of input tokens are cache reads, so moving
-a live conversation to another seat pays full price for that request; a
-conversation therefore stays where it started. And the 5-hour window is a
-rate limit rather than a budget — it resets several times a day and carries
-nothing over — so it can veto a seat but does not rank one; the weekly
-windows decide where a new conversation goes.
+Claude Seat Pacer gives each seat a simple plan for its week: use the quota
+steadily, finishing a little before the reset. Every new conversation goes to
+the seat furthest behind its plan. A seat with quota left close to its reset is
+far behind, so it gets used first; a seat that just reset has almost nothing to
+be behind on, so it waits its turn.
 
-I built this for my own pool, and the defaults encode my preference: a new
-conversation starts on the seat furthest behind a spend curve that lands past
-full, which is the seat whose budget expires soonest. A pool where even spread
-matters more than draining the closing window wants `landing-target: 1.0`,
-and a design that has to diverge further is a fork, not a pull request.
+Once a conversation starts on a seat, it stays there. Anthropic's prompt cache
+never crosses from one account to another, and on real Claude Code traffic
+about 96% of input tokens are cache reads, so moving a live conversation would
+pay full price for everything it has already sent.
+
+This is my answer for my own pool, and the defaults are my preference: drain
+the seat about to reset. To stop leaning on that seat, `landing-target: 1.0`
+plans each seat to finish exactly at its reset. For an even spread across
+seats, turn the plugin off with `enabled: false` and the host's round-robin
+takes over. A design that needs to go further is a fork, not a pull request.
 
 ## Install
 
 Build from source; there is no prebuilt release or Plugin Store listing yet.
-The build needs Go 1.25 and a C toolchain, and the host must be CLIProxyAPI
-7.2.145 or newer (verified against 7.2.149).
+The build needs Go 1.25 and a C toolchain. The host must be CLIProxyAPI
+7.2.145 or newer; the plugin is tested against 7.3.10 and 7.3.15.
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
@@ -44,28 +46,39 @@ make install
 ```
 
 This writes `~/.cli-proxy-api/plugins/<goos>/<goarch>/claude-seat-pacer-v0.1.0.<dylib|so|dll>`
-(`PLUGIN_DIR` overrides the root). The host loads plugins once at startup, so
+(`PLUGIN_DIR` overrides the root). The host loads plugins at startup, so
 restart it — `brew services restart cliproxyapi` on Homebrew.
 
 ## Configure
 
-Turn the host's own affinity off and enable the plugin:
-
 ```yaml
+host: "127.0.0.1"          # optional: keeps the proxy off the network
+
 routing:
   session-affinity: false
 
 plugins:
+  enabled: true
+  dir: "/Users/<you>/.cli-proxy-api/plugins"   # absolute: where make install wrote
   configs:
     claude-seat-pacer:
       enabled: true
 ```
 
-The plugin owns conversation affinity, and a plugin's pick never seeds the
-host's cache, so the two cannot share it. Give every seat in the pool the same
-`priority`: the host offers the plugin only the top tier, and a seat alone
-there takes every new conversation with the rest as the host's own fallback.
-The status page warns when it sees that.
+CLIProxyAPI ships with plugins turned off, and a relative `dir` resolves
+against the host's working directory, which is not your home directory when
+the host runs as a service; give the absolute path. `host: "127.0.0.1"` keeps
+the proxy, its management API and every plugin page reachable from this
+machine only, which suits a single-machine setup.
+
+Turn the host's own affinity off: the plugin owns it, and a plugin's pick never
+seeds the host's cache, so the two cannot share it.
+
+Give every seat in the pool the same `priority`. The host offers a scheduler
+plugin only its top priority tier, and this plugin does not take the
+`SchedulerAcrossPriorities` option CLIProxyAPI 7.3.7 added to see the rest, so
+a seat alone at the top takes every new conversation, with the others as the
+host's own fallback. The status page warns when it sees that.
 
 A seat is named by its credential's `note` (the auth-file card in the
 Management Center, or a `note` key in the file); without one, by its account
@@ -84,13 +97,13 @@ rest hold up unattended.
         enabled: true
         ttl: 1h                 # idle time before a conversation's binding expires
         subagents: true         # a subagent shares its parent conversation's seat
-        override-threshold: true # keep a binding even when its seat trails the pace curve
+        override-threshold: true # keep a binding even when another seat is further behind its plan
         max-sessions: 65536     # bindings held before the least recently seen is dropped
       pace:
         shape: linear           # linear, power or sigmoid
         curve-exponent: 1.0     # power shape only; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
-        landing-target: 1.10    # utilization the curve aims for at window end; 0 < x <= 4
+        landing-target: 1.10    # how far the plan runs ahead of an even pace: 1.10 finishes ~9% early, 1.0 at the reset; 0 < x <= 4
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
         session-weight: 0       # weight of the 5-hour window; it is a rate limit, not a budget
@@ -106,17 +119,21 @@ rest hold up unattended.
         history-limit: 500      # routing decisions kept for the page
 ```
 
-Durations take Go syntax (`30s`, `2m`, `1h`). An out-of-range value falls back
-to its default; a block that does not parse loads the plugin disabled.
+Durations take Go syntax (`30s`, `2m`, `1h`). A negative weight or
+`hysteresis-margin` counts as 0, an unknown `shape` as linear, and any other
+value out of range falls back to its default. A block that does not parse
+loads the plugin disabled.
 
 ## How it picks
 
-A new conversation goes to the seat furthest behind its curve. Each weekly
-window's slack is the curve's target at this point in the window minus the
-seat's observed utilization, and the target is `landing-target` times the
-curve shape, clamped to full — so at the default 1.10 a seat near its reset is
-expected to have spent more, and wins while its budget can still be used. The
-seat's cost is the negated weighted sum of its slacks.
+A new conversation goes to the eligible seat furthest behind its plan. For each
+weekly window the plan is a target that rises from nothing at the window's
+start. At the default `landing-target: 1.10` it reaches the full quota about
+nine-tenths of the way through the week, so near the reset a seat is expected
+to have used everything, and any quota it still holds puts it behind. How far
+behind a seat is counts the all-models weekly window in full and a model-family
+window at half. The 5-hour window can make a seat ineligible but never ranks
+one: it resets several times a day and nothing in it carries over.
 
 A seat is ineligible when Anthropic has refused a request on one of its
 windows, a window reads full or not as a number, no window covers the
@@ -124,24 +141,35 @@ requested model family, its usage read has never succeeded, or its reading is
 older than `max-staleness`.
 
 A conversation stays on its seat while the host still offers it, and with the
-default `override-threshold` stays even when the seat trails the curve or is
-spent, because the cache hit is worth more than the rebalance. A refusal for
-the model moves it only when another seat can take that model. When no seat is
-eligible a conversation still gets one stable home, the seat with the fewest
-live conversations; a request with neither a session id nor a usable reading
-is declined to the host's own selector.
+default `override-threshold` it stays even when another seat is further behind
+its plan or its own seat runs out, because the cache hit is worth more than the
+rebalance. A refusal
+for the model moves it only when another seat can take that model. When no
+seat is eligible a conversation still gets one stable home, the seat with the
+fewest live conversations; a request with no session id and no eligible seat is
+left to the host's own selector.
 
 ## Status page
 
 The Management Center gains a "Claude Seat Pacer" entry. The page shows each
-seat's windows, utilization history, pace score and eligibility for a chosen
-model; the live bindings per seat; recent decisions with their scores; and a
-warning for whatever leaves the plugin inert or degraded.
+seat's windows, utilization history, pace score and eligibility for a chosen model;
+the live bindings per seat; recent decisions with their scores; and a warning
+for whatever leaves the plugin inert or degraded.
 
-It is served at `/v0/resource/plugins/claude-seat-pacer/index.html`, with its
-JSON at `.../api/status?model=<id>`, both without the management key. The
-authenticated routes under `/v0/management/plugins/claude-seat-pacer/` are
-`GET status`, `POST refresh`, `POST unbind?auth_id=` and `POST bindings/sweep`.
+The page asks for the management key (`remote-management.secret-key`) the
+first time it opens in a browser tab. Its data comes from the plugin's
+management routes, which the host answers only with that key and, unless
+`remote-management.allow-remote` is on, only for connections from the same
+machine. The page itself, at
+`/v0/resource/plugins/claude-seat-pacer/index.html`, carries no data. The host
+locks an address out of the management API for 30 minutes after five failed
+key checks, so the page sends nothing without a key and stops at the first
+refusal.
+
+The management routes under `/v0/management/plugins/claude-seat-pacer/` are
+`GET status` (the full status as JSON, `?model=<id>`), `GET page-status` (the
+page's view of it), `POST refresh`, `POST unbind?auth_id=` and
+`POST bindings/sweep`.
 
 ## Privacy and data
 
@@ -149,10 +177,10 @@ The plugin calls one external endpoint, `usage-url`, through the host's HTTP
 client with each seat's OAuth token, which the host already holds; the read
 reports per-window utilization.
 
-The status page is served without the management key, so seat ids are hashed,
-emails masked, and URLs and paths dropped from warnings before they ship. A
-credential's `note` is a seat's name and is published as written, so it is
-readable by anyone who can reach the page.
+The status page shows each seat without its account address: emails are
+masked, credential ids hashed, and URLs and file paths dropped from warnings,
+so the page is safe to put on a screen. A credential's `note` is its seat's
+name and appears as written.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples across restarts: credential ids (file names or account
@@ -162,14 +190,22 @@ first.
 
 ## Troubleshooting
 
-**The host does not list the plugin.** The plugin id comes from the library
-filename minus its extension and `-v<version>`, and the config block, routes
-and history directory all carry it. Keep the filename `make install` writes,
-and restart the host.
+**The host does not list the plugin.** Plugins are off by default: set
+`plugins.enabled: true` and point `plugins.dir` at the absolute directory
+`make install` wrote to. The plugin id comes from the library filename minus
+its extension and `-v<version>`, and the config block, routes and history
+directory all carry it, so keep the filename `make install` writes, and
+restart the host.
+
+**The page keeps asking for the key.** The key is kept per browser tab. A 401
+means the host did not accept the key; a 403 names its reason, either remote
+management being off for a connection from another machine, or the address
+being locked out for 30 minutes after five failed tries, a lock the Management
+Center shares.
 
 **Every new conversation lands on one seat.** `enabled` is false, or that seat
-is alone on the top `priority` tier. The status page warns and names the seats
-in both cases.
+is alone on the top `priority` tier. The status page warns in both cases and
+names the seats in the second.
 
 **Conversations do not stick.** The host's `routing.session-affinity` is still
 on; set it to `false`. Nothing the plugin receives distinguishes the two
@@ -180,8 +216,8 @@ states, so the page cannot warn about this one.
 and carries the poll error; wait one `poll-interval` or `POST refresh`.
 
 **The config block seems ignored.** A block that does not parse loads the
-plugin disabled with defaults, and an out-of-range value falls back to its
-default. The page warns that the plugin is disabled; fix the YAML and restart.
+plugin disabled with defaults. The page warns that the plugin is disabled; fix
+the YAML and restart.
 
 ## Contributing
 

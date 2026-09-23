@@ -1,6 +1,8 @@
-// Command claude-seat-pacer is a CLIProxyAPI plugin that spends the Claude
-// OAuth subscription seat whose weekly budget expires soonest first, and keeps
-// each conversation on one seat so Anthropic prompt caches keep hitting.
+// Command claude-seat-pacer is a CLIProxyAPI plugin that uses up each Claude
+// OAuth subscription seat's weekly quota before it resets: every new
+// conversation goes to the seat furthest behind a plan that spends its quota
+// steadily and finishes a little early, and each conversation stays on one seat
+// so Anthropic prompt caches keep hitting.
 //
 // This file is the C ABI boundary only: it installs the plugin vtable, guards
 // every entry point against panics, and forwards each call to
@@ -101,7 +103,7 @@ var configFields = []runtime.ConfigField{
 	{Name: "pace.shape", Type: "string", Description: "Target curve shape: linear, power or sigmoid. Default linear."},
 	{Name: "pace.curve-exponent", Type: "number", Description: "Exponent for the power shape; above 1.0 holds back early. Selects the power shape when pace.shape is unset, and is ignored by the sigmoid shape. Default 1.0."},
 	{Name: "pace.steepness", Type: "number", Description: "Slope through the sigmoid's midpoint. Ignored by the other shapes. Default 8.0."},
-	{Name: "pace.landing-target", Type: "number", Description: "Utilization the curve aims for at window end, clamped to full. Above 1.0 favours a credential near its reset, whose budget expires soonest. Default 1.10."},
+	{Name: "pace.landing-target", Type: "number", Description: "How far each seat's plan runs ahead of an even pace. 1.10 finishes the week's quota about 9% early, so a seat near its reset is used first; 1.0 finishes at the reset. Default 1.10."},
 	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m, minimum 30s."},
 	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page on the plugin's resource routes. Default true."},
 }

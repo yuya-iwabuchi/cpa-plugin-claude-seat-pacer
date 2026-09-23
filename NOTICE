@@ -6,5 +6,5 @@ The C ABI preamble in main.go and internal/runtime/testdata/probe/main.go,
 and the plugin ABI types mirrored in internal/runtime/wire.go, derive from
 CLIProxyAPI (https://github.com/router-for-me/CLIProxyAPI), which is
 licensed under the MIT License:
-  Copyright (c) 2025-2025.9 Luis Pater
+  Copyright (c) 2025-2005.9 [sic] Luis Pater
   Copyright (c) 2025.9-present Router-For.ME
