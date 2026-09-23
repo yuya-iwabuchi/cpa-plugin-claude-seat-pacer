@@ -552,9 +552,9 @@ func TestPollKeepsHistoryForCredentialsItDoesNotFetch(t *testing.T) {
 }
 
 // TestStopPollerSavesUnderThePollLock covers the second writer to the history
-// file's fixed sibling path: joining the poll loop leaves out a management
-// refresh, which runs a poll and its save inline on the HTTP goroutine, so the
-// stop path waits on the same lock a poll's own save holds.
+// file: joining the poll loop leaves out a management refresh, which runs a
+// poll and its save inline on the HTTP goroutine, so the stop path waits on
+// the same lock a poll's own save holds.
 func TestStopPollerSavesUnderThePollLock(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)

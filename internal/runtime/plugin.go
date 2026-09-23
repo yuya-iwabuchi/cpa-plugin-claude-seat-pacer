@@ -93,9 +93,11 @@ type Plugin struct {
 	// poll cannot race their assertions.
 	startDelay time.Duration
 	// historyLoaded marks the one-time read of the history file, and
-	// historySaved the store version the file last held.
-	historyLoaded bool
-	historySaved  uint64
+	// historySaved the store version the file last held. historyRefused marks
+	// a file of a newer version, which this run neither reads nor writes.
+	historyLoaded  bool
+	historyRefused bool
+	historySaved   uint64
 }
 
 // resourceHandler wraps an http.Handler so it fits an atomic.Pointer.

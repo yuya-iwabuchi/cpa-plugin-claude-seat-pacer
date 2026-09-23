@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -77,24 +78,43 @@ func defaultHistoryFile() string {
 
 // loadHistory reads the history file once, ahead of the first poll, so the
 // charts show the previous run's samples from the first status response. It
-// runs on the poll goroutine, never on the pick path.
+// runs under pollMu on the poll goroutine or a management request, never on
+// the pick path.
 //
-// The load counts as done only once the file has actually been read, which is
-// what saveHistory waits for: a run with persistence off, or one whose read
-// failed, must not write the file it never took the previous samples from.
-// Persistence turned on by a reload therefore still loads before it saves,
-// and a read that failed is retried on the next poll.
+// The load counts as done only once the file has actually been read or set
+// aside, which is what saveHistory waits for: a run with persistence off, or
+// one whose read failed, must not write the file it never took the previous
+// samples from. Persistence turned on by a reload therefore still loads before
+// it saves, and a read that failed is retried on the next poll.
+//
+// Two files end the attempt for good, each with one warning. One that does not
+// parse has been moved aside, so the load is done and saves start a fresh
+// file. One of a newer version belongs to a newer build, so this run neither
+// reads nor writes it and keeps no history on disk.
 func (p *Plugin) loadHistory(cfg model.Config) {
 	if !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
 		return
 	}
 	p.mu.Lock()
-	done := p.historyLoaded
+	done := p.historyLoaded || p.historyRefused
 	p.mu.Unlock()
 	if done {
 		return
 	}
-	if err := p.quota.LoadHistory(p.opts.HistoryFile); err != nil {
+	// The aside file is named by the wall clock, which is what an operator
+	// reading the directory compares it against.
+	err := p.quota.LoadHistory(p.opts.HistoryFile, time.Now())
+	var corrupt *quota.CorruptHistoryError
+	switch {
+	case errors.Is(err, quota.ErrHistoryVersion):
+		p.host.log("warn", "claude-seat-pacer leaves a newer history file alone and keeps no history on disk this run", map[string]any{"path": p.opts.HistoryFile})
+		p.mu.Lock()
+		p.historyRefused = true
+		p.mu.Unlock()
+		return
+	case errors.As(err, &corrupt):
+		p.host.log("warn", "claude-seat-pacer set an unreadable history file aside and starts a fresh one", map[string]any{"aside": corrupt.Aside, "error": corrupt.Err.Error()})
+	case err != nil:
 		p.host.log("warn", "claude-seat-pacer could not read the utilization history", map[string]any{"error": err.Error()})
 		return
 	}
@@ -132,9 +152,9 @@ func (p *Plugin) saveHistory(cfg model.Config) {
 //
 // The final save takes pollMu, the lock a poll's own save already runs under.
 // Joining the loop goroutine does not cover a management refresh, which runs
-// p.poll inline on the HTTP goroutine, and SaveHistory writes one fixed
-// sibling path before renaming it: two writers there would leave a truncated
-// history file behind.
+// p.poll inline on the HTTP goroutine; under the lock the two saves run one
+// after the other, so the file ends holding the newer store and historySaved
+// names the version it holds.
 func (p *Plugin) stopPoller() {
 	p.lifeMu.Lock()
 	defer p.lifeMu.Unlock()
@@ -176,7 +196,13 @@ func (p *Plugin) runPoller(pl *poller) {
 
 	timer := time.NewTimer(p.startDelay)
 	defer timer.Stop()
-	p.guard("history load", func() { p.loadHistory(p.config()) })
+	// The load takes pollMu, as a poll's own load does, so a management
+	// refresh landing before the first poll cannot read the file beside it.
+	p.guard("history load", func() {
+		p.pollMu.Lock()
+		defer p.pollMu.Unlock()
+		p.loadHistory(p.config())
+	})
 	for {
 		select {
 		case <-pl.stop:
