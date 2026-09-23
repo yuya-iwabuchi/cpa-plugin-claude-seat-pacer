@@ -72,3 +72,13 @@ func TestBufferTooLargeGuardsGoBytes(t *testing.T) {
 		}
 	}
 }
+
+// The host renders its own enable toggle for every plugin and loads no
+// disabled plugin, so an enabled field would be a second switch for one state.
+func TestConfigFieldsLeaveEnabledToTheHost(t *testing.T) {
+	for _, field := range configFields {
+		if field.Name == "enabled" {
+			t.Errorf("configFields declares %q, which the host's own toggle owns", field.Name)
+		}
+	}
+}

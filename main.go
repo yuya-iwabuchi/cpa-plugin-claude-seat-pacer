@@ -96,8 +96,9 @@ const (
 
 // configFields are the knobs the Management Center renders inputs for. The
 // full set lives in model.Config; these are the ones an operator tunes.
+// enabled is absent: the host renders its own toggle for every plugin, and
+// loads no disabled plugin at all.
 var configFields = []runtime.ConfigField{
-	{Name: "enabled", Type: "boolean", Description: "Route governed requests. Off leaves the host's own selector in charge."},
 	{Name: "providers", Type: "array", Description: "Provider keys the plugin governs. Default [claude]."},
 	{Name: "affinity.ttl", Type: "string", Description: "Idle time before a conversation's credential binding expires. Default 1h."},
 	{Name: "pace.shape", Type: "string", Description: "Target curve shape: linear, power or sigmoid. Default linear."},
