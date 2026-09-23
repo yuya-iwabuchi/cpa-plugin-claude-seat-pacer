@@ -40,6 +40,11 @@ const hostDrainTimeout = 5 * time.Second
 // utilization.
 const resetSettle = 4 * time.Second
 
+// resetWakeFloor is the shortest wake a window reset can ask for. A provider
+// that keeps reporting a reset a few seconds ahead would otherwise hold the
+// loop at one poll per settle delay.
+const resetWakeFloor = 30 * time.Second
+
 // errNoGovernedCredential is the listing failure a poll records when the host
 // names no credential this plugin governs.
 const errNoGovernedCredential = "the host listed no credential this plugin governs"
@@ -270,9 +275,10 @@ func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
 //
 // Only a reset still in the future shortens a wake, which is what keeps the
 // loop off a reset it has already served: the poll a reset drives leaves that
-// instant in the past, and the wake after it is the plain interval. A reset a
-// hair ahead of now would undercut the settle the provider needs, so the wait
-// floors at resetSettle and is never zero or negative. Several seats resetting
+// instant in the past, and the wake after it is the plain interval. A
+// shortened wait floors at resetWakeFloor, never past the interval, so a reset
+// a hair ahead of now neither undercuts the settle the provider needs nor, if
+// the provider keeps reporting one, spins the loop. Several seats resetting
 // inside one settle window share the single poll at its end.
 //
 // MinForcedPollGap does not apply. It bounds what open status pages may ask of
@@ -294,7 +300,7 @@ func nextPollWait(snaps []model.AuthSnapshot, now time.Time, interval time.Durat
 	if earliest.IsZero() {
 		return interval
 	}
-	return min(max(earliest.Sub(now)+resetSettle, resetSettle), interval)
+	return min(max(earliest.Sub(now)+resetSettle, resetWakeFloor), interval)
 }
 
 // pollOnce runs one background poll under the deadline a manual refresh uses,

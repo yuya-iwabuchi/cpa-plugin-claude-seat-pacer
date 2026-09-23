@@ -681,6 +681,19 @@ func TestAResetAtHandNeverWakesTheLoopAtOnce(t *testing.T) {
 	}
 }
 
+// TestAResetKeptSecondsAheadDoesNotSpinTheLoop covers a provider that reports
+// the same few seconds to a reset on every read: the wake floors well above
+// the settle delay, and never past the interval.
+func TestAResetKeptSecondsAheadDoesNotSpinTheLoop(t *testing.T) {
+	snaps := []model.AuthSnapshot{{AuthID: "a", Windows: resetWindow(testNow.Add(time.Second))}}
+	if got := nextPollWait(snaps, testNow, testPollInterval); got != resetWakeFloor {
+		t.Errorf("wake for a reset a second ahead = %v, want the %v floor", got, resetWakeFloor)
+	}
+	if got := nextPollWait(snaps, testNow, 20*time.Second); got != 20*time.Second {
+		t.Errorf("wake under a 20s interval = %v, want the interval", got)
+	}
+}
+
 // TestTheWakeAfterAResetDrivenPollIsTheInterval walks two iterations of the
 // loop: the instant that shortened the first wake is in the past by the second,
 // so the loop returns to the interval instead of polling every settle delay.
