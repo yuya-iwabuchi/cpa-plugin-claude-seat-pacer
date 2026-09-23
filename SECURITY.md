@@ -27,7 +27,7 @@ PowerShell prints the SHA-256 to compare with that zip's line, in upper case.
 Neither shows who built the zip, because the same workflow publishes the
 checksums beside the zips.
 
-The attestation can:
+The attestation shows who built it:
 
 ```sh
 gh attestation verify claude-seat-pacer_<version>_<goos>_<goarch>.zip \
