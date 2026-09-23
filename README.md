@@ -35,25 +35,37 @@ early. For an even spread, disable the plugin and turn the host's
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
 7.3.10 and 7.3.15.
 
-The simplest route is the Plugin Store. Add the author's
-[registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry) as a plugin
-source (in the Management Center, Config Panel → Advanced → Third-party Plugin
-Sources, then save, or `store-sources` in the config below) and install Claude
-Seat Pacer from the store. It checks the download against the release's
-checksums and loads it without a restart; a new release shows as an update
-within about an hour. An install records its version under `store:` in the
-plugin's config block, and from then on the host loads only that version and
-deletes the plugin's other library files at its next start, so remove that
-key before installing by hand again.
+### From the Plugin Store
 
-Or download your platform's zip from the
+1. Add the author's [registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry)
+   as a plugin source. In the Management Center, open Config Panel → Advanced
+   → Third-party Plugin Sources, add this URL, and save (or list it under
+   `store-sources` in the config below):
+
+   ```
+   https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
+   ```
+
+2. Install Claude Seat Pacer from the Plugin Store. It checks the download
+   against the release's checksums and loads it without a restart.
+3. Click Update when a new release shows as one, within about an hour of its
+   publication.
+
+The store records the installed version under `store:` in the plugin's config
+block. The host then loads only that version and deletes the plugin's other
+library files at its next start, so remove that key before installing by
+hand.
+
+### Other ways to install
+
+Download your platform's zip from the
 [latest release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases/latest)
 and put the library in `~/.cli-proxy-api/plugins/<goos>/<goarch>/`, keeping its
 file name. From v0.1.1 the libraries load on macOS 12, Windows 10, or Linux
 with glibc 2.34, or newer. [SECURITY.md](SECURITY.md) shows how to verify the
 zip.
 
-To build from source instead, with Go 1.25 and a C toolchain:
+Or build from source, with Go 1.25 and a C toolchain:
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
@@ -63,10 +75,13 @@ make install   # PLUGIN_DIR overrides ~/.cli-proxy-api/plugins
 
 The host loads a library the next time it applies a config change, but only
 from a file path it hasn't loaded before. After replacing a loaded file,
-restart the host (`brew services restart cliproxyapi` on Homebrew). A new
-version starts with no conversation bindings, costing each open conversation
-one prompt-cache miss. On macOS, also restart after uninstalling: an unloaded
-Go library can leave a thread running in the host.
+restart the host (`brew services restart cliproxyapi` on Homebrew).
+
+### Updating and uninstalling
+
+A new version starts with no conversation bindings, costing each open
+conversation one prompt-cache miss. On macOS, restart the host after
+uninstalling: an unloaded Go library can leave a thread running in the host.
 
 ## Configure
 
