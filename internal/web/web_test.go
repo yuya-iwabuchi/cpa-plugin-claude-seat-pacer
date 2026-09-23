@@ -1033,3 +1033,33 @@ func TestNonFiniteHistorySampleSurvivesEncoding(t *testing.T) {
 		t.Errorf("source history was mutated: %v", got)
 	}
 }
+
+// TestFileNameResidueFoldsWithoutRealigning covers letters whose lowercase has
+// another UTF-8 length: U+023A grows by a byte and the Kelvin sign shrinks by
+// two, so a match found in a lowercased copy lands at the wrong offset in the
+// name itself.
+func TestFileNameResidueFoldsWithoutRealigning(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, email, want string }{
+		{"claude-\u212a\u212abob.json", "bob@acme.example", "\u212a\u212a"},
+		{"claude-\u212aim-eu.json", "kim@acme.example", "eu"},
+		{"\u023a\u023a\u023a\u023a-bob.json", "bob@acme.example", "\u023a\u023a\u023a\u023a"},
+	}
+	for _, c := range cases {
+		if got := fileNameResidue(c.name, c.email, "claude"); got != c.want {
+			t.Errorf("fileNameResidue(%q, %q) = %q, want %q", c.name, c.email, got, c.want)
+		}
+	}
+
+	st := richStatus()
+	st.Auths[0].Label = "bob@acme.example"
+	st.Auths[0].Email = "bob@acme.example"
+	st.Auths[0].Name = "\u023a\u023a\u023a\u023a-bob.json"
+	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "bob") {
+		t.Errorf("the account's local part is served: %s", rec.Body.String())
+	}
+}

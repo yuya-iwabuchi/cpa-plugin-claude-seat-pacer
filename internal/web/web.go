@@ -486,22 +486,14 @@ func fileNameResidue(name, email, provider string) string {
 	}
 }
 
-// deleteFold removes every case-insensitive occurrence of old from s.
+// deleteFold removes every case-insensitive occurrence of old from s. It
+// matches on s itself, because a lowercased copy is not byte-aligned with it:
+// a letter such as U+023A or the Kelvin sign changes length when lowercased.
 func deleteFold(s, old string) string {
 	if old == "" {
 		return s
 	}
-	lower, target := strings.ToLower(s), strings.ToLower(old)
-	var b strings.Builder
-	for {
-		i := strings.Index(lower, target)
-		if i < 0 {
-			b.WriteString(s)
-			return b.String()
-		}
-		b.WriteString(s[:i])
-		s, lower = s[i+len(old):], lower[i+len(old):]
-	}
+	return regexp.MustCompile("(?i)"+regexp.QuoteMeta(old)).ReplaceAllLiteralString(s, "")
 }
 
 // maskEmail masks an account email down to its first letter and domain. The
