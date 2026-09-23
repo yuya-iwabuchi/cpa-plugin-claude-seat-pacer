@@ -284,7 +284,29 @@ func newTestPlugin(t *testing.T, configYAML string) *testPlugin {
 	tp.fetchStagger = 0
 	t.Cleanup(tp.Shutdown)
 	tp.register(t, MethodPluginRegister, configYAML)
+	tp.awaitStartupLoad(t)
 	return tp
+}
+
+// awaitStartupLoad waits until the poll loop's startup history load has
+// released pollMu, so a test's own SyncNow or poll never meets it holding the
+// lock.
+func (tp *testPlugin) awaitStartupLoad(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tp.pollMu.TryLock() {
+			tp.mu.Lock()
+			done := tp.historyLoaded || tp.historyRefused || !tp.config().Quota.PersistHistory
+			tp.mu.Unlock()
+			tp.pollMu.Unlock()
+			if done {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("the poll loop's startup history load did not finish")
 }
 
 // register drives plugin.register or plugin.reconfigure and returns the
