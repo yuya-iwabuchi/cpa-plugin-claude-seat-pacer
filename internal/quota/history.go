@@ -57,8 +57,16 @@ func (r *ring) record(at time.Time, w model.Window) {
 // reading behind an observed one in the same cycle is recorded as observed:
 // the estimate is only ever a prefix.
 func (r *ring) put(at time.Time, w model.Window, estimated bool) {
+	if r.add(at, w, estimated) {
+		r.compact()
+	}
+}
+
+// add is put without the compaction, for a caller recording a run of readings
+// that compacts once at the end. It reports whether the ring changed.
+func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 	if at.IsZero() || math.IsNaN(w.Utilization) || math.IsInf(w.Utilization, 0) {
-		return
+		return false
 	}
 	s := model.Sample{At: at.Truncate(time.Second), Utilization: math.Round(w.Utilization*utilizationScale) / utilizationScale}
 
@@ -68,8 +76,7 @@ func (r *ring) put(at time.Time, w model.Window, estimated bool) {
 		// expired reset inherits that stale instant; the first reading to
 		// carry the real one rolls the cycle onto it.
 		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
-		r.compact()
-		return
+		return true
 	}
 	c := &r.cycles[n-1]
 	if c.ResetsAt.IsZero() {
@@ -78,9 +85,9 @@ func (r *ring) put(at time.Time, w model.Window, estimated bool) {
 	last := &c.Samples[len(c.Samples)-1]
 	switch {
 	case !s.At.After(last.At):
-		return
+		return false
 	case s.Utilization < last.Utilization:
-		return
+		return false
 	case c.Estimated && !estimated:
 		until := last.At
 		c.Estimated, c.EstimatedUntil = false, &until
@@ -92,7 +99,7 @@ func (r *ring) put(at time.Time, w model.Window, estimated bool) {
 	default:
 		c.Samples = append(c.Samples, s)
 	}
-	r.compact()
+	return true
 }
 
 // rolled reports whether a reading's reset instant belongs to a later (or
@@ -199,11 +206,14 @@ func (r *ring) export(kind model.WindowKind, scope string, max int) model.Window
 
 // replay records every sample of a stored history in order, each as the
 // estimate or observation its cycle marks it, so a ring loaded from disk obeys
-// the same spacing, tiering and cap as one built live.
+// the same spacing, tiering and cap as one built live. The tiering and the cap
+// run once, after the last sample: compaction only drops samples older than
+// the newest, which no later reading in the run looks at.
 func (r *ring) replay(h model.WindowHistory) {
 	for _, c := range h.Cycles {
 		for _, s := range c.Samples {
-			r.put(s.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: s.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(s))
+			r.add(s.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: s.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(s))
 		}
 	}
+	r.compact()
 }

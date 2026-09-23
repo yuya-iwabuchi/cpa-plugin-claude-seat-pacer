@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,6 +163,47 @@ func TestHistoryCoarsensAndCaps(t *testing.T) {
 	}
 	if got := r.export(model.WindowWeekly, "", HistoryPublishMax).Samples(); got > HistoryPublishMax+1 {
 		t.Errorf("published samples = %d, want at most %d plus the cycle's last", got, HistoryPublishMax)
+	}
+}
+
+// nineDaysOfMinutes is a weekly history no ring has compacted: a distinct
+// reading every minute for nine days, across one reset.
+func nineDaysOfMinutes() model.WindowHistory {
+	h := model.WindowHistory{Kind: model.WindowWeekly}
+	n := 9 * 24 * 60
+	for c, resets := range []time.Time{testNow.Add(4 * 24 * time.Hour), testNow.Add(11 * 24 * time.Hour)} {
+		cycle := model.Cycle{ResetsAt: resets}
+		for i := c * n / 2; i < (c+1)*n/2; i++ {
+			cycle.Samples = append(cycle.Samples, model.Sample{At: testNow.Add(time.Duration(i) * time.Minute), Utilization: float64(i%(n/2)) / float64(n)})
+		}
+		h.Cycles = append(h.Cycles, cycle)
+	}
+	return h
+}
+
+// TestReplayMatchesALiveRecording covers the one-pass compaction of a replay:
+// a history replayed from disk holds exactly what the same readings recorded
+// live do.
+func TestReplayMatchesALiveRecording(t *testing.T) {
+	saved := nineDaysOfMinutes()
+	live := &ring{}
+	for _, c := range saved.Cycles {
+		for _, smp := range c.Samples {
+			live.record(smp.At, model.Window{Kind: saved.Kind, Utilization: smp.Utilization, ResetsAt: c.ResetsAt})
+		}
+	}
+	replayed := &ring{}
+	replayed.replay(saved)
+	want, got := live.export(saved.Kind, "", 0), replayed.export(saved.Kind, "", 0)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("replayed history holds %d samples in %d cycles, live %d in %d", got.Samples(), len(got.Cycles), want.Samples(), len(want.Cycles))
+	}
+}
+
+func BenchmarkReplay(b *testing.B) {
+	saved := nineDaysOfMinutes()
+	for b.Loop() {
+		(&ring{}).replay(saved)
 	}
 }
 

@@ -394,9 +394,10 @@ func (s *Store) ImportHistory(saved map[string][]model.WindowHistory) {
 			if live, has := e.history[key]; has {
 				for _, c := range live.cycles {
 					for _, smp := range c.Samples {
-						r.put(smp.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: smp.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(smp))
+						r.add(smp.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: smp.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(smp))
 					}
 				}
+				r.compact()
 			} else {
 				e.order = append(e.order, key)
 			}
