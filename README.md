@@ -41,8 +41,30 @@ pull request.
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
 7.3.10 and 7.3.15. Each [release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases)
 carries a zip per platform; from v0.1.1 its libraries load on macOS 12,
-Windows 10, or Linux with glibc 2.34, or newer. To build from source instead,
-you need Go 1.25 and a C toolchain:
+Windows 10, or Linux with glibc 2.34, or newer.
+
+### From the Plugin Store
+
+Add [the author's registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry)
+as a plugin source, under Third-party Plugin Sources on the Management
+Center's config page, or in the host config:
+
+```yaml
+plugins:
+  store-sources:
+    - https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
+```
+
+Then install Claude Seat Pacer from the Plugin Store. The store checks the
+download against the release's `checksums.txt` and loads it without a
+restart, and later releases arrive through its Update button. It records the
+installed version under `store:` in the plugin's config block, and the host
+then loads only that version, so a library built by hand for another version
+is ignored until that key is removed.
+
+### From source
+
+The build needs Go 1.25 and a C toolchain:
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
@@ -57,11 +79,13 @@ loaded yet. `make install` of the same version rewrites the path already
 loaded, so restart the host to pick up the build —
 `brew services restart cliproxyapi` on Homebrew.
 
-An update to a new version loads on the next config change without a
-restart, because its file name differs. The new library starts with no
-conversation bindings, which costs each open conversation one prompt-cache
-miss. On macOS, restart the host after uninstalling the plugin: an unloaded Go
-library can leave a thread running in the host process.
+### Updating
+
+A new version loads without a restart, because its file name differs. The
+new library starts with no conversation bindings, which costs each open
+conversation one prompt-cache miss. On macOS, restart the host after
+uninstalling the plugin: an unloaded Go library can leave a thread running in
+the host process.
 
 ## Configure
 
@@ -76,7 +100,7 @@ routing:
 
 plugins:
   enabled: true
-  dir: "~/.cli-proxy-api/plugins"   # where make install wrote
+  dir: "~/.cli-proxy-api/plugins"   # where the store and make install write
   configs:
     claude-seat-pacer:
       enabled: true
