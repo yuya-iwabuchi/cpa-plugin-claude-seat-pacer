@@ -513,6 +513,44 @@ func TestPinnedRequestIsNotASingleCandidatePool(t *testing.T) {
 	}
 }
 
+// TestPinnedRequestLeavesTheBindingAlone covers a request locked to one
+// credential: it routes there, and the conversation's own binding survives it.
+func TestPinnedRequestLeavesTheBindingAlone(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-b", testNow)
+
+	req := pickRequest(fableModel, "k", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want the pinned seat-a", resp)
+	}
+	if b, _ := tp.bindings.Lookup("claude", fableModel, "k", testNow); b.AuthID != "seat-b" {
+		t.Errorf("binding = %+v, want it left on seat-b", b)
+	}
+
+	// A new conversation pinned on its first request gets no binding either.
+	req = pickRequest(fableModel, "fresh", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	tp.pick(t, req)
+	if b, ok := tp.bindings.Lookup("claude", fableModel, "fresh", testNow); ok {
+		t.Errorf("a pinned first request bound the conversation: %+v", b)
+	}
+
+	// Nor does a pinned subagent that inherits its parent's credential.
+	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
+	req = pickRequest(fableModel, "child", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	req.Options.Headers[HeaderSessionParent] = []string{"parent"}
+	req.Options.Headers[HeaderSubagent] = []string{"1"}
+	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
+		t.Fatalf("pinned subagent = %+v, want the parent's seat-a", resp)
+	}
+	if b, ok := tp.bindings.Lookup("claude", fableModel, "child", testNow); ok {
+		t.Errorf("a pinned subagent bound the conversation: %+v", b)
+	}
+}
+
 func TestPickIsSafeUnderConcurrency(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)

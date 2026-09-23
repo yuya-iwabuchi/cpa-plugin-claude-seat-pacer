@@ -34,8 +34,11 @@ type pickInput struct {
 	// retryOf names the credential that already failed this request, present
 	// only on a retry pick.
 	retryOf string
-	snaps   map[string]model.AuthSnapshot
-	scores  []model.Score
+	// pinned marks a request the caller locked to one credential. It routes
+	// there without binding the conversation, which keeps its own home.
+	pinned bool
+	snaps  map[string]model.AuthSnapshot
+	scores []model.Score
 }
 
 func (in pickInput) isCandidate(authID string) bool {
@@ -108,11 +111,15 @@ func (in pickInput) refused(authID string) bool {
 //     takes it, preferring one the provider has neither refused nor reported
 //     full and breaking ties on the lowest id, so the conversation still gets
 //     one stable home.
+//
+// A request pinned to one credential is routed by the same rules but binds
+// nothing, so the conversation's own binding outlives it.
 func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	cfg := p.config()
 	now := p.now()
 	in := pickInput{req: req, cfg: cfg, now: now, identity: readBridge(req.Options.Headers)}
 	in.retryOf = metadataString(req.Options.Metadata, MetadataSelectedAuthID)
+	_, in.pinned = req.Options.Metadata[MetadataPinnedAuthID]
 
 	decline := func(note string) SchedulerPickResponse {
 		p.record(model.Decision{
@@ -148,7 +155,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	// A retry pick has the failed credential removed and a pinned request is
 	// offered exactly one candidate by design, so neither says anything about
 	// the pool's priority values.
-	if _, pinned := req.Options.Metadata[MetadataPinnedAuthID]; !pinned && in.retryOf == "" {
+	if !in.pinned && in.retryOf == "" {
 		p.observeCandidates(in.provider, len(in.candidates))
 	}
 
@@ -188,7 +195,9 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 		// A credential the provider has already rejected is no better a home
 		// for the child than for the parent.
 		if ok && in.isCandidate(parent.AuthID) && !blockedFor(in.snaps[parent.AuthID], in.req.Model) {
-			bindings.Bind(in.provider, in.req.Model, id.Key, parent.AuthID, in.now)
+			if !in.pinned {
+				bindings.Bind(in.provider, in.req.Model, id.Key, parent.AuthID, in.now)
+			}
 			return p.decide(in, model.Decision{
 				ChosenAuthID: parent.AuthID,
 				Kind:         model.DecisionAffinityHit,
@@ -272,10 +281,13 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 		d.Kind = model.DecisionFailover
 		d.PreviousAuthID = previous
 	}
-	if in.identity.Key != "" && in.cfg.Affinity.Enabled {
-		p.bindingStore().Bind(in.provider, in.req.Model, in.identity.Key, chosen, in.now)
-	} else if in.identity.Key == "" {
+	switch {
+	case in.identity.Key == "":
 		d.Note = joinNotes(d.Note, "no session key; not pinned")
+	case in.pinned:
+		d.Note = joinNotes(d.Note, "pinned request; binding left alone")
+	case in.cfg.Affinity.Enabled:
+		p.bindingStore().Bind(in.provider, in.req.Model, in.identity.Key, chosen, in.now)
 	}
 	return p.decide(in, d)
 }
