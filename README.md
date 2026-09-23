@@ -27,8 +27,8 @@ already sent.
 
 The defaults suit my pool: drain the seat about to reset. Set
 `landing-target: 1.0` to plan each seat to finish at its reset instead of
-early. For an even spread, disable the plugin
-and the host's round-robin takes over.
+early. For an even spread, disable the plugin and the host's round-robin takes
+over.
 
 ## Install
 
@@ -38,7 +38,9 @@ The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
 Download your platform's zip from the
 [latest release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases/latest)
 and put the library in `~/.cli-proxy-api/plugins/<goos>/<goarch>/`, keeping its
-file name. [SECURITY.md](SECURITY.md) shows how to verify the zip.
+file name. From v0.1.1 the libraries load on macOS 12, Windows 10, or Linux
+with glibc 2.34, or newer. [SECURITY.md](SECURITY.md) shows how to verify the
+zip.
 
 To build from source instead, with Go 1.25 and a C toolchain:
 
@@ -105,7 +107,7 @@ open conversation one prompt-cache miss.
         max-sessions: 65536     # bindings held before the least recently seen is dropped
       pace:
         shape: linear           # linear, power or sigmoid
-        curve-exponent: 1.0     # power shape only; above 1 holds back early
+        curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
         landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
         weekly-weight: 1.0      # weight of the all-models weekly window
