@@ -110,7 +110,7 @@ type QuotaConfig struct {
 	// PollInterval is how often each credential's usage endpoint is read.
 	// Claude Code itself caches this for an hour, so minutes are generous.
 	PollInterval time.Duration `yaml:"poll-interval" json:"poll_interval"`
-	// RequestTimeout bounds one usage fetch.
+	// RequestTimeout bounds one usage fetch, at most a minute.
 	RequestTimeout time.Duration `yaml:"request-timeout" json:"request_timeout"`
 	// MaxStaleness is the age past which a snapshot stops being trusted and
 	// the plugin declines rather than routing on stale data.
@@ -242,7 +242,9 @@ func (c *Config) Normalize() {
 	if c.Quota.PollInterval < 30*time.Second {
 		c.Quota.PollInterval = d.Quota.PollInterval
 	}
-	if c.Quota.RequestTimeout <= 0 {
+	// One poll shares a fixed budget across every credential, so a fetch
+	// allowed to hang past a minute can spend it alone.
+	if c.Quota.RequestTimeout <= 0 || c.Quota.RequestTimeout > time.Minute {
 		c.Quota.RequestTimeout = d.Quota.RequestTimeout
 	}
 	if c.Quota.MaxStaleness <= 0 {

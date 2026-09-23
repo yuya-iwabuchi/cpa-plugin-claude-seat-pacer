@@ -294,3 +294,25 @@ func TestNormalizeBoundsTheHistoryLimit(t *testing.T) {
 		}
 	}
 }
+
+// Every credential's fetch in one poll shares a two-minute budget, so a
+// timeout past a minute lets one hung fetch starve the rest.
+func TestNormalizeBoundsTheRequestTimeout(t *testing.T) {
+	d := Defaults()
+	for _, tc := range []struct {
+		in, want time.Duration
+	}{
+		{time.Second, time.Second},
+		{time.Minute, time.Minute},
+		{time.Minute + time.Nanosecond, d.Quota.RequestTimeout},
+		{time.Hour, d.Quota.RequestTimeout},
+		{0, d.Quota.RequestTimeout},
+		{-time.Second, d.Quota.RequestTimeout},
+	} {
+		cfg := Config{Quota: QuotaConfig{RequestTimeout: tc.in}}
+		cfg.Normalize()
+		if cfg.Quota.RequestTimeout != tc.want {
+			t.Errorf("RequestTimeout %v normalized to %v, want %v", tc.in, cfg.Quota.RequestTimeout, tc.want)
+		}
+	}
+}
