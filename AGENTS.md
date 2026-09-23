@@ -13,9 +13,10 @@ and each conversation stays on one seat so Anthropic prompt caches keep
 hitting.
 
 The preference is a policy, not a bug to fix: `LandingTarget` defaults above
-full on purpose, because weekly quota left at reset is lost. 1.0 removes the
-lean toward a seat near its reset; an even spread is the host's round-robin,
-with the plugin disabled. Changing that default changes what the plugin is
+full on purpose, because weekly quota left at reset is lost. 1.0 removes only
+the extra lean that plans each seat to finish early; a seat still holding
+quota near its reset is behind its plan either way and still goes first. An
+even spread is the host's round-robin, with the plugin disabled. Changing that default changes what the plugin is
 for.
 
 Declared capabilities: `request_interceptor`, `scheduler`, `usage_plugin`,

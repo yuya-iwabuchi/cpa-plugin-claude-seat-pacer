@@ -103,16 +103,16 @@ var configFields = []runtime.ConfigField{
 	{Name: "pace.shape", Type: "string", Description: "Target curve shape: linear, power or sigmoid. Default linear."},
 	{Name: "pace.curve-exponent", Type: "number", Description: "Exponent for the power shape; above 1.0 holds back early. Selects the power shape when pace.shape is unset, and is ignored by the sigmoid shape. Default 1.0."},
 	{Name: "pace.steepness", Type: "number", Description: "Slope through the sigmoid's midpoint. Ignored by the other shapes. Default 8.0."},
-	{Name: "pace.landing-target", Type: "number", Description: "How far each seat's plan runs ahead of an even pace. 1.10 finishes the week's quota about 9% early, so a seat near its reset is used first; 1.0 finishes at the reset. Default 1.10."},
-	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m, minimum 30s."},
-	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page on the plugin's resource routes. Default true."},
+	{Name: "pace.landing-target", Type: "number", Description: "How far each seat's plan runs ahead of an even pace. 1.10 finishes the week's quota about 9% early on the linear shape, which leans toward a seat near its reset; 1.0 finishes at the reset. Default 1.10."},
+	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m; a value below 30s falls back to the default."},
+	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page, and the management route its data comes from. Default true."},
 }
 
 var plugin = newPlugin()
 
-// newPlugin builds the runtime and installs the status app on its resource
-// routes. The app is what those routes serve; the runtime declares them only
-// while web.enabled is on.
+// newPlugin builds the runtime and installs the status app, which serves the
+// page on the plugin's resource route and its data on the page-status
+// management route; the runtime declares both only while web.enabled is on.
 func newPlugin() *runtime.Plugin {
 	p := runtime.New(runtime.Options{
 		Name:         pluginName,

@@ -28,10 +28,12 @@ about 96% of input tokens are cache reads, so moving a live conversation would
 pay full price for everything it has already sent.
 
 This is my answer for my own pool, and the defaults are my preference: drain
-the seat about to reset. To stop leaning on that seat, `landing-target: 1.0`
-plans each seat to finish exactly at its reset. For an even spread across
-seats, turn the plugin off with `enabled: false` and the host's round-robin
-takes over. A design that needs to go further is a fork, not a pull request.
+the seat about to reset. `landing-target: 1.0` softens that, planning each
+seat to finish exactly at its reset rather than a little early; a seat still
+holding quota near its reset is behind its plan either way, and still goes
+first. For an even spread across seats, turn the plugin off with
+`enabled: false` and the host's round-robin takes over. A design that needs to
+go further is a fork, not a pull request.
 
 ## Install
 
@@ -54,6 +56,9 @@ restart it — `brew services restart cliproxyapi` on Homebrew.
 ```yaml
 host: "127.0.0.1"          # optional: keeps the proxy off the network
 
+remote-management:
+  secret-key: "<a long random string>"   # the status page asks for this
+
 routing:
   session-affinity: false
 
@@ -69,7 +74,9 @@ CLIProxyAPI ships with plugins turned off, and a relative `dir` resolves
 against the host's working directory, which is not your home directory when
 the host runs as a service; give the absolute path. `host: "127.0.0.1"` keeps
 the proxy, its management API and every plugin page reachable from this
-machine only, which suits a single-machine setup.
+machine only, which suits a single-machine setup. The status page reads
+through the management API, which the host serves only once
+`remote-management.secret-key` is set; the page asks for that key.
 
 Turn the host's own affinity off: the plugin owns it, and a plugin's pick never
 seeds the host's cache, so the two cannot share it.
@@ -103,7 +110,7 @@ rest hold up unattended.
         shape: linear           # linear, power or sigmoid
         curve-exponent: 1.0     # power shape only; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
-        landing-target: 1.10    # how far the plan runs ahead of an even pace: 1.10 finishes ~9% early, 1.0 at the reset; 0 < x <= 4
+        landing-target: 1.10    # how far the plan runs ahead of an even pace: 1.10 finishes ~9% early on the linear shape, 1.0 at the reset; 0 < x <= 4
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
         session-weight: 0       # weight of the 5-hour window; it is a rate limit, not a budget
@@ -128,15 +135,18 @@ loads the plugin disabled.
 
 A new conversation goes to the eligible seat furthest behind its plan. For each
 weekly window the plan is a target that rises from nothing at the window's
-start. At the default `landing-target: 1.10` it reaches the full quota about
-nine-tenths of the way through the week, so near the reset a seat is expected
+start. At the default `landing-target: 1.10` on the default linear shape it
+reaches the full quota about nine-tenths of the way through the week, so near
+the reset a seat is expected
 to have used everything, and any quota it still holds puts it behind. How far
 behind a seat is counts the all-models weekly window in full and a model-family
-window at half. The 5-hour window can make a seat ineligible but never ranks
-one: it resets several times a day and nothing in it carries over.
+window at half. The 5-hour window can make a seat ineligible but carries no
+weight by default (`session-weight: 0`): it resets several times a day and
+nothing in it carries over.
 
-A seat is ineligible when Anthropic has refused a request on one of its
-windows, a window reads full or not as a number, no window covers the
+A seat is ineligible when Anthropic has refused a request on a window that
+covers the requested model's family, such a window reads full or not as a
+number, no window covers the
 requested model family, its usage read has never succeeded, or its reading is
 older than `max-staleness`.
 
@@ -168,8 +178,8 @@ refusal.
 
 The management routes under `/v0/management/plugins/claude-seat-pacer/` are
 `GET status` (the full status as JSON, `?model=<id>`), `GET page-status` (the
-page's view of it), `POST refresh`, `POST unbind?auth_id=` and
-`POST bindings/sweep`.
+page's view of it, declared while `web.enabled` is on), `POST refresh`,
+`POST unbind?auth_id=` and `POST bindings/sweep`.
 
 ## Privacy and data
 
@@ -202,6 +212,10 @@ means the host did not accept the key; a 403 names its reason, either remote
 management being off for a connection from another machine, or the address
 being locked out for 30 minutes after five failed tries, a lock the Management
 Center shares.
+
+**The page says the management API is off (HTTP 404).** The host serves the
+management API only once `remote-management.secret-key` is set. Set it,
+restart the host, and enter that key on the page.
 
 **Every new conversation lands on one seat.** `enabled` is false, or that seat
 is alone on the top `priority` tier. The status page warns in both cases and
