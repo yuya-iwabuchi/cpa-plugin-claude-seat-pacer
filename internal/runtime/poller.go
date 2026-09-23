@@ -220,12 +220,14 @@ func (p *Plugin) guard(what string, fn func()) (panicked bool) {
 	return false
 }
 
-// pollAndSchedule runs one poll and records when the next one falls due. The
-// wake it returns is the one the loop takes, so nextPollAt names it and the
-// status view's "next in" counts down to the poll that actually happens.
+// pollAndSchedule runs one poll, drops the bindings idle past the affinity
+// TTL, and records when the next poll falls due. The wake it returns is the
+// one the loop takes, so nextPollAt names it and the status view's "next in"
+// counts down to the poll that actually happens.
 func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
 	wait := p.pollOnce(ctx)
 	now := p.now()
+	p.bindingStore().Sweep(now)
 	wait = nextPollWait(p.quota.All(), now, wait)
 	p.mu.Lock()
 	p.polledAt = now

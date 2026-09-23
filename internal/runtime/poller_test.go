@@ -582,6 +582,19 @@ func TestStopPollerSavesUnderThePollLock(t *testing.T) {
 	}
 }
 
+func TestBackgroundPollSweepsExpiredBindings(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	ttl := tp.config().Affinity.TTL
+	tp.bindings.Bind("claude", fableModel, "idle", "claude-a.json", testNow.Add(-2*ttl))
+	tp.bindings.Bind("claude", fableModel, "live", "claude-a.json", testNow)
+
+	tp.pollAndSchedule(context.Background())
+	if got := tp.bindings.Len(); got != 1 {
+		t.Errorf("bindings after a background poll = %d, want only the live one", got)
+	}
+}
+
 // resetWindow is a session reading whose window closes at resetsAt, the shape a
 // response-header merge gives a credential the poll never fetches.
 func resetWindow(resetsAt time.Time) []model.Window {

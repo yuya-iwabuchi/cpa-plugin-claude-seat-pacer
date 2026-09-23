@@ -189,17 +189,29 @@ func (s *Store) All() []model.Binding {
 	return out
 }
 
-// CountByAuth reports how many bindings each credential holds, which is the
-// per-credential session count the status UI shows. Bindings that have expired
-// since the last Sweep or Lookup are still counted, because expiry is only
-// observed when a caller supplies the time.
-func (s *Store) CountByAuth() map[string]int {
+// CountByAuth reports how many live bindings each credential holds at now,
+// which is the per-credential session count the status UI shows. A binding
+// idle past the TTL is not counted, though it stays in the table until Sweep
+// or Lookup removes it.
+//
+// Expired bindings sit at the back of the access order, so only they are
+// walked: the cost is the tally plus the expired tail, never the table.
+func (s *Store) CountByAuth(now time.Time) map[string]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	counts := make(map[string]int, len(s.counts))
 	for authID, n := range s.counts {
 		counts[authID] = n
+	}
+	for el := s.order.Back(); el != nil; el = el.Prev() {
+		e := el.Value.(*entry)
+		if !s.expired(e, now) {
+			break
+		}
+		if counts[e.binding.AuthID]--; counts[e.binding.AuthID] <= 0 {
+			delete(counts, e.binding.AuthID)
+		}
 	}
 	return counts
 }

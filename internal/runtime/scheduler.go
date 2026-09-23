@@ -263,7 +263,7 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 		if in.identity.Key == "" {
 			return p.declineWithScores(in, "no eligible candidate")
 		}
-		chosen = in.leastBound(p.bindingStore().CountByAuth())
+		chosen = in.leastBound(p.bindingStore().CountByAuth(in.now))
 		note = joinNotes(note, "no eligible candidate; the seat with the fewest live conversations takes it")
 	}
 

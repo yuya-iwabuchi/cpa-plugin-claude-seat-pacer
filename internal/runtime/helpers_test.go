@@ -218,12 +218,14 @@ func (f *fakeBindings) All() []model.Binding {
 	return out
 }
 
-func (f *fakeBindings) CountByAuth() map[string]int {
+func (f *fakeBindings) CountByAuth(now time.Time) map[string]int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := make(map[string]int)
 	for _, b := range f.items {
-		out[b.AuthID]++
+		if f.ttl <= 0 || now.Sub(b.LastSeen) <= f.ttl {
+			out[b.AuthID]++
+		}
 	}
 	return out
 }

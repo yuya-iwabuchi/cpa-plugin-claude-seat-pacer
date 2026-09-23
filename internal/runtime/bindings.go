@@ -24,8 +24,8 @@ type BindingStore interface {
 	DropAuth(authID string) int
 	// All returns every binding, newest LastSeen first.
 	All() []model.Binding
-	// CountByAuth reports live bindings per credential id.
-	CountByAuth() map[string]int
+	// CountByAuth reports bindings per credential id that are live at now.
+	CountByAuth(now time.Time) map[string]int
 	// Len reports how many bindings are held.
 	Len() int
 	// Sweep removes bindings idle past the TTL and reports how many.

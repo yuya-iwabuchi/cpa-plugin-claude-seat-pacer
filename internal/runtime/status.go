@@ -72,7 +72,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	}
 
 	bindings := p.bindingStore()
-	counts := bindings.CountByAuth()
+	counts := bindings.CountByAuth(now)
 	snapshots := make(map[string]model.AuthSnapshot)
 	for _, snap := range p.quota.All() {
 		snapshots[snap.AuthID] = snap
