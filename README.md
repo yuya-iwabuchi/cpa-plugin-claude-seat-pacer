@@ -35,7 +35,18 @@ early. For an even spread, disable the plugin and turn the host's
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
 7.3.10 and 7.3.15.
 
-Download your platform's zip from the
+The simplest route is the Plugin Store. Add the author's
+[registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry) as a plugin
+source (in the Management Center, Config Panel → Advanced → Third-party Plugin
+Sources, then save, or `store-sources` in the config below) and install Claude
+Seat Pacer from the store. It checks the download against the release's
+checksums and loads it without a restart; a new release shows as an update
+within about an hour. An install records its version under `store:` in the
+plugin's config block, and from then on the host loads only that version and
+deletes the plugin's other library files at its next start, so remove that
+key before installing by hand again.
+
+Or download your platform's zip from the
 [latest release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases/latest)
 and put the library in `~/.cli-proxy-api/plugins/<goos>/<goarch>/`, keeping its
 file name. From v0.1.1 the libraries load on macOS 12, Windows 10, or Linux
@@ -71,6 +82,8 @@ routing:
 plugins:
   enabled: true
   dir: "~/.cli-proxy-api/plugins"
+  store-sources:           # the author's plugin registry
+    - https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
   configs:
     claude-seat-pacer:
       enabled: true
