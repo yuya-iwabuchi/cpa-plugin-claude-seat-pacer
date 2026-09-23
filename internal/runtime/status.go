@@ -31,9 +31,8 @@ const defaultStatusModel = "claude-opus-5"
 // (sdk/cliproxy/auth/conductor_selection.go:1474, :1730, :1790, :1902), so
 // nothing the plugin receives distinguishes the two states.
 func (p *Plugin) Status(now time.Time, modelID string) model.Status {
-	cfg := p.config()
-
 	p.mu.Lock()
+	cfg := p.config()
 	info := model.PluginInfo{
 		Name:              p.opts.Name,
 		Version:           p.opts.Version,
