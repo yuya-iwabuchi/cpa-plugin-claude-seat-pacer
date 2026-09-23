@@ -138,20 +138,23 @@ empty, costing each open conversation one prompt-cache miss.
         history-limit: 500      # routing decisions kept for the page; 1 to 10000
 ```
 
-Durations take Go syntax (`30s`, `2m`, `1h`). A negative weight or
-`hysteresis-margin` counts as 0, an unknown `shape` as linear, and any other
-value out of range, a weight above 100 among them, falls back to its default.
-A `max-staleness` under twice `poll-interval` runs at twice it, and the status
-page says so. `usage-url` receives every seat's token, so it must be `https`,
-or `http` to a loopback host. A block that does not parse loads the plugin
-disabled.
+Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
+`request-timeout` above 1m or a `history-limit` above 10000 runs at that bound,
+and the status page says so. A negative weight or `hysteresis-margin` counts as
+0, an unknown `shape` as linear, and any other value out of range falls back to
+its default. A `max-staleness` under twice `poll-interval` runs at twice it,
+and the status page says so when the block sets `max-staleness`. `usage-url`
+receives every seat's token, so it must be `https`, or `http` to a loopback
+host; any other value runs at the default, with a status-page warning. A block
+that does not parse loads the plugin disabled.
 
 A top-level dotted key such as `affinity.ttl: 2h` sets the nested key it names
 and wins over the nested form; that is how the Management Center saves its
-fields, with `pace.shape` as a dropdown. A dotted path through a plain value,
-such as `pace.shape` beside `pace: 3`, makes the block one that does not
-parse. The Management Center has no `enabled` field: the host's own plugin
-toggle covers it, as does the `enabled` key in the YAML.
+fields, with `pace.shape` as a dropdown. When the two forms hold different
+values, the status page names the dotted key; remove one. A dotted path
+through a plain value, such as `pace.shape` beside `pace: 3`, makes the block
+one that does not parse. The Management Center has no `enabled` field: the
+host's own plugin toggle covers it, as does the `enabled` key in the YAML.
 
 ## How it picks
 
@@ -215,16 +218,13 @@ The plugin calls one external endpoint, `usage-url`, through the host's HTTP
 client with each seat's OAuth token, which the host already holds; the read
 reports per-window utilization.
 
-The status page shows each seat without its account address, so it is safe to
-put on a screen. An email is masked to its first letter and its domain, which
-names the seat's organization. A credential id is published as an HMAC keyed
-by a random per-install secret, kept in `page-id.key` (mode 0600) beside
-`history.json`; deleting that file changes every published id. The
-page's warnings and decision notes drop URLs, Unix, Windows and `~` paths, IP
-addresses, `host:port` pairs, looked-up host names and the names a
-certificate lists, and mask any email address they quote. A credential's
-`note` is its seat's name and appears as written. The `status` management
-route serves everything unreduced.
+The status page leaves out account addresses, file paths and network
+addresses, so it is safe to put on a screen. An email is masked to its first
+letter and its domain, which names the seat's organization. Credential ids are
+keyed by a secret in `page-id.key` beside `history.json`; deleting that file
+changes every published id. A credential's `note` is its seat's name and
+appears as written. The `status` management route serves everything
+unreduced.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples across restarts: credential ids (file names or account
