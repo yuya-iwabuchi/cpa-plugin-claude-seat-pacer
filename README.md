@@ -27,8 +27,8 @@ already sent.
 
 The defaults suit my pool: drain the seat about to reset. Set
 `landing-target: 1.0` to plan each seat to finish at its reset instead of
-early. For an even spread, disable the plugin and the host's round-robin takes
-over.
+early. For an even spread, disable the plugin and turn the host's
+`routing.session-affinity` back on; its round-robin takes over.
 
 ## Install
 
@@ -127,11 +127,12 @@ open conversation one prompt-cache miss.
 
 Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
 `request-timeout` above 1m or a `history-limit` above 10000 runs at that bound,
-and the status page says so. A negative weight or `hysteresis-margin` counts as
-0, and any other out-of-range value falls back to its default. `usage-url`
-receives every seat's token, so it must be `https`, or `http` to a loopback
-host; anything else runs at the default, with a status-page warning. A block
-that doesn't parse loads the plugin disabled.
+and the status page says so, as it does when a `max-staleness` you set is under
+twice `poll-interval` and runs at twice it. A negative weight or
+`hysteresis-margin` counts as 0, and any other out-of-range value falls back to
+its default. `usage-url` receives every seat's token, so it must be `https`, or
+`http` to a loopback host; anything else runs at the default, with a
+status-page warning. A block that doesn't parse loads the plugin disabled.
 
 The Management Center saves each field as a top-level dotted key, such as
 `affinity.ttl: 2h`, which wins over the nested form. When the two disagree the
@@ -141,11 +142,11 @@ status page names the dotted key; remove one.
 
 Each weekly window's plan rises from nothing at the window's start. At the
 default `landing-target: 1.10` on the linear shape it reaches the full quota
-about nine-tenths of the way through the week, so any quota a seat still holds
-near its reset puts it behind, even at `1.0`. How far behind a seat is counts
-the all-models weekly window in full and a model-family window at half. The
-5-hour window can make a seat ineligible but carries no weight by default: it
-resets several times a day and nothing in it carries over.
+about nine-tenths of the way through the week. Any quota a seat still holds
+near its reset puts it behind its plan, at 1.10 or at 1.0. How far behind a
+seat is counts the all-models weekly window in full and a model-family window
+at half. The 5-hour window can make a seat ineligible but carries no weight by
+default: it resets several times a day and nothing in it carries over.
 
 A seat is ineligible when:
 
@@ -169,8 +170,8 @@ Once bound, a conversation:
 When no seat is eligible, a conversation still gets one stable seat: first one
 Anthropic has neither refused nor reported full, then the one with the fewest
 live conversations. A request with no session id and no eligible seat goes to
-the host's own selector. A request the host pins to one seat leaves its conversation's
-binding alone.
+the host's own selector. A request the host pins to one seat leaves its
+conversation's binding alone.
 
 ## Status page
 
@@ -194,11 +195,11 @@ while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
 The plugin calls one external endpoint, `usage-url`, through the host's HTTP
 client with each seat's OAuth token, which the host already holds.
 
-The status page leaves out account addresses, file paths and network
-addresses, so it is safe to put on a screen. An email is masked to its first
-letter and its domain, and a `note` appears as written. Credential ids are
-keyed by a secret in `page-id.key` beside `history.json`; deleting that file changes every published
-id. The `status` route serves everything unreduced.
+The status page leaves out account addresses, file paths and network addresses,
+so it is safe to put on a screen. An email is masked to its first letter and
+its domain, and a `note` appears as written. Credential ids are keyed by a
+secret in `page-id.key` beside `history.json`; deleting that file changes every
+published id. The `status` route serves everything unreduced.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples across restarts: credential ids (file names or account
