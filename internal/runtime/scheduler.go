@@ -71,18 +71,18 @@ func (in pickInput) scoreOf(authID string) model.Score {
 // discarded.
 func (in pickInput) hasAlternativeHome(authID string) bool {
 	for _, id := range in.candidates {
-		if id == authID {
-			continue
-		}
-		score := in.scoreOf(id)
-		if score.Eligible {
-			return true
-		}
-		if score.Reason != model.ReasonRejected && score.Reason != model.ReasonSpent {
+		if id != authID && !in.refused(id) {
 			return true
 		}
 	}
 	return false
+}
+
+// refused reports whether a candidate's score says the provider will not serve
+// it: a refusal, or a window it reports as full.
+func (in pickInput) refused(authID string) bool {
+	reason := in.scoreOf(authID).Reason
+	return reason == model.ReasonRejected || reason == model.ReasonSpent
 }
 
 // pick is the routing decision. It performs in-memory reads only: the host
@@ -105,8 +105,9 @@ func (in pickInput) hasAlternativeHome(authID string) bool {
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
 //     ineligible; the pace winner takes the session. When nothing is eligible
 //     but a session key exists, the candidate with the fewest live bindings
-//     (lowest id on a tie) takes it, so the conversation still gets one
-//     stable home.
+//     takes it, preferring one the provider has neither refused nor reported
+//     full and breaking ties on the lowest id, so the conversation still gets
+//     one stable home.
 func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	cfg := p.config()
 	now := p.now()
@@ -262,7 +263,7 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 		if in.identity.Key == "" {
 			return p.declineWithScores(in, "no eligible candidate")
 		}
-		chosen = leastBound(in.candidates, p.bindingStore().CountByAuth())
+		chosen = in.leastBound(p.bindingStore().CountByAuth())
 		note = joinNotes(note, "no eligible candidate; the seat with the fewest live conversations takes it")
 	}
 
@@ -342,13 +343,22 @@ func blockedFor(snap model.AuthSnapshot, modelID string) bool {
 	return false
 }
 
-// leastBound picks the candidate carrying the fewest live bindings, lowest id
-// on a tie, so repeated calls on the same state agree.
-func leastBound(candidates []string, counts map[string]int) string {
-	ids := append([]string(nil), candidates...)
+// leastBound picks the fallback home when no candidate is eligible. A
+// candidate whose state leaves open that it can serve goes before one the
+// provider refused or reports as full, as in hasAlternativeHome; then the
+// fewest live bindings; then the lowest id, so repeated calls on the same
+// state agree.
+func (in pickInput) leastBound(counts map[string]int) string {
+	ids := append([]string(nil), in.candidates...)
 	sort.Strings(ids)
 	chosen := ids[0]
 	for _, id := range ids[1:] {
+		if r, rc := in.refused(id), in.refused(chosen); r != rc {
+			if !r {
+				chosen = id
+			}
+			continue
+		}
 		if counts[id] < counts[chosen] {
 			chosen = id
 		}

@@ -323,6 +323,55 @@ func TestAllStaleWithKeyBindsLeastBound(t *testing.T) {
 	}
 }
 
+// TestFallbackPrefersAStaleSeatOverARefusedOne covers the fewest-conversations
+// fallback when a candidate the provider will not serve carries fewer
+// conversations than one whose reading is merely too old to trust.
+func TestFallbackPrefersAStaleSeatOverARefusedOne(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		refuse func(*model.AuthSnapshot)
+	}{
+		{"rejected", func(s *model.AuthSnapshot) { s.Windows[1].Status = model.StatusRejected }},
+		{"spent", func(s *model.AuthSnapshot) { s.Windows[1].Utilization = 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTestPlugin(t, testConfigYAML)
+			a, b := seatA(t), seatB(t)
+			tc.refuse(&a)
+			b.ObservedAt = testNow.Add(-time.Hour)
+			tp.quota.Put(a)
+			tp.quota.Put(b)
+			tp.bindings.Bind("claude", fableModel, "other-1", "seat-b", testNow)
+			tp.bindings.Bind("claude", fableModel, "other-2", "seat-b", testNow)
+
+			resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+			if resp.AuthID != "seat-b" {
+				t.Fatalf("cold pick = %+v, want the stale seat-b over the %s seat-a", resp, tc.name)
+			}
+		})
+	}
+
+	// A binding the provider refused fails over, and the fallback agrees with
+	// hasAlternativeHome that the stale seat is the better home.
+	tp := newTestPlugin(t, testConfigYAML)
+	a, b := seatA(t), seatB(t)
+	a.Windows[1].Status = model.StatusRejected
+	b.ObservedAt = testNow.Add(-time.Hour)
+	tp.quota.Put(a)
+	tp.quota.Put(b)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+	tp.bindings.Bind("claude", fableModel, "other-1", "seat-b", testNow)
+	tp.bindings.Bind("claude", fableModel, "other-2", "seat-b", testNow)
+
+	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+	if resp.AuthID != "seat-b" {
+		t.Fatalf("response = %+v, want failover to the stale seat-b", resp)
+	}
+	if d := tp.lastDecision(t); d.Kind != model.DecisionFailover || d.PreviousAuthID != "seat-a" {
+		t.Errorf("decision = %+v, want a failover away from seat-a", d)
+	}
+}
+
 func TestNoSnapshotsWithKeyStillGivesTheSessionAHome(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-b", "seat-a"))
