@@ -228,6 +228,25 @@ func TestRetryPickTreatsFailedCredentialAsNotOffered(t *testing.T) {
 	}
 }
 
+// TestRetryPickNeverOffersTheFailedCredential covers a retry whose candidate
+// list still names the credential that just failed: the pace winner is that
+// credential, and the pick goes elsewhere.
+func TestRetryPickNeverOffersTheFailedCredential(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+
+	req := pickRequest(fableModel, "k", "seat-a", "seat-b")
+	req.Options.Metadata[MetadataSelectedAuthID] = "seat-b"
+	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want seat-a rather than the failed pace winner seat-b", resp)
+	}
+	for _, s := range tp.lastDecision(t).Scores {
+		if s.AuthID == "seat-b" {
+			t.Errorf("the failed credential was scored: %+v", s)
+		}
+	}
+}
+
 func TestBoundCredentialBlockedForModelFailsOver(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	blocked := seatA(t)
