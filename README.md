@@ -10,85 +10,63 @@ Uses up each Claude seat's weekly quota before it resets, and keeps every conver
 
 ## Why
 
-Every Claude subscription seat gets a weekly quota, and whatever it hasn't used
-when the week resets is gone. With several seats that adds up: the routing
-built into [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) either
-spreads requests evenly or fills one seat first, and either way some seat
-reaches its reset with quota to spare.
+A Claude subscription has a 5-hour limit and a weekly limit, and any weekly
+quota left at the reset is lost. More seats raise that ceiling linearly, and
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) makes pooling them
+easy. Its fill-first and round-robin strategies and session affinity work well
+out of the box, but they don't track how far each seat is into its week. I
+wanted a simple, usage-aware pick: drain the seats closest to their reset and
+hold back the ones that just reset.
 
-Claude Seat Pacer gives each seat a simple plan for its week: use the quota
-steadily, finishing a little before the reset. Every new conversation goes to
-the seat furthest behind its plan. A seat with quota left close to its reset is
-far behind, so it gets used first; a seat that just reset has almost nothing to
-be behind on, so it waits its turn.
+Claude Seat Pacer gives each seat a steady plan that finishes a little before
+its reset, and sends every new conversation to the seat furthest behind its
+plan. Once a conversation lands on a seat it stays there. Anthropic's prompt
+cache never crosses accounts, and about 96% of input tokens are cache reads,
+so moving a live conversation would pay full price for everything it has
+already sent.
 
-Once a conversation starts on a seat, it stays there. Anthropic's prompt cache
-never crosses from one account to another, and on real Claude Code traffic
-about 96% of input tokens are cache reads, so moving a live conversation would
-pay full price for everything it has already sent.
-
-This is my answer for my own pool, and the defaults are my preference: drain
-the seat about to reset. `landing-target: 1.0` softens that, planning each
-seat to finish exactly at its reset rather than a little early; a seat still
-holding quota near its reset is behind its plan either way, and still goes
-first. For an even spread across seats, turn the plugin off with
-`enabled: false`: the host unloads it, status page included, and its own
-round-robin takes over. A design that needs to go further is a fork, not a
-pull request.
+The defaults suit my pool: drain the seat about to reset. Set
+`landing-target: 1.0` to plan each seat to finish at its reset instead of
+early. For an even spread, disable the plugin and turn the host's
+`routing.session-affinity` back on; its round-robin takes over.
 
 ## Install
 
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
-7.3.10 and 7.3.15. Each [release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases)
-carries a zip per platform; from v0.1.1 its libraries load on macOS 12,
-Windows 10, or Linux with glibc 2.34, or newer.
+7.3.10 and 7.3.15.
 
-### From the Plugin Store
+The simplest route is the Plugin Store. Add the author's
+[registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry) as a plugin
+source (in the Management Center, Config Panel → Advanced → Third-party Plugin
+Sources, then save, or `store-sources` in the config below) and install Claude
+Seat Pacer from the store. It checks the download against the release's
+checksums and loads it without a restart; a new release shows as an update
+within about an hour. An install records its version under `store:` in the
+plugin's config block, and from then on the host loads only that version and
+deletes the plugin's other library files at its next start, so remove that
+key before installing by hand again.
 
-Add [the author's registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry)
-as a plugin source: in the Management Center, Config Panel → Advanced →
-Third-party Plugin Sources, then save; or in the host config, with the plugin
-system switched on (it is off by default):
+Or download your platform's zip from the
+[latest release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases/latest)
+and put the library in `~/.cli-proxy-api/plugins/<goos>/<goarch>/`, keeping its
+file name. From v0.1.1 the libraries load on macOS 12, Windows 10, or Linux
+with glibc 2.34, or newer. [SECURITY.md](SECURITY.md) shows how to verify the
+zip.
 
-```yaml
-plugins:
-  enabled: true
-  store-sources:
-    - https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
-```
-
-Then install Claude Seat Pacer from the Plugin Store. The store checks the
-download against the release's `checksums.txt` and loads it without a
-restart. It records the installed version under `store:` in the plugin's
-config block; the host then loads only that version, ignores a library built
-by hand for another, and at its next start deletes the plugin's other library
-files. A new release shows in the store as an update within about an hour,
-and installs when you click Update.
-
-### From source
-
-The build needs Go 1.25 and a C toolchain:
+To build from source instead, with Go 1.25 and a C toolchain:
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
 cd cpa-plugin-claude-seat-pacer
-make install
+make install   # PLUGIN_DIR overrides ~/.cli-proxy-api/plugins
 ```
 
-This writes `~/.cli-proxy-api/plugins/<goos>/<goarch>/claude-seat-pacer-v<version>.<dylib|so|dll>`
-(`PLUGIN_DIR` overrides the root). The host rescans its plugin directory each
-time it applies a config change and loads a library at a file path it has not
-loaded yet. `make install` of the same version rewrites the path already
-loaded, so restart the host to pick up the build —
-`brew services restart cliproxyapi` on Homebrew.
-
-### Updating
-
-A new version loads without a restart, because its file name differs. The
-new library starts with no conversation bindings, which costs each open
-conversation one prompt-cache miss. On macOS, restart the host after
-uninstalling the plugin: an unloaded Go library can leave a thread running in
-the host process.
+The host loads a library the next time it applies a config change, but only
+from a file path it hasn't loaded before. After replacing a loaded file,
+restart the host (`brew services restart cliproxyapi` on Homebrew). A new
+version starts with no conversation bindings, costing each open conversation
+one prompt-cache miss. On macOS, also restart after uninstalling: an unloaded
+Go library can leave a thread running in the host.
 
 ## Configure
 
@@ -103,40 +81,33 @@ routing:
 
 plugins:
   enabled: true
-  dir: "~/.cli-proxy-api/plugins"   # where the store and make install write
+  dir: "~/.cli-proxy-api/plugins"
+  store-sources:           # the author's plugin registry
+    - https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
   configs:
     claude-seat-pacer:
       enabled: true
 ```
 
-CLIProxyAPI ships with plugins turned off. `dir` expands a leading `~/`, but a
-relative path resolves against the host's working directory, which is not your
-home directory when the host runs as a service. `host: "127.0.0.1"` keeps
-the proxy, its management API and every plugin page reachable from this
-machine only, which suits a single-machine setup. The status page reads
-through the management API, which the host serves only once
-`remote-management.secret-key` is set; the page asks for that key.
-
-Turn the host's own affinity off: the plugin owns it, and a plugin's pick never
-seeds the host's cache, so the two cannot share it.
-
-Give every seat in the pool the same `priority`. The host offers a scheduler
-plugin only its top priority tier, and this plugin does not take the
-`SchedulerAcrossPriorities` option CLIProxyAPI 7.3.7 added to see the rest, so
-a seat alone at the top takes every new conversation, with the others as the
-host's own fallback. The status page warns when it sees that.
-
-A seat is named by its credential's `note` (the auth-file card in the
-Management Center, or a `note` key in the file); without one, by its account
-email, masked to `y…@example.com`.
+- CLIProxyAPI ships with plugins off. `dir` expands a leading `~/`; a relative
+  path resolves against the host's working directory, which isn't your home
+  directory when the host runs as a service.
+- The status page reads through the management API, which the host serves only
+  once `remote-management.secret-key` is set.
+- Turn the host's session affinity off: the plugin owns affinity, and a
+  plugin's pick never seeds the host's cache.
+- Give every seat the same `priority`. The host offers the plugin only its top
+  tier, so a seat alone there takes every new conversation.
+- A seat is named by its credential's `note` (set on the auth-file card in the
+  Management Center, or as a `note` key in the file), or else by its account
+  email, masked to `y…@example.com`.
 
 ### All settings
 
-Every key is optional. `landing-target`, `affinity.ttl`,
-`override-threshold` and `poll-interval` are the ones operators change; the
-rest hold up unattended. The host applies a change to this block live, without
-a restart; changing `affinity.ttl` or `max-sessions` starts the bindings
-empty, costing each open conversation one prompt-cache miss.
+Every key is optional; `landing-target`, `affinity.ttl`, `override-threshold`
+and `poll-interval` are the ones worth tuning. The host applies changes live.
+Changing `affinity.ttl` or `max-sessions` clears the bindings, costing each
+open conversation one prompt-cache miss.
 
 ```yaml
       providers: [claude]       # provider keys the plugin routes; others fall to the host
@@ -149,9 +120,9 @@ empty, costing each open conversation one prompt-cache miss.
         max-sessions: 65536     # bindings held before the least recently seen is dropped
       pace:
         shape: linear           # linear, power or sigmoid
-        curve-exponent: 1.0     # power shape only; above 1 holds back early
+        curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
-        landing-target: 1.10    # how far the plan runs ahead of an even pace: 1.10 finishes ~9% early on the linear shape, 1.0 at the reset; 0 < x <= 4
+        landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
         session-weight: 0       # weight of the 5-hour window; it is a rate limit, not a budget
@@ -159,7 +130,7 @@ empty, costing each open conversation one prompt-cache miss.
       quota:
         poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
         request-timeout: 10s    # one usage read; at most 1m
-        max-staleness: 15m      # a reading older than this makes the seat ineligible
+        max-staleness: 15m      # a reading older than this makes the seat ineligible; at least twice poll-interval
         persist-history: true   # keep utilization history across host restarts
         usage-url: https://api.anthropic.com/api/oauth/usage
       web:
@@ -169,108 +140,94 @@ empty, costing each open conversation one prompt-cache miss.
 
 Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
 `request-timeout` above 1m or a `history-limit` above 10000 runs at that bound,
-and the status page says so. A negative weight or `hysteresis-margin` counts as
-0, an unknown `shape` as linear, and any other value out of range falls back to
-its default. A `max-staleness` under twice `poll-interval` runs at twice it,
-and the status page says so when the block sets `max-staleness`. `usage-url`
-receives every seat's token, so it must be `https`, or `http` to a loopback
-host; any other value runs at the default, with a status-page warning. A block
-that does not parse loads the plugin disabled.
+and the status page says so, as it does when a `max-staleness` you set is under
+twice `poll-interval` and runs at twice it. A negative weight or
+`hysteresis-margin` counts as 0, and any other out-of-range value falls back to
+its default. `usage-url` receives every seat's token, so it must be `https`, or
+`http` to a loopback host; anything else runs at the default, with a
+status-page warning. A block that doesn't parse loads the plugin disabled.
 
-A top-level dotted key such as `affinity.ttl: 2h` sets the nested key it names
-and wins over the nested form; that is how the Management Center saves its
-fields, with `pace.shape` as a dropdown. When the two forms hold different
-values, the status page names the dotted key; remove one. A dotted path
-through a plain value, such as `pace.shape` beside `pace: 3`, makes the block
-one that does not parse. The Management Center has no `enabled` field: the
-host's own plugin toggle covers it, as does the `enabled` key in the YAML.
+The Management Center saves each field as a top-level dotted key, such as
+`affinity.ttl: 2h`, which wins over the nested form. When the two disagree the
+status page names the dotted key; remove one.
 
 ## How it picks
 
-A new conversation goes to the eligible seat furthest behind its plan. For each
-weekly window the plan is a target that rises from nothing at the window's
-start. At the default `landing-target: 1.10` on the default linear shape it
-reaches the full quota about nine-tenths of the way through the week, so near
-the reset a seat is expected
-to have used everything, and any quota it still holds puts it behind. How far
-behind a seat is counts the all-models weekly window in full and a model-family
-window at half. The 5-hour window can make a seat ineligible but carries no
-weight by default (`session-weight: 0`): it resets several times a day and
-nothing in it carries over.
+Each weekly window's plan rises from nothing at the window's start. At the
+default `landing-target: 1.10` on the linear shape it reaches the full quota
+about nine-tenths of the way through the week. Any quota a seat still holds
+near its reset puts it behind its plan, at 1.10 or at 1.0. How far behind a
+seat is counts the all-models weekly window in full and a model-family window
+at half. The 5-hour window can make a seat ineligible but carries no weight by
+default: it resets several times a day and nothing in it carries over.
 
-A seat is ineligible when Anthropic has refused a request on a window that
-covers the requested model's family, such a window reads full or not as a
-number, no window covers the
-requested model family, its usage read has never succeeded, or its reading is
-older than `max-staleness`.
+A seat is ineligible when:
 
-A conversation stays on its seat while the host still offers it, and with the
-default `override-threshold` it stays even when another seat is further behind
-its plan or its own seat runs out, because the cache hit is worth more than the
-rebalance. A refusal
-for the model moves it only when another seat can take that model. When no
-seat is eligible a conversation still gets one stable home: a seat Anthropic
-has neither refused nor reported full, such as one whose reading is stale or
-missing, goes first, then the one with the fewest live conversations. A
-request with no session id and no eligible seat is left to the host's own
-selector, and a request the host pins to one seat leaves its conversation's
-binding alone. A binding idle past `affinity.ttl` stops counting as live at
-once and is cleared after the next background poll.
+- Anthropic has refused a request on a window covering the requested model's
+  family,
+- such a window reads full, or not as a number,
+- no window covers the requested model's family,
+- its usage read has never succeeded, or
+- its reading is older than `max-staleness`.
+
+Once bound, a conversation:
+
+- stays on its seat while the host still offers it, and with the default
+  `override-threshold` even when another seat is further behind or its own
+  runs out, because the cache hit is worth more than the rebalance;
+- moves after a refusal for its model only when another seat can take that
+  model;
+- loses its binding once idle past `affinity.ttl`: the binding stops counting
+  as live at once and is cleared after the next background poll.
+
+When no seat is eligible, a conversation still gets one stable seat: first one
+Anthropic has neither refused nor reported full, then the one with the fewest
+live conversations. A request with no session id and no eligible seat goes to
+the host's own selector. A request the host pins to one seat leaves its
+conversation's binding alone.
 
 ## Status page
 
-The Management Center gains a "Claude Seat Pacer" entry. The page shows each
-seat's windows, utilization history, pace score and eligibility for a chosen model;
-the live bindings per seat; recent decisions with their scores; and a warning
-for whatever leaves the plugin inert or degraded.
+The Management Center gains a "Claude Seat Pacer" entry showing each seat's
+windows, utilization history, pace score and eligibility for a chosen model,
+the live bindings per seat, recent decisions with their scores, and a warning
+for anything that leaves the plugin inert or degraded.
 
-The page asks for the management key (`remote-management.secret-key`) the
-first time it opens in a browser tab. Its data comes from the plugin's
-management routes, which the host answers only with that key and, unless
-`remote-management.allow-remote` is on, only for connections from the same
-machine. The page itself, at
-`/v0/resource/plugins/claude-seat-pacer/index.html`, carries no data. The host
-locks an address out of the management API for 30 minutes after five failed
-key checks, so the page sends nothing without a key and stops at the first
-refusal.
+The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
+data. It asks once per browser tab for the management key and reads from the
+plugin's management routes, which the host answers only with that key and,
+unless `remote-management.allow-remote` is on, only from the same machine.
 
-The management routes under `/v0/management/plugins/claude-seat-pacer/` are
-`GET status` (the full status as JSON, `?model=<id>`), `GET page-status` (the
-page's view of it, declared while `web.enabled` is on), `POST refresh`,
-`POST unbind?auth_id=` and `POST bindings/sweep`. The page's "Sync now"
-pressed while a poll is running answers with what that poll has read so far
-rather than starting another.
+The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
+(the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
+while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
+`POST bindings/sweep`.
 
 ## Privacy and data
 
 The plugin calls one external endpoint, `usage-url`, through the host's HTTP
-client with each seat's OAuth token, which the host already holds; the read
-reports per-window utilization.
+client with each seat's OAuth token, which the host already holds.
 
-The status page leaves out account addresses, file paths and network
-addresses, so it is safe to put on a screen. An email is masked to its first
-letter and its domain, which names the seat's organization. Credential ids are
-keyed by a secret in `page-id.key` beside `history.json`; deleting that file
-changes every published id. A credential's `note` is its seat's name and
-appears as written. The `status` management route serves everything
-unreduced.
+The status page leaves out account addresses, file paths and network addresses,
+so it is safe to put on a screen. An email is masked to its first letter and
+its domain, and a `note` appears as written. Credential ids are keyed by a
+secret in `page-id.key` beside `history.json`; deleting that file changes every
+published id. The `status` route serves everything unreduced.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples across restarts: credential ids (file names or account
-emails) and timestamped fractions, no token. It is written atomically. An
-unreadable file is renamed to `history.json.corrupt-<unix-ts>` with one logged
-warning, and a fresh one starts; a file from a newer version gets one warning
-and is left untouched, and that run keeps no history on disk. No token,
-refresh token or request body is ever logged, and an error that would carry a
-token is scrubbed first.
+emails) and timestamped fractions. An unreadable file is set aside as
+`history.json.corrupt-<unix-ts>` and a fresh one starts. No token, refresh
+token or request body is ever logged, and an error that would carry a token is
+scrubbed first.
 
 ## Troubleshooting
 
 **The host does not list the plugin.** Plugins are off by default: set
-`plugins.enabled: true` and point `plugins.dir` at the directory
-`make install` wrote to. The plugin id comes from the library filename minus
+`plugins.enabled: true` and point `plugins.dir` at the directory above
+`<goos>/<goarch>/`. The plugin id comes from the library filename minus
 its extension and `-v<version>`, and the config block, routes and history
-directory all carry it, so keep the filename `make install` writes.
+directory all carry it, so keep the library's file name.
 
 **The page keeps asking for the key.** The key is kept per browser tab. A 401
 means the host did not accept the key; a 403 names its reason, either remote
@@ -299,15 +256,13 @@ Fix the YAML; the host applies the fix live, without a restart.
 
 ## Contributing
 
-Bug reports and questions go to [Issues](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/issues).
-Open an issue before writing code; a pull request with no issue behind it is
-closed. [CONTRIBUTING.md](CONTRIBUTING.md) has the policy, the build and the
-commit convention.
+Bug reports and questions go to
+[Issues](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/issues).
+Open an issue before writing code; [CONTRIBUTING.md](CONTRIBUTING.md) has the
+policy, the build and the commit convention.
 
 ## Licence
 
-MIT (SPDX: `MIT`); see `LICENSE`. `NOTICE` carries the attribution for the
-CLIProxyAPI ABI types this plugin mirrors, and `THIRD_PARTY_NOTICES` the
-licences of the code the library links statically. Each release archive
-carries all three beside the library; the Plugin Store installs only the
-library.
+MIT; see `LICENSE`. `NOTICE` carries the attribution for the CLIProxyAPI ABI
+types this plugin mirrors, and `THIRD_PARTY_NOTICES` the licences of the code
+the library links statically. Each release zip carries all three.
