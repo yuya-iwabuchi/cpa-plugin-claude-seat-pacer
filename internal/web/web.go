@@ -550,9 +550,10 @@ func deleteFold(s, old string) string {
 
 // maskEmail masks an account email down to its first letter and domain. The
 // host label falls back to the credential's email address, which this route
-// would otherwise hand to anyone who can reach the port; the domain still
-// tells the operator which organization a seat belongs to. A string that is
-// not an email comes back unchanged.
+// would otherwise hand to anyone who can reach the port. The domain is kept
+// whole, and that is the page's contract: a published address names the
+// organization a seat belongs to, which the operator reads it for, and never
+// the account. A string that is not an email comes back unchanged.
 func maskEmail(addr string) string {
 	at := strings.LastIndex(addr, "@")
 	if at <= 0 || at == len(addr)-1 {
