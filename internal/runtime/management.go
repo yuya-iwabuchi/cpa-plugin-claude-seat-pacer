@@ -204,10 +204,10 @@ func (p *Plugin) refreshTimeout() time.Duration {
 
 // serveResource hands a request to the status app at an app-relative path:
 // /index.html for the resource route, /api/status for routePageStatus. Without
-// an installed app it answers 503 rather than 404, which tells an operator the
-// route exists and the build is missing its front end. With web.enabled off the
-// page is never declared and both paths answer 404, including a request that
-// arrives from a registration the host has not replaced yet.
+// an installed app it answers 503 rather than 404, whatever web.enabled says,
+// which tells an operator the build is missing its front end. With an app and
+// web.enabled off, neither path is declared and both answer 404, including a
+// request that arrives from a registration the host has not replaced yet.
 func (p *Plugin) serveResource(req ManagementRequest, path string) ManagementResponse {
 	h := p.resource.Load()
 	if h == nil {

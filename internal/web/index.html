@@ -1036,6 +1036,8 @@ th[aria-sort] button { color: var(--ink-1); }
   var KEY_PROMPT = "This page reads its data through CLIProxyAPI's management API. Enter the " +
     "management key (remote-management.secret-key) to continue. It is kept for this browser tab only.";
   var KEY_BAN_NOTE = " The host locks this address out for 30 minutes after five failed tries.";
+  var KEY_NO_API = "The host's management API is off (HTTP 404). CLIProxyAPI serves it only once " +
+    "remote-management.secret-key is set; set it, restart the host, and enter that key here.";
 
   var state = {
     paused: false,
@@ -4716,7 +4718,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function setLive() {
     var dot = $("live-dot");
     var stale = document.documentElement.getAttribute("data-stale") === "true";
-    dot.setAttribute("data-live", state.error ? "error" : stale ? "stale" : state.paused ? "paused" : "live");
+    dot.setAttribute("data-live", state.error ? "error" : awaitingKey() ? "paused" : stale ? "stale" : state.paused ? "paused" : "live");
     if (!state.data) $("snapshot-age").textContent = state.inFlight ? "loading…" : "never";
     renderSync();
   }
@@ -4742,6 +4744,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var st = state.data;
     var next = parseT(st && st.next_poll_at);
     host.textContent = "";
+    if (awaitingKey()) { host.textContent = "waiting for the management key"; return; }
     if (document.documentElement.getAttribute("data-stale") === "true") { host.textContent = STALE_TEXT; return; }
     if (state.paused) { host.textContent = "refresh paused"; return; }
     if (!next) { host.textContent = st ? "first sync pending" : "—"; return; }
@@ -4790,7 +4793,11 @@ th[aria-sort] button { color: var(--ink-1); }
             throw e;
           });
         }
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        if (!res.ok) {
+          var failed = new Error("HTTP " + res.status);
+          failed.status = res.status;
+          throw failed;
+        }
         return res.json().then(function (data) { return HOST_MOUNT ? unescapeHost(data) : data; });
       });
   }
@@ -4872,6 +4879,14 @@ th[aria-sort] button { color: var(--ink-1); }
       return;
     }
     if (state.inFlight) {
+      /* On the host every request is a key check, and one the page cancels has
+         still been counted, so a refresh that arrives while one is out waits
+         for it rather than replacing it. A user's refresh runs once the
+         current one lands; the timer's is dropped. */
+      if (HOST_MOUNT) {
+        if (userInitiated) state.queued = { forceSync: !!(forceSync || (state.queued && state.queued.forceSync)) };
+        return;
+      }
       if (!userInitiated) return;
       inFlightCtl.abort();
       endFetch();
@@ -4891,11 +4906,11 @@ th[aria-sort] button { color: var(--ink-1); }
     setLive();
 
     var prior = state.data;
-    /* A key no response has accepted yet goes out on one request, so a
-       mistyped key costs the host's failure budget one try rather than one per
-       family; the other families follow once it lands. */
-    var solo = HOST_MOUNT && !state.keyVerified;
-    var sides = solo ? [] : scopedFamilies(prior || {}).map(function (fam) { return fetchFamily(fam, prior, ctl.signal); });
+    /* On the host the Standard request goes out alone and the other families
+       follow once it lands, so a key the host has stopped accepting — a new
+       secret, a mistyped entry — costs one failed check per refresh rather
+       than one per family. Off the host they go out together. */
+    var sides = HOST_MOUNT ? [] : scopedFamilies(prior || {}).map(function (fam) { return fetchFamily(fam, prior, ctl.signal); });
 
     function commit(standard, others) {
       state.keyVerified = true;
@@ -4915,11 +4930,13 @@ th[aria-sort] button { color: var(--ink-1); }
       .then(function (results) {
         if (gen !== generation) return;
         var data = results[0], others = results.slice(1);
-        commit(data, others);
 
         var have = Object.create(null);
         others.forEach(function (o) { have[o.fam] = true; });
         var late = scopedFamilies(data).filter(function (fam) { return !have[fam]; });
+        /* On the host every family is late, so the page renders once, with
+           them all, rather than first without them. */
+        if (!late.length || !HOST_MOUNT) commit(data, others);
         if (!late.length) return;
         return Promise.all(late.map(function (fam) { return fetchFamily(fam, data, ctl.signal); }))
           .then(function (more) {
@@ -4934,15 +4951,26 @@ th[aria-sort] button { color: var(--ink-1); }
           refuseKey(e);
           return;
         }
-        setError(e && e.name === "AbortError"
+        var reason = e && e.name === "AbortError"
           ? "no response within " + Math.round(budget / 1000) + "s"
-          : String(e && e.message ? e.message : e));
+          : String(e && e.message ? e.message : e);
+        /* A key no response has accepted yet, failing for any other reason,
+           goes back to the form rather than retrying unseen on every tick. */
+        if (HOST_MOUNT && !state.keyVerified) {
+          ctl.abort();
+          holdForKey(e && e.status === 404 ? KEY_NO_API : "The page could not read its data (" + reason + "). Check the key and try again.");
+          return;
+        }
+        setError(reason);
         renderFailure();
       })
       .then(function () {
         if (gen !== generation) return;
         endFetch();
         setLive();
+        var queued = state.queued;
+        state.queued = null;
+        if (queued && !awaitingKey()) refresh(true, queued.forceSync);
       });
   }
 
@@ -4954,7 +4982,12 @@ th[aria-sort] button { color: var(--ink-1); }
      moves only when the form first appears. With nothing fetched yet the
      loading skeleton gives way to the form: the page is waiting on the
      reader, not on the host. */
+  function awaitingKey() {
+    return !!HOST_MOUNT && (state.locked || !state.key);
+  }
+
   function showKeyGate(message) {
+    setLive();
     if (message) gateMsg.textContent = message;
     if (!state.data) {
       $("loading").hidden = true;
@@ -4969,19 +5002,34 @@ th[aria-sort] button { color: var(--ink-1); }
      already counted the failure, and a retry with the same key only counts
      another. 401 is the key; 403 is the address or a ban, and names which. */
   function refuseKey(e) {
+    holdForKey((e.status === 401 ? "The host did not accept that key: " : "The host refused this page: ") +
+      e.message + "." + KEY_BAN_NOTE);
+  }
+
+  /* Forget the key and wait for the reader: nothing is sent until a key is
+     entered again. */
+  function holdForKey(message) {
     state.locked = true;
     state.keyVerified = false;
     state.key = "";
+    state.queued = null;
     try { window.sessionStorage.removeItem(KEY_STORE); } catch (err) { /* in-memory only */ }
     setError(null);
-    showKeyGate((e.status === 401 ? "The host did not accept that key: " : "The host refused this page: ") +
-      e.message + "." + KEY_BAN_NOTE);
+    showKeyGate(message);
   }
 
   gate.addEventListener("submit", function (ev) {
     ev.preventDefault();
     var key = keyInput.value.trim();
     if (!key) return;
+    /* A request header carries Latin-1 only; a key pasted with a smart quote
+       or a zero-width space would fail in the browser before reaching the
+       host. */
+    if (/[^\x20-\x7e\xa0-\xff]/.test(key)) {
+      gateMsg.textContent = "That key holds a character a request header cannot carry, usually from copying it out of a " +
+        "document. Paste it again as plain text.";
+      return;
+    }
     keyInput.value = "";
     state.key = key;
     state.keyVerified = false;

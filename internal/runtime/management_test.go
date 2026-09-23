@@ -386,3 +386,22 @@ func TestConcurrentSyncNowRunsOnePoll(t *testing.T) {
 		t.Errorf("host.http.do was called %d times for one forced read of two seats", perPoll)
 	}
 }
+
+// TestPageStatusFollowsTheApp covers the page's data route when the page is
+// not being served: with web.enabled off it answers 404, and with no app
+// installed it answers 503, whatever web.enabled says.
+func TestPageStatusFollowsTheApp(t *testing.T) {
+	off := newTestPlugin(t, testConfigYAML+"web:\n  enabled: false\n")
+	off.registerManagement(t)
+	off.SetResourceHandler(&recordingHandler{})
+	if got := off.manage(t, http.MethodGet, testMgmtPrefix+routePageStatus, nil); got.StatusCode != http.StatusNotFound {
+		t.Errorf("web disabled: page-status = %d %s, want 404", got.StatusCode, got.Body)
+	}
+
+	bare := newTestPlugin(t, testConfigYAML)
+	bare.registerManagement(t)
+	bare.SetResourceHandler(nil)
+	if got := bare.manage(t, http.MethodGet, testMgmtPrefix+routePageStatus, nil); got.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("no app: page-status = %d %s, want 503", got.StatusCode, got.Body)
+	}
+}
