@@ -316,3 +316,20 @@ func TestNormalizeBoundsTheRequestTimeout(t *testing.T) {
 		}
 	}
 }
+
+// A weight near the float ceiling turns a weighted slack into an infinite
+// cost, and the status route cannot encode one.
+func TestNormalizeBoundsTheWeights(t *testing.T) {
+	d := Defaults()
+	cfg := Config{Pace: PaceConfig{WeeklyWeight: 1e308, SessionWeight: 100.5, ScopedWeight: 100}}
+	cfg.Normalize()
+	if cfg.Pace.WeeklyWeight != d.Pace.WeeklyWeight {
+		t.Errorf("weekly weight = %v, want the default %v", cfg.Pace.WeeklyWeight, d.Pace.WeeklyWeight)
+	}
+	if cfg.Pace.SessionWeight != d.Pace.SessionWeight {
+		t.Errorf("session weight = %v, want the default %v", cfg.Pace.SessionWeight, d.Pace.SessionWeight)
+	}
+	if cfg.Pace.ScopedWeight != 100 {
+		t.Errorf("scoped weight = %v, want the top of the range kept", cfg.Pace.ScopedWeight)
+	}
+}

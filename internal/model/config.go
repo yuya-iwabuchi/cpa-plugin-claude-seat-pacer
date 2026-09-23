@@ -220,10 +220,21 @@ func (c *Config) Normalize() {
 	// A negative weight would invert the pace preference, sending work to the
 	// credential furthest over its target. Zero is meaningful — it retires a
 	// window from the score without retiring its gates — so only the sign is
-	// corrected.
-	for _, w := range []*float64{&c.Pace.WeeklyWeight, &c.Pace.SessionWeight, &c.Pace.ScopedWeight} {
-		if *w < 0 {
-			*w = 0
+	// corrected. Weights are relative, so 100 leaves ample range; far past it a
+	// weighted slack overflows to an infinite cost, which JSON cannot encode.
+	for _, w := range []struct {
+		v   *float64
+		def float64
+	}{
+		{&c.Pace.WeeklyWeight, d.Pace.WeeklyWeight},
+		{&c.Pace.SessionWeight, d.Pace.SessionWeight},
+		{&c.Pace.ScopedWeight, d.Pace.ScopedWeight},
+	} {
+		switch {
+		case *w.v < 0:
+			*w.v = 0
+		case *w.v > 100:
+			*w.v = w.def
 		}
 	}
 	switch shape := strings.ToLower(strings.TrimSpace(c.Pace.Shape)); {
