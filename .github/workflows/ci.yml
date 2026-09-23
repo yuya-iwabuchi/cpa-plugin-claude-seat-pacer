@@ -1,9 +1,8 @@
 # The gate every change passes. `check` runs the whole suite — gofmt, vet, the
 # race detector and the shared library — on the two platforms the plugin is
 # developed on. `crossbuild` proves the library still links on every platform a
-# release ships to, without paying for the race detector five times. `vuln`
-# checks the standard library and every dependency against the Go
-# vulnerability database, with the toolchain go.mod pins.
+# release ships to, without paying for the race detector five times. The
+# vulnerability scan is vuln.yml, which also runs on a schedule.
 #
 # Actions are pinned to commit SHAs, with the release they came from beside
 # each; Dependabot proposes updates. Checkouts keep no credentials, and every
@@ -18,8 +17,9 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same pull request replaces the run in progress; runs on
-# main always finish.
+# A newer push to the same pull request replaces the run in progress. A run on
+# main is never cancelled once it starts; one still queued gives way to a newer
+# push.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -70,24 +70,3 @@ jobs:
       - name: build
         shell: bash
         run: CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "dist/claude-seat-pacer.${{ matrix.ext }}" .
-
-  vuln:
-    name: govulncheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      # GOTOOLCHAIN=local keeps the scan on the toolchain go.mod pins. A
-      # govulncheck needing a newer Go would otherwise switch toolchains and
-      # judge the standard library of a Go the plugin is not built with.
-      - name: govulncheck
-        env:
-          GOTOOLCHAIN: local
-          CGO_ENABLED: "1"
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

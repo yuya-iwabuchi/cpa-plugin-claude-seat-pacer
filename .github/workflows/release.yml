@@ -109,6 +109,7 @@ jobs:
           find staging -name '*.zip' -exec mv {} release/ \;
           find staging -name '*.sha256' | sort | xargs cat > release/checksums.txt
           test "$(find release -name '*.zip' | wc -l)" -eq 5
+          test "$(wc -l < release/checksums.txt)" -eq 5
           (cd release && sha256sum --check --strict checksums.txt)
           ls -l release && cat release/checksums.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

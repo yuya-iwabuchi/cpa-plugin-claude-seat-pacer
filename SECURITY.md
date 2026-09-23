@@ -29,8 +29,10 @@ The attestation can:
 
 ```sh
 gh attestation verify claude-seat-pacer_<version>_<goos>_<goarch>.zip \
-  --repo yuya-iwabuchi/cpa-plugin-claude-seat-pacer
+  --repo yuya-iwabuchi/cpa-plugin-claude-seat-pacer \
+  --signer-workflow yuya-iwabuchi/cpa-plugin-claude-seat-pacer/.github/workflows/release.yml \
+  --source-ref refs/tags/v<version>
 ```
 
 It passes only for a zip this repository's release workflow built from the
-tagged commit.
+tag `v<version>`.
