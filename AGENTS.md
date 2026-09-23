@@ -120,6 +120,13 @@ and fully unit-testable without the host.
 
 ## Rules for changes
 
+- Every goroutine the plugin starts runs its work under a recover: `host.spawn`
+  drops a panic, the poll loop runs through `guard`, and the usage fetch turns
+  one into a failed fetch. `recover()` does not cross the C boundary, so a
+  panic escaping any goroutine terminates the host process.
+- `go.mod` pins the Go toolchain with a `toolchain` directive. CI's
+  govulncheck judges the standard library of that toolchain, so a finding is
+  fixed by raising the pin.
 - No blocking I/O on the pick path. Ever.
 - Every exported cgo entry point recovers from panics.
 - Prefer declining (`Handled: false`) over guessing.
