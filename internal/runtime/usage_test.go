@@ -47,10 +47,39 @@ func TestUsageHandleAccumulatesCacheStatsAndMergesHeaders(t *testing.T) {
 	if weekly, ok := snap.Window(model.WindowWeekly, ""); !ok || weekly.Utilization != 0.04 {
 		t.Errorf("weekly window = %+v ok=%v, want the endpoint reading untouched", weekly, ok)
 	}
-	// The reading is stamped at the end of the request, RequestedAt+Latency,
-	// not at the start.
+	// With no first byte measured, the reading is stamped at the end of the
+	// request, RequestedAt+Latency.
 	if !snap.ObservedAt.Equal(testNow.Add(time.Minute)) {
 		t.Errorf("ObservedAt = %v, want the response time", snap.ObservedAt)
+	}
+}
+
+// TestALongStreamsHeadersLoseToALaterRequests covers two requests on one seat
+// in a fast climb: a long stream admitted at 58% ends after a short request
+// admitted later read 73%. The stream's headers are stamped at its first
+// byte, so they are the older reading and leave the window at 73%.
+func TestALongStreamsHeadersLoseToALaterRequests(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.quota.Put(seatA(t))
+	record := func(requested time.Time, ttft, latency time.Duration, utilization string) UsageRecord {
+		return UsageRecord{
+			Provider: "claude", Model: fableModel, AuthID: "seat-a", AuthIndex: "idx-a",
+			RequestedAt: requested, TTFT: ttft, Latency: latency,
+			ResponseHeaders: http.Header{
+				"Anthropic-Ratelimit-Unified-5h-Utilization": {utilization},
+				"Anthropic-Ratelimit-Unified-5h-Reset":       {"1757048400"},
+			},
+		}
+	}
+	tp.callOK(t, MethodUsageHandle, mustJSON(t, record(testNow.Add(3*time.Minute), 30*time.Second, 40*time.Second, "0.73")), nil)
+	tp.callOK(t, MethodUsageHandle, mustJSON(t, record(testNow.Add(time.Minute), 2*time.Second, 5*time.Minute, "0.58")), nil)
+
+	snap, _ := tp.quota.Get("seat-a")
+	if session, ok := snap.Window(model.WindowSession, ""); !ok || session.Utilization != 0.73 {
+		t.Errorf("session window = %+v ok=%v, want the later request's 0.73 kept", session, ok)
+	}
+	if want := testNow.Add(210 * time.Second); !snap.ObservedAt.Equal(want) {
+		t.Errorf("ObservedAt = %v, want the later request's first byte %v", snap.ObservedAt, want)
 	}
 }
 

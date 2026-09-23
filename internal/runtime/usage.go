@@ -40,12 +40,19 @@ func (p *Plugin) usage(rec UsageRecord) {
 	if len(rec.ResponseHeaders) == 0 {
 		return
 	}
-	// The headers describe the response, so the reading is stamped at the end
-	// of the request. MergeHeaders keeps the newer of two readings for a
-	// window, which is that ordering.
+	// The headers arrive ahead of the first body byte and describe the
+	// window as the provider admitted the request, so the reading is stamped
+	// at the first byte. A streamed response can run for minutes past it, and
+	// MergeHeaders drops a reading older than the one it holds, so a long
+	// request's reading loses to a later request's. TTFT is zero where the host
+	// measured no first byte, and the end of the request stands in.
 	observed := p.now()
 	if !rec.RequestedAt.IsZero() {
-		observed = rec.RequestedAt.Add(rec.Latency)
+		first := rec.TTFT
+		if first <= 0 {
+			first = rec.Latency
+		}
+		observed = rec.RequestedAt.Add(first)
 	}
 	if windows := quota.ParseResponseHeaders(rec.ResponseHeaders, observed); len(windows) > 0 {
 		p.quota.MergeHeaders(rec.AuthID, windows, observed)
