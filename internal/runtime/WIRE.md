@@ -3,8 +3,9 @@
 Host: CLIProxyAPI v7.2.149 (tag `v7.2.149`, commit `2a6b87ac`), built from
 source by the test.
 
-The deployment target is 7.2.145 or newer. Everything below holds at 7.2.149;
-nothing here establishes that lower bound.
+The deployment target is 7.2.145 or newer. Everything below holds at 7.2.149,
+and the host-driven tests also pass against v7.3.10 and v7.3.15; nothing here
+establishes the lower bound.
 
 ## Verdict: header bridge CONFIRMED
 

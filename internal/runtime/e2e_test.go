@@ -150,30 +150,55 @@ routing:
 	t.Logf("session two: kind=%s auth=%s key=%s; bindings=%d", newest.Kind, newest.ChosenAuthID, newest.SessionKey, len(second.Bindings))
 	t.Logf("warnings: %v", second.Warnings)
 
-	// The resource routes reach the status app without the management key.
+	// No resource route carries data: the host serves resource routes with no
+	// key, and an undeclared path never reaches the plugin.
 	resource, err := host.client.Get(host.baseURL + "/v0/resource/plugins/" + pluginID + "/api/status")
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := readAll(resource)
-	if resource.StatusCode != http.StatusOK {
-		t.Fatalf("resource status route: %d %s", resource.StatusCode, raw)
+	if body, _ := readAll(resource); resource.StatusCode != http.StatusNotFound {
+		t.Errorf("resource api/status = %d %s, want 404", resource.StatusCode, body)
+	}
+
+	// The page's data route is a management route: the host refuses it
+	// without the key. One refusal only: the host bans an address after five.
+	pageStatusURL := host.baseURL + "/v0/management/plugins/" + pluginID + "/page-status"
+	keyless, err := host.client.Get(pageStatusURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := readAll(keyless); keyless.StatusCode != http.StatusUnauthorized {
+		t.Errorf("page-status without the key = %d %s, want 401", keyless.StatusCode, body)
+	}
+	request, err := http.NewRequest(http.MethodGet, pageStatusURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+host.managementKey)
+	keyed, err := host.client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := readAll(keyed)
+	if keyed.StatusCode != http.StatusOK {
+		t.Fatalf("page-status route: %d %s", keyed.StatusCode, raw)
 	}
 	var served model.Status
 	if err := json.Unmarshal(raw, &served); err != nil {
-		t.Fatalf("decode resource status: %v\n%s", err, raw)
+		t.Fatalf("decode page status: %v\n%s", err, raw)
 	}
 	if len(served.Auths) != 2 || len(served.Bindings) != 2 {
-		t.Errorf("resource status = %d auths %d bindings, want the same view as the management route", len(served.Auths), len(served.Bindings))
+		t.Errorf("page status = %d auths %d bindings, want the same view as the status route", len(served.Auths), len(served.Bindings))
 	}
-	// The route is unauthenticated, so it publishes a hashed credential id.
+	// The page names each seat by a hashed credential id, so it is safe to
+	// show on a screen.
 	rows := make(map[string]bool, len(served.Auths))
 	for _, row := range served.Auths {
 		rows[row.AuthID] = true
 	}
 	for _, row := range second.Auths {
 		if quoted := `auth_id":"` + row.AuthID + `"`; bytes.Contains(raw, []byte(quoted)) {
-			t.Errorf("the unauthenticated route serves the real id %q: %s", row.AuthID, raw)
+			t.Errorf("the page's route serves the real id %q: %s", row.AuthID, raw)
 		}
 	}
 	// The join every table on the page makes.

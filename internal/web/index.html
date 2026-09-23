@@ -282,6 +282,15 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 .banner ul { margin: 0; padding-left: 16px; }
 .banner li { margin: 4px 0; color: var(--ink-1); }
 .banner.err { border-left-color: var(--critical); }
+/* The key gate: the page's one form, shown until a management key is entered
+   and whenever the host refuses one. */
+.key-gate p { margin: 0; color: var(--ink-1); max-width: 72ch; }
+.key-gate .key-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.key-gate input {
+  flex: 1 1 260px; min-width: 0;
+  font: 500 12.5px/1 var(--mono); color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 7px 10px;
+}
 /* A remark the pointer or the keyboard opens rather than a line of text: the
    dotted rule is the page's mark for a figure carrying one, and the muted
    grey keeps it a remark rather than a fault. A kept seat's note in the log
@@ -779,8 +788,8 @@ th[aria-sort] button { color: var(--ink-1); }
 <header class="mast">
   <div class="mast-inner">
     <h1 class="brand-name">Claude Seat Pacer</h1>
-    <p class="brand-line">Spreads requests by how fast each seat is spending. Each conversation
-      stays on its first seat, so its prompt cache keeps hitting.</p>
+    <p class="brand-line">Uses up each seat's weekly quota before it resets. Each conversation
+      stays on its first seat, so its prompt cache keeps working.</p>
   </div>
 </header>
 
@@ -826,6 +835,15 @@ th[aria-sort] button { color: var(--ink-1); }
   <main id="app">
 
     <div id="error-strip" class="banner err" role="status" hidden></div>
+    <form id="key-gate" class="banner key-gate" autocomplete="off" hidden>
+      <h2>Management key</h2>
+      <p id="key-gate-msg"></p>
+      <div class="key-row">
+        <label class="sr-only" for="key-input">Management key</label>
+        <input id="key-input" type="password" spellcheck="false" autocomplete="current-password" required>
+        <button type="submit">Unlock</button>
+      </div>
+    </form>
     <div id="warnings" role="status" hidden></div>
 
     <div id="loading" class="skel" style="margin-top:24px">
@@ -1005,8 +1023,29 @@ th[aria-sort] button { color: var(--ink-1); }
      none free is neutral. */
   var SEAT_HUES = 6;
 
+  /* The page is a resource route, which the host serves with no key; its data
+     is the plugin's page-status management route, which needs the management
+     key. Both sit on the host's default mounts: /v0/resource/plugins/<id>/ and
+     /v0/management/plugins/<id>/. Served from anywhere else — cmd/webdev — the
+     page reads api/status beside itself, with no key. */
+  var HOST_MOUNT = /^(.*)\/v0\/resource\/plugins\/([^\/]+)\//.exec(window.location.pathname);
+  var DATA_URL = HOST_MOUNT
+    ? HOST_MOUNT[1] + "/v0/management/plugins/" + HOST_MOUNT[2] + "/page-status"
+    : "api/status";
+  var KEY_STORE = "claude-seat-pacer.management-key";
+  var KEY_PROMPT = "This page reads its data through CLIProxyAPI's management API. Enter the " +
+    "management key (remote-management.secret-key) to continue. It is kept for this browser tab only.";
+  var KEY_BAN_NOTE = " The host locks this address out for 30 minutes after five failed tries.";
+  var KEY_NO_API = "The host's management API is off (HTTP 404). CLIProxyAPI serves it only once " +
+    "remote-management.secret-key is set; set it, restart the host, and enter that key here.";
+
   var state = {
     paused: false,
+    /* The management key for this tab. locked holds every request back until
+       one is entered; keyVerified is set by the first response it earns. */
+    key: "",
+    keyVerified: false,
+    locked: false,
     /* Last good status, merged across request families: everything but the
        scores comes from the Standard payload; each seat's scores sit in
        byFamily, one per family the seats report a cap for. A failed fetch
@@ -4679,7 +4718,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function setLive() {
     var dot = $("live-dot");
     var stale = document.documentElement.getAttribute("data-stale") === "true";
-    dot.setAttribute("data-live", state.error ? "error" : stale ? "stale" : state.paused ? "paused" : "live");
+    dot.setAttribute("data-live", state.error ? "error" : awaitingKey() ? "paused" : stale ? "stale" : state.paused ? "paused" : "live");
     if (!state.data) $("snapshot-age").textContent = state.inFlight ? "loading…" : "never";
     renderSync();
   }
@@ -4705,25 +4744,61 @@ th[aria-sort] button { color: var(--ink-1); }
     var st = state.data;
     var next = parseT(st && st.next_poll_at);
     host.textContent = "";
+    if (awaitingKey()) { host.textContent = "waiting for the management key"; return; }
     if (document.documentElement.getAttribute("data-stale") === "true") { host.textContent = STALE_TEXT; return; }
     if (state.paused) { host.textContent = "refresh paused"; return; }
     if (!next) { host.textContent = st ? "first sync pending" : "—"; return; }
     host.appendChild(stamp(next, "", "sync"));
   }
 
-  /* Relative fetch: the mount prefix is chosen by the host and unknown here.
-     The route scores for one model per call, so one refresh asks once per
+  /* The route scores for one model per call, so one refresh asks once per
      request family. */
   function statusURL(fam, st, forceSync) {
     var rep = representativeModel(fam, st, scopedFamilies(st || {}));
-    return "api/status?model=" + encodeURIComponent(rep) + (forceSync ? "&sync=1" : "");
+    return DATA_URL + "?model=" + encodeURIComponent(rep) + (forceSync ? "&sync=1" : "");
   }
 
+  /* The host escapes every string value in a management JSON body with Go's
+     html.EscapeString, for a plugin declaring a schema version below 6. The
+     page renders with textContent, never as markup, so it restores the text
+     once, exactly. Object keys are not escaped. */
+  var HOST_ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&#34;": "\"", "&#39;": "'" };
+  function unescapeHost(v) {
+    if (typeof v === "string") {
+      return v.indexOf("&") < 0 ? v : v.replace(/&(?:amp|lt|gt|#34|#39);/g, function (m) { return HOST_ENTITIES[m]; });
+    }
+    if (Array.isArray(v)) {
+      for (var i = 0; i < v.length; i++) v[i] = unescapeHost(v[i]);
+      return v;
+    }
+    if (v && typeof v === "object") {
+      Object.keys(v).forEach(function (k) { v[k] = unescapeHost(v[k]); });
+    }
+    return v;
+  }
+
+  /* A 401 or 403 from the host is a verdict on the key or the address, not a
+     transient failure, so it surfaces as an auth error that stops the refresh
+     rather than as a fetch that failed. */
   function fetchJSON(url, signal) {
-    return fetch(url, { headers: { "Accept": "application/json" }, cache: "no-store", signal: signal })
+    var headers = { "Accept": "application/json" };
+    if (HOST_MOUNT) headers["Authorization"] = "Bearer " + state.key;
+    return fetch(url, { headers: headers, cache: "no-store", signal: signal })
       .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
+        if (HOST_MOUNT && (res.status === 401 || res.status === 403)) {
+          return res.json().catch(function () { return null; }).then(function (body) {
+            var e = new Error((body && body.error) || "HTTP " + res.status);
+            e.auth = true;
+            e.status = res.status;
+            throw e;
+          });
+        }
+        if (!res.ok) {
+          var failed = new Error("HTTP " + res.status);
+          failed.status = res.status;
+          throw failed;
+        }
+        return res.json().then(function (data) { return HOST_MOUNT ? unescapeHost(data) : data; });
       });
   }
 
@@ -4732,7 +4807,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function fetchFamily(fam, st, signal) {
     return fetchJSON(statusURL(fam, st), signal).then(function (data) { return { fam: fam, data: data }; },
       function (e) {
-        if (e && e.name === "AbortError") throw e;
+        if (e && (e.name === "AbortError" || e.auth)) throw e;
         return { fam: fam, data: null };
       });
   }
@@ -4795,7 +4870,23 @@ th[aria-sort] button { color: var(--ink-1); }
      so the payload the normal render path receives already carries the fresh
      reading and nothing else here changes. */
   function refresh(userInitiated, forceSync) {
+    /* The host counts a request with no key, or a refused one, toward a
+       30-minute ban of the client address — loopback included, so the ban
+       would shut the Management Center out too. Nothing is sent without a key,
+       and nothing more is sent once one is refused. */
+    if (HOST_MOUNT && (state.locked || !state.key)) {
+      showKeyGate(state.locked ? null : KEY_PROMPT);
+      return;
+    }
     if (state.inFlight) {
+      /* On the host every request is a key check, and one the page cancels has
+         still been counted, so a refresh that arrives while one is out waits
+         for it rather than replacing it. A user's refresh runs once the
+         current one lands; the timer's is dropped. */
+      if (HOST_MOUNT) {
+        if (userInitiated) state.queued = { forceSync: !!(forceSync || (state.queued && state.queued.forceSync)) };
+        return;
+      }
       if (!userInitiated) return;
       inFlightCtl.abort();
       endFetch();
@@ -4815,9 +4906,14 @@ th[aria-sort] button { color: var(--ink-1); }
     setLive();
 
     var prior = state.data;
-    var sides = scopedFamilies(prior || {}).map(function (fam) { return fetchFamily(fam, prior, ctl.signal); });
+    /* On the host the Standard request goes out alone and the other families
+       follow once it lands, so a key the host has stopped accepting — a new
+       secret, a mistyped entry — costs one failed check per refresh rather
+       than one per family. Off the host they go out together. */
+    var sides = HOST_MOUNT ? [] : scopedFamilies(prior || {}).map(function (fam) { return fetchFamily(fam, prior, ctl.signal); });
 
     function commit(standard, others) {
+      state.keyVerified = true;
       state.data = mergeStatus(standard, others);
       var served = parseT(standard && standard.now);
       state.skew = served ? Date.now() - served.getTime() : 0;
@@ -4834,11 +4930,13 @@ th[aria-sort] button { color: var(--ink-1); }
       .then(function (results) {
         if (gen !== generation) return;
         var data = results[0], others = results.slice(1);
-        commit(data, others);
 
         var have = Object.create(null);
         others.forEach(function (o) { have[o.fam] = true; });
         var late = scopedFamilies(data).filter(function (fam) { return !have[fam]; });
+        /* On the host every family is late, so the page renders once, with
+           them all, rather than first without them. */
+        if (!late.length || !HOST_MOUNT) commit(data, others);
         if (!late.length) return;
         return Promise.all(late.map(function (fam) { return fetchFamily(fam, data, ctl.signal); }))
           .then(function (more) {
@@ -4848,16 +4946,102 @@ th[aria-sort] button { color: var(--ink-1); }
       })
       .catch(function (e) {
         if (gen !== generation) return;
-        setError(e && e.name === "AbortError"
+        if (e && e.auth) {
+          ctl.abort();
+          refuseKey(e);
+          return;
+        }
+        var reason = e && e.name === "AbortError"
           ? "no response within " + Math.round(budget / 1000) + "s"
-          : String(e && e.message ? e.message : e));
+          : String(e && e.message ? e.message : e);
+        /* A key no response has accepted yet, failing for any other reason,
+           goes back to the form rather than retrying unseen on every tick. */
+        if (HOST_MOUNT && !state.keyVerified) {
+          ctl.abort();
+          holdForKey(e && e.status === 404 ? KEY_NO_API : "The page could not read its data (" + reason + "). Check the key and try again.");
+          return;
+        }
+        setError(reason);
         renderFailure();
       })
       .then(function () {
         if (gen !== generation) return;
         endFetch();
         setLive();
+        var queued = state.queued;
+        state.queued = null;
+        if (queued && !awaitingKey()) refresh(true, queued.forceSync);
       });
+  }
+
+  /* ------------------------------------------------------------- key gate */
+
+  var gate = $("key-gate"), gateMsg = $("key-gate-msg"), keyInput = $("key-input");
+
+  /* Called on every refresh tick while the page waits for a key, so focus
+     moves only when the form first appears. With nothing fetched yet the
+     loading skeleton gives way to the form: the page is waiting on the
+     reader, not on the host. */
+  function awaitingKey() {
+    return !!HOST_MOUNT && (state.locked || !state.key);
+  }
+
+  function showKeyGate(message) {
+    setLive();
+    if (message) gateMsg.textContent = message;
+    if (!state.data) {
+      $("loading").hidden = true;
+      $("app").removeAttribute("aria-busy");
+    }
+    if (!gate.hidden) return;
+    gate.hidden = false;
+    keyInput.focus();
+  }
+
+  /* A refused key is forgotten and the page stops asking: the host has
+     already counted the failure, and a retry with the same key only counts
+     another. 401 is the key; 403 is the address or a ban, and names which. */
+  function refuseKey(e) {
+    holdForKey((e.status === 401 ? "The host did not accept that key: " : "The host refused this page: ") +
+      e.message + "." + KEY_BAN_NOTE);
+  }
+
+  /* Forget the key and wait for the reader: nothing is sent until a key is
+     entered again. */
+  function holdForKey(message) {
+    state.locked = true;
+    state.keyVerified = false;
+    state.key = "";
+    state.queued = null;
+    try { window.sessionStorage.removeItem(KEY_STORE); } catch (err) { /* in-memory only */ }
+    setError(null);
+    showKeyGate(message);
+  }
+
+  gate.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var key = keyInput.value.trim();
+    if (!key) return;
+    /* A request header carries Latin-1 only; a key pasted with a smart quote
+       or a zero-width space would fail in the browser before reaching the
+       host. */
+    if (/[^\x20-\x7e\xa0-\xff]/.test(key)) {
+      gateMsg.textContent = "That key holds a character a request header cannot carry, usually from copying it out of a " +
+        "document. Paste it again as plain text.";
+      return;
+    }
+    keyInput.value = "";
+    state.key = key;
+    state.keyVerified = false;
+    state.locked = false;
+    try { window.sessionStorage.setItem(KEY_STORE, key); } catch (err) { /* in-memory only */ }
+    gate.hidden = true;
+    if (!state.data) $("loading").hidden = false;
+    refresh(true);
+  });
+
+  if (HOST_MOUNT) {
+    try { state.key = window.sessionStorage.getItem(KEY_STORE) || ""; } catch (err) { state.key = ""; }
   }
 
   /* --------------------------------------------------------------- wiring */

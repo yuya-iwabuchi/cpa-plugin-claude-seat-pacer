@@ -189,8 +189,8 @@ func (c Cycle) SampleEstimated(s Sample) bool {
 
 // WindowHistory is the recorded utilization of one window of one credential,
 // oldest cycle first and oldest sample first within a cycle. It carries no
-// identity beyond the window's own, so the unauthenticated status route can
-// publish it as is.
+// identity beyond the window's own, so the page's status route serves it as
+// is.
 type WindowHistory struct {
 	Kind   WindowKind `json:"kind"`
 	Scope  string     `json:"scope,omitempty"`

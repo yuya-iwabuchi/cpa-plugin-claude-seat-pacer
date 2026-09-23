@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -292,6 +293,27 @@ func TestStatusPassesModelAndNow(t *testing.T) {
 	}
 }
 
+// TestPageUndoesHostEscaping holds the page's entity table to the escaping the
+// host applies to every string in a management JSON body, html.EscapeString:
+// an entity the page does not restore would show as literal markup, and one it
+// restores that the host never produced would corrupt a name holding that text.
+func TestPageUndoesHostEscaping(t *testing.T) {
+	t.Parallel()
+	page := string(indexHTML)
+	for _, c := range []string{"&", "<", ">", `"`, "'"} {
+		esc := html.EscapeString(c)
+		if esc == c {
+			t.Fatalf("html.EscapeString leaves %q alone; the page's table is stale", c)
+		}
+		if entry := strconv.Quote(esc) + ": " + strconv.Quote(c); !strings.Contains(page, entry) {
+			t.Errorf("page does not map %s back to %s (want %s)", esc, c, entry)
+		}
+		if name := strings.Trim(esc, "&;"); !strings.Contains(page, "|"+name+"|") && !strings.Contains(page, "(?:"+name+"|") && !strings.Contains(page, "|"+name+");") {
+			t.Errorf("page's entity pattern does not match %s", esc)
+		}
+	}
+}
+
 func TestPageIsOffline(t *testing.T) {
 	t.Parallel()
 	page := get(t, NewHandler(&stubSource{status: richStatus()}), "/").Body.String()
@@ -306,8 +328,12 @@ func TestPageIsOffline(t *testing.T) {
 	if m := rootAbs.FindString(page); m != "" {
 		t.Errorf("page uses a root-absolute URL: %q", m)
 	}
-	if !strings.Contains(page, `"api/status?model="`) {
-		t.Error("page does not fetch the relative api/status, scored per model")
+	// On the host the data comes from the page-status management route, found
+	// from the page's own mount; the relative api/status serves cmd/webdev.
+	for _, want := range []string{`"/v0/management/plugins/"`, `"/page-status"`, `: "api/status";`, `DATA_URL + "?model="`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page does not build its data URL from %s", want)
+		}
 	}
 	if strings.Contains(page, "<script src") || strings.Contains(page, "<link rel=\"stylesheet\"") {
 		t.Error("page loads an external script or stylesheet")

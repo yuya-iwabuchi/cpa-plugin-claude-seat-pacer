@@ -1,18 +1,23 @@
 # Agent brief
 
-Verified against CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit `2a6b87ac`); the
+Host line references are to CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit
+`2a6b87ac`). The host-driven tests pass against v7.3.10 and v7.3.15. The
 deployment target is 7.2.145+, a lower bound nothing in this repository tests.
 
 ## What this plugin is
 
-A CLIProxyAPI plugin that spends the Claude OAuth subscription seat whose
-weekly budget expires soonest first, and keeps each conversation on one seat
-so Anthropic prompt caches keep hitting.
+A CLIProxyAPI plugin that uses up each Claude OAuth subscription seat's weekly
+quota before it resets. Every new conversation goes to the seat furthest behind
+a plan that spends its quota steadily and finishes a little before the reset,
+and each conversation stays on one seat so Anthropic prompt caches keep
+hitting.
 
 The preference is a policy, not a bug to fix: `LandingTarget` defaults above
-full on purpose, because weekly quota left at reset is lost, and a pool that
-wants an even spread sets it to 1.0. Changing that default changes what the
-plugin is for.
+full on purpose, because weekly quota left at reset is lost. 1.0 removes only
+the extra lean that plans each seat to finish early; a seat still holding
+quota near its reset is behind its plan either way and still goes first. An
+even spread is the host's round-robin, with the plugin disabled. Changing that default changes what the plugin is
+for.
 
 Declared capabilities: `request_interceptor`, `scheduler`, `usage_plugin`,
 `management_api`.
@@ -87,6 +92,18 @@ the run. Do not remove that test.
 - **Declare `schema_version: 1`**, not the host's current value: the host
   refuses a plugin whose declared version exceeds its own, so a higher value
   makes every older host refuse the load.
+- **Resource routes are served to anyone who can reach the host's port**, with
+  no management key and no loopback check (`pluginResourceNoRoute`), so the
+  resource route carries the static page and nothing else. The page's data is
+  the `page-status` management route, which the host answers only with the key
+  and, unless `remote-management.allow-remote` is set, only for loopback
+  clients. Two host behaviours shape the page around it. The host HTML-escapes
+  every string value in a management JSON body for a plugin declaring a schema
+  version below 6, and the page restores the text once; raising the declared
+  version to 6 or above ends the escaping, and the page's decode has to go
+  with it. The host bans a client address, loopback included, for 30 minutes
+  after five failed key checks, a request with no key among them, so the page
+  never sends a request without a key and stops at the first refusal.
 
 ## Wire format
 
@@ -110,7 +127,7 @@ internal/quota       usage-endpoint client, response-header parsing, snapshots, 
 internal/pace        the scoring curve and the staleness gates; pure functions over model types
 internal/session     conversation identity extraction + binding store
 internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
-internal/web         embedded status app served on the plugin's resource routes
+internal/web         embedded status app: page on the resource route, data behind the key
 cmd/webdev           fixture server that renders the status app from synthetic seats
 ```
 
