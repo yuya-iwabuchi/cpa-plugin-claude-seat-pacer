@@ -2106,6 +2106,10 @@ th[aria-sort] button { color: var(--ink-1); }
      included. It is reserved whether or not the control is showing, so a row
      does not reflow under the pointer. */
   var HIDE_W = 18, HIDE_RES = 28;
+  /* The rank slot every seat's name starts after: a "#NN" in the header's
+     11.5px mono. A seat without a rank shows a dash in it, so every name
+     starts at the same x; only a per-family rank runs wider. */
+  var RANK_W = 21;
   /* The plot a date on the axis needs to itself: a "Sep 16" set at 10.5px is
      about 40 of it, and the rest is the gap to the next one. */
   var DAY_LABEL_PX = 54;
@@ -2367,7 +2371,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var gut = GUT;
     seats.forEach(function (a) {
       var rank = rankText(a, ranks);
-      var need = 34 + (rank ? Math.max(18, textW(root, rank, { "font-size": 11.5, "font-weight": 600, "class": "t-mono" })) + 6 : 0) +
+      var need = 34 + (rank.length > 3 ? Math.max(RANK_W, textW(root, rank, { "font-size": 11.5, "font-weight": 600, "class": "t-mono" })) : RANK_W) + 6 +
         textW(root, seatLabel(a), { "font-size": geo.name, "font-weight": 600 }) + 8;
       seatChips(a, ranks).forEach(function (c) {
         need += textW(root, "✕ " + c.label, { "font-size": 9.5, "class": "fam-text" }) + 14 + 6;
@@ -2447,11 +2451,8 @@ th[aria-sort] button { color: var(--ink-1); }
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: gut - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
       var rank = rankText(a, ranks);
-      var nameX = 34;
-      if (rank) {
-        var rankEl = svgText(gh, 34, headY, rank, "t-mono t-sec", { "font-size": 11.5, "font-weight": 600 });
-        nameX = 34 + Math.max(18, rankEl.getComputedTextLength()) + 6;
-      }
+      var rankEl = svgText(gh, 34, headY, rank || "—", rank ? "t-mono t-sec" : "t-mono t-muted", { "font-size": 11.5, "font-weight": 600 });
+      var nameX = 34 + (rank.length > 3 ? Math.max(RANK_W, rankEl.getComputedTextLength()) : RANK_W) + 6;
       var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
       /* The seat's family chips sit beside its name, which is the seat the
