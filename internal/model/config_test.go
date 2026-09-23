@@ -280,18 +280,22 @@ func TestNormalizeBoundsTheHistoryLimit(t *testing.T) {
 	d := Defaults()
 	for _, tc := range []struct {
 		in, want int
+		warning  string
 	}{
-		{1, 1},
-		{10000, 10000},
-		{10001, d.Web.HistoryLimit},
-		{1000000000, d.Web.HistoryLimit},
-		{0, d.Web.HistoryLimit},
-		{-5, d.Web.HistoryLimit},
+		{1, 1, ""},
+		{10000, 10000, ""},
+		{10001, 10000, "web.history-limit 10001 is above its bound, so it runs at 10000"},
+		{1000000000, 10000, "web.history-limit 1000000000 is above its bound, so it runs at 10000"},
+		{0, d.Web.HistoryLimit, ""},
+		{-5, d.Web.HistoryLimit, ""},
 	} {
 		cfg := Config{Web: WebConfig{HistoryLimit: tc.in}}
-		cfg.Normalize()
+		warnings := cfg.Normalize()
 		if cfg.Web.HistoryLimit != tc.want {
 			t.Errorf("HistoryLimit %d normalized to %d, want %d", tc.in, cfg.Web.HistoryLimit, tc.want)
+		}
+		if !onlyWarning(warnings, tc.warning) {
+			t.Errorf("HistoryLimit %d warned %q, want %q", tc.in, warnings, tc.warning)
 		}
 	}
 }
@@ -302,18 +306,22 @@ func TestNormalizeBoundsTheRequestTimeout(t *testing.T) {
 	d := Defaults()
 	for _, tc := range []struct {
 		in, want time.Duration
+		warning  string
 	}{
-		{time.Second, time.Second},
-		{time.Minute, time.Minute},
-		{time.Minute + time.Nanosecond, d.Quota.RequestTimeout},
-		{time.Hour, d.Quota.RequestTimeout},
-		{0, d.Quota.RequestTimeout},
-		{-time.Second, d.Quota.RequestTimeout},
+		{time.Second, time.Second, ""},
+		{time.Minute, time.Minute, ""},
+		{time.Minute + time.Nanosecond, time.Minute, "quota.request-timeout 1m0.000000001s is above its bound, so it runs at 1m0s"},
+		{2 * time.Minute, time.Minute, "quota.request-timeout 2m0s is above its bound, so it runs at 1m0s"},
+		{0, d.Quota.RequestTimeout, ""},
+		{-time.Second, d.Quota.RequestTimeout, ""},
 	} {
 		cfg := Config{Quota: QuotaConfig{RequestTimeout: tc.in}}
-		cfg.Normalize()
+		warnings := cfg.Normalize()
 		if cfg.Quota.RequestTimeout != tc.want {
 			t.Errorf("RequestTimeout %v normalized to %v, want %v", tc.in, cfg.Quota.RequestTimeout, tc.want)
+		}
+		if !onlyWarning(warnings, tc.warning) {
+			t.Errorf("RequestTimeout %v warned %q, want %q", tc.in, warnings, tc.warning)
 		}
 	}
 }
@@ -321,17 +329,20 @@ func TestNormalizeBoundsTheRequestTimeout(t *testing.T) {
 // A weight near the float ceiling turns a weighted slack into an infinite
 // cost, and the status route cannot encode one.
 func TestNormalizeBoundsTheWeights(t *testing.T) {
-	d := Defaults()
-	cfg := Config{Pace: PaceConfig{WeeklyWeight: 1e308, SessionWeight: 100.5, ScopedWeight: 100}}
-	cfg.Normalize()
-	if cfg.Pace.WeeklyWeight != d.Pace.WeeklyWeight {
-		t.Errorf("weekly weight = %v, want the default %v", cfg.Pace.WeeklyWeight, d.Pace.WeeklyWeight)
-	}
-	if cfg.Pace.SessionWeight != d.Pace.SessionWeight {
-		t.Errorf("session weight = %v, want the default %v", cfg.Pace.SessionWeight, d.Pace.SessionWeight)
+	cfg := Config{Pace: PaceConfig{WeeklyWeight: 1e308, SessionWeight: 150, ScopedWeight: 100}}
+	warnings := cfg.Normalize()
+	if cfg.Pace.WeeklyWeight != 100 || cfg.Pace.SessionWeight != 100 {
+		t.Errorf("weights = (%v, %v), want both clamped to 100", cfg.Pace.WeeklyWeight, cfg.Pace.SessionWeight)
 	}
 	if cfg.Pace.ScopedWeight != 100 {
 		t.Errorf("scoped weight = %v, want the top of the range kept", cfg.Pace.ScopedWeight)
+	}
+	want := []string{
+		"pace.weekly-weight 1e+308 is above its bound, so it runs at 100",
+		"pace.session-weight 150 is above its bound, so it runs at 100",
+	}
+	if !equalStrings(warnings, want) {
+		t.Errorf("warnings = %q, want %q", warnings, want)
 	}
 }
 
@@ -361,15 +372,30 @@ func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
 		{"", false},
 	} {
 		cfg := Config{Quota: QuotaConfig{UsageURL: tc.in}}
-		cfg.Normalize()
-		want := DefaultUsageURL
+		warnings := cfg.Normalize()
+		want, warning := DefaultUsageURL, ""
 		if tc.kept {
 			want = tc.in
+		} else if tc.in != "" {
+			// The warning names the key alone: the refused URL can carry a
+			// host the page withholds.
+			warning = "quota.usage-url is not https or loopback http, so it runs at the default Anthropic endpoint"
 		}
 		if cfg.Quota.UsageURL != want {
 			t.Errorf("UsageURL %q normalized to %q, want %q", tc.in, cfg.Quota.UsageURL, want)
 		}
+		if !onlyWarning(warnings, warning) {
+			t.Errorf("UsageURL %q warned %q, want %q", tc.in, warnings, warning)
+		}
 	}
+}
+
+// onlyWarning reports whether warnings is exactly want, or empty when want is.
+func onlyWarning(warnings []string, want string) bool {
+	if want == "" {
+		return len(warnings) == 0
+	}
+	return len(warnings) == 1 && warnings[0] == want
 }
 
 // A seat is read once per poll interval, so a reading that goes stale before

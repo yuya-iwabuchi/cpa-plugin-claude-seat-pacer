@@ -180,8 +180,9 @@ func Defaults() Config {
 // Normalize fills zero values with defaults and clamps out-of-range settings
 // so a partial or hostile config block cannot produce a scorer that divides by
 // zero, compares against NaN, or a poller that spins. It returns a warning for
-// each setting it raises to fit another: that setting is valid on its own, so
-// the raise is not a fallback the operator can expect.
+// each setting it clamps to an upper bound, a usage URL it refuses, and a
+// setting the operator chose that it raises to fit another; every other
+// correction is a silent fallback.
 func (c *Config) Normalize() (warnings []string) {
 	d := Defaults()
 	for _, f := range []struct {
@@ -231,18 +232,19 @@ func (c *Config) Normalize() (warnings []string) {
 	// corrected. Weights are relative, so 100 leaves ample range; far past it a
 	// weighted slack overflows to an infinite cost, which JSON cannot encode.
 	for _, w := range []struct {
-		v   *float64
-		def float64
+		v    *float64
+		name string
 	}{
-		{&c.Pace.WeeklyWeight, d.Pace.WeeklyWeight},
-		{&c.Pace.SessionWeight, d.Pace.SessionWeight},
-		{&c.Pace.ScopedWeight, d.Pace.ScopedWeight},
+		{&c.Pace.WeeklyWeight, "pace.weekly-weight"},
+		{&c.Pace.SessionWeight, "pace.session-weight"},
+		{&c.Pace.ScopedWeight, "pace.scoped-weight"},
 	} {
 		switch {
 		case *w.v < 0:
 			*w.v = 0
-		case *w.v > 100:
-			*w.v = w.def
+		case *w.v > maxWeight:
+			warnings = append(warnings, aboveBound(w.name, *w.v, maxWeight))
+			*w.v = maxWeight
 		}
 	}
 	switch shape := strings.ToLower(strings.TrimSpace(c.Pace.Shape)); {
@@ -263,8 +265,12 @@ func (c *Config) Normalize() (warnings []string) {
 	}
 	// One poll shares a fixed budget across every credential, so a fetch
 	// allowed to hang past a minute can spend it alone.
-	if c.Quota.RequestTimeout <= 0 || c.Quota.RequestTimeout > time.Minute {
+	switch {
+	case c.Quota.RequestTimeout <= 0:
 		c.Quota.RequestTimeout = d.Quota.RequestTimeout
+	case c.Quota.RequestTimeout > maxRequestTimeout:
+		warnings = append(warnings, aboveBound("quota.request-timeout", c.Quota.RequestTimeout, maxRequestTimeout))
+		c.Quota.RequestTimeout = maxRequestTimeout
 	}
 	if c.Quota.MaxStaleness <= 0 {
 		c.Quota.MaxStaleness = d.Quota.MaxStaleness
@@ -283,14 +289,34 @@ func (c *Config) Normalize() (warnings []string) {
 		c.Quota.MaxStaleness = floor
 	}
 	if !trustedUsageURL(c.Quota.UsageURL) {
+		if c.Quota.UsageURL != "" {
+			warnings = append(warnings,
+				"quota.usage-url is not https or loopback http, so it runs at the default Anthropic endpoint")
+		}
 		c.Quota.UsageURL = d.Quota.UsageURL
 	}
 	// The decision log allocates every slot up front, so a cap in the
 	// billions is an allocation no recover survives.
-	if c.Web.HistoryLimit <= 0 || c.Web.HistoryLimit > 10000 {
+	switch {
+	case c.Web.HistoryLimit <= 0:
 		c.Web.HistoryLimit = d.Web.HistoryLimit
+	case c.Web.HistoryLimit > maxHistoryLimit:
+		warnings = append(warnings, aboveBound("web.history-limit", c.Web.HistoryLimit, maxHistoryLimit))
+		c.Web.HistoryLimit = maxHistoryLimit
 	}
 	return warnings
+}
+
+// Upper bounds Normalize clamps to.
+const (
+	maxWeight         = 100.0
+	maxRequestTimeout = time.Minute
+	maxHistoryLimit   = 10000
+)
+
+// aboveBound is the warning for a setting clamped to its upper bound.
+func aboveBound[T int | float64 | time.Duration](key string, given, bound T) string {
+	return fmt.Sprintf("%s %v is above its bound, so it runs at %v", key, given, bound)
 }
 
 // trustedUsageURL reports whether a usage URL may receive every seat's OAuth

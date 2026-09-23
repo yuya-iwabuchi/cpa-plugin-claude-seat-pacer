@@ -163,9 +163,9 @@ and fully unit-testable without the host.
   from the library filename, and the config block, the management routes and
   the history directory all carry that id.
 - Config bounds live in `model.Config.Normalize`: give a new setting its range
-  there, not in the code that reads it. A setting raised to fit another
-  returns a warning, which the status page shows, rather than changing
-  silently.
+  there, not in the code that reads it. A setting clamped to its upper bound,
+  or one the operator set that is raised to fit another, returns a warning,
+  which the status page shows, rather than changing silently.
 - The Management Center saves each `configFields` entry as a top-level key
   under its dotted name, which `decodeConfig` expands into the nested key it
   names, winning over the nested form. A field's `Name` is therefore the dotted
