@@ -38,9 +38,11 @@ pull request.
 
 ## Install
 
-Build from source; there is no prebuilt release or Plugin Store listing yet.
-The build needs Go 1.25 and a C toolchain. The host must be CLIProxyAPI
-7.2.145 or newer; the plugin is tested against 7.3.10 and 7.3.15.
+The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
+7.3.10 and 7.3.15. Each [release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases)
+carries a zip per platform; from v0.1.1 its libraries load on macOS 12,
+Windows 10, or Linux with glibc 2.34, or newer. To build from source instead,
+you need Go 1.25 and a C toolchain:
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
@@ -48,7 +50,7 @@ cd cpa-plugin-claude-seat-pacer
 make install
 ```
 
-This writes `~/.cli-proxy-api/plugins/<goos>/<goarch>/claude-seat-pacer-v0.1.0.<dylib|so|dll>`
+This writes `~/.cli-proxy-api/plugins/<goos>/<goarch>/claude-seat-pacer-v<version>.<dylib|so|dll>`
 (`PLUGIN_DIR` overrides the root). The host rescans its plugin directory each
 time it applies a config change and loads a library at a file path it has not
 loaded yet. `make install` of the same version rewrites the path already

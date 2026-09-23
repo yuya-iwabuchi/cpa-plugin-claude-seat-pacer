@@ -14,6 +14,12 @@ on:
     branches: [main]
   pull_request:
 
+# The macOS library records the oldest macOS it loads on. Left unset, that is
+# the runner's own SDK version, which shuts out every older release; 12.0 is
+# the oldest Go 1.25 supports.
+env:
+  MACOSX_DEPLOYMENT_TARGET: "12.0"
+
 permissions:
   contents: read
 
