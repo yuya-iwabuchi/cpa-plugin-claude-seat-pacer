@@ -697,3 +697,164 @@ func TestALaggingReadingEndsTheFlatRun(t *testing.T) {
 		t.Errorf("samples = %+v, want the rise, the header reading and the flat run's end", samples)
 	}
 }
+
+// TestAStaleFallOpensNoCycle covers a steep climb fed by readings of mixed
+// age: each fresh reading is followed by one that describes the window as it
+// stood minutes earlier, then by a fresh one again. None of the falls is a
+// clearing, so the climb stays one cycle and never decreases.
+func TestAStaleFallOpensNoCycle(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(2 * time.Hour)
+	at := func(m int) time.Time { return testNow.Add(time.Duration(m) * time.Minute) }
+	s.Put(endpointSnapshot("auth-1", at(0), sessionAt(0.58, resets)))
+	for i, u := range []float64{0.73, 0.75, 0.80, 0.82} {
+		s.MergeHeaders("auth-1", []model.Window{sessionAt(u, resets)}, at(2*i+2))
+		s.Put(endpointSnapshot("auth-1", at(2*i+3), sessionAt(0.58, resets)))
+	}
+
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 1 {
+		t.Fatalf("cycles = %+v, want one: no fall was confirmed", h.Cycles)
+	}
+	samples := h.Cycles[0].Samples
+	for i := 1; i < len(samples); i++ {
+		if samples[i].Utilization < samples[i-1].Utilization {
+			t.Fatalf("history decreases: %+v", samples)
+		}
+	}
+	if last := samples[len(samples)-1]; last.Utilization != 0.82 {
+		t.Errorf("last sample = %+v, want the climb's 0.82", last)
+	}
+}
+
+// TestAClearingConfirmedWithinAMinuteSurvivesReplay covers a clearing whose
+// confirming reading lands within historyFineStep of the first low one and
+// replaces it, leaving the fresh cycle a single sample. The stored cycle opens
+// on a fall, so a replayed file keeps it as a cycle of its own.
+func TestAClearingConfirmedWithinAMinuteSurvivesReplay(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(2 * time.Hour)
+	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.90, resets)))
+	s.MergeHeaders("auth-1", []model.Window{sessionAt(0.00, resets)}, testNow.Add(10*time.Minute))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Minute+30*time.Second), sessionAt(0.01, resets)))
+
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 2 || len(h.Cycles[1].Samples) != 1 || h.Cycles[1].Samples[0].Utilization != 0.01 {
+		t.Fatalf("cycles = %+v, want the confirmed clearing as a one-sample cycle at 0.01", h.Cycles)
+	}
+	r := &ring{}
+	r.replay(h)
+	if back := r.export(h.Kind, h.Scope, 0); !reflect.DeepEqual(back, h) {
+		t.Errorf("replayed history = %+v, want %+v", back, h)
+	}
+}
+
+// TestAnUnconfirmedFallIsForgottenAtTheReset covers a low reading the window
+// resets behind before any reading confirms it: the next cycle opens at the
+// reset, the fall draws nowhere, and a fall in the fresh window is judged
+// against that window alone.
+func TestAnUnconfirmedFallIsForgottenAtTheReset(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(20 * time.Minute)
+	next := resets.Add(model.SessionDuration)
+	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.60, resets)))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Minute), sessionAt(0.10, resets)))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(30*time.Minute), sessionAt(0.20, next)))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(40*time.Minute), sessionAt(0.10, next)))
+
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 2 {
+		t.Fatalf("cycles = %+v, want the old cycle and the one the reset opened", h.Cycles)
+	}
+	if old := h.Cycles[0].Samples; old[len(old)-1].Utilization != 0.60 {
+		t.Errorf("old cycle = %+v, want it to end at 0.60", old)
+	}
+	if fresh := h.Cycles[1]; !fresh.ResetsAt.Equal(next) || len(fresh.Samples) != 1 || fresh.Samples[0].Utilization != 0.20 {
+		t.Errorf("fresh cycle = %+v, want 0.20 alone under the next reset", fresh)
+	}
+}
+
+// TestAStaleFallBeforeAClearingOpensAtTheClearing covers a stale reading held
+// as a fall when the provider then clears the window: the clearing's reading
+// sits far under the held one, so the fresh cycle opens there rather than at
+// the stale level.
+func TestAStaleFallBeforeAClearingOpensAtTheClearing(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(2 * time.Hour)
+	for i, u := range []float64{0.82, 0.58, 0.00, 0.01} {
+		s.Put(endpointSnapshot("auth-1", testNow.Add(time.Duration(i)*2*time.Minute), sessionAt(u, resets)))
+	}
+
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	var got [][]float64
+	for _, c := range h.Cycles {
+		var us []float64
+		for _, smp := range c.Samples {
+			us = append(us, smp.Utilization)
+		}
+		got = append(got, us)
+	}
+	if want := [][]float64{{0.82}, {0.00, 0.01}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("cycles = %v, want %v", got, want)
+	}
+}
+
+// TestImportKeepsALiveClearing covers a history file imported behind live
+// readings that already hold a confirmed clearing, one whose fresh cycle a
+// reading within a minute left a single sample. The live cycles keep their
+// boundaries behind the stored ones.
+func TestImportKeepsALiveClearing(t *testing.T) {
+	resets := testNow.Add(2 * time.Hour)
+	live := NewStore()
+	live.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.90, resets)))
+	live.MergeHeaders("auth-1", []model.Window{sessionAt(0.00, resets)}, testNow.Add(10*time.Minute))
+	live.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Minute+30*time.Second), sessionAt(0.01, resets)))
+	live.ImportHistory(map[string][]model.WindowHistory{"auth-1": {{
+		Kind:   model.WindowSession,
+		Cycles: []model.Cycle{{ResetsAt: resets, Samples: []model.Sample{{At: testNow.Add(-10 * time.Minute), Utilization: 0.5}}}},
+	}}})
+
+	h := historyOf(t, live, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 2 || len(h.Cycles[0].Samples) != 2 || h.Cycles[1].Samples[0].Utilization != 0.01 {
+		t.Errorf("cycles = %+v, want the stored and live climb, then the clearing at 0.01", h.Cycles)
+	}
+}
+
+// TestImportKeepsAFallHeldOnEitherSide covers the fall a merge holds: a live
+// reading that falls under the stored level is held by the merge itself, and
+// one the live ring held is carried over only while it is newer than every
+// merged sample. Either way the next falling reading opens the clearing at the
+// held one, and no cycle starts before the one ahead of it ends.
+func TestImportKeepsAFallHeldOnEitherSide(t *testing.T) {
+	resets := testNow.Add(2 * time.Hour)
+	stored := func(at time.Time, u float64) map[string][]model.WindowHistory {
+		return map[string][]model.WindowHistory{"auth-1": {{
+			Kind:   model.WindowSession,
+			Cycles: []model.Cycle{{ResetsAt: resets, Samples: []model.Sample{{At: at, Utilization: u}}}},
+		}}}
+	}
+
+	// The only live reading falls under the stored level.
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Minute), sessionAt(0.10, resets)))
+	s.ImportHistory(stored(testNow, 0.90))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(12*time.Minute), sessionAt(0.12, resets)))
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	if len(h.Cycles) != 2 || !h.Cycles[1].Samples[0].At.Equal(testNow.Add(10*time.Minute)) {
+		t.Errorf("cycles = %+v, want the clearing opened at the held 10-minute reading", h.Cycles)
+	}
+
+	// The live ring held a fall that the stored history has moved past.
+	s = NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.50, resets)))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionAt(0.10, resets)))
+	s.ImportHistory(stored(testNow.Add(10*time.Minute), 0.80))
+	s.Put(endpointSnapshot("auth-1", testNow.Add(12*time.Minute), sessionAt(0.08, resets)))
+	h = historyOf(t, s, "auth-1", model.WindowSession)
+	for i := 1; i < len(h.Cycles); i++ {
+		prev := h.Cycles[i-1].Samples
+		if !h.Cycles[i].Samples[0].At.After(prev[len(prev)-1].At) {
+			t.Errorf("cycles = %+v, want every cycle to start after the one before it ends", h.Cycles)
+		}
+	}
+}

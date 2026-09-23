@@ -31,16 +31,42 @@ const (
 const utilizationScale = 1e4
 
 // clearDrop is how far an observed reading has to fall under the observed
-// sample before it, inside a cycle, to read as the provider clearing the
-// window rather than one source lagging the other. The two sources differ by
-// under a point of rounding; a clearing from below this level goes unseen,
-// and the ring holds the old level until the window climbs back past it.
+// sample before it, inside a cycle, to be a candidate for the provider
+// clearing the window rather than one source lagging the other. The two
+// sources differ by under a point of rounding; a clearing from below this
+// level goes unseen, and the ring holds the old level until the window
+// climbs back past it.
 const clearDrop = 0.05
 
 // ring is the recorded history of one window: cycles oldest first, samples
 // oldest first within a cycle.
 type ring struct {
 	cycles []model.Cycle
+	// fall holds a reading that fell clearDrop under the cycle's level, until
+	// the next reading confirms the clearing or shows it stale, or the cycle
+	// rolls or closes. It is never exported, so a restart forgets an
+	// unconfirmed fall.
+	fall *pendingFall
+}
+
+// pendingFall is a candidate clearing's first reading.
+type pendingFall struct {
+	sample   model.Sample
+	resetsAt time.Time
+}
+
+// after reports the fall when it is newer than every sample the ring holds,
+// and nil otherwise: a fall behind the ring's newest sample describes a level
+// the ring has already moved past.
+func (f *pendingFall) after(r *ring) *pendingFall {
+	if f == nil || len(r.cycles) == 0 {
+		return f
+	}
+	newest := r.cycles[len(r.cycles)-1].Samples
+	if !f.sample.At.After(newest[len(newest)-1].At) {
+		return nil
+	}
+	return f
 }
 
 // record appends one observed reading. A reading whose reset instant differs
@@ -49,6 +75,14 @@ type ring struct {
 // one taken after the provider cleared the window; one whose utilization
 // matches the last two samples extends the flat run by moving its end
 // forward; one within historyFineStep of the last sample replaces it.
+//
+// A clearing takes two readings: the first to fall clearDrop under the
+// cycle's level is held back, and it opens a cycle only when the next reading
+// falls clearDrop under that level too, at the lower of the two when they
+// differ by more than clearDrop. A single low reading followed by one at the
+// level is stale — a response header describing the window as a long
+// request found it, or an endpoint read behind the traffic — and is dropped.
+//
 // Readings out of order, with no instant or with a non-finite utilization
 // are dropped. Utilization only rises until the window resets or the
 // provider clears it, and the two sources that feed a ring round
@@ -82,14 +116,31 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 	s := model.Sample{At: at.Truncate(time.Second), Utilization: math.Round(w.Utilization*utilizationScale) / utilizationScale}
 
 	n := len(r.cycles)
-	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) || closed(r.cycles[n-1], s.At) || cleared(r.cycles[n-1], s, estimated) {
+	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) || closed(r.cycles[n-1], s.At) {
 		// A cycle opened by a reading the provider is still stamping with the
 		// expired reset inherits that stale instant; the first reading to
 		// carry the real one rolls the cycle onto it.
+		r.fall = nil
 		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
 		return true
 	}
-	c := &r.cycles[n-1]
+	switch {
+	case !cleared(r.cycles[n-1], s, estimated):
+		r.fall = nil
+	case r.fall == nil:
+		r.fall = &pendingFall{sample: s, resetsAt: w.ResetsAt}
+		return false
+	case !s.At.After(r.fall.sample.At):
+		return false
+	case r.fall.sample.Utilization-s.Utilization > clearDrop:
+		r.fall = nil
+		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}})
+		return true
+	default:
+		r.cycles = append(r.cycles, model.Cycle{ResetsAt: r.fall.resetsAt, Samples: []model.Sample{r.fall.sample}})
+		r.fall = nil
+	}
+	c := &r.cycles[len(r.cycles)-1]
 	if c.ResetsAt.IsZero() {
 		c.ResetsAt = w.ResetsAt
 	}
@@ -145,8 +196,8 @@ func closed(c model.Cycle, at time.Time) bool {
 // cleared reports whether an observed reading falls more than clearDrop under
 // the cycle's last sample, itself observed. The provider can clear a window's
 // usage early and keep its reset instant, which gives rolled and closed
-// nothing to see; the reading opens a cycle of its own under the same reset,
-// so every cycle only rises and the chart draws the fall between two.
+// nothing to see; a confirmed fall opens a cycle of its own under the same
+// reset, so every cycle only rises and the chart draws the fall between two.
 func cleared(c model.Cycle, s model.Sample, estimated bool) bool {
 	if estimated || len(c.Samples) == 0 {
 		return false
@@ -237,10 +288,33 @@ func (r *ring) export(kind model.WindowKind, scope string, max int) model.Window
 // run once, after the last sample: compaction never drops the newest cycle's
 // last two samples, the only ones a following reading is compared against.
 func (r *ring) replay(h model.WindowHistory) {
-	for _, c := range h.Cycles {
-		for _, s := range c.Samples {
-			r.add(s.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: s.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(s))
+	r.addCycles(h.Kind, h.Scope, h.Cycles)
+	r.compact()
+}
+
+// addCycles records recorded cycles in order without compacting. The first
+// cycle's samples pass through add like live readings, so they can continue
+// the ring's newest cycle; every later cycle opens a cycle of its own, since
+// its boundary was already decided when it was recorded. A later cycle whose
+// first sample is not after the ring's newest is dropped whole, like any
+// reading out of order.
+func (r *ring) addCycles(kind model.WindowKind, scope string, cycles []model.Cycle) {
+	for i, c := range cycles {
+		for j, s := range c.Samples {
+			w := model.Window{Kind: kind, Scope: scope, Utilization: s.Utilization, ResetsAt: c.ResetsAt}
+			estimated := c.SampleEstimated(s)
+			if i == 0 || j > 0 {
+				r.add(s.At, w, estimated)
+				continue
+			}
+			if n := len(r.cycles); n > 0 {
+				newest := r.cycles[n-1].Samples
+				if !s.At.After(newest[len(newest)-1].At) {
+					break
+				}
+			}
+			r.fall = nil
+			r.cycles = append(r.cycles, model.Cycle{ResetsAt: c.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
 		}
 	}
-	r.compact()
 }
