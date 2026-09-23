@@ -468,12 +468,15 @@ svg.tl text.gap-label.t-muted { fill: var(--ink-3); }
 svg.tl g.rst { cursor: default; }
 svg.tl g.rst:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
 svg.tl g.rst:hover rect.hit { fill: var(--surface-2); }
-/* A family chip on a seat's header row: the verdict, tinted where the seat
-   takes that family's next new conversation. Its label says so, so the tint
-   carries nothing on its own. A cross is a stop of its own, with the hold's
-   reason in its tooltip; a tick has none, so it lets the pointer through to
-   the row behind it. */
+/* A family chip on a seat's header row: the seat's rank in that family, or
+   the reason the family is held off it. The chip of a family whose next new
+   conversation the seat takes is tinted, and the #1 it reads says the same,
+   so the tint carries nothing on its own; a rank below it is set a step
+   quieter. A cross is a stop of its own, with the hold's reason in its
+   tooltip; a rank has none, so it lets the pointer through to the row behind
+   it. */
 svg.tl .fam-plate { fill: transparent; stroke: var(--axis); stroke-width: 1; }
+svg.tl g.fam[data-quiet] text.fam-text { fill: var(--ink-2); }
 svg.tl g.fam[data-lead] .fam-plate {
   fill: color-mix(in srgb, var(--info) 15%, var(--surface-1));
   stroke: color-mix(in srgb, var(--info) 42%, transparent);
@@ -512,6 +515,10 @@ svg.pace path.hist { fill: none; stroke-width: 1.4; stroke-linejoin: round; stro
 /* A stretch reconstructed from token spend is an estimate: dashed and paler
    than the observed stretch. */
 svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .5; stroke-dasharray: 2 3; }
+/* The climb from a clearing to the first reading after it, where no reading
+   between them was recorded: a straight, sparse dotted line, because only its
+   two ends are known. */
+svg.pace path.hist-gap { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: .55; stroke-dasharray: 1 4; }
 /* The curve's own label sits on the line it names, and a curve that reaches
    full inside the window runs its ramp under that label, so it carries the
    same halo as every other label drawn over the plot. */
@@ -2106,10 +2113,8 @@ th[aria-sort] button { color: var(--ink-1); }
      included. It is reserved whether or not the control is showing, so a row
      does not reflow under the pointer. */
   var HIDE_W = 18, HIDE_RES = 28;
-  /* The rank slot every seat's name starts after: a "#NN" in the header's
-     11.5px mono. A seat without a rank shows a dash in it, so every name
-     starts at the same x; only a per-family rank runs wider. */
-  var RANK_W = 21;
+  /* Where every seat's name starts in its header, after the seat's dot. */
+  var NAME_X = 34;
   /* The plot a date on the axis needs to itself: a "Sep 16" set at 10.5px is
      about 40 of it, and the rest is the gap to the next one. */
   var DAY_LABEL_PX = 54;
@@ -2158,52 +2163,57 @@ th[aria-sort] button { color: var(--ink-1); }
     return { ok: false, word: holdWord(a, sc.reason, null, now), text: holdWord(a, sc.reason, seatReturnsAt(a, fam), now) };
   }
 
-  /* The chips a seat's header row carries: a verdict per request family with
-     the lead marker on it — a tick or a cross and the family, written "Next:"
-     the family where this seat takes that family's next new conversation.
-     Families that agree collapse to one chip, as a rank does: one family in
-     the pool needs no qualifier, and past that the families are named,
-     because a seat can lead one and not the other. A seat eligible everywhere
-     shows only the families it leads, because a tick beside a family it is
-     merely ranked in says nothing the rank does not; one eligible nowhere
-     shows one cross with the reason every family shares. A cross carries the
-     hold in its tip: why, and when the work returns where the provider names
-     an instant. */
+  /* The chips a seat's header row carries, one per request family: the
+     seat's rank there, or a cross and the reason the family is held off it.
+     Ranking puts every eligible seat first, so a #1 is the seat that takes
+     that family's next new conversation, and its chip is the one tinted.
+     Families that agree collapse to one chip with no family named, which is
+     also every chip of a pool with one family; past that each chip names its
+     family, because a seat can lead one and not the other. A cross carries
+     the hold in its tip: why, and when the work returns where the provider
+     names an instant. */
   function seatChips(a, ranks) {
     var fams = ranks.fams, now = nowMs();
     var leads = leadsOf(a, ranks);
-    var vs = fams.map(function (fam) { return famVerdict(a, fam, now); });
-    function next(name) { return { ok: true, lead: true, label: "Next: " + name }; }
-    if (vs.every(function (v) { return v.ok; })) {
-      if (!leads.length) return [];
-      if (fams.length < 2) return [{ ok: true, lead: true, label: "Next pick" }];
-      if (leads.length === fams.length) return [next(fams.length === 2 ? "both" : "all")];
-      return leads.map(function (fam) { return next(rankLabel(fam)); });
+    var parts = fams.map(function (fam) {
+      var v = famVerdict(a, fam, now);
+      if (!v.ok) return { ok: false, text: v.word, tip: v.text, fam: fam };
+      var r = ranks.byFam[fam][a.auth_id];
+      return { ok: true, text: r === undefined ? "#?" : "#" + (r + 1), lead: leads.indexOf(fam) >= 0, fam: fam };
+    });
+    var agree = parts.every(function (p) {
+      return p.ok === parts[0].ok && p.text === parts[0].text && !!p.lead === !!parts[0].lead;
+    });
+    if (agree) {
+      var one = parts[0];
+      return [{ ok: one.ok, lead: one.lead, label: one.text,
+        tip: one.ok ? null : pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) }];
     }
-    if (allSame(vs.map(function (v) { return v.word; }))) {
-      return [{ ok: false, label: vs[0].word, tip: pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) }];
-    }
-    return fams.map(function (fam, i) {
-      var lead = leads.indexOf(fam) >= 0;
-      var c = lead ? next(rankLabel(fam)) : { ok: vs[i].ok, label: rankLabel(fam) };
-      c.fam = fam;
-      if (!vs[i].ok) c.tip = rankLabel(fam) + ": " + vs[i].text;
-      return c;
+    return parts.map(function (p) {
+      return { ok: p.ok, lead: p.lead, fam: p.fam, label: rankLabel(p.fam) + " " + p.text,
+        tip: p.ok ? null : rankLabel(p.fam) + ": " + p.tip };
     });
   }
 
-  /* One chip on a seat's header row: a plate behind a glyph and a short
-     label, drawn at the origin so the caller can slide it beside the name
-     once that has been trimmed. A chip with a tip is a stop, described by the
-     tip to a pointer, a keyboard and a screen reader alike; one without says
-     nothing the row's own label does not, so it is out of the reading. */
+  /* A chip's text as it is set: a cross before a hold, a rank bare. */
+  function chipText(c) { return (c.ok ? "" : "✕ ") + c.label; }
+
+  /* One chip on a seat's header row: a plate behind a short label, a hold's
+     led by a cross, drawn at the origin so the caller can slide it beside the
+     name once that has been trimmed. A chip with a tip is a stop, described
+     by the tip to a pointer, a keyboard and a screen reader alike; one
+     without says nothing the row's own label does not, so it is out of the
+     reading. */
   function seatChip(parent, y, a, c) {
     var g = svg("g", { "class": "fam" }, parent);
     if (c.lead) g.setAttribute("data-lead", "true");
+    else if (c.ok) g.setAttribute("data-quiet", "true");
     var t = svgText(g, 7, y, "", "fam-text", { "font-size": 9.5 });
-    var gl = svg("tspan", { fill: c.ok ? "var(--good)" : "var(--critical)" }, t);
-    gl.textContent = c.ok ? "✓" : "✕";
-    t.appendChild(document.createTextNode(" " + c.label));
+    if (!c.ok) {
+      var gl = svg("tspan", { fill: "var(--critical)" }, t);
+      gl.textContent = "✕ ";
+    }
+    t.appendChild(document.createTextNode(c.label));
     var w = t.getComputedTextLength() + 14;
     var plate = svg("rect", { "class": "fam-plate", x: 0, y: y - 9.5, width: w, height: 13.5, rx: 3.5 }, g);
     g.insertBefore(plate, t);
@@ -2363,18 +2373,16 @@ th[aria-sort] button { color: var(--ink-1); }
       role: "group"
     }, host);
 
-    /* The gutter takes the room the longest seat header asks for — its rank,
-       its name whole, its chips and its weekly gap — up to GUT_SHARE of the
-       width, and never less than its floor; so a seat named by its account
-       address reads whole wherever the card is wide enough, and the plot
-       keeps the larger part everywhere. */
+    /* The gutter takes the room the longest seat header asks for — its name
+       whole, its chips and its weekly gap — up to GUT_SHARE of the width, and
+       never less than its floor; so a seat named by its account address
+       reads whole wherever the card is wide enough, and the plot keeps the
+       larger part everywhere. */
     var gut = GUT;
     seats.forEach(function (a) {
-      var rank = rankText(a, ranks);
-      var need = 34 + (rank.length > 3 ? Math.max(RANK_W, textW(root, rank, { "font-size": 11.5, "font-weight": 600, "class": "t-mono" })) : RANK_W) + 6 +
-        textW(root, seatLabel(a), { "font-size": geo.name, "font-weight": 600 }) + 8;
+      var need = NAME_X + textW(root, seatLabel(a), { "font-size": geo.name, "font-weight": 600 }) + 8;
       seatChips(a, ranks).forEach(function (c) {
-        need += textW(root, "✕ " + c.label, { "font-size": 9.5, "class": "fam-text" }) + 14 + 6;
+        need += textW(root, chipText(c), { "font-size": 9.5, "class": "fam-text" }) + 14 + 6;
       });
       need += textW(root, weeklyGapText(a.score), { "font-size": 11, "class": "t-mono" }) + 18 + 14 + HIDE_RES;
       gut = Math.max(gut, need);
@@ -2436,12 +2444,12 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: rank, identity, eligibility and the weekly gap in the
-         gutter, its live figures on a second line where there is room, and
-         the whole record in the tooltip. Rank and eligibility are per request
-         family, so each is one figure where the families agree and one per
-         family where they differ. The name is trimmed to the measured space,
-         so the tooltip is also where a long name is read whole. */
+      /* The seat's row: identity, then rank or hold per request family, and
+         the weekly gap in the gutter, its live figures on a second line where
+         there is room, and the whole record in the tooltip. Every name starts
+         at NAME_X, so the names read down the page as one column. The name is
+         trimmed to the measured space, so the tooltip is also where a long
+         name is read whole. */
       var headY = row.top + (compact ? 17 : 18);
       var gRow = svg("g", { "class": "row" }, gRows);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gRow);
@@ -2450,9 +2458,7 @@ th[aria-sort] button { color: var(--ink-1); }
       gh.setAttribute("data-tip", seatTip(a, ranks));
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: gut - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
-      var rank = rankText(a, ranks);
-      var rankEl = svgText(gh, 34, headY, rank || "—", rank ? "t-mono t-sec" : "t-mono t-muted", { "font-size": 11.5, "font-weight": 600 });
-      var nameX = 34 + (rank.length > 3 ? Math.max(RANK_W, rankEl.getComputedTextLength()) : RANK_W) + 6;
+      var nameX = NAME_X;
       var nameEl = svgText(gh, nameX, headY, seatLabel(a), "", { "font-size": geo.name, "font-weight": 600 });
 
       /* The seat's family chips sit beside its name, which is the seat the
@@ -2748,16 +2754,21 @@ th[aria-sort] button { color: var(--ink-1); }
     return out;
   }
 
-  /* Samples as {t: ms, u, est} in order across the cycles, dropping any the
-     encoder nulled; est marks an estimate rebuilt from token spend. A fall
-     between two samples is a clearing. */
+  /* Samples as {t: ms, u, est, fresh} in order across the cycles, dropping
+     any the encoder nulled; est marks an estimate rebuilt from token spend,
+     and fresh the first sample of a cycle a clearing opened, which reads
+     under the sample before it. A later cycle that does not is the same
+     window under a reset instant that moved, and continues the line. */
   function samplesOf(cycles) {
     var out = [];
-    cycles.forEach(function (cycle) {
+    cycles.forEach(function (cycle, i) {
+      var first = true;
       (cycle.samples || []).forEach(function (s) {
         if (!s || !num(s[0]) || !num(s[1])) return;
         var p = { t: s[0] * 1000, u: s[1] };
         p.est = estimatedAt(cycle, p);
+        p.fresh = i > 0 && first && out.length > 0 && p.u < out[out.length - 1].u;
+        first = false;
         out.push(p);
       });
     });
@@ -2770,12 +2781,16 @@ th[aria-sort] button { color: var(--ink-1); }
      so between two samples the line holds the earlier value and rises at the
      later sample's time: a step of a horizontal run then a vertical riser,
      never a slope across a gap. The store folds an idle stretch to its two
-     endpoints, so a gap can be hours wide. */
+     endpoints, so a gap can be hours wide. A fresh sample follows a
+     clearing: the line falls to zero at the sample before it and climbs
+     straight to it, the shape historyLine draws. */
   function pathOf(samples, xOf, Y) {
     var d = "";
     samples.forEach(function (s, i) {
       var x = xOf(s.t).toFixed(1), y = Y(s.u).toFixed(1);
-      d += i ? "H" + x + "V" + y : "M" + x + " " + y;
+      if (!i) d += "M" + x + " " + y;
+      else if (s.fresh) d += "V" + Y(0).toFixed(1) + "L" + x + " " + y;
+      else d += "H" + x + "V" + y;
     });
     return d;
   }
@@ -2970,12 +2985,48 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Draws a window's samples as a line under parent, the estimated stretch
-     dashed and pale and the observed stretch solid; the two share the sample
-     at the boundary so the line has no gap. tail, if given, is a path
-     segment to the present mark, which is always an observed reading, so it
-     is drawn solid. Returns the count of estimated samples. */
+  /* Readings a clearing's first reading lies further than this past the
+     last reading before it leave unrecorded, and the climb between them is
+     drawn as not recorded. */
+  var UNRECORDED_MS = 30 * 60000;
+
+  /* Draws a window's samples as a line under parent, one run per cycle. A
+     run's last sample is the last reading at its level, since an idle run
+     folds into its end, so the clearing after it falls to zero there; the
+     climb from zero to the next run's first reading is solid where the two
+     are close and drawn as not recorded where they are not. Returns the count
+     of estimated samples and the unrecorded spans, each a [from, to] pair
+     of instants. */
   function historyLine(parent, samples, xOf, Y, col, tail) {
+    var runs = [];
+    samples.forEach(function (s) {
+      if (s.fresh || !runs.length) runs.push([]);
+      runs[runs.length - 1].push(s);
+    });
+    var out = { est: 0, unrecorded: [] };
+    runs.forEach(function (run, i) {
+      var next = runs[i + 1];
+      out.est += runLine(parent, run, xOf, Y, col, next ? null : tail);
+      if (!next) return;
+      var p = run[run.length - 1], q = next[0];
+      var x0 = xOf(p.t).toFixed(1), y0 = Y(0).toFixed(1);
+      svg("path", { "class": "hist", d: "M" + x0 + " " + Y(p.u).toFixed(1) + "V" + y0, stroke: col }, parent);
+      var gap = q.t - p.t >= UNRECORDED_MS;
+      if (gap) out.unrecorded.push([p.t, q.t]);
+      svg("path", {
+        "class": gap ? "hist hist-gap" : "hist",
+        d: "M" + x0 + " " + y0 + "L" + xOf(q.t).toFixed(1) + " " + Y(q.u).toFixed(1), stroke: col
+      }, parent);
+    });
+    return out;
+  }
+
+  /* Draws one cycle's samples, the estimated stretch dashed and pale and the
+     observed stretch solid; the two share the sample at the boundary so the
+     line has no gap. tail, if given, is a path segment to the present mark,
+     which is always an observed reading, so it is drawn solid. Returns the
+     count of estimated samples. */
+  function runLine(parent, samples, xOf, Y, col, tail) {
     var est = [], obs = [];
     samples.forEach(function (s) { (s.est ? est : obs).push(s); });
     est = anchoredEstimate(est, obs);
@@ -3058,6 +3109,13 @@ th[aria-sort] button { color: var(--ink-1); }
     return li;
   }
   var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
+  var SW_GAP = "height:0;border-top:2px dotted var(--ink-3);opacity:.55";
+  var UNRECORDED_KEY = "not recorded after an early clearing";
+
+  /* A tooltip line for one unrecorded climb after a clearing. */
+  function unrecordedText(span) {
+    return "cleared after " + absTime(new Date(span[0])) + " · no readings until " + absTime(new Date(span[1]));
+  }
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
   function dayText(elapsed) {
@@ -3233,7 +3291,7 @@ th[aria-sort] button { color: var(--ink-1); }
        meet. The cap's label carries its weight in the cost; the weekly
        window counts whole. The group's role="img" keeps the label out of the
        accessibility tree; the gap is in its name. */
-    var labels = [], anyEst = false;
+    var labels = [], anyEst = false, anyUnrec = false;
     var SLOPE_SPAN_MS = 6 * 3600000;
     /* Two layers, because SVG paints in document order and a seat drawn later
        would otherwise run its recorded line across an earlier seat's mark and
@@ -3254,14 +3312,17 @@ th[aria-sort] button { color: var(--ink-1); }
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
          alone. x is the sample's own elapsed fraction of this window. */
-      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0;
+      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0, unrec = [];
       if (resets && hist) {
         var start = resets.getTime() - PACE_DAYS * 86400000;
         var cur = samplesOf(currentCycles(hist, resets));
         if (cur.length >= 2) {
           var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
-          est = historyLine(gl, cur, xOf, Y, col, tailTo(cx, cy));
+          var drawn = historyLine(gl, cur, xOf, Y, col, tailTo(cx, cy));
+          est = drawn.est;
+          unrec = drawn.unrecorded;
           anyEst = anyEst || est > 0;
+          anyUnrec = anyUnrec || unrec.length > 0;
           line = cur;
           slope = recentSlope(cur, SLOPE_SPAN_MS);
         }
@@ -3284,7 +3345,7 @@ th[aria-sort] button { color: var(--ink-1); }
         weighted ? weightMark(ws) + " in the cost" : "cost " + costText(a.score),
         line ? "last 6h " + rateText(slope) + " vs " + rateText(targetSlope).replace(/ pts\/h$/, "") + " target" : null,
         est ? est + " of " + line.length + " readings estimated from token spend" : null
-      ].filter(Boolean).join("\n"));
+      ].concat(unrec.map(unrecordedText)).filter(Boolean).join("\n"));
       gl.setAttribute("data-tip", g.getAttribute("data-tip"));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       if (weighted) {
@@ -3318,7 +3379,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, fams, anyEst, view);
+    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec);
     renderRank(st, seats, ranks, view);
     renderPaceNote(st);
   }
@@ -3358,7 +3419,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Every seat is named: plotted ones in the legend, the rest with the reason
      they have no point, so a seat never vanishes from the chart unexplained. */
-  function renderPaceLegend(series, root, fams, anyEst, view) {
+  function renderPaceLegend(series, root, fams, anyEst, view, anyUnrec) {
     var leg = $("pace-legend");
     leg.textContent = "";
     /* Where a seat can carry two marks the legend names the marks before the
@@ -3375,6 +3436,7 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
+    if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
@@ -3681,7 +3743,7 @@ th[aria-sort] button { color: var(--ink-1); }
       curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    var plotted = 0, labels = [], anyEst = false;
+    var plotted = 0, labels = [], anyEst = false, anyUnrec = false;
     /* Two layers, as on the weekly chart: every line stretch below every mark
        and label, so a seat drawn later cannot run its line across an earlier
        seat's reading. */
@@ -3711,8 +3773,10 @@ th[aria-sort] button { color: var(--ink-1); }
         "\n" + resetText(s.resets, now) +
         "\nlast hour " + lastHour;
       if (s.cur.length >= 2) {
-        estCur = historyLine(gSegs, s.cur, xOf, Y, col, tailTo(cx, cy));
+        var drawnCur = historyLine(gSegs, s.cur, xOf, Y, col, tailTo(cx, cy));
+        estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
+        anyUnrec = anyUnrec || drawnCur.unrecorded.length > 0;
         /* One focusable stretch per SEG_MS of the line, carrying the
            conversations the log shows on the seat in that stretch. */
         var from = start, i = 0, k = 0;
@@ -3793,15 +3857,16 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(series, root, anyEst);
+    renderSessionLegend(series, root, anyEst, anyUnrec);
     renderSessionNote(st);
   }
 
-  function renderSessionLegend(series, root, anyEst) {
+  function renderSessionLegend(series, root, anyEst, anyUnrec) {
     var leg = $("session-legend");
     leg.textContent = "";
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
+    if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
