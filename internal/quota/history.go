@@ -30,6 +30,13 @@ const (
 // equal.
 const utilizationScale = 1e4
 
+// clearDrop is how far an observed reading has to fall under the observed
+// sample before it, inside a cycle, to read as the provider clearing the
+// window rather than one source lagging the other. The two sources differ by
+// under a point of rounding; a clearing from below this level goes unseen,
+// and the ring holds the old level until the window climbs back past it.
+const clearDrop = 0.05
+
 // ring is the recorded history of one window: cycles oldest first, samples
 // oldest first within a cycle.
 type ring struct {
@@ -38,14 +45,15 @@ type ring struct {
 
 // record appends one observed reading. A reading whose reset instant differs
 // from the current cycle's by more than resetTolerance opens a new cycle, as
-// does one taken more than resetTolerance past the current cycle's reset; one
-// whose utilization matches the last two samples extends the flat run by
-// moving its end forward; one within historyFineStep of the last sample
-// replaces it. Readings out of order, with no instant or with a non-finite
+// does one taken more than resetTolerance past the current cycle's reset and
+// one taken after the provider cleared the window; one whose utilization
+// matches the last two samples extends the flat run by moving its end
+// forward; one within historyFineStep of the last sample replaces it. Readings out of order, with no instant or with a non-finite
 // utilization are dropped, and so is one that reads lower than the sample
-// before it inside a cycle: utilization only rises until the window resets,
-// and the two sources that feed a ring round differently, so a lower reading
-// is the coarser source lagging the finer one, not spend undone.
+// before it inside a cycle by clearDrop or less: utilization only rises until
+// the window resets or the provider clears it, and the two sources that feed
+// a ring round differently, so a slightly lower reading is the coarser source
+// lagging the finer one, not spend undone.
 func (r *ring) record(at time.Time, w model.Window) {
 	r.put(at, w, false)
 }
@@ -71,7 +79,7 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 	s := model.Sample{At: at.Truncate(time.Second), Utilization: math.Round(w.Utilization*utilizationScale) / utilizationScale}
 
 	n := len(r.cycles)
-	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) || closed(r.cycles[n-1], s.At) {
+	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) || closed(r.cycles[n-1], s.At) || cleared(r.cycles[n-1], s, estimated) {
 		// A cycle opened by a reading the provider is still stamping with the
 		// expired reset inherits that stale instant; the first reading to
 		// carry the real one rolls the cycle onto it.
@@ -126,6 +134,19 @@ func closed(c model.Cycle, at time.Time) bool {
 	}
 	edge := c.ResetsAt.Add(resetTolerance)
 	return at.After(edge) && !c.Samples[len(c.Samples)-1].At.After(edge)
+}
+
+// cleared reports whether an observed reading falls more than clearDrop under
+// the cycle's last sample, itself observed. The provider can clear a window's
+// usage early and keep its reset instant, which gives rolled and closed
+// nothing to see; the reading opens a cycle of its own under the same reset,
+// so every cycle only rises and the chart draws the fall between two.
+func cleared(c model.Cycle, s model.Sample, estimated bool) bool {
+	if estimated || len(c.Samples) == 0 {
+		return false
+	}
+	last := c.Samples[len(c.Samples)-1]
+	return !c.SampleEstimated(last) && s.At.After(last.At) && last.Utilization-s.Utilization > clearDrop
 }
 
 // compact applies the coarse tier and the cap. Every sample older than
