@@ -333,3 +333,40 @@ func TestNormalizeBoundsTheWeights(t *testing.T) {
 		t.Errorf("scoped weight = %v, want the top of the range kept", cfg.Pace.ScopedWeight)
 	}
 }
+
+// Every seat's bearer token goes to the usage URL, so plain http is allowed
+// only where the request never leaves the machine.
+func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		kept bool
+	}{
+		{DefaultUsageURL, true},
+		{"https://usage.internal.example/api/oauth/usage", true},
+		{"HTTPS://usage.internal.example/api/oauth/usage", true},
+		{"http://localhost:8080/usage", true},
+		{"http://LOCALHOST/usage", true},
+		{"http://127.0.0.1:41234/usage", true},
+		{"http://127.8.9.10/usage", true},
+		{"http://[::1]:41234/usage", true},
+		{"http://usage.internal.example/api/oauth/usage", false},
+		{"http://10.0.0.1/usage", false},
+		{"http://localhost.example/usage", false},
+		{"ftp://localhost/usage", false},
+		{"file:///etc/passwd", false},
+		{"/api/oauth/usage", false},
+		{"https://", false},
+		{"://bad", false},
+		{"", false},
+	} {
+		cfg := Config{Quota: QuotaConfig{UsageURL: tc.in}}
+		cfg.Normalize()
+		want := DefaultUsageURL
+		if tc.kept {
+			want = tc.in
+		}
+		if cfg.Quota.UsageURL != want {
+			t.Errorf("UsageURL %q normalized to %q, want %q", tc.in, cfg.Quota.UsageURL, want)
+		}
+	}
+}

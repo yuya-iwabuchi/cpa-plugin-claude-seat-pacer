@@ -2,6 +2,8 @@ package model
 
 import (
 	"math"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -115,7 +117,9 @@ type QuotaConfig struct {
 	// MaxStaleness is the age past which a snapshot stops being trusted and
 	// the plugin declines rather than routing on stale data.
 	MaxStaleness time.Duration `yaml:"max-staleness" json:"max_staleness"`
-	// UsageURL is the endpoint read for per-window utilization.
+	// UsageURL is the endpoint read for per-window utilization. Every seat's
+	// OAuth bearer token goes to it, so it is https, or http to a loopback
+	// host.
 	UsageURL string `yaml:"usage-url" json:"usage_url"`
 	// PersistHistory writes the utilization history to disk between polls,
 	// so a chart survives a host restart. The file holds utilization by
@@ -261,13 +265,35 @@ func (c *Config) Normalize() {
 	if c.Quota.MaxStaleness <= 0 {
 		c.Quota.MaxStaleness = d.Quota.MaxStaleness
 	}
-	if c.Quota.UsageURL == "" {
+	if !trustedUsageURL(c.Quota.UsageURL) {
 		c.Quota.UsageURL = d.Quota.UsageURL
 	}
 	// The decision log allocates every slot up front, so a cap in the
 	// billions is an allocation no recover survives.
 	if c.Web.HistoryLimit <= 0 || c.Web.HistoryLimit > 10000 {
 		c.Web.HistoryLimit = d.Web.HistoryLimit
+	}
+}
+
+// trustedUsageURL reports whether a usage URL may receive every seat's OAuth
+// bearer token: https to any host, or plain http to a loopback host only.
+func trustedUsageURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		host := u.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	default:
+		return false
 	}
 }
 
