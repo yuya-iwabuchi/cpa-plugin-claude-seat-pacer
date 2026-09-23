@@ -46,21 +46,24 @@ Windows 10, or Linux with glibc 2.34, or newer.
 ### From the Plugin Store
 
 Add [the author's registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry)
-as a plugin source, under Third-party Plugin Sources on the Management
-Center's config page, or in the host config:
+as a plugin source: in the Management Center, Config Panel → Advanced →
+Third-party Plugin Sources, then save; or in the host config, with the plugin
+system switched on (it is off by default):
 
 ```yaml
 plugins:
+  enabled: true
   store-sources:
     - https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
 ```
 
 Then install Claude Seat Pacer from the Plugin Store. The store checks the
 download against the release's `checksums.txt` and loads it without a
-restart, and later releases arrive through its Update button. It records the
-installed version under `store:` in the plugin's config block, and the host
-then loads only that version, so a library built by hand for another version
-is ignored until that key is removed.
+restart. It records the installed version under `store:` in the plugin's
+config block; the host then loads only that version, ignores a library built
+by hand for another, and at its next start deletes the plugin's other library
+files. A new release shows in the store as an update within about an hour,
+and installs when you click Update.
 
 ### From source
 
