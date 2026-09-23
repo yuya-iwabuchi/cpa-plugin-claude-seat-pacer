@@ -76,6 +76,7 @@ import (
 	"math"
 	"unsafe"
 
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
@@ -101,7 +102,7 @@ const (
 var configFields = []runtime.ConfigField{
 	{Name: "providers", Type: "array", Description: "Provider keys the plugin governs. Default [claude]."},
 	{Name: "affinity.ttl", Type: "string", Description: "Idle time before a conversation's credential binding expires. Default 1h."},
-	{Name: "pace.shape", Type: "string", Description: "Target curve shape: linear, power or sigmoid. Default linear."},
+	{Name: "pace.shape", Type: "enum", EnumValues: []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid}, Description: "Target curve shape. Linear spends evenly, power bends the curve by pace.curve-exponent, and sigmoid holds back early and eases off near the end. Default linear."},
 	{Name: "pace.curve-exponent", Type: "number", Description: "Exponent for the power shape; above 1.0 holds back early. Selects the power shape when pace.shape is unset, and is ignored by the sigmoid shape. Default 1.0."},
 	{Name: "pace.steepness", Type: "number", Description: "Slope through the sigmoid's midpoint. Ignored by the other shapes. Default 8.0."},
 	{Name: "pace.landing-target", Type: "number", Description: "How far each seat's plan runs ahead of an even pace. 1.10 finishes the week's quota about 9% early on the linear shape, which leans toward a seat near its reset; 1.0 finishes at the reset. Default 1.10."},

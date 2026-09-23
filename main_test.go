@@ -3,8 +3,11 @@ package main
 import (
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // TestHostCallbacksReadStoredHostOnce holds the two C helpers to a single read
@@ -81,4 +84,20 @@ func TestConfigFieldsLeaveEnabledToTheHost(t *testing.T) {
 			t.Errorf("configFields declares %q, which the host's own toggle owns", field.Name)
 		}
 	}
+}
+
+// pace.shape takes one of three names, so the Management Center offers them
+// as a choice rather than a free string that falls back on a typo.
+func TestPaceShapeIsAChoiceOfTheThreeShapes(t *testing.T) {
+	for _, field := range configFields {
+		if field.Name != "pace.shape" {
+			continue
+		}
+		want := []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid}
+		if field.Type != "enum" || !slices.Equal(field.EnumValues, want) {
+			t.Errorf("pace.shape = %s %v, want enum %v", field.Type, field.EnumValues, want)
+		}
+		return
+	}
+	t.Error("configFields declares no pace.shape")
 }
