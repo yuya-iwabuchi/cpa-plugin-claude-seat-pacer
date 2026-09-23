@@ -180,3 +180,18 @@ and fully unit-testable without the host.
   or a random per-process key when that file cannot be used. Never fall back
   to an unkeyed hash: the real id is routinely an account address, and an
   unkeyed digest lets a screenshot confirm a guessed one.
+
+## Releasing
+
+1. Set `pluginVersion` in `main.go` to the new version, in the pull request
+   that ships the change or in its own, and merge it to `main`.
+2. On an up-to-date, clean `main`, run `make release-tag`. It refuses another
+   branch, a dirty tree, a `main` that differs from `origin/main`, or a
+   version already tagged, then pushes `v<version>`.
+3. `release.yml` builds and checks every platform and publishes the release.
+   It is immutable and its tag cannot move, so a mistake ships as the next
+   version, never as a changed release.
+4. Installs from the Plugin Store see the update within about an hour, and
+   take it when the operator clicks Update; the new file path loads without a
+   host restart. The registry's weekly check confirms the release installs on
+   every platform (`workflow_dispatch` runs it at once).

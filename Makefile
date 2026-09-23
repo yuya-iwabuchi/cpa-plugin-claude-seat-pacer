@@ -18,7 +18,7 @@ OUT        := dist/$(GOOS)/$(GOARCH)/$(NAME).$(EXT)
 INSTALLED  := $(PLUGIN_DIR)/$(GOOS)/$(GOARCH)/$(NAME)-v$(VERSION).$(EXT)
 ARCHIVE    := dist/$(NAME)_$(VERSION)_$(GOOS)_$(GOARCH).zip
 
-.PHONY: build test vet fmt check dist install clean
+.PHONY: build test vet fmt check dist install release-tag clean
 
 build:
 	@mkdir -p $(dir $(OUT))
@@ -55,6 +55,20 @@ install: build
 	mv $(INSTALLED).new $(INSTALLED)
 	@echo "installed $(NAME) v$(VERSION) to $(INSTALLED)"
 	@echo "restart CLIProxyAPI to load it: brew services restart cliproxyapi"
+
+# The release workflow runs on a pushed v<version> tag and refuses one that
+# disagrees with pluginVersion or sits off main. This refuses the same mistakes
+# before the tag exists, since a published release is immutable and its tag
+# cannot be moved or reused.
+release-tag:
+	@test "$$(git rev-parse --abbrev-ref HEAD)" = main || { echo "check out main first"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "the working tree is not clean"; exit 1; }
+	@git fetch -q origin main --tags
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" || { echo "main is not origin/main; pull or push first"; exit 1; }
+	@test -z "$$(git tag -l v$(VERSION))" || { echo "v$(VERSION) is already tagged; bump pluginVersion in main.go"; exit 1; }
+	git tag -a v$(VERSION) -m "Claude Seat Pacer v$(VERSION)"
+	git push origin v$(VERSION)
+	@echo "pushed v$(VERSION); the release workflow publishes it"
 
 clean:
 	rm -rf dist

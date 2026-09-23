@@ -1,5 +1,6 @@
 # Cutting a release: tag a commit on main `v<version>`, where <version> is the
-# pluginVersion in main.go, and push the tag. The package job refuses a tag that
+# pluginVersion in main.go, and push the tag; `make release-tag` does both and
+# refuses the mistakes below before the tag exists. The package job refuses a tag that
 # disagrees with pluginVersion, because the version is part of every asset's
 # name and a mismatch ships an asset the store cannot find, and it refuses a
 # tag on a commit main does not contain.
