@@ -1,12 +1,14 @@
 //go:build ignore
 
 // Command package writes one platform's release archive: a zip holding the
-// shared library alone at its root, beside the sha256sum line for that zip.
+// shared library and its licence notices at its root, beside the sha256sum
+// line for that zip.
 //
-// The plugin store reads the library out of the zip root by basename and
-// rejects an archive carrying a second dynamic library, so the archive holds
-// exactly one entry. The c-shared build emits a C header next to the library;
-// naming the library explicitly is what keeps the header out.
+// The plugin store reads the library out of the zip root by basename, rejects
+// an archive carrying a second dynamic library, and ignores every other file,
+// so the notices ride along without reaching the plugin directory. The
+// c-shared build emits a C header next to the library; naming the library
+// explicitly is what keeps the header out.
 package main
 
 import (
@@ -18,6 +20,10 @@ import (
 	"os"
 	"path/filepath"
 )
+
+// notices are the licence files every archive carries, read from the
+// repository root. The library statically links code under each of them.
+var notices = []string{"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES"}
 
 func main() {
 	lib := flag.String("lib", "", "path to the built shared library")
@@ -62,6 +68,12 @@ func write(lib, out string) error {
 		archive.Close()
 		return errWrite
 	}
+	for _, name := range notices {
+		if errNotice := addNotice(writer, name); errNotice != nil {
+			archive.Close()
+			return errNotice
+		}
+	}
 	if errClose := writer.Close(); errClose != nil {
 		archive.Close()
 		return errClose
@@ -83,4 +95,21 @@ func write(lib, out string) error {
 	}
 	fmt.Printf("packaged %s\n", out)
 	return nil
+}
+
+// addNotice copies one licence file from the working directory into the
+// archive root.
+func addNotice(writer *zip.Writer, name string) error {
+	body, errRead := os.ReadFile(name)
+	if errRead != nil {
+		return errRead
+	}
+	header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	header.SetMode(0o644)
+	entry, errEntry := writer.CreateHeader(header)
+	if errEntry != nil {
+		return errEntry
+	}
+	_, errWrite := entry.Write(body)
+	return errWrite
 }

@@ -8,3 +8,7 @@ CLIProxyAPI (https://github.com/router-for-me/CLIProxyAPI), which is
 licensed under the MIT License:
   Copyright (c) 2025-2005.9 [sic] Luis Pater
   Copyright (c) 2025.9-present Router-For.ME
+
+Release archives also carry THIRD_PARTY_NOTICES, the licences of the code
+the built library links statically: the Go standard library (BSD-3-Clause)
+and gopkg.in/yaml.v3 (MIT and Apache-2.0).
