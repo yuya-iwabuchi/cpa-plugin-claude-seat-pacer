@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -175,15 +176,48 @@ func (p *Plugin) runPoller(pl *poller) {
 
 	timer := time.NewTimer(p.startDelay)
 	defer timer.Stop()
-	p.loadHistory(p.config())
+	p.guard("history load", func() { p.loadHistory(p.config()) })
 	for {
 		select {
 		case <-pl.stop:
 			return
 		case <-timer.C:
 		}
-		timer.Reset(p.pollAndSchedule(ctx))
+		timer.Reset(p.guardedPoll(ctx))
 	}
+}
+
+// guardedPoll runs one poll under guard and returns the wait before the next.
+// A poll that panics costs itself only: the next one waits a regular interval,
+// and nextPollAt names that wake so the page's countdown stays true.
+func (p *Plugin) guardedPoll(ctx context.Context) time.Duration {
+	wait := p.config().Quota.PollInterval
+	if p.guard("poll", func() { wait = p.pollAndSchedule(ctx) }) {
+		p.mu.Lock()
+		p.nextPollAt = p.now().Add(wait)
+		p.mu.Unlock()
+	}
+	return wait
+}
+
+// guard runs fn and recovers a panic from it, logging what panicked. The poll
+// loop runs its work through guard because it runs on its own goroutine, where
+// a panic cannot reach Call's recover and recover() does not cross the C
+// boundary: one escaping would terminate the host process.
+func (p *Plugin) guard(what string, fn func()) (panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicked = true
+			p.host.spawn(func() {
+				p.host.log("error", "claude-seat-pacer recovered from a panic", map[string]any{
+					"in":    what,
+					"panic": fmt.Sprintf("%v", r),
+				})
+			})
+		}
+	}()
+	fn()
+	return false
 }
 
 // pollAndSchedule runs one poll and records when the next one falls due. The

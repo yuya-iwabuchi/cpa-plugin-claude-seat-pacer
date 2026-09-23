@@ -116,6 +116,13 @@ func (h host) invokeCtx(ctx context.Context, method string, payload any, out any
 	}
 	done := make(chan outcome, 1)
 	h.spawn(func() {
+		// A panic in the call becomes its error here rather than reaching
+		// spawn, which would drop it and leave the caller waiting out ctx.
+		defer func() {
+			if r := recover(); r != nil {
+				done <- outcome{err: fmt.Errorf("%s panicked: %v", method, r)}
+			}
+		}()
 		var result json.RawMessage
 		err := h.invoke(method, payload, &result)
 		done <- outcome{result: result, err: err}
@@ -137,16 +144,24 @@ func (h host) invokeCtx(ctx context.Context, method string, payload any, out any
 	}
 }
 
-// spawn runs fn on a tracked goroutine.
+// spawn runs fn on a tracked goroutine. A panic escaping fn is dropped:
+// recover() does not cross the C boundary, so one escaping this goroutine would
+// terminate the host process. Work with a caller to answer, as invokeCtx has,
+// recovers its own panic first and reports it; what reaches this recover is a
+// host log call's, which leaves nowhere safer to report it.
 func (h host) spawn(fn func()) {
+	run := func() {
+		defer func() { _ = recover() }()
+		fn()
+	}
 	if h.tracker == nil {
-		go fn()
+		go run()
 		return
 	}
 	h.tracker.begin()
 	go func() {
 		defer h.tracker.end()
-		fn()
+		run()
 	}()
 }
 

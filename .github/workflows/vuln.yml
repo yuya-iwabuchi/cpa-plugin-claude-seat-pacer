@@ -1,0 +1,51 @@
+# Checks the standard library and every dependency against the Go
+# vulnerability database, with the toolchain go.mod pins. It runs on every
+# change and weekly, because a vulnerability disclosed after the last merge
+# changes nothing in the repository. govulncheck judges the platform it runs
+# on, so it runs on each operating system a release ships to.
+#
+# Actions are pinned to commit SHAs, with the release they came from beside
+# each; Dependabot proposes updates.
+name: Vulnerabilities
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vuln-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  govulncheck:
+    name: govulncheck (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # GOTOOLCHAIN=local keeps the scan on the toolchain go.mod pins. A
+      # govulncheck needing a newer Go would otherwise switch toolchains and
+      # judge the standard library of a Go the plugin is not built with.
+      - name: govulncheck
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          CGO_ENABLED: "1"
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...

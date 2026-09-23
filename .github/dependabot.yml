@@ -1,0 +1,21 @@
+# Keeps the pinned action SHAs and the Go module requirements current. Monthly,
+# with every action update in one pull request, so the pins stay fresh without
+# a stream of single-bump pull requests. A release has to be a week old before
+# it is proposed, so a bad or compromised one is usually withdrawn first.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7

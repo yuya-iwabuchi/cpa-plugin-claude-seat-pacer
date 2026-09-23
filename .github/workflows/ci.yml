@@ -1,7 +1,12 @@
 # The gate every change passes. `check` runs the whole suite — gofmt, vet, the
 # race detector and the shared library — on the two platforms the plugin is
 # developed on. `crossbuild` proves the library still links on every platform a
-# release ships to, without paying for the race detector five times.
+# release ships to, without paying for the race detector five times. The
+# vulnerability scan is vuln.yml, which also runs on a schedule.
+#
+# Actions are pinned to commit SHAs, with the release they came from beside
+# each; Dependabot proposes updates. Checkouts keep no credentials, and every
+# job has a timeout.
 name: CI
 
 on:
@@ -12,17 +17,27 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request replaces the run in progress. A run on
+# main is never cancelled once it starts; one still queued gives way to a newer
+# push.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     name: check (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -31,6 +46,7 @@ jobs:
   crossbuild:
     name: build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -41,8 +57,10 @@ jobs:
           - {goos: darwin, goarch: amd64, ext: dylib, runner: macos-15-intel}
           - {goos: windows, goarch: amd64, ext: dll, runner: windows-latest}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true

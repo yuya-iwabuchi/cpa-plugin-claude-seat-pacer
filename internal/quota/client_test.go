@@ -465,3 +465,22 @@ func TestARetryDoesNotOutlastTheContext(t *testing.T) {
 		t.Errorf("calls = %d, want the retry skipped", calls)
 	}
 }
+
+// TestClientFetchContainsADoerPanic covers the fetch goroutine, which runs the
+// doer beyond the plugin's entry-point recovers: a panic there is a failed
+// fetch, and an unguarded one would take down the test binary. The panic text
+// reaches the error only after the token is scrubbed out of it.
+func TestClientFetchContainsADoerPanic(t *testing.T) {
+	client := newTestClient(doerFunc(func(context.Context, Request) (Response, error) {
+		panic("host callback failed holding " + testToken)
+	}), time.Second)
+
+	_, err := client.Fetch(context.Background(), "auth-1", "0", testToken)
+	var fe *FetchError
+	if !errors.As(err, &fe) || fe.Category != CategoryTransport {
+		t.Fatalf("err = %v, want a transport FetchError", err)
+	}
+	if strings.Contains(err.Error(), testToken) {
+		t.Errorf("the error carries the access token: %v", err)
+	}
+}
