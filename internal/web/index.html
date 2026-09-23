@@ -2756,7 +2756,9 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Samples as {t: ms, u, est, fresh} in order across the cycles, dropping
      any the encoder nulled; est marks an estimate rebuilt from token spend,
-     and fresh the first sample of a cycle a clearing opened. */
+     and fresh the first sample of a cycle a clearing opened, which reads
+     under the sample before it. A later cycle that does not is the same
+     window under a reset instant that moved, and continues the line. */
   function samplesOf(cycles) {
     var out = [];
     cycles.forEach(function (cycle, i) {
@@ -2765,7 +2767,7 @@ th[aria-sort] button { color: var(--ink-1); }
         if (!s || !num(s[0]) || !num(s[1])) return;
         var p = { t: s[0] * 1000, u: s[1] };
         p.est = estimatedAt(cycle, p);
-        p.fresh = i > 0 && first && out.length > 0;
+        p.fresh = i > 0 && first && out.length > 0 && p.u < out[out.length - 1].u;
         first = false;
         out.push(p);
       });
@@ -2779,12 +2781,16 @@ th[aria-sort] button { color: var(--ink-1); }
      so between two samples the line holds the earlier value and rises at the
      later sample's time: a step of a horizontal run then a vertical riser,
      never a slope across a gap. The store folds an idle stretch to its two
-     endpoints, so a gap can be hours wide. */
+     endpoints, so a gap can be hours wide. A fresh sample follows a
+     clearing: the line falls to zero at the sample before it and climbs
+     straight to it, the shape historyLine draws. */
   function pathOf(samples, xOf, Y) {
     var d = "";
     samples.forEach(function (s, i) {
       var x = xOf(s.t).toFixed(1), y = Y(s.u).toFixed(1);
-      d += i ? "H" + x + "V" + y : "M" + x + " " + y;
+      if (!i) d += "M" + x + " " + y;
+      else if (s.fresh) d += "V" + Y(0).toFixed(1) + "L" + x + " " + y;
+      else d += "H" + x + "V" + y;
     });
     return d;
   }

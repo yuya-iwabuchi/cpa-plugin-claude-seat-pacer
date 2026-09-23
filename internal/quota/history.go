@@ -48,12 +48,15 @@ type ring struct {
 // does one taken more than resetTolerance past the current cycle's reset and
 // one taken after the provider cleared the window; one whose utilization
 // matches the last two samples extends the flat run by moving its end
-// forward; one within historyFineStep of the last sample replaces it. Readings out of order, with no instant or with a non-finite
-// utilization are dropped, and so is one that reads lower than the sample
-// before it inside a cycle by clearDrop or less: utilization only rises until
-// the window resets or the provider clears it, and the two sources that feed
-// a ring round differently, so a slightly lower reading is the coarser source
-// lagging the finer one, not spend undone.
+// forward; one within historyFineStep of the last sample replaces it.
+// Readings out of order, with no instant or with a non-finite utilization
+// are dropped. Utilization only rises until the window resets or the
+// provider clears it, and the two sources that feed a ring round
+// differently, so an observed reading clearDrop or less under an observed
+// last sample is the coarser source lagging the finer one: it is recorded at
+// the last sample's level, so the flat run still ends at the newest reading.
+// One lower than an estimated sample is dropped, since an estimate's level
+// can run high.
 func (r *ring) record(at time.Time, w model.Window) {
 	r.put(at, w, false)
 }
@@ -91,6 +94,9 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 		c.ResetsAt = w.ResetsAt
 	}
 	last := &c.Samples[len(c.Samples)-1]
+	if s.Utilization < last.Utilization && !estimated && !c.SampleEstimated(*last) {
+		s.Utilization = last.Utilization
+	}
 	switch {
 	case !s.At.After(last.At):
 		return false
