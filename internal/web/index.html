@@ -3722,10 +3722,14 @@ th[aria-sort] button { color: var(--ink-1); }
           if (pts.length >= 2) {
             var d = pathOf(pts, xOf, Y);
             /* A fall inside the stretch is a clearing: its figures run from
-               the fresh window's first reading. */
+               the fresh window's first reading. A fall onto the next
+               stretch's first reading ends this one, whose figures stop
+               before it. */
+            var lastI = pts.length - 1, endFall = pts[lastI].u < pts[lastI - 1].u;
+            if (endFall) lastI--;
             var f0 = 0;
-            for (var q = 1; q < pts.length; q++) if (pts[q].u < pts[q - 1].u) f0 = q;
-            var p0 = pts[f0], last = pts[pts.length - 1];
+            for (var q = 1; q <= lastI; q++) if (pts[q].u < pts[q - 1].u) f0 = q;
+            var p0 = pts[f0], last = pts[lastI];
             var du = last.u - p0.u, dh = (last.t - p0.t) / 3600000;
             var act = activeOn(st, a.auth_id, pts[0].t, pts[pts.length - 1].t);
             var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, gSegs);
@@ -3735,6 +3739,7 @@ th[aria-sort] button { color: var(--ink-1); }
             var segHead = clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) +
               (f0 ? " · cleared" : "") + " · " + pct(p0.u) + " → " + pct(last.u) +
               " · " + rateText(dh > 0 ? du * 100 / dh : null) +
+              (endFall ? " · then cleared" : "") +
               (estHere ? " · estimated" : "");
             var convo = conversationLines(act);
             g.setAttribute("data-tip", segHead + "\n" + (act.list.length

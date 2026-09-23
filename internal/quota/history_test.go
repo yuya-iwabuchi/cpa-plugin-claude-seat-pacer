@@ -616,15 +616,16 @@ func TestAClearedWindowOpensACycleUnderTheSameReset(t *testing.T) {
 // TestAnEstimateAboveTheFirstReadingIsNotAClearing covers the one fall that
 // is not the provider's: an estimate rebuilt from token spend carries its
 // shape and not its level, so an observed reading under it is the estimate
-// running high, and it stays in the estimated cycle's reset.
+// running high. It opens no cycle, and like any lower reading inside a cycle
+// it is not recorded.
 func TestAnEstimateAboveTheFirstReadingIsNotAClearing(t *testing.T) {
 	resets := testNow.Add(3 * time.Hour)
 	r := &ring{}
 	r.put(testNow, sessionAt(0.40, resets), true)
 	r.put(testNow.Add(10*time.Minute), sessionAt(0.50, resets), true)
 	r.put(testNow.Add(20*time.Minute), sessionAt(0.30, resets), false)
-	if len(r.cycles) != 1 {
-		t.Errorf("cycles = %+v, want the reading under the estimate to open no cycle", r.cycles)
+	if len(r.cycles) != 1 || len(r.cycles[0].Samples) != 2 || !r.cycles[0].Estimated {
+		t.Errorf("cycles = %+v, want the reading under the estimate to open no cycle and go unrecorded", r.cycles)
 	}
 }
 
