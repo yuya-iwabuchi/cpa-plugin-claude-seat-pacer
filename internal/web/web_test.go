@@ -1063,3 +1063,68 @@ func TestFileNameResidueFoldsWithoutRealigning(t *testing.T) {
 		t.Errorf("the account's local part is served: %s", rec.Body.String())
 	}
 }
+
+// TestPublicTextDropsHostsAndPaths covers what an os or transport error names
+// beyond a URL and a Unix path: a Windows path, a home-relative path, and the
+// address or host name a dial, a lookup or a certificate check quotes.
+func TestPublicTextDropsHostsAndPaths(t *testing.T) {
+	t.Parallel()
+	ids := strings.NewReplacer()
+	cases := []struct{ in, want string }{
+		{`open C:\Users\jane.doe\.cli-proxy-api\auths: Access is denied.`, `open …: Access is denied.`},
+		{`open C:\Users\Jane Doe\.cli-proxy-api\auths\claude.json: The system cannot find the file specified.`, `open …: The system cannot find the file specified.`},
+		{`read "C:/Users/jane.doe/auths/claude.json" (auth)`, `read "…" (auth)`},
+		{`open \\fileserver\share\auths\claude.json: Access is denied.`, `open …: Access is denied.`},
+		{`open \\?\C:\Users\jane.doe\auths: Access is denied.`, `open …: Access is denied.`},
+		{`open ~/.cli-proxy-api/auths: permission denied`, `open …: permission denied`},
+		{`stat ~jane/auths/claude.json: no such file`, `stat …: no such file`},
+		{`dial tcp 10.1.2.3:443: connect: connection refused`, `dial tcp …: connect: connection refused`},
+		{`dial tcp: lookup usage.corp.internal on 192.168.1.1:53: no such host`, `dial tcp: lookup … on …: no such host`},
+		{`dial tcp: lookup usage.corp.internal: no such host`, `dial tcp: lookup …: no such host`},
+		{`dial tcp [::1]:8080: connect: connection refused`, `dial tcp …: connect: connection refused`},
+		{`dial tcp [fe80::1%en0]:443: i/o timeout`, `dial tcp …: i/o timeout`},
+		{`read tcp 192.168.1.5:52341->104.18.1.1:443: read: connection reset by peer`, `read tcp …->…: read: connection reset by peer`},
+		{`proxyconnect tcp: dial tcp proxy.corp.internal:3128: i/o timeout`, `proxyconnect tcp: dial tcp …: i/o timeout`},
+		{`dial tcp localhost:8317: connect: connection refused`, `dial tcp …: connect: connection refused`},
+		{`tls: failed to verify certificate: x509: certificate is valid for *.corp.internal, proxy.corp.internal, not usage.corp.internal`, `tls: failed to verify certificate: x509: certificate is valid for …`},
+		{`x509: certificate is not valid for any names, but wanted to match usage.corp.internal`, `x509: certificate is not valid for any names, but wanted to match …`},
+	}
+	for _, c := range cases {
+		if got := publicText(c.in, ids); got != c.want {
+			t.Errorf("publicText(%q)\n got: %q\nwant: %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestPublicTextKeepsPluginText covers the text the plugin itself writes into
+// a warning, a snapshot error and a decision note, none of which names a host
+// or a path: durations, versions, model ids and config keys read as written.
+func TestPublicTextKeepsPluginText(t *testing.T) {
+	t.Parallel()
+	ids := strings.NewReplacer()
+	for _, in := range []string{
+		"quota: rate-limited (http 429): usage endpoint throttled",
+		"quota: auth (http 401): credential rejected",
+		"quota: bad-status (http 302): redirect refused",
+		"quota: timeout: context deadline exceeded",
+		"quota: transport: net/http: TLS handshake timeout",
+		"quota: transport: http2: server sent GOAWAY and closed the connection",
+		"usage request panicked: runtime error: index out of range [3] with length 3",
+		"retry in 2m30s after 1h0m0s idle",
+		"host v7.3.15 declared schema 1; plugin 0.1.0 built with go1.25.14",
+		"model claude-opus-4-6-20260212 is not governed; claude-fable-5 is",
+		"bound credential was not offered; retry after seat-b",
+		"no session key; not pinned",
+		"pinned to parent session",
+		"provider claude: the host offers only seat-a (priority 10); the fallback tier (seat-b) takes no new conversation until the top tier runs out.",
+		"plugin is disabled by configuration; the host's own selector routes every request",
+		"run with routing.session-affinity: false and quota.poll-interval at 2m",
+		"resets at 2026-09-04T15:04:05Z, 15:04 local",
+		"binding list truncated to 500 of 540 entries for this view",
+		"the usage endpoint is api.anthropic.com",
+	} {
+		if got := publicText(in, ids); got != in {
+			t.Errorf("publicText(%q) = %q, want it unchanged", in, got)
+		}
+	}
+}

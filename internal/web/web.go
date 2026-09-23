@@ -7,9 +7,10 @@
 // issues no mutating request, model.Status carries ids and labels but no
 // credential material, and serveStatus still names each seat without its
 // account address, withholds the credential file name, keeps only the config
-// block the page reads, strips URLs out of the operator warnings and bounds the
-// binding list, so the page is safe to show on a screen or in a screenshot. The
-// management status route serves the same status unreduced.
+// block the page reads, strips URLs, filesystem paths and network addresses out
+// of the operator warnings and bounds the binding list, so the page is safe to
+// show on a screen or in a screenshot. The management status route serves the
+// same status unreduced.
 //
 // A credential's id is published as a truncated hash of the real one rather
 // than masked: every table on the page correlates on the id, and masking is
@@ -360,30 +361,65 @@ var absoluteURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']*`)
 // looking at the page where the host keeps its credentials.
 var absolutePath = regexp.MustCompile(`(?:^|[\s"'(:])(?:/[^\s"'():]+){2,}`)
 
+// windowsPath is a Windows filesystem path, drive-qualified or UNC (the \\?\
+// long-path form among them), which an os error on that platform names. A
+// segment may hold a space, as a user profile directory often does, so the
+// path runs to the delimiter an os error closes it with rather than to the
+// first space.
+var windowsPath = regexp.MustCompile(`(?:\b[A-Za-z]:[\\/]|\\\\[^\s"'\\]+\\(?:[A-Za-z]:\\)?)(?:[^"'():;,\n]*[^\s"'():;,])?`)
+
+// homePath is a path relative to a home directory, ~/ or ~user/.
+var homePath = regexp.MustCompile(`(?:^|[\s"'(:=])~[A-Za-z0-9._-]*/[^\s"'():]*`)
+
+// networkAddress is a host a Go transport error names without a scheme: an
+// IPv4 or bracketed IPv6 address with or without its port, and a host name
+// carrying a port, as a dial error quotes them.
+var networkAddress = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b` +
+	`|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z._-]+)?\](?::\d{1,5})?` +
+	`|\b(?:localhost|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+):\d{1,5}\b`)
+
+// lookupHost is the host a failed name resolution names, which carries no
+// port: "lookup usage.corp.internal on 192.168.1.1:53" or "lookup
+// usage.corp.internal: no such host".
+var lookupHost = regexp.MustCompile(`\blookup [^\s:]+`)
+
+// certificateNames is the name list a certificate mismatch quotes, which runs
+// to the end of the error.
+var certificateNames = regexp.MustCompile(`\b(certificate is (?:valid for|not valid for any names, but wanted to match)) [^:;"]+`)
+
 // bareEmail matches an account address inside free text. A credential this
 // status no longer holds a row for is still named by a decision note that
 // outlives it, and that name is an email address.
 var bareEmail = regexp.MustCompile(`[^\s"'<>@]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
 
 // publicText is operator-facing free text with everything it quotes that this
-// route otherwise withholds taken out: URLs, because a failing poll quotes the
-// transport error and that error names the usage endpoint, and credential
-// identity, because a warning and a decision note both name the credential
-// they concern.
+// route otherwise withholds taken out: URLs and network addresses, because a
+// failing poll quotes the transport error and that error names the usage
+// endpoint or the resolver, filesystem paths, and credential identity, because
+// a warning and a decision note both name the credential they concern.
 func publicText(s string, ids *strings.Replacer) string {
 	if s == "" {
 		return ""
 	}
 	s = absoluteURL.ReplaceAllString(s, "…")
-	s = absolutePath.ReplaceAllStringFunc(s, func(m string) string {
-		// Keep the delimiter the match opened on; only the path itself goes.
-		if m[0] == '/' {
-			return "…"
-		}
-		return m[:1] + "…"
-	})
+	s = windowsPath.ReplaceAllString(s, "…")
+	for _, re := range []*regexp.Regexp{absolutePath, homePath} {
+		s = re.ReplaceAllStringFunc(s, keepDelimiter)
+	}
+	s = certificateNames.ReplaceAllString(s, "$1 …")
+	s = lookupHost.ReplaceAllString(s, "lookup …")
+	s = networkAddress.ReplaceAllString(s, "…")
 	s = ids.Replace(s)
 	return bareEmail.ReplaceAllStringFunc(s, maskEmail)
+}
+
+// keepDelimiter is the placeholder for a path match that may have opened on
+// the delimiter before the path: the delimiter stays and the path goes.
+func keepDelimiter(m string) string {
+	if m[0] == '/' || m[0] == '~' {
+		return "…"
+	}
+	return m[:1] + "…"
 }
 
 // seatEmail is the account address a credential row carries: the host's email
