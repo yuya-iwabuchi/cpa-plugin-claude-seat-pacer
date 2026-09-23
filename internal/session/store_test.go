@@ -366,6 +366,34 @@ func TestStoreSweep(t *testing.T) {
 	}
 }
 
+// A pick reads its clock before it takes the lock, so a binding can sit ahead
+// of one seen a moment after it. Sweep stops at the first binding well short
+// of expiry, and an expired one filed ahead of it still has to go.
+func TestStoreSweepReachesABindingFiledOutOfOrder(t *testing.T) {
+	s := NewStore(10*time.Minute, 8)
+	bind(s, "later", "auth-1", at(10*time.Second))
+	bind(s, "earlier", "auth-1", t0)
+
+	if n := s.Sweep(at(10*time.Minute + 5*time.Second)); n != 1 {
+		t.Errorf("Sweep = %d, want the expired binding behind the order removed", n)
+	}
+	if _, ok := lookup(s, "later", at(10*time.Minute+5*time.Second)); !ok {
+		t.Error("Sweep removed the live binding")
+	}
+
+	// Out of step by more than the slack, the expired binding waits for the
+	// live one behind it to near its own expiry.
+	s = NewStore(10*time.Minute, 8)
+	bind(s, "later", "auth-1", at(5*time.Minute))
+	bind(s, "earlier", "auth-1", t0)
+	if n := s.Sweep(at(11 * time.Minute)); n != 0 {
+		t.Errorf("Sweep = %d, want the walk stopped at the live binding", n)
+	}
+	if n := s.Sweep(at(15*time.Minute + time.Second)); n != 2 || s.Len() != 0 {
+		t.Errorf("Sweep = %d leaving %d, want both removed once both expired", n, s.Len())
+	}
+}
+
 func TestStoreAllIsDeterministic(t *testing.T) {
 	s := NewStore(time.Hour, 8)
 	bind(s, "newest", "auth-1", at(3*time.Minute))
