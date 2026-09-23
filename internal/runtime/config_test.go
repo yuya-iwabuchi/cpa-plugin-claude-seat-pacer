@@ -100,17 +100,30 @@ func TestAnEmptyBlockDecodesToTheDefaults(t *testing.T) {
 // The raise is in range on its own terms, so the status page is where the
 // operator learns the setting they wrote is not the one in force.
 func TestStatusWarnsWhenMaxStalenessIsRaised(t *testing.T) {
-	tp := newTestPlugin(t, testConfigYAML+"quota.poll-interval: 30m\n")
+	tp := newTestPlugin(t, testConfigYAML+"quota.poll-interval: 30m\nquota.max-staleness: 20m\n")
 	status := tp.Status(testNow, "")
 	if status.Config.Quota.MaxStaleness != time.Hour {
 		t.Errorf("MaxStaleness = %v, want 1h", status.Config.Quota.MaxStaleness)
 	}
-	if !hasWarning(status, "quota.max-staleness 15m0s is under twice quota.poll-interval 30m0s") {
+	if !hasWarning(status, "quota.max-staleness 20m0s is under twice quota.poll-interval 30m0s") {
 		t.Errorf("warnings = %q, want one naming both values", status.Warnings)
 	}
 
 	tp.register(t, MethodPluginReconfigure, testConfigYAML)
 	if hasWarning(tp.Status(testNow, ""), "quota.max-staleness") {
 		t.Error("the warning outlived the config that raised it")
+	}
+}
+
+// The Management Center has no max-staleness field, so a warning about a
+// default it raised is one the operator cannot clear from there.
+func TestStatusIsSilentWhenTheDefaultMaxStalenessIsRaised(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML+"quota.poll-interval: 10m\n")
+	status := tp.Status(testNow, "")
+	if status.Config.Quota.MaxStaleness != 20*time.Minute {
+		t.Errorf("MaxStaleness = %v, want 20m", status.Config.Quota.MaxStaleness)
+	}
+	if hasWarning(status, "quota.max-staleness") {
+		t.Errorf("warnings = %q, want none for a max-staleness the operator never set", status.Warnings)
 	}
 }

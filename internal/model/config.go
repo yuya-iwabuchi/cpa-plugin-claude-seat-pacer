@@ -272,11 +272,14 @@ func (c *Config) Normalize() (warnings []string) {
 	// A reading has to outlive the wait for the next one, with an interval to
 	// spare for a slow or failed read, or a seat idle between polls goes stale
 	// and cannot take a new conversation. A doubling that overflows leaves
-	// MaxStaleness as set.
+	// MaxStaleness as set. Raising the default is silent: the operator did not
+	// choose it.
 	if floor := 2 * c.Quota.PollInterval; floor > c.Quota.MaxStaleness {
-		warnings = append(warnings, fmt.Sprintf(
-			"quota.max-staleness %v is under twice quota.poll-interval %v, so it runs at %v to keep a seat idle between polls from going stale",
-			c.Quota.MaxStaleness, c.Quota.PollInterval, floor))
+		if c.Quota.MaxStaleness != d.Quota.MaxStaleness {
+			warnings = append(warnings, fmt.Sprintf(
+				"quota.max-staleness %v is under twice quota.poll-interval %v, so it runs at %v to keep a seat idle between polls from going stale",
+				c.Quota.MaxStaleness, c.Quota.PollInterval, floor))
+		}
 		c.Quota.MaxStaleness = floor
 	}
 	if !trustedUsageURL(c.Quota.UsageURL) {

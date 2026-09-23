@@ -376,13 +376,19 @@ func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
 // the next one lands leaves an idle seat ineligible for part of every
 // interval.
 func TestNormalizeKeepsMaxStalenessPastTwoPolls(t *testing.T) {
-	cfg := Config{Quota: QuotaConfig{PollInterval: 30 * time.Minute}}
+	cfg := Config{Quota: QuotaConfig{PollInterval: 30 * time.Minute, MaxStaleness: 20 * time.Minute}}
 	warnings := cfg.Normalize()
 	if cfg.Quota.MaxStaleness != time.Hour {
 		t.Errorf("MaxStaleness = %v, want it raised to twice the 30m poll interval", cfg.Quota.MaxStaleness)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "15m0s") || !strings.Contains(warnings[0], "30m0s") {
-		t.Errorf("warnings = %q, want one naming the configured 15m0s and 30m0s", warnings)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "20m0s") || !strings.Contains(warnings[0], "30m0s") {
+		t.Errorf("warnings = %q, want one naming the configured 20m0s and 30m0s", warnings)
+	}
+
+	// The default was never the operator's choice, so raising it is silent.
+	unset := Config{Quota: QuotaConfig{PollInterval: 10 * time.Minute}}
+	if warnings := unset.Normalize(); len(warnings) != 0 || unset.Quota.MaxStaleness != 20*time.Minute {
+		t.Errorf("MaxStaleness = %v with warnings %q, want the default raised to 20m silently", unset.Quota.MaxStaleness, warnings)
 	}
 
 	kept := Config{Quota: QuotaConfig{PollInterval: 5 * time.Minute, MaxStaleness: 10 * time.Minute}}
