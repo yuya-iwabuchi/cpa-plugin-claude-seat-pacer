@@ -684,6 +684,10 @@ func (f *fixture) collide() {
 	f.decisions = f.buildDecisions()
 }
 
+// unreadAfterClear is how long the cleared scenario leaves a seat's
+// all-models window unread after its clearing.
+const unreadAfterClear = 6 * time.Hour
+
 func (f *fixture) cleared() {
 	snap := f.snapshots[seatBID]
 	snap.Windows = append([]model.Window(nil), snap.Windows...)
@@ -954,10 +958,15 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 		}
 		// The sample the provider cleared the window after, or -1. The replay
 		// is stretched to near full there, and the fresh window climbs
-		// steadily from zero to the reading.
-		ci := -1
+		// steadily from zero to the reading. The all-models window goes
+		// unread for unreadAfterClear after the clearing, the way a host that
+		// was down across it records the window; the cap is read throughout.
+		ci, unread := -1, 0
 		if ago, ok := f.clearedAgo[snap.AuthID]; ok && walks {
 			ci = min(max(int(now.Add(-ago).Sub(start)/step), 0), n-1)
+			if w.Kind == model.WindowWeekly {
+				unread = int(unreadAfterClear / step)
+			}
 		}
 		for i := 0; i < n; i++ {
 			t := start.Add(time.Duration(i) * step)
@@ -987,6 +996,9 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 			}
 			if len(cur.Samples) > 0 {
 				cur.Estimated = true
+			}
+			if ci >= 0 && i > ci && i <= ci+unread {
+				continue
 			}
 			put(t, u)
 		}

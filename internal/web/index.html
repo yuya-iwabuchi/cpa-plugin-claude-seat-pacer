@@ -512,6 +512,10 @@ svg.pace path.hist { fill: none; stroke-width: 1.4; stroke-linejoin: round; stro
 /* A stretch reconstructed from token spend is an estimate: dashed and paler
    than the observed stretch. */
 svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .5; stroke-dasharray: 2 3; }
+/* The climb from a clearing to the first reading after it, where no reading
+   between them was recorded: a straight, sparse dotted line, because only its
+   two ends are known. */
+svg.pace path.hist-gap { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: .55; stroke-dasharray: 1 4; }
 /* The curve's own label sits on the line it names, and a curve that reaches
    full inside the window runs its ramp under that label, so it carries the
    same halo as every other label drawn over the plot. */
@@ -2748,16 +2752,19 @@ th[aria-sort] button { color: var(--ink-1); }
     return out;
   }
 
-  /* Samples as {t: ms, u, est} in order across the cycles, dropping any the
-     encoder nulled; est marks an estimate rebuilt from token spend. A fall
-     between two samples is a clearing. */
+  /* Samples as {t: ms, u, est, fresh} in order across the cycles, dropping
+     any the encoder nulled; est marks an estimate rebuilt from token spend,
+     and fresh the first sample of a cycle a clearing opened. */
   function samplesOf(cycles) {
     var out = [];
-    cycles.forEach(function (cycle) {
+    cycles.forEach(function (cycle, i) {
+      var first = true;
       (cycle.samples || []).forEach(function (s) {
         if (!s || !num(s[0]) || !num(s[1])) return;
         var p = { t: s[0] * 1000, u: s[1] };
         p.est = estimatedAt(cycle, p);
+        p.fresh = i > 0 && first && out.length > 0;
+        first = false;
         out.push(p);
       });
     });
@@ -2970,12 +2977,48 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Draws a window's samples as a line under parent, the estimated stretch
-     dashed and pale and the observed stretch solid; the two share the sample
-     at the boundary so the line has no gap. tail, if given, is a path
-     segment to the present mark, which is always an observed reading, so it
-     is drawn solid. Returns the count of estimated samples. */
+  /* Readings a clearing's first reading lies further than this past the
+     last reading before it leave unrecorded, and the climb between them is
+     drawn as not recorded. */
+  var UNRECORDED_MS = 30 * 60000;
+
+  /* Draws a window's samples as a line under parent, one run per cycle. A
+     run's last sample is the last reading at its level, since an idle run
+     folds into its end, so the clearing after it falls to zero there; the
+     climb from zero to the next run's first reading is solid where the two
+     are close and drawn as not recorded where they are not. Returns the count
+     of estimated samples and the unrecorded spans, each a [from, to] pair
+     of instants. */
   function historyLine(parent, samples, xOf, Y, col, tail) {
+    var runs = [];
+    samples.forEach(function (s) {
+      if (s.fresh || !runs.length) runs.push([]);
+      runs[runs.length - 1].push(s);
+    });
+    var out = { est: 0, unrecorded: [] };
+    runs.forEach(function (run, i) {
+      var next = runs[i + 1];
+      out.est += runLine(parent, run, xOf, Y, col, next ? null : tail);
+      if (!next) return;
+      var p = run[run.length - 1], q = next[0];
+      var x0 = xOf(p.t).toFixed(1), y0 = Y(0).toFixed(1);
+      svg("path", { "class": "hist", d: "M" + x0 + " " + Y(p.u).toFixed(1) + "V" + y0, stroke: col }, parent);
+      var gap = q.t - p.t >= UNRECORDED_MS;
+      if (gap) out.unrecorded.push([p.t, q.t]);
+      svg("path", {
+        "class": gap ? "hist hist-gap" : "hist",
+        d: "M" + x0 + " " + y0 + "L" + xOf(q.t).toFixed(1) + " " + Y(q.u).toFixed(1), stroke: col
+      }, parent);
+    });
+    return out;
+  }
+
+  /* Draws one cycle's samples, the estimated stretch dashed and pale and the
+     observed stretch solid; the two share the sample at the boundary so the
+     line has no gap. tail, if given, is a path segment to the present mark,
+     which is always an observed reading, so it is drawn solid. Returns the
+     count of estimated samples. */
+  function runLine(parent, samples, xOf, Y, col, tail) {
     var est = [], obs = [];
     samples.forEach(function (s) { (s.est ? est : obs).push(s); });
     est = anchoredEstimate(est, obs);
@@ -3058,6 +3101,13 @@ th[aria-sort] button { color: var(--ink-1); }
     return li;
   }
   var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
+  var SW_GAP = "height:0;border-top:2px dotted var(--ink-3);opacity:.55";
+  var UNRECORDED_KEY = "not recorded after an early clearing";
+
+  /* A tooltip line for one unrecorded climb after a clearing. */
+  function unrecordedText(span) {
+    return "cleared after " + absTime(new Date(span[0])) + " · no readings until " + absTime(new Date(span[1]));
+  }
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
   function dayText(elapsed) {
@@ -3233,7 +3283,7 @@ th[aria-sort] button { color: var(--ink-1); }
        meet. The cap's label carries its weight in the cost; the weekly
        window counts whole. The group's role="img" keeps the label out of the
        accessibility tree; the gap is in its name. */
-    var labels = [], anyEst = false;
+    var labels = [], anyEst = false, anyUnrec = false;
     var SLOPE_SPAN_MS = 6 * 3600000;
     /* Two layers, because SVG paints in document order and a seat drawn later
        would otherwise run its recorded line across an earlier seat's mark and
@@ -3254,14 +3304,17 @@ th[aria-sort] button { color: var(--ink-1); }
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
          alone. x is the sample's own elapsed fraction of this window. */
-      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0;
+      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0, unrec = [];
       if (resets && hist) {
         var start = resets.getTime() - PACE_DAYS * 86400000;
         var cur = samplesOf(currentCycles(hist, resets));
         if (cur.length >= 2) {
           var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
-          est = historyLine(gl, cur, xOf, Y, col, tailTo(cx, cy));
+          var drawn = historyLine(gl, cur, xOf, Y, col, tailTo(cx, cy));
+          est = drawn.est;
+          unrec = drawn.unrecorded;
           anyEst = anyEst || est > 0;
+          anyUnrec = anyUnrec || unrec.length > 0;
           line = cur;
           slope = recentSlope(cur, SLOPE_SPAN_MS);
         }
@@ -3284,7 +3337,7 @@ th[aria-sort] button { color: var(--ink-1); }
         weighted ? weightMark(ws) + " in the cost" : "cost " + costText(a.score),
         line ? "last 6h " + rateText(slope) + " vs " + rateText(targetSlope).replace(/ pts\/h$/, "") + " target" : null,
         est ? est + " of " + line.length + " readings estimated from token spend" : null
-      ].filter(Boolean).join("\n"));
+      ].concat(unrec.map(unrecordedText)).filter(Boolean).join("\n"));
       gl.setAttribute("data-tip", g.getAttribute("data-tip"));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       if (weighted) {
@@ -3318,7 +3371,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, fams, anyEst, view);
+    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec);
     renderRank(st, seats, ranks, view);
     renderPaceNote(st);
   }
@@ -3358,7 +3411,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Every seat is named: plotted ones in the legend, the rest with the reason
      they have no point, so a seat never vanishes from the chart unexplained. */
-  function renderPaceLegend(series, root, fams, anyEst, view) {
+  function renderPaceLegend(series, root, fams, anyEst, view, anyUnrec) {
     var leg = $("pace-legend");
     leg.textContent = "";
     /* Where a seat can carry two marks the legend names the marks before the
@@ -3375,6 +3428,7 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
+    if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
@@ -3681,7 +3735,7 @@ th[aria-sort] button { color: var(--ink-1); }
       curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    var plotted = 0, labels = [], anyEst = false;
+    var plotted = 0, labels = [], anyEst = false, anyUnrec = false;
     /* Two layers, as on the weekly chart: every line stretch below every mark
        and label, so a seat drawn later cannot run its line across an earlier
        seat's reading. */
@@ -3711,8 +3765,10 @@ th[aria-sort] button { color: var(--ink-1); }
         "\n" + resetText(s.resets, now) +
         "\nlast hour " + lastHour;
       if (s.cur.length >= 2) {
-        estCur = historyLine(gSegs, s.cur, xOf, Y, col, tailTo(cx, cy));
+        var drawnCur = historyLine(gSegs, s.cur, xOf, Y, col, tailTo(cx, cy));
+        estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
+        anyUnrec = anyUnrec || drawnCur.unrecorded.length > 0;
         /* One focusable stretch per SEG_MS of the line, carrying the
            conversations the log shows on the seat in that stretch. */
         var from = start, i = 0, k = 0;
@@ -3793,15 +3849,16 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(series, root, anyEst);
+    renderSessionLegend(series, root, anyEst, anyUnrec);
     renderSessionNote(st);
   }
 
-  function renderSessionLegend(series, root, anyEst) {
+  function renderSessionLegend(series, root, anyEst, anyUnrec) {
     var leg = $("session-legend");
     leg.textContent = "";
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
+    if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
