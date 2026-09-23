@@ -40,7 +40,8 @@ pull request.
 
 Build from source; there is no prebuilt release or Plugin Store listing yet.
 The build needs Go 1.25 and a C toolchain. The host must be CLIProxyAPI
-7.2.145 or newer; the plugin is tested against 7.3.10 and 7.3.15.
+7.2.145 or newer; the plugin is tested against 7.3.10 and 7.3.15. Released
+libraries load on macOS 12 or newer and on Linux with glibc 2.34 or newer.
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
