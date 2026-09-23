@@ -307,13 +307,13 @@ func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
 		{AuthID: "gemini.json", Provider: "gemini", Priority: 99},
 	}
 	got := singleCandidateWarning("claude", rows)
-	want := "provider claude: the host offers only claude-top.json (priority 11); claude-a.json, claude-b.json are the fallback tier and take no new conversation until it is out. " +
+	want := "provider claude: the host offers only claude-top.json (priority 11); the fallback tier (claude-a.json, claude-b.json) takes no new conversation until the top tier runs out. " +
 		"One priority value across the pool lets this plugin spread new conversations by pace instead"
 	if got != want {
 		t.Errorf("tier warning =\n  %q\nwant\n  %q", got, want)
 	}
 	one := singleCandidateWarning("claude", rows[1:3])
-	if !strings.Contains(one, "claude-a.json is the fallback tier") {
-		t.Errorf("a single lower seat reads as one: %q", one)
+	if !strings.Contains(one, "the fallback tier (claude-a.json) takes") {
+		t.Errorf("a single lower seat is not named as the fallback tier: %q", one)
 	}
 }

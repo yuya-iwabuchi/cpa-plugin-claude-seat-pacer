@@ -209,19 +209,12 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 			}
 		}
 		slices.Sort(lower)
-		return fmt.Sprintf("provider %s: the host offers only %s (priority %d); %s %s the fallback tier and take no new conversation until it is out. "+
+		return fmt.Sprintf("provider %s: the host offers only %s (priority %d); the fallback tier (%s) takes no new conversation until the top tier runs out. "+
 			"One priority value across the pool lets this plugin spread new conversations by pace instead",
-			provider, strings.Join(tiers[top], ", "), top, strings.Join(lower, ", "), isAre(len(lower)))
+			provider, strings.Join(tiers[top], ", "), top, strings.Join(lower, ", "))
 	default:
 		return fmt.Sprintf("provider %s offered a single candidate; the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", provider)
 	}
-}
-
-func isAre(n int) string {
-	if n == 1 {
-		return "is"
-	}
-	return "are"
 }
 
 // SeatWarningState is what Warnings needs about one credential beyond its
