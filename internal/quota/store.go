@@ -248,7 +248,9 @@ func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt t
 		} else {
 			e.snap.Windows = append(e.snap.Windows, w)
 		}
-		e.observe(observedAt, w)
+		if !w.Derived {
+			e.observe(observedAt, w)
+		}
 		if w.Active {
 			activeKey, activated = key, true
 		}

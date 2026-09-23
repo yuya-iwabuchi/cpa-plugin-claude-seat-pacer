@@ -91,6 +91,11 @@ type Window struct {
 	Severity    string        `json:"severity,omitempty"`
 	// Active marks the window the provider currently treats as binding.
 	Active bool `json:"active"`
+	// Derived marks a utilization the reading did not state: a family cap the
+	// response headers refuse without reporting, standing in the 7-day
+	// figure. Such a reading carries the refusal and is not recorded as the
+	// cap's history.
+	Derived bool `json:"-"`
 }
 
 // Elapsed is the fraction of the window that has passed, clamped to 0..1. A
