@@ -336,7 +336,11 @@ func (e errPoll) Error() string { return string(e) }
 func (p *Plugin) poll(ctx context.Context) time.Duration {
 	p.pollMu.Lock()
 	defer p.pollMu.Unlock()
+	return p.pollLocked(ctx)
+}
 
+// pollLocked is poll for a caller already holding pollMu.
+func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 	cfg := p.config()
 	if !cfg.Enabled {
 		p.mu.Lock()

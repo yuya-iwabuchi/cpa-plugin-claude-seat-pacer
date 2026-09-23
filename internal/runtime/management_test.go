@@ -387,6 +387,36 @@ func TestConcurrentSyncNowRunsOnePoll(t *testing.T) {
 	}
 }
 
+// TestSyncNowDoesNotQueueBehindARunningPoll covers a forced read that lands
+// while a poll holds the lock: it returns at once without polling, rather than
+// running a second full poll back to back with the first.
+func TestSyncNowDoesNotQueueBehindARunningPoll(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+
+	tp.pollMu.Lock()
+	done := make(chan bool, 1)
+	go func() { done <- tp.SyncNow(context.Background()) }()
+	select {
+	case ran := <-done:
+		tp.pollMu.Unlock()
+		if ran {
+			t.Error("SyncNow reported a read while another poll held the lock")
+		}
+	case <-time.After(2 * time.Second):
+		tp.pollMu.Unlock()
+		<-done
+		t.Fatal("SyncNow waited for the running poll")
+	}
+	if n := tp.host.count(MethodHostAuthList); n != 0 {
+		t.Errorf("host.auth.list was called %d times, want none", n)
+	}
+	// With the lock free and no prior poll, it reads.
+	if !tp.SyncNow(context.Background()) {
+		t.Error("SyncNow refused a read with no poll running")
+	}
+}
+
 // TestPageStatusFollowsTheApp covers the page's data route when the page is
 // not being served: with web.enabled off it answers 404, and with no app
 // installed it answers 503, whatever web.enabled says.
