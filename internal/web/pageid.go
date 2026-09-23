@@ -71,8 +71,8 @@ func randomIDKey() []byte {
 }
 
 // writeIDKey writes key to path, readable by the owner alone, through a
-// sibling file renamed into place so a reader never sees a partial key. The
-// directory is created as needed.
+// sibling file synced and renamed into place so neither a reader nor a crash
+// leaves a partial key. The directory is created as needed.
 func writeIDKey(path string, key []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -83,6 +83,9 @@ func writeIDKey(path string, key []byte) error {
 		return err
 	}
 	_, werr := tmp.Write(key)
+	if werr == nil {
+		werr = tmp.Sync()
+	}
 	cerr := tmp.Close()
 	if err := errors.Join(werr, cerr); err != nil {
 		_ = os.Remove(tmp.Name())
