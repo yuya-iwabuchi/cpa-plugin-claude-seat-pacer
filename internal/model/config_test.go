@@ -2,6 +2,7 @@ package model
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -270,5 +271,154 @@ func TestNormalizeCorrectsANegativeWeightAndKeepsZero(t *testing.T) {
 	if kept.Pace.WeeklyWeight != 2 || kept.Pace.SessionWeight != 0.25 || kept.Pace.ScopedWeight != 0.5 {
 		t.Errorf("weights = (%v, %v, %v), want them kept as configured",
 			kept.Pace.WeeklyWeight, kept.Pace.SessionWeight, kept.Pace.ScopedWeight)
+	}
+}
+
+// The decision log allocates its whole ring at once, so a limit past the cap
+// is an out-of-memory crash rather than a long history.
+func TestNormalizeBoundsTheHistoryLimit(t *testing.T) {
+	d := Defaults()
+	for _, tc := range []struct {
+		in, want int
+		warning  string
+	}{
+		{1, 1, ""},
+		{10000, 10000, ""},
+		{10001, 10000, "web.history-limit 10001 is above its bound, so it runs at 10000"},
+		{1000000000, 10000, "web.history-limit 1000000000 is above its bound, so it runs at 10000"},
+		{0, d.Web.HistoryLimit, ""},
+		{-5, d.Web.HistoryLimit, ""},
+	} {
+		cfg := Config{Web: WebConfig{HistoryLimit: tc.in}}
+		warnings := cfg.Normalize()
+		if cfg.Web.HistoryLimit != tc.want {
+			t.Errorf("HistoryLimit %d normalized to %d, want %d", tc.in, cfg.Web.HistoryLimit, tc.want)
+		}
+		if !onlyWarning(warnings, tc.warning) {
+			t.Errorf("HistoryLimit %d warned %q, want %q", tc.in, warnings, tc.warning)
+		}
+	}
+}
+
+// Every credential's fetch in one poll shares a two-minute budget, so a
+// timeout past a minute lets one hung fetch starve the rest.
+func TestNormalizeBoundsTheRequestTimeout(t *testing.T) {
+	d := Defaults()
+	for _, tc := range []struct {
+		in, want time.Duration
+		warning  string
+	}{
+		{time.Second, time.Second, ""},
+		{time.Minute, time.Minute, ""},
+		{time.Minute + time.Nanosecond, time.Minute, "quota.request-timeout 1m0.000000001s is above its bound, so it runs at 1m0s"},
+		{2 * time.Minute, time.Minute, "quota.request-timeout 2m0s is above its bound, so it runs at 1m0s"},
+		{0, d.Quota.RequestTimeout, ""},
+		{-time.Second, d.Quota.RequestTimeout, ""},
+	} {
+		cfg := Config{Quota: QuotaConfig{RequestTimeout: tc.in}}
+		warnings := cfg.Normalize()
+		if cfg.Quota.RequestTimeout != tc.want {
+			t.Errorf("RequestTimeout %v normalized to %v, want %v", tc.in, cfg.Quota.RequestTimeout, tc.want)
+		}
+		if !onlyWarning(warnings, tc.warning) {
+			t.Errorf("RequestTimeout %v warned %q, want %q", tc.in, warnings, tc.warning)
+		}
+	}
+}
+
+// A weight near the float ceiling turns a weighted slack into an infinite
+// cost, and the status route cannot encode one.
+func TestNormalizeBoundsTheWeights(t *testing.T) {
+	cfg := Config{Pace: PaceConfig{WeeklyWeight: 1e308, SessionWeight: 150, ScopedWeight: 100}}
+	warnings := cfg.Normalize()
+	if cfg.Pace.WeeklyWeight != 100 || cfg.Pace.SessionWeight != 100 {
+		t.Errorf("weights = (%v, %v), want both clamped to 100", cfg.Pace.WeeklyWeight, cfg.Pace.SessionWeight)
+	}
+	if cfg.Pace.ScopedWeight != 100 {
+		t.Errorf("scoped weight = %v, want the top of the range kept", cfg.Pace.ScopedWeight)
+	}
+	want := []string{
+		"pace.weekly-weight 1e+308 is above its bound, so it runs at 100",
+		"pace.session-weight 150 is above its bound, so it runs at 100",
+	}
+	if !equalStrings(warnings, want) {
+		t.Errorf("warnings = %q, want %q", warnings, want)
+	}
+}
+
+// Every seat's bearer token goes to the usage URL, so plain http is allowed
+// only where the request never leaves the machine.
+func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		kept bool
+	}{
+		{DefaultUsageURL, true},
+		{"https://usage.internal.example/api/oauth/usage", true},
+		{"HTTPS://usage.internal.example/api/oauth/usage", true},
+		{"http://localhost:8080/usage", true},
+		{"http://LOCALHOST/usage", true},
+		{"http://127.0.0.1:41234/usage", true},
+		{"http://127.8.9.10/usage", true},
+		{"http://[::1]:41234/usage", true},
+		{"http://usage.internal.example/api/oauth/usage", false},
+		{"http://10.0.0.1/usage", false},
+		{"http://localhost.example/usage", false},
+		{"ftp://localhost/usage", false},
+		{"file:///etc/passwd", false},
+		{"/api/oauth/usage", false},
+		{"https://", false},
+		{"://bad", false},
+		{"", false},
+	} {
+		cfg := Config{Quota: QuotaConfig{UsageURL: tc.in}}
+		warnings := cfg.Normalize()
+		want, warning := DefaultUsageURL, ""
+		if tc.kept {
+			want = tc.in
+		} else if tc.in != "" {
+			// The warning names the key alone: the refused URL can carry a
+			// host the page withholds.
+			warning = "quota.usage-url is not https or loopback http, so it runs at the default Anthropic endpoint"
+		}
+		if cfg.Quota.UsageURL != want {
+			t.Errorf("UsageURL %q normalized to %q, want %q", tc.in, cfg.Quota.UsageURL, want)
+		}
+		if !onlyWarning(warnings, warning) {
+			t.Errorf("UsageURL %q warned %q, want %q", tc.in, warnings, warning)
+		}
+	}
+}
+
+// onlyWarning reports whether warnings is exactly want, or empty when want is.
+func onlyWarning(warnings []string, want string) bool {
+	if want == "" {
+		return len(warnings) == 0
+	}
+	return len(warnings) == 1 && warnings[0] == want
+}
+
+// A seat is read once per poll interval, so a reading that goes stale before
+// the next one lands leaves an idle seat ineligible for part of every
+// interval.
+func TestNormalizeKeepsMaxStalenessPastTwoPolls(t *testing.T) {
+	cfg := Config{Quota: QuotaConfig{PollInterval: 30 * time.Minute, MaxStaleness: 20 * time.Minute}}
+	warnings := cfg.Normalize()
+	if cfg.Quota.MaxStaleness != time.Hour {
+		t.Errorf("MaxStaleness = %v, want it raised to twice the 30m poll interval", cfg.Quota.MaxStaleness)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "20m0s") || !strings.Contains(warnings[0], "30m0s") {
+		t.Errorf("warnings = %q, want one naming the configured 20m0s and 30m0s", warnings)
+	}
+
+	// The default was never the operator's choice, so raising it is silent.
+	unset := Config{Quota: QuotaConfig{PollInterval: 10 * time.Minute}}
+	if warnings := unset.Normalize(); len(warnings) != 0 || unset.Quota.MaxStaleness != 20*time.Minute {
+		t.Errorf("MaxStaleness = %v with warnings %q, want the default raised to 20m silently", unset.Quota.MaxStaleness, warnings)
+	}
+
+	kept := Config{Quota: QuotaConfig{PollInterval: 5 * time.Minute, MaxStaleness: 10 * time.Minute}}
+	if warnings := kept.Normalize(); len(warnings) != 0 || kept.Quota.MaxStaleness != 10*time.Minute {
+		t.Errorf("MaxStaleness = %v with warnings %q, want exactly two polls kept silently", kept.Quota.MaxStaleness, warnings)
 	}
 }

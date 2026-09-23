@@ -57,6 +57,13 @@ const (
 // this division belongs to the endpoint path alone.
 const percentScale = 100
 
+// nonNegative floors a parsed utilization at zero. No window is spent below
+// empty, and a negative reading would rank its seat further behind plan than
+// any real one.
+func nonNegative(utilization float64) float64 {
+	return max(utilization, 0)
+}
+
 // ParseUsagePayload reads an /api/oauth/usage body into windows.
 //
 // Model-family windows come from limits[] entries of kind weekly_scoped rather
@@ -76,13 +83,13 @@ func ParseUsagePayload(b []byte, now time.Time) ([]model.Window, error) {
 	if p.FiveHour != nil && p.FiveHour.Utilization != nil {
 		w := set.at(model.WindowSession, "")
 		w.Duration = model.SessionDuration
-		w.Utilization = *p.FiveHour.Utilization / percentScale
+		w.Utilization = nonNegative(*p.FiveHour.Utilization / percentScale)
 		w.ResetsAt = windowReset(p.FiveHour.ResetsAt, now, w.Duration)
 	}
 	if p.SevenDay != nil && p.SevenDay.Utilization != nil {
 		w := set.at(model.WindowWeekly, "")
 		w.Duration = model.WeeklyDuration
-		w.Utilization = *p.SevenDay.Utilization / percentScale
+		w.Utilization = nonNegative(*p.SevenDay.Utilization / percentScale)
 		w.ResetsAt = windowReset(p.SevenDay.ResetsAt, now, w.Duration)
 	}
 
@@ -102,7 +109,7 @@ func ParseUsagePayload(b []byte, now time.Time) ([]model.Window, error) {
 			w.Duration = duration
 		}
 		if l.Percent != nil {
-			w.Utilization = *l.Percent / percentScale
+			w.Utilization = nonNegative(*l.Percent / percentScale)
 		}
 		if w.ResetsAt.IsZero() {
 			w.ResetsAt = windowReset(l.ResetsAt, now, w.Duration)

@@ -158,7 +158,20 @@ and fully unit-testable without the host.
   script from the file's bytes, and the HTML tokenizer rewrites both, so either
   byte ships a hash no browser matches (`TestPageHoldsNoRewrittenByte`).
 - `pluginName` in `main.go`, `NAME` in the Makefile, the history path in
-  `internal/runtime/poller.go` and the library name in `.github/workflows/`
-  stay equal: the host derives the plugin id from the library filename, and
-  the config block, the management routes and the history directory all carry
-  that id.
+  `internal/runtime/poller.go`, the library name in `.github/workflows/` and
+  the plugin store registry `id` stay equal: the host derives the plugin id
+  from the library filename, and the config block, the management routes and
+  the history directory all carry that id.
+- Config bounds live in `model.Config.Normalize`: give a new setting its range
+  there, not in the code that reads it. A setting clamped to its upper bound,
+  or one the operator set that is raised to fit another, returns a warning,
+  which the status page shows, rather than changing silently.
+- The Management Center saves each `configFields` entry as a top-level key
+  under its dotted name, which `decodeConfig` expands into the nested key it
+  names, winning over the nested form. A field's `Name` is therefore the dotted
+  YAML path of the key it sets. `enabled` has no field: the host renders its
+  own toggle for every plugin.
+- Published credential ids are an HMAC under the install key in `page-id.key`,
+  or a random per-process key when that file cannot be used. Never fall back
+  to an unkeyed hash: the real id is routinely an account address, and an
+  unkeyed digest lets a screenshot confirm a guessed one.

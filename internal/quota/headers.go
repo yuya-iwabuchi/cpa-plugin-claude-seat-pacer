@@ -87,7 +87,7 @@ func ParseResponseHeaders(h map[string][]string, now time.Time) []model.Window {
 		}
 		w := set.at(hw.kind, hw.scope)
 		w.Duration = hw.duration
-		w.Utilization = utilization
+		w.Utilization = nonNegative(utilization)
 		if reset, ok := get(headerPrefix + hw.suffix + suffixReset); ok {
 			w.ResetsAt = windowReset(reset, now, hw.duration)
 		}

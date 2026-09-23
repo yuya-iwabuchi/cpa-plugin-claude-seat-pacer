@@ -296,6 +296,53 @@ func TestHistoryFileSurvivesAPollThatNeverLoadedIt(t *testing.T) {
 	}
 }
 
+// TestAnUnreadableHistoryFileIsSetAsideOnce covers a history file that does not
+// parse: one warning, the file kept aside, and saves resuming on a fresh file.
+func TestAnUnreadableHistoryFileIsSetAsideOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"seats":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tp := seededPlugin(t, path, testConfigYAML)
+	for i := 0; i < 2; i++ {
+		if err := tp.refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := countWarnings(tp, "history"); n != 1 {
+		t.Errorf("history warnings = %d, want one", n)
+	}
+	if aside, _ := filepath.Glob(path + ".corrupt-*"); len(aside) != 1 {
+		t.Errorf("files set aside = %v, want the unreadable one", aside)
+	}
+	if body, err := os.ReadFile(path); err != nil || !strings.Contains(string(body), `"claude-a.json"`) {
+		t.Errorf("history file after the polls = %s (%v), want a fresh save", body, err)
+	}
+}
+
+// TestANewerHistoryFileWarnsOnceAndStaysUntouched covers a history file a
+// newer build wrote: one warning, and the file left for that build.
+func TestANewerHistoryFileWarnsOnceAndStaysUntouched(t *testing.T) {
+	const newer = `{"version":99,"seats":{}}`
+	path := filepath.Join(t.TempDir(), "history.json")
+	if err := os.WriteFile(path, []byte(newer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tp := seededPlugin(t, path, testConfigYAML)
+	for i := 0; i < 2; i++ {
+		if err := tp.refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tp.Shutdown()
+	if n := countWarnings(tp, "history"); n != 1 {
+		t.Errorf("history warnings = %d, want one", n)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != newer {
+		t.Errorf("newer history file = %s (%v), want it untouched", body, err)
+	}
+}
+
 // TestTierWarningNamesTheSeatsAndTheChoice covers the one single-candidate
 // cause that is a layout choice: the warning names the seat the host offers,
 // its tier, the seats beneath it, and what one priority value would change.

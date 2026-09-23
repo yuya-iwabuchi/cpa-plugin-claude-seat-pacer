@@ -2,7 +2,10 @@ package quota
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -163,6 +166,47 @@ func TestHistoryCoarsensAndCaps(t *testing.T) {
 	}
 }
 
+// nineDaysOfMinutes is a weekly history no ring has compacted: a distinct
+// reading every minute for nine days, across one reset.
+func nineDaysOfMinutes() model.WindowHistory {
+	h := model.WindowHistory{Kind: model.WindowWeekly}
+	n := 9 * 24 * 60
+	for c, resets := range []time.Time{testNow.Add(4 * 24 * time.Hour), testNow.Add(11 * 24 * time.Hour)} {
+		cycle := model.Cycle{ResetsAt: resets}
+		for i := c * n / 2; i < (c+1)*n/2; i++ {
+			cycle.Samples = append(cycle.Samples, model.Sample{At: testNow.Add(time.Duration(i) * time.Minute), Utilization: float64(i%(n/2)) / float64(n)})
+		}
+		h.Cycles = append(h.Cycles, cycle)
+	}
+	return h
+}
+
+// TestReplayMatchesALiveRecording covers the one-pass compaction of a replay:
+// a history replayed from disk holds exactly what the same readings recorded
+// live do.
+func TestReplayMatchesALiveRecording(t *testing.T) {
+	saved := nineDaysOfMinutes()
+	live := &ring{}
+	for _, c := range saved.Cycles {
+		for _, smp := range c.Samples {
+			live.record(smp.At, model.Window{Kind: saved.Kind, Utilization: smp.Utilization, ResetsAt: c.ResetsAt})
+		}
+	}
+	replayed := &ring{}
+	replayed.replay(saved)
+	want, got := live.export(saved.Kind, "", 0), replayed.export(saved.Kind, "", 0)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("replayed history holds %d samples in %d cycles, live %d in %d", got.Samples(), len(got.Cycles), want.Samples(), len(want.Cycles))
+	}
+}
+
+func BenchmarkReplay(b *testing.B) {
+	saved := nineDaysOfMinutes()
+	for b.Loop() {
+		(&ring{}).replay(saved)
+	}
+}
+
 func TestHistoryCapEvictsWholeOldCycles(t *testing.T) {
 	r := &ring{}
 	for c := 0; c < 3; c++ {
@@ -226,7 +270,7 @@ func TestHistorySurvivesSaveAndLoad(t *testing.T) {
 	// A fresh process: the file loads before any reading, and the next poll's
 	// reading extends what was loaded rather than starting over.
 	fresh := NewStore()
-	if err := fresh.LoadHistory(path); err != nil {
+	if err := fresh.LoadHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 	if len(fresh.All()) != 0 {
@@ -249,15 +293,93 @@ func TestHistorySurvivesSaveAndLoad(t *testing.T) {
 
 	// A missing file is silence; a bad one is an error and leaves the store
 	// alone.
-	if err := NewStore().LoadHistory(filepath.Join(t.TempDir(), "none.json")); err != nil {
+	if err := NewStore().LoadHistory(filepath.Join(t.TempDir(), "none.json"), testNow); err != nil {
 		t.Errorf("missing file: %v", err)
 	}
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	if err := writeFile(bad, `{"version":99,"seats":{}}`); err != nil {
 		t.Fatal(err)
 	}
-	if err := NewStore().LoadHistory(bad); err == nil {
+	if err := NewStore().LoadHistory(bad, testNow); err == nil {
 		t.Error("unknown version loaded silently")
+	}
+}
+
+// TestSaveHistoryWritesThroughATemporaryFileOfItsOwn covers a second writer on
+// the same file: a temporary path another writer holds, here a directory, must
+// not stop the save, and the save leaves no temporary file behind.
+func TestSaveHistoryWritesThroughATemporaryFileOfItsOwn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.json")
+	if err := os.Mkdir(path+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.5)))
+	if err := s.SaveHistory(path); err != nil {
+		t.Fatalf("SaveHistory beside another writer's temporary path: %v", err)
+	}
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Put(endpointSnapshot("auth-1", testNow.Add(time.Minute), sessionWindow(0.6)))
+	if h := historyOf(t, fresh, "auth-1", model.WindowSession); h.Samples() != 2 {
+		t.Errorf("session samples after reload = %d, want the saved one and the live one", h.Samples())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if name := e.Name(); name != "history.json" && name != "history.json.tmp" {
+			t.Errorf("save left %s behind", name)
+		}
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("history file mode = %v (%v), want 0600", info.Mode().Perm(), err)
+	}
+}
+
+// TestLoadHistorySetsAnUnreadableFileAside covers the files a load cannot
+// take: one that does not parse or names no written version is moved aside
+// whole, and one of a newer version stays where it is.
+func TestLoadHistorySetsAnUnreadableFileAside(t *testing.T) {
+	for _, body := range []string{`{"version":1,"seats":`, `{"seats":{}}`} {
+		path := filepath.Join(t.TempDir(), "history.json")
+		if err := writeFile(path, body); err != nil {
+			t.Fatal(err)
+		}
+		s := NewStore()
+		err := s.LoadHistory(path, testNow)
+		var corrupt *CorruptHistoryError
+		if !errors.As(err, &corrupt) {
+			t.Fatalf("LoadHistory(%s) = %v, want a CorruptHistoryError", body, err)
+		}
+		if want := path + ".corrupt-" + strconv.FormatInt(testNow.Unix(), 10); corrupt.Aside != want {
+			t.Errorf("aside = %q, want %q", corrupt.Aside, want)
+		}
+		if kept, err := readFile(corrupt.Aside); err != nil || kept != body {
+			t.Errorf("aside file = %q (%v), want the original bytes", kept, err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("the unreadable file is still in place: %v", err)
+		}
+		if len(s.ExportHistory()) != 0 {
+			t.Error("an unreadable file imported something")
+		}
+	}
+
+	const newer = `{"version":99,"seats":{}}`
+	path := filepath.Join(t.TempDir(), "history.json")
+	if err := writeFile(path, newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewStore().LoadHistory(path, testNow); !errors.Is(err, ErrHistoryVersion) {
+		t.Errorf("LoadHistory of a newer file = %v, want ErrHistoryVersion", err)
+	}
+	if kept, err := readFile(path); err != nil || kept != newer {
+		t.Errorf("newer file after a load = %q (%v), want it untouched", kept, err)
 	}
 }
 
@@ -279,7 +401,7 @@ func TestPrunedHistorySurvivesASave(t *testing.T) {
 	}
 
 	fresh := NewStore()
-	if err := fresh.LoadHistory(path); err != nil {
+	if err := fresh.LoadHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 	// auth-1 is listed again and reads once; it adopts the two saved samples.
@@ -339,7 +461,7 @@ func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 		t.Fatal(err)
 	}
 	fresh := NewStore()
-	if err := fresh.LoadHistory(path); err != nil {
+	if err := fresh.LoadHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 	fresh.Put(endpointSnapshot("auth-1", testNow.Add(8*time.Minute), sessionAt(0.45, resets)))
@@ -368,7 +490,7 @@ func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 	if err := writeFile(path, `{"version":1,"seats":{"auth-1":[{"kind":"five_hour","cycles":[{"resets_at":"`+resets.Format(time.RFC3339)+`","samples":[[`+epoch(17, 30)+`,0.3]]}]}]}}`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plain.LoadHistory(path); err != nil {
+	if err := plain.LoadHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 	plain.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionAt(0.31, resets)))

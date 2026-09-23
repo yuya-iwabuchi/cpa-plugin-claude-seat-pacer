@@ -228,6 +228,25 @@ func TestRetryPickTreatsFailedCredentialAsNotOffered(t *testing.T) {
 	}
 }
 
+// TestRetryPickNeverOffersTheFailedCredential covers a retry whose candidate
+// list still names the credential that just failed: the pace winner is that
+// credential, and the pick goes elsewhere.
+func TestRetryPickNeverOffersTheFailedCredential(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+
+	req := pickRequest(fableModel, "k", "seat-a", "seat-b")
+	req.Options.Metadata[MetadataSelectedAuthID] = "seat-b"
+	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want seat-a rather than the failed pace winner seat-b", resp)
+	}
+	for _, s := range tp.lastDecision(t).Scores {
+		if s.AuthID == "seat-b" {
+			t.Errorf("the failed credential was scored: %+v", s)
+		}
+	}
+}
+
 func TestBoundCredentialBlockedForModelFailsOver(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	blocked := seatA(t)
@@ -320,6 +339,55 @@ func TestAllStaleWithKeyBindsLeastBound(t *testing.T) {
 	}
 	if resp := tp.pick(t, pickRequest(fableModel, "", "seat-a", "seat-b")); resp.Handled {
 		t.Errorf("keyless pick with only stale snapshots handled: %+v", resp)
+	}
+}
+
+// TestFallbackPrefersAStaleSeatOverARefusedOne covers the fewest-conversations
+// fallback when a candidate the provider will not serve carries fewer
+// conversations than one whose reading is merely too old to trust.
+func TestFallbackPrefersAStaleSeatOverARefusedOne(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		refuse func(*model.AuthSnapshot)
+	}{
+		{"rejected", func(s *model.AuthSnapshot) { s.Windows[1].Status = model.StatusRejected }},
+		{"spent", func(s *model.AuthSnapshot) { s.Windows[1].Utilization = 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTestPlugin(t, testConfigYAML)
+			a, b := seatA(t), seatB(t)
+			tc.refuse(&a)
+			b.ObservedAt = testNow.Add(-time.Hour)
+			tp.quota.Put(a)
+			tp.quota.Put(b)
+			tp.bindings.Bind("claude", fableModel, "other-1", "seat-b", testNow)
+			tp.bindings.Bind("claude", fableModel, "other-2", "seat-b", testNow)
+
+			resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+			if resp.AuthID != "seat-b" {
+				t.Fatalf("cold pick = %+v, want the stale seat-b over the %s seat-a", resp, tc.name)
+			}
+		})
+	}
+
+	// A binding the provider refused fails over, and the fallback agrees with
+	// hasAlternativeHome that the stale seat is the better home.
+	tp := newTestPlugin(t, testConfigYAML)
+	a, b := seatA(t), seatB(t)
+	a.Windows[1].Status = model.StatusRejected
+	b.ObservedAt = testNow.Add(-time.Hour)
+	tp.quota.Put(a)
+	tp.quota.Put(b)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
+	tp.bindings.Bind("claude", fableModel, "other-1", "seat-b", testNow)
+	tp.bindings.Bind("claude", fableModel, "other-2", "seat-b", testNow)
+
+	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
+	if resp.AuthID != "seat-b" {
+		t.Fatalf("response = %+v, want failover to the stale seat-b", resp)
+	}
+	if d := tp.lastDecision(t); d.Kind != model.DecisionFailover || d.PreviousAuthID != "seat-a" {
+		t.Errorf("decision = %+v, want a failover away from seat-a", d)
 	}
 }
 
@@ -461,6 +529,59 @@ func TestPinnedRequestIsNotASingleCandidatePool(t *testing.T) {
 	tp.pick(t, req)
 	if hasWarning(tp.Status(testNow, ""), "single candidate") {
 		t.Error("a pinned request, which is offered one candidate by design, raised the warning")
+	}
+}
+
+// TestPinnedRequestLeavesTheBindingAlone covers a request locked to one
+// credential: it routes there, and the conversation's own binding survives it.
+func TestPinnedRequestLeavesTheBindingAlone(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	tp.bindings.Bind("claude", fableModel, "k", "seat-b", testNow)
+
+	req := pickRequest(fableModel, "k", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
+		t.Fatalf("response = %+v, want the pinned seat-a", resp)
+	}
+	if b, _ := tp.bindings.Lookup("claude", fableModel, "k", testNow); b.AuthID != "seat-b" {
+		t.Errorf("binding = %+v, want it left on seat-b", b)
+	}
+
+	// A new conversation pinned on its first request gets no binding either.
+	req = pickRequest(fableModel, "fresh", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	tp.pick(t, req)
+	if b, ok := tp.bindings.Lookup("claude", fableModel, "fresh", testNow); ok {
+		t.Errorf("a pinned first request bound the conversation: %+v", b)
+	}
+
+	// Nor does a pinned subagent that inherits its parent's credential.
+	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
+	req = pickRequest(fableModel, "child", "seat-a")
+	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
+	req.Options.Headers[HeaderSessionParent] = []string{"parent"}
+	req.Options.Headers[HeaderSubagent] = []string{"1"}
+	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
+		t.Fatalf("pinned subagent = %+v, want the parent's seat-a", resp)
+	}
+	if b, ok := tp.bindings.Lookup("claude", fableModel, "child", testNow); ok {
+		t.Errorf("a pinned subagent bound the conversation: %+v", b)
+	}
+}
+
+// The host never pins to a blank id, so a blank value is an ordinary request
+// and binds its conversation.
+func TestABlankPinnedIDIsNotAPin(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	for key, blank := range map[string]string{"empty": "", "spaces": "  "} {
+		req := pickRequest(fableModel, key, "seat-a", "seat-b")
+		req.Options.Metadata[MetadataPinnedAuthID] = blank
+		tp.pick(t, req)
+		if _, ok := tp.bindings.Lookup("claude", fableModel, key, testNow); !ok {
+			t.Errorf("pinned_auth_id %q left the conversation unbound", blank)
+		}
 	}
 }
 

@@ -69,6 +69,9 @@ type Plugin struct {
 	polls       map[string]pollState
 	listErr     string
 	fetchErr    string
+	// configWarnings are the warnings decodeConfig raised over the live
+	// config.
+	configWarnings []string
 	// polledAt is when the last poll finished and nextPollAt when the loop
 	// wakes for the next one, so the status view can count down to a sync it
 	// does not schedule. Both are zero until the first poll returns.
@@ -91,9 +94,11 @@ type Plugin struct {
 	// poll cannot race their assertions.
 	startDelay time.Duration
 	// historyLoaded marks the one-time read of the history file, and
-	// historySaved the store version the file last held.
-	historyLoaded bool
-	historySaved  uint64
+	// historySaved the store version the file last held. historyRefused marks
+	// a file of a newer version, which this run neither reads nor writes.
+	historyLoaded  bool
+	historyRefused bool
+	historySaved   uint64
 }
 
 // resourceHandler wraps an http.Handler so it fits an atomic.Pointer.
@@ -263,11 +268,11 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 			req = LifecycleRequest{}
 		}
 	}
-	cfg, err := decodeConfig(req.ConfigYAML)
+	cfg, configWarnings, err := decodeConfig(req.ConfigYAML)
 	if err != nil {
 		p.host.log("warn", "claude-seat-pacer config is invalid; plugin is inert", map[string]any{"error": err.Error()})
 	}
-	p.applyConfig(cfg)
+	p.applyConfig(cfg, configWarnings)
 
 	p.mu.Lock()
 	p.hostSchema = req.SchemaVersion
@@ -303,16 +308,18 @@ func (p *Plugin) metadata() Metadata {
 	}
 }
 
-// applyConfig publishes a config and resizes the state that depends on it.
-// The binding table is rebuilt only when its TTL or cap changes, because a
-// rebuild discards every live binding and costs each conversation a cache
-// miss.
-func (p *Plugin) applyConfig(cfg model.Config) {
-	p.cfg.Store(&cfg)
+// applyConfig publishes a config with its warnings and resizes the state that
+// depends on it. The config and its warnings change under mu together, which
+// is how Status reads them as a pair. The binding table is rebuilt only when
+// its TTL or cap changes, because a rebuild discards every live binding and
+// costs each conversation a cache miss.
+func (p *Plugin) applyConfig(cfg model.Config, warnings []string) {
 	p.decisions.resize(cfg.Web.HistoryLimit)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.cfg.Store(&cfg)
+	p.configWarnings = warnings
 	if p.bindings == nil || p.bindingsTTL != cfg.Affinity.TTL || p.bindingsMax != cfg.Affinity.MaxSessions {
 		p.bindings = p.opts.NewBindingStore(cfg.Affinity.TTL, cfg.Affinity.MaxSessions)
 		p.bindingsTTL = cfg.Affinity.TTL

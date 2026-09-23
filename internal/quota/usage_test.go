@@ -332,6 +332,27 @@ func TestParseUsagePayloadScalesPercentages(t *testing.T) {
 	}
 }
 
+// TestParseUsagePayloadFloorsNegativeReadings covers every place the endpoint
+// reports a percentage: a negative one reads as empty, not as a seat further
+// behind plan than any real one.
+func TestParseUsagePayloadFloorsNegativeReadings(t *testing.T) {
+	payload := `{"five_hour": {"utilization": -12, "resets_at": null},
+		"seven_day": {"utilization": -0.5, "resets_at": null},
+		"limits": [{"kind": "weekly_scoped", "percent": -3, "scope": {"model": {"display_name": "Fable"}}}]}`
+	got, err := ParseUsagePayload([]byte(payload), testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("windows = %+v, want three", got)
+	}
+	for _, w := range got {
+		if w.Utilization != 0 {
+			t.Errorf("%s %s utilization = %v, want 0", w.Kind, w.Scope, w.Utilization)
+		}
+	}
+}
+
 func TestScopeFamily(t *testing.T) {
 	tests := []struct {
 		name    string

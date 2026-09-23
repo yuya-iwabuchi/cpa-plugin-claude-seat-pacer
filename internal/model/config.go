@@ -1,7 +1,10 @@
 package model
 
 import (
+	"fmt"
 	"math"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -110,12 +113,15 @@ type QuotaConfig struct {
 	// PollInterval is how often each credential's usage endpoint is read.
 	// Claude Code itself caches this for an hour, so minutes are generous.
 	PollInterval time.Duration `yaml:"poll-interval" json:"poll_interval"`
-	// RequestTimeout bounds one usage fetch.
+	// RequestTimeout bounds one usage fetch, at most a minute.
 	RequestTimeout time.Duration `yaml:"request-timeout" json:"request_timeout"`
 	// MaxStaleness is the age past which a snapshot stops being trusted and
-	// the plugin declines rather than routing on stale data.
+	// the plugin declines rather than routing on stale data. It is at least
+	// twice PollInterval.
 	MaxStaleness time.Duration `yaml:"max-staleness" json:"max_staleness"`
-	// UsageURL is the endpoint read for per-window utilization.
+	// UsageURL is the endpoint read for per-window utilization. Every seat's
+	// OAuth bearer token goes to it, so it is https, or http to a loopback
+	// host.
 	UsageURL string `yaml:"usage-url" json:"usage_url"`
 	// PersistHistory writes the utilization history to disk between polls,
 	// so a chart survives a host restart. The file holds utilization by
@@ -126,7 +132,7 @@ type QuotaConfig struct {
 // WebConfig governs the built-in status app.
 type WebConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// HistoryLimit caps retained routing decisions.
+	// HistoryLimit caps retained routing decisions, at most 10000.
 	HistoryLimit int `yaml:"history-limit" json:"history_limit"`
 }
 
@@ -173,8 +179,11 @@ func Defaults() Config {
 
 // Normalize fills zero values with defaults and clamps out-of-range settings
 // so a partial or hostile config block cannot produce a scorer that divides by
-// zero, compares against NaN, or a poller that spins.
-func (c *Config) Normalize() {
+// zero, compares against NaN, or a poller that spins. It returns a warning for
+// each setting it clamps to an upper bound, a usage URL it refuses, and a
+// setting the operator chose that it raises to fit another; every other
+// correction is a silent fallback.
+func (c *Config) Normalize() (warnings []string) {
 	d := Defaults()
 	for _, f := range []struct {
 		v   *float64
@@ -220,10 +229,22 @@ func (c *Config) Normalize() {
 	// A negative weight would invert the pace preference, sending work to the
 	// credential furthest over its target. Zero is meaningful — it retires a
 	// window from the score without retiring its gates — so only the sign is
-	// corrected.
-	for _, w := range []*float64{&c.Pace.WeeklyWeight, &c.Pace.SessionWeight, &c.Pace.ScopedWeight} {
-		if *w < 0 {
-			*w = 0
+	// corrected. Weights are relative, so 100 leaves ample range; far past it a
+	// weighted slack overflows to an infinite cost, which JSON cannot encode.
+	for _, w := range []struct {
+		v    *float64
+		name string
+	}{
+		{&c.Pace.WeeklyWeight, "pace.weekly-weight"},
+		{&c.Pace.SessionWeight, "pace.session-weight"},
+		{&c.Pace.ScopedWeight, "pace.scoped-weight"},
+	} {
+		switch {
+		case *w.v < 0:
+			*w.v = 0
+		case *w.v > maxWeight:
+			warnings = append(warnings, aboveBound(w.name, *w.v, maxWeight))
+			*w.v = maxWeight
 		}
 	}
 	switch shape := strings.ToLower(strings.TrimSpace(c.Pace.Shape)); {
@@ -242,17 +263,81 @@ func (c *Config) Normalize() {
 	if c.Quota.PollInterval < 30*time.Second {
 		c.Quota.PollInterval = d.Quota.PollInterval
 	}
-	if c.Quota.RequestTimeout <= 0 {
+	// One poll shares a fixed budget across every credential, so a fetch
+	// allowed to hang past a minute can spend it alone.
+	switch {
+	case c.Quota.RequestTimeout <= 0:
 		c.Quota.RequestTimeout = d.Quota.RequestTimeout
+	case c.Quota.RequestTimeout > maxRequestTimeout:
+		warnings = append(warnings, aboveBound("quota.request-timeout", c.Quota.RequestTimeout, maxRequestTimeout))
+		c.Quota.RequestTimeout = maxRequestTimeout
 	}
 	if c.Quota.MaxStaleness <= 0 {
 		c.Quota.MaxStaleness = d.Quota.MaxStaleness
 	}
-	if c.Quota.UsageURL == "" {
+	// A reading has to outlive the wait for the next one, with an interval to
+	// spare for a slow or failed read, or a seat idle between polls goes stale
+	// and cannot take a new conversation. A doubling that overflows leaves
+	// MaxStaleness as set. Raising the default is silent: the operator did not
+	// choose it.
+	if floor := 2 * c.Quota.PollInterval; floor > c.Quota.MaxStaleness {
+		if c.Quota.MaxStaleness != d.Quota.MaxStaleness {
+			warnings = append(warnings, fmt.Sprintf(
+				"quota.max-staleness %v is under twice quota.poll-interval %v, so it runs at %v to keep a seat idle between polls from going stale",
+				c.Quota.MaxStaleness, c.Quota.PollInterval, floor))
+		}
+		c.Quota.MaxStaleness = floor
+	}
+	if !trustedUsageURL(c.Quota.UsageURL) {
+		if c.Quota.UsageURL != "" {
+			warnings = append(warnings,
+				"quota.usage-url is not https or loopback http, so it runs at the default Anthropic endpoint")
+		}
 		c.Quota.UsageURL = d.Quota.UsageURL
 	}
-	if c.Web.HistoryLimit <= 0 {
+	// The decision log allocates every slot up front, so a cap in the
+	// billions is an allocation no recover survives.
+	switch {
+	case c.Web.HistoryLimit <= 0:
 		c.Web.HistoryLimit = d.Web.HistoryLimit
+	case c.Web.HistoryLimit > maxHistoryLimit:
+		warnings = append(warnings, aboveBound("web.history-limit", c.Web.HistoryLimit, maxHistoryLimit))
+		c.Web.HistoryLimit = maxHistoryLimit
+	}
+	return warnings
+}
+
+// Upper bounds Normalize clamps to.
+const (
+	maxWeight         = 100.0
+	maxRequestTimeout = time.Minute
+	maxHistoryLimit   = 10000
+)
+
+// aboveBound is the warning for a setting clamped to its upper bound.
+func aboveBound[T int | float64 | time.Duration](key string, given, bound T) string {
+	return fmt.Sprintf("%s %v is above its bound, so it runs at %v", key, given, bound)
+}
+
+// trustedUsageURL reports whether a usage URL may receive every seat's OAuth
+// bearer token: https to any host, or plain http to a loopback host only.
+func trustedUsageURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https":
+		return true
+	case "http":
+		host := u.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	default:
+		return false
 	}
 }
 

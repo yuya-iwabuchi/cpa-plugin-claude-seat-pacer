@@ -252,16 +252,39 @@ func TestStoreCountByAuth(t *testing.T) {
 	bind(s, "k3", "auth-2", t0)
 
 	want := map[string]int{"auth-1": 3, "auth-2": 1}
-	if got := s.CountByAuth(); !reflect.DeepEqual(got, want) {
+	if got := s.CountByAuth(t0); !reflect.DeepEqual(got, want) {
 		t.Errorf("CountByAuth = %v, want %v", got, want)
 	}
 
 	s.DropAuth("auth-1")
-	if got := s.CountByAuth(); !reflect.DeepEqual(got, map[string]int{"auth-2": 1}) {
+	if got := s.CountByAuth(t0); !reflect.DeepEqual(got, map[string]int{"auth-2": 1}) {
 		t.Errorf("CountByAuth after DropAuth = %v", got)
 	}
-	if got := NewStore(time.Hour, 8).CountByAuth(); len(got) != 0 {
+	if got := NewStore(time.Hour, 8).CountByAuth(t0); len(got) != 0 {
 		t.Errorf("CountByAuth on an empty store = %v, want empty", got)
+	}
+}
+
+func TestStoreCountByAuthIgnoresExpiredBindings(t *testing.T) {
+	s := NewStore(10*time.Minute, 8)
+	bind(s, "k1", "auth-1", t0)
+	bind(s, "k2", "auth-1", at(5*time.Minute))
+	bind(s, "k3", "auth-2", at(6*time.Minute))
+
+	// k1 is idle past the TTL; the others are not.
+	want := map[string]int{"auth-1": 1, "auth-2": 1}
+	if got := s.CountByAuth(at(12 * time.Minute)); !reflect.DeepEqual(got, want) {
+		t.Errorf("CountByAuth = %v, want %v", got, want)
+	}
+	// Counting removes nothing, so an earlier instant still sees k1.
+	if got := s.CountByAuth(at(8 * time.Minute)); got["auth-1"] != 2 {
+		t.Errorf("CountByAuth before k1 expires = %v, want auth-1 at 2", got)
+	}
+	if got := s.CountByAuth(at(time.Hour)); len(got) != 0 {
+		t.Errorf("CountByAuth after every binding expired = %v, want empty", got)
+	}
+	if s.Len() != 3 {
+		t.Errorf("Len = %d, want the expired bindings still held until a sweep", s.Len())
 	}
 }
 
@@ -280,7 +303,7 @@ func TestStoreCountByAuthTracksEveryRemovalPath(t *testing.T) {
 	}
 	check := func(step string) {
 		t.Helper()
-		if got, want := s.CountByAuth(), scan(); !reflect.DeepEqual(got, want) {
+		if got, want := s.CountByAuth(t0), scan(); !reflect.DeepEqual(got, want) {
 			t.Errorf("after %s CountByAuth = %v, want %v", step, got, want)
 		}
 	}
@@ -292,7 +315,7 @@ func TestStoreCountByAuthTracksEveryRemovalPath(t *testing.T) {
 	// Rebinding to another credential moves the entry rather than adding one.
 	bind(s, "k2", "auth-2", t0)
 	check("rebind")
-	if got := s.CountByAuth()["auth-1"]; got != 1 {
+	if got := s.CountByAuth(t0)["auth-1"]; got != 1 {
 		t.Errorf("auth-1 holds %d bindings after a rebind away from it, want 1", got)
 	}
 
@@ -312,7 +335,7 @@ func TestStoreCountByAuthTracksEveryRemovalPath(t *testing.T) {
 	check("DropAuth")
 	s.Sweep(at(2 * time.Hour))
 	check("Sweep")
-	if got := s.CountByAuth(); len(got) != 0 {
+	if got := s.CountByAuth(t0); len(got) != 0 {
 		t.Errorf("CountByAuth on an emptied store = %v, want empty", got)
 	}
 }
@@ -340,6 +363,34 @@ func TestStoreSweep(t *testing.T) {
 	}
 	if s.Len() != 0 {
 		t.Errorf("Len = %d, want 0", s.Len())
+	}
+}
+
+// A pick reads its clock before it takes the lock, so a binding can sit ahead
+// of one seen a moment after it. Sweep stops at the first binding well short
+// of expiry, and an expired one filed ahead of it still has to go.
+func TestStoreSweepReachesABindingFiledOutOfOrder(t *testing.T) {
+	s := NewStore(10*time.Minute, 8)
+	bind(s, "later", "auth-1", at(10*time.Second))
+	bind(s, "earlier", "auth-1", t0)
+
+	if n := s.Sweep(at(10*time.Minute + 5*time.Second)); n != 1 {
+		t.Errorf("Sweep = %d, want the expired binding behind the order removed", n)
+	}
+	if _, ok := lookup(s, "later", at(10*time.Minute+5*time.Second)); !ok {
+		t.Error("Sweep removed the live binding")
+	}
+
+	// Out of step by more than the slack, the expired binding waits for the
+	// live one behind it to near its own expiry.
+	s = NewStore(10*time.Minute, 8)
+	bind(s, "later", "auth-1", at(5*time.Minute))
+	bind(s, "earlier", "auth-1", t0)
+	if n := s.Sweep(at(11 * time.Minute)); n != 0 {
+		t.Errorf("Sweep = %d, want the walk stopped at the live binding", n)
+	}
+	if n := s.Sweep(at(15*time.Minute + time.Second)); n != 2 || s.Len() != 0 {
+		t.Errorf("Sweep = %d leaving %d, want both removed once both expired", n, s.Len())
 	}
 }
 
@@ -443,7 +494,7 @@ func TestStoreConcurrentAccess(t *testing.T) {
 				case 4:
 					s.DropAuth(auth)
 				case 5:
-					if counts := s.CountByAuth(); len(counts) > 4 {
+					if counts := s.CountByAuth(now); len(counts) > 4 {
 						panic(fmt.Sprintf("CountByAuth named %d credentials, want at most the 4 in play", len(counts)))
 					}
 				default:

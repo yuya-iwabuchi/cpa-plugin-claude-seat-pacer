@@ -552,9 +552,9 @@ func TestPollKeepsHistoryForCredentialsItDoesNotFetch(t *testing.T) {
 }
 
 // TestStopPollerSavesUnderThePollLock covers the second writer to the history
-// file's fixed sibling path: joining the poll loop leaves out a management
-// refresh, which runs a poll and its save inline on the HTTP goroutine, so the
-// stop path waits on the same lock a poll's own save holds.
+// file: joining the poll loop leaves out a management refresh, which runs a
+// poll and its save inline on the HTTP goroutine, so the stop path waits on
+// the same lock a poll's own save holds.
 func TestStopPollerSavesUnderThePollLock(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
@@ -579,6 +579,19 @@ func TestStopPollerSavesUnderThePollLock(t *testing.T) {
 	case <-stopped:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the stop path never finished once the poll lock was free")
+	}
+}
+
+func TestBackgroundPollSweepsExpiredBindings(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	ttl := tp.config().Affinity.TTL
+	tp.bindings.Bind("claude", fableModel, "idle", "claude-a.json", testNow.Add(-2*ttl))
+	tp.bindings.Bind("claude", fableModel, "live", "claude-a.json", testNow)
+
+	tp.pollAndSchedule(context.Background())
+	if got := tp.bindings.Len(); got != 1 {
+		t.Errorf("bindings after a background poll = %d, want only the live one", got)
 	}
 }
 
@@ -665,6 +678,19 @@ func TestAResetAtHandNeverWakesTheLoopAtOnce(t *testing.T) {
 		if got := nextPollWait(snaps, testNow, testPollInterval); got != testPollInterval {
 			t.Errorf("wake for a reset at %v = %v, want the %v interval", resetsAt, got, testPollInterval)
 		}
+	}
+}
+
+// TestAResetKeptSecondsAheadDoesNotSpinTheLoop covers a provider that reports
+// the same few seconds to a reset on every read: the wake floors well above
+// the settle delay, and never past the interval.
+func TestAResetKeptSecondsAheadDoesNotSpinTheLoop(t *testing.T) {
+	snaps := []model.AuthSnapshot{{AuthID: "a", Windows: resetWindow(testNow.Add(time.Second))}}
+	if got := nextPollWait(snaps, testNow, testPollInterval); got != resetWakeFloor {
+		t.Errorf("wake for a reset a second ahead = %v, want the %v floor", got, resetWakeFloor)
+	}
+	if got := nextPollWait(snaps, testNow, 20*time.Second); got != 20*time.Second {
+		t.Errorf("wake under a 20s interval = %v, want the interval", got)
 	}
 }
 

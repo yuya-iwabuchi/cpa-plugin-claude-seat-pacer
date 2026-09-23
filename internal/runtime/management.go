@@ -263,16 +263,24 @@ func jsonResponse(status int, body any) ManagementResponse {
 	}
 }
 
-// SyncNow re-reads every governed credential's usage unless the last poll is
-// more recent than MinForcedPollGap, and reports whether it read. It runs
-// inline on the caller's goroutine, so a status response built after it
-// carries the fresh reading.
+// SyncNow re-reads every governed credential's usage unless a poll is already
+// running or the last one is more recent than MinForcedPollGap, and reports
+// whether it read. It runs inline on the caller's goroutine, so a status
+// response built after it carries the fresh reading.
+//
+// A running poll is the read the caller asked for, so SyncNow never queues
+// behind one: it answers false at once, and the response carries what that
+// poll has published so far.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
-	// The slot is claimed under the lock before the poll runs, so concurrent
-	// callers inside one window share a single read rather than each running
-	// a full poll before the first has stamped polledAt. Only the read time
-	// moves: the loop's timer is untouched by a forced read, so nextPollAt
-	// still names the wake it will actually take.
+	if !p.pollMu.TryLock() {
+		return false
+	}
+	defer p.pollMu.Unlock()
+
+	// The slot is claimed before the poll runs, so callers inside one window
+	// share a single read. Only the read time moves: the loop's timer is
+	// untouched by a forced read, so nextPollAt still names the wake it will
+	// actually take.
 	p.mu.Lock()
 	now := p.now()
 	if !p.polledAt.IsZero() && now.Sub(p.polledAt) < MinForcedPollGap {
@@ -284,6 +292,6 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
 	defer cancel()
-	_ = p.refresh(ctx)
+	p.pollLocked(ctx)
 	return true
 }

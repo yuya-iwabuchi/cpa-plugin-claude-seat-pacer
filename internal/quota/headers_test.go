@@ -349,6 +349,15 @@ func TestParseResponseHeadersDoesNotScale(t *testing.T) {
 // TestParseResponseHeadersRejectsNonFiniteUtilization covers a reading
 // strconv.ParseFloat accepts with a nil error: a non-finite utilization would
 // otherwise reach the scorer and fail every status encode.
+func TestParseResponseHeadersFloorsANegativeReading(t *testing.T) {
+	got := ParseResponseHeaders(map[string][]string{
+		"Anthropic-Ratelimit-Unified-5h-Utilization": {"-0.4"},
+	}, at(20, 0))
+	if len(got) != 1 || got[0].Utilization != 0 {
+		t.Fatalf("windows = %+v, want one session window at 0", got)
+	}
+}
+
 func TestParseResponseHeadersRejectsNonFiniteUtilization(t *testing.T) {
 	for _, raw := range []string{"NaN", "nan", "Inf", "+Inf", "-Inf", "infinity", "-INFINITY"} {
 		t.Run(raw, func(t *testing.T) {

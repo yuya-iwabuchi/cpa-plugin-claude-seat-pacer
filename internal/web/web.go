@@ -7,15 +7,19 @@
 // issues no mutating request, model.Status carries ids and labels but no
 // credential material, and serveStatus still names each seat without its
 // account address, withholds the credential file name, keeps only the config
-// block the page reads, strips URLs out of the operator warnings and bounds the
-// binding list, so the page is safe to show on a screen or in a screenshot. The
-// management status route serves the same status unreduced.
+// block the page reads, strips URLs, filesystem paths and network addresses out
+// of the operator warnings and bounds the binding list, so the page is safe to
+// show on a screen or in a screenshot. The management status route serves the
+// same status unreduced.
 //
-// A credential's id is published as a truncated hash of the real one rather
+// A credential's id is published as a truncated HMAC of the real one rather
 // than masked: every table on the page correlates on the id, and masking is
-// not injective, so two seats sharing a domain would merge into one row. Seat
-// names are made unique the same way, with a tag of that hash, because two
-// organizations registered under one address share every other name.
+// not injective, so two seats sharing a domain would merge into one row. The
+// HMAC is keyed with a secret of the install's own, because the real id is
+// routinely derived from an account address, and an unkeyed digest of it lets
+// anyone holding a screenshot confirm a guessed address. Seat names are made
+// unique the same way, with a tag of that HMAC, because two organizations
+// registered under one address share every other name.
 //
 // The whole app — markup, styles and script — is one embedded document with no
 // external reference, so it renders on a host with no outbound network.
@@ -24,6 +28,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
@@ -106,6 +111,12 @@ type Source interface {
 // matches a resource route by exact path and refuses an empty one
 // (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
+	return newHandler(src, newIDKey(src).get)
+}
+
+// newHandler is NewHandler with the key published ids are derived with
+// supplied by the caller.
+func newHandler(src Source, key func() []byte) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/", "/index.html":
@@ -117,7 +128,7 @@ func NewHandler(src Source) http.Handler {
 			if !allowRead(w, r) {
 				return
 			}
-			serveStatus(w, r, src)
+			serveStatus(w, r, src, key())
 		default:
 			setCommonHeaders(w)
 			http.Error(w, "not found", http.StatusNotFound)
@@ -154,7 +165,7 @@ func servePage(w http.ResponseWriter) {
 	_, _ = w.Write(indexHTML)
 }
 
-func serveStatus(w http.ResponseWriter, r *http.Request, src Source) {
+func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte) {
 	// A sync is a read of the provider rather than a write of any local state,
 	// which is why a read-only route may serve it at all. The source throttles
 	// it; this route only asks.
@@ -163,7 +174,7 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source) {
 			s.SyncNow(r.Context())
 		}
 	}
-	status := reduceForPage(src.Status(time.Now(), r.URL.Query().Get("model")))
+	status := reduceForPage(src.Status(time.Now(), r.URL.Query().Get("model")), key)
 
 	// The body is built before any header is written so an encoding failure
 	// can still produce a 500 rather than a truncated 200.
@@ -201,9 +212,10 @@ func encodeStatus(status model.Status) ([]byte, error) {
 	return bytes.ReplaceAll(buf.Bytes(), nonFiniteLiteral, jsonNull), nil
 }
 
-// reduceForPage is the status as the page's route serves it. It copies every
-// slice it rewrites, so the source's own state is untouched.
-func reduceForPage(st model.Status) model.Status {
+// reduceForPage is the status as the page's route serves it, with every
+// credential id published under key. It copies every slice it rewrites, so the
+// source's own state is untouched.
+func reduceForPage(st model.Status, key []byte) model.Status {
 	// The page reads the pace curve and the poll cadence out of the config and
 	// nothing else. The rest is operator configuration, the usage endpoint
 	// above all: it is operator-set and may name internal infrastructure. A
@@ -214,7 +226,8 @@ func reduceForPage(st model.Status) model.Status {
 		Quota:   model.QuotaConfig{PollInterval: st.Config.Quota.PollInterval},
 	}
 
-	ids := authIDReplacer(st)
+	publish := func(authID string) string { return publicID(key, authID) }
+	ids := authIDReplacer(st, publish)
 
 	// The cap applies before the rewrite, so a store running to
 	// affinity.max-sessions costs only the rows the response carries.
@@ -230,7 +243,7 @@ func reduceForPage(st model.Status) model.Status {
 	}
 	st.Warnings = warnings
 
-	names := publicSeatLabels(st.Auths)
+	names := publicSeatLabels(st.Auths, publish)
 	auths := make([]model.AuthStatus, len(st.Auths))
 	for i, a := range st.Auths {
 		a.Label = names[i]
@@ -238,8 +251,8 @@ func reduceForPage(st model.Status) model.Status {
 		// The file name carries the account's local part more often than not,
 		// and everything it distinguishes is already in Label.
 		a.Name = ""
-		a.AuthID = publicID(a.AuthID)
-		a.Snapshot.AuthID = publicID(a.Snapshot.AuthID)
+		a.AuthID = publish(a.AuthID)
+		a.Snapshot.AuthID = publish(a.Snapshot.AuthID)
 		// The host's runtime credential index is a digest of the credential's
 		// file path, and no view on the page reads it.
 		a.Snapshot.AuthIndex = ""
@@ -248,21 +261,21 @@ func reduceForPage(st model.Status) model.Status {
 		a.Snapshot.Windows = finiteWindows(a.Snapshot.Windows)
 		a.History = finiteHistory(a.History)
 		a.Score = finiteScore(a.Score)
-		a.Score.AuthID = publicID(a.Score.AuthID)
+		a.Score.AuthID = publish(a.Score.AuthID)
 		auths[i] = a
 	}
 	st.Auths = auths
 
 	decisions := make([]model.Decision, len(st.Decisions))
 	for i, d := range st.Decisions {
-		d.ChosenAuthID = publicID(d.ChosenAuthID)
-		d.PreviousAuthID = publicID(d.PreviousAuthID)
+		d.ChosenAuthID = publish(d.ChosenAuthID)
+		d.PreviousAuthID = publish(d.PreviousAuthID)
 		d.Note = publicText(d.Note, ids)
 		if len(d.Scores) > 0 {
 			scores := make([]model.Score, len(d.Scores))
 			for j, s := range d.Scores {
 				s = finiteScore(s)
-				s.AuthID = publicID(s.AuthID)
+				s.AuthID = publish(s.AuthID)
 				scores[j] = s
 			}
 			d.Scores = scores
@@ -273,7 +286,7 @@ func reduceForPage(st model.Status) model.Status {
 
 	bindings := make([]model.Binding, len(st.Bindings))
 	for i, b := range st.Bindings {
-		b.AuthID = publicID(b.AuthID)
+		b.AuthID = publish(b.AuthID)
 		bindings[i] = b
 	}
 	st.Bindings = bindings
@@ -286,32 +299,35 @@ func reduceForPage(st model.Status) model.Status {
 	return st
 }
 
-// publicIDBytes is how much of a SHA-256 a published credential id carries: 8
-// bytes, so 16 hex characters. Across the hundred credentials a pool holds at
-// the outside, the birthday bound on 64 bits stays under 1e-15, so the id is
-// injective in practice and the joins between the page's tables hold.
+// publicIDBytes is how much of an HMAC-SHA256 a published credential id
+// carries: 8 bytes, so 16 hex characters. Across the hundred credentials a
+// pool holds at the outside, the birthday bound on 64 bits stays under 1e-15,
+// so the id is injective in practice and the joins between the page's tables
+// hold.
 const publicIDBytes = 8
 
-// publicID is the credential id this route publishes. CLIProxyAPI names a
-// Claude OAuth credential file after the account and falls back to that name
-// for the id, so the real id is routinely an email address. An empty id stays
-// empty, which is how a decision records having no previous credential.
-func publicID(authID string) string {
+// publicID is the credential id this route publishes, keyed with key.
+// CLIProxyAPI names a Claude OAuth credential file after the account and falls
+// back to that name for the id, so the real id is routinely an email address.
+// An empty id stays empty, which is how a decision records having no previous
+// credential.
+func publicID(key []byte, authID string) string {
 	if authID == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(authID))
-	return hex.EncodeToString(sum[:publicIDBytes])
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(authID))
+	return hex.EncodeToString(mac.Sum(nil)[:publicIDBytes])
 }
 
 // authIDReplacer substitutes the published id for every credential id the
 // status carries, for the free text that names a credential rather than
 // carrying it in a field: an operator warning and a decision note both quote
-// the id whole.
+// the id whole. publish is the published form of an id.
 //
 // Longest first, so an id that is a suffix of another does not consume it, and
 // a Replacer never rescans what it has written.
-func authIDReplacer(st model.Status) *strings.Replacer {
+func authIDReplacer(st model.Status, publish func(string) string) *strings.Replacer {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0, len(st.Auths))
 	add := func(id string) {
@@ -347,7 +363,7 @@ func authIDReplacer(st model.Status) *strings.Replacer {
 	})
 	pairs := make([]string, 0, 2*len(ids))
 	for _, id := range ids {
-		pairs = append(pairs, id, publicID(id))
+		pairs = append(pairs, id, publish(id))
 	}
 	return strings.NewReplacer(pairs...)
 }
@@ -360,30 +376,65 @@ var absoluteURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']*`)
 // looking at the page where the host keeps its credentials.
 var absolutePath = regexp.MustCompile(`(?:^|[\s"'(:])(?:/[^\s"'():]+){2,}`)
 
+// windowsPath is a Windows filesystem path, drive-qualified or UNC (the \\?\
+// long-path form among them), which an os error on that platform names. A
+// segment may hold a space, as a user profile directory often does, so the
+// path runs to the delimiter an os error closes it with rather than to the
+// first space.
+var windowsPath = regexp.MustCompile(`(?:\b[A-Za-z]:[\\/]|\\\\[^\s"'\\]+\\(?:[A-Za-z]:\\)?)(?:[^"'():;,\n]*[^\s"'():;,])?`)
+
+// homePath is a path relative to a home directory, ~/ or ~user/.
+var homePath = regexp.MustCompile(`(?:^|[\s"'(:=])~[A-Za-z0-9._-]*/[^\s"'():]*`)
+
+// networkAddress is a host a Go transport error names without a scheme: an
+// IPv4 or bracketed IPv6 address with or without its port, and a host name
+// carrying a port, as a dial error quotes them.
+var networkAddress = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b` +
+	`|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z._-]+)?\](?::\d{1,5})?` +
+	`|\b(?:localhost|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+):\d{1,5}\b`)
+
+// lookupHost is the host a failed name resolution names, which carries no
+// port: "lookup usage.corp.internal on 192.168.1.1:53" or "lookup
+// usage.corp.internal: no such host".
+var lookupHost = regexp.MustCompile(`\blookup [^\s:]+`)
+
+// certificateNames is the name list a certificate mismatch quotes, which runs
+// to the end of the error.
+var certificateNames = regexp.MustCompile(`\b(certificate is (?:valid for|not valid for any names, but wanted to match)) [^:;"]+`)
+
 // bareEmail matches an account address inside free text. A credential this
 // status no longer holds a row for is still named by a decision note that
 // outlives it, and that name is an email address.
 var bareEmail = regexp.MustCompile(`[^\s"'<>@]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
 
 // publicText is operator-facing free text with everything it quotes that this
-// route otherwise withholds taken out: URLs, because a failing poll quotes the
-// transport error and that error names the usage endpoint, and credential
-// identity, because a warning and a decision note both name the credential
-// they concern.
+// route otherwise withholds taken out: URLs and network addresses, because a
+// failing poll quotes the transport error and that error names the usage
+// endpoint or the resolver, filesystem paths, and credential identity, because
+// a warning and a decision note both name the credential they concern.
 func publicText(s string, ids *strings.Replacer) string {
 	if s == "" {
 		return ""
 	}
 	s = absoluteURL.ReplaceAllString(s, "…")
-	s = absolutePath.ReplaceAllStringFunc(s, func(m string) string {
-		// Keep the delimiter the match opened on; only the path itself goes.
-		if m[0] == '/' {
-			return "…"
-		}
-		return m[:1] + "…"
-	})
+	s = windowsPath.ReplaceAllString(s, "…")
+	for _, re := range []*regexp.Regexp{absolutePath, homePath} {
+		s = re.ReplaceAllStringFunc(s, keepDelimiter)
+	}
+	s = certificateNames.ReplaceAllString(s, "$1 …")
+	s = lookupHost.ReplaceAllString(s, "lookup …")
+	s = networkAddress.ReplaceAllString(s, "…")
 	s = ids.Replace(s)
 	return bareEmail.ReplaceAllStringFunc(s, maskEmail)
+}
+
+// keepDelimiter is the placeholder for a path match that may have opened on
+// the delimiter before the path: the delimiter stays and the path goes.
+func keepDelimiter(m string) string {
+	if m[0] == '/' || m[0] == '~' {
+		return "…"
+	}
+	return m[:1] + "…"
 }
 
 // seatEmail is the account address a credential row carries: the host's email
@@ -406,8 +457,9 @@ func seatEmail(a model.AuthStatus) string {
 // A name comes from the first of these that yields one: a label the operator
 // set on the host, the credential's file name with the account address taken
 // out of it, and the masked address. Two rows that still share a name each
-// carry a tag of their published id, which is stable across restarts.
-func publicSeatLabels(auths []model.AuthStatus) []string {
+// carry a tag of their published id, publish(AuthID), which is stable across
+// restarts while the key it is derived with persists.
+func publicSeatLabels(auths []model.AuthStatus, publish func(string) string) []string {
 	names := make([]string, len(auths))
 	count := make(map[string]int, len(auths))
 	for i, a := range auths {
@@ -428,7 +480,7 @@ func publicSeatLabels(auths []model.AuthStatus) []string {
 			continue
 		}
 		// An empty id hashes to nothing; the row index stands in for it.
-		tag := "#" + publicID(a.AuthID)
+		tag := "#" + publish(a.AuthID)
 		if len(tag) < 1+seatTagLen {
 			tag = "#" + strconv.Itoa(i)
 		} else {
@@ -486,29 +538,22 @@ func fileNameResidue(name, email, provider string) string {
 	}
 }
 
-// deleteFold removes every case-insensitive occurrence of old from s.
+// deleteFold removes every case-insensitive occurrence of old from s. It
+// matches on s itself, because a lowercased copy is not byte-aligned with it:
+// a letter such as U+023A or the Kelvin sign changes length when lowercased.
 func deleteFold(s, old string) string {
 	if old == "" {
 		return s
 	}
-	lower, target := strings.ToLower(s), strings.ToLower(old)
-	var b strings.Builder
-	for {
-		i := strings.Index(lower, target)
-		if i < 0 {
-			b.WriteString(s)
-			return b.String()
-		}
-		b.WriteString(s[:i])
-		s, lower = s[i+len(old):], lower[i+len(old):]
-	}
+	return regexp.MustCompile("(?i)"+regexp.QuoteMeta(old)).ReplaceAllLiteralString(s, "")
 }
 
 // maskEmail masks an account email down to its first letter and domain. The
 // host label falls back to the credential's email address, which this route
-// would otherwise hand to anyone who can reach the port; the domain still
-// tells the operator which organization a seat belongs to. A string that is
-// not an email comes back unchanged.
+// would otherwise hand to anyone who can reach the port. The domain is kept
+// whole, and that is the page's contract: a published address names the
+// organization a seat belongs to, which the operator reads it for, and never
+// the account. A string that is not an email comes back unchanged.
 func maskEmail(addr string) string {
 	at := strings.LastIndex(addr, "@")
 	if at <= 0 || at == len(addr)-1 {

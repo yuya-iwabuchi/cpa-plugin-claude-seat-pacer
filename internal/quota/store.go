@@ -76,11 +76,15 @@ func (e *entry) copy() model.AuthSnapshot {
 // mergeHeaderReading folds a header window into a stored one. The headers
 // report no severity and may omit status, so those two fields keep whatever a
 // usage-endpoint read established and a merge cannot blank a window the
-// endpoint called critical or rejected.
+// endpoint called critical or rejected. A reading with no reset instant, one
+// the header omitted or carried out of range, keeps the stored instant, which
+// is what places the window on the pace curve.
 func mergeHeaderReading(dst *model.Window, src model.Window) {
 	dst.Utilization = src.Utilization
-	dst.ResetsAt = src.ResetsAt
 	dst.Active = src.Active
+	if !src.ResetsAt.IsZero() {
+		dst.ResetsAt = src.ResetsAt
+	}
 	if src.Duration > 0 {
 		dst.Duration = src.Duration
 	}
@@ -200,9 +204,9 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 // every other window intact, ObservedAt included.
 //
 // A window the reading carries is merged field by field, not replaced: it takes
-// the header's utilization, reset and Active flag, and keeps the severity and
-// the status the headers do not report, so an endpoint verdict of critical or
-// rejected still reaches Window.Blocking after a merge.
+// the header's utilization, Active flag and any reset it carries, and keeps the
+// severity and the status the headers do not report, so an endpoint verdict of
+// critical or rejected still reaches Window.Blocking after a merge.
 //
 // At most one window is Active. A merged window that claims the flag clears it
 // on every other window in the snapshot, so the binding window the provider
@@ -390,9 +394,10 @@ func (s *Store) ImportHistory(saved map[string][]model.WindowHistory) {
 			if live, has := e.history[key]; has {
 				for _, c := range live.cycles {
 					for _, smp := range c.Samples {
-						r.put(smp.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: smp.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(smp))
+						r.add(smp.At, model.Window{Kind: h.Kind, Scope: h.Scope, Utilization: smp.Utilization, ResetsAt: c.ResetsAt}, c.SampleEstimated(smp))
 					}
 				}
+				r.compact()
 			} else {
 				e.order = append(e.order, key)
 			}

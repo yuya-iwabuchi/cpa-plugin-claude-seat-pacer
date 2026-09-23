@@ -108,8 +108,9 @@ const (
 	// MetadataSessionAffinityProvider is the affinity namespace, literally
 	// "mixed" for a multi-provider route.
 	MetadataSessionAffinityProvider = "session_affinity_provider"
-	// MetadataPinnedAuthID locks execution to one credential. When set, the
-	// host offers exactly that credential as the only candidate.
+	// MetadataPinnedAuthID locks execution to one credential. The host sets
+	// it only when the id is non-empty after trimming, and then offers exactly
+	// that credential as the only candidate.
 	MetadataPinnedAuthID = "pinned_auth_id"
 )
 

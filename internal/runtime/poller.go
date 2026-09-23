@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,11 @@ const hostDrainTimeout = 5 * time.Second
 // read landing exactly on the reset still answers with the closing window's
 // utilization.
 const resetSettle = 4 * time.Second
+
+// resetWakeFloor is the shortest wake a window reset can ask for. A provider
+// that keeps reporting a reset a few seconds ahead would otherwise hold the
+// loop at one poll per settle delay.
+const resetWakeFloor = 30 * time.Second
 
 // errNoGovernedCredential is the listing failure a poll records when the host
 // names no credential this plugin governs.
@@ -77,24 +83,43 @@ func defaultHistoryFile() string {
 
 // loadHistory reads the history file once, ahead of the first poll, so the
 // charts show the previous run's samples from the first status response. It
-// runs on the poll goroutine, never on the pick path.
+// runs under pollMu on the poll goroutine or a management request, never on
+// the pick path.
 //
-// The load counts as done only once the file has actually been read, which is
-// what saveHistory waits for: a run with persistence off, or one whose read
-// failed, must not write the file it never took the previous samples from.
-// Persistence turned on by a reload therefore still loads before it saves,
-// and a read that failed is retried on the next poll.
+// The load counts as done only once the file has actually been read or set
+// aside, which is what saveHistory waits for: a run with persistence off, or
+// one whose read failed, must not write the file it never took the previous
+// samples from. Persistence turned on by a reload therefore still loads before
+// it saves, and a read that failed is retried on the next poll.
+//
+// Two files end the attempt for good, each with one warning. One that does not
+// parse has been moved aside, so the load is done and saves start a fresh
+// file. One of a newer version belongs to a newer build, so this run neither
+// reads nor writes it and keeps no history on disk.
 func (p *Plugin) loadHistory(cfg model.Config) {
 	if !cfg.Quota.PersistHistory || p.opts.HistoryFile == "" {
 		return
 	}
 	p.mu.Lock()
-	done := p.historyLoaded
+	done := p.historyLoaded || p.historyRefused
 	p.mu.Unlock()
 	if done {
 		return
 	}
-	if err := p.quota.LoadHistory(p.opts.HistoryFile); err != nil {
+	// The aside file is named by the wall clock, which is what an operator
+	// reading the directory compares it against.
+	err := p.quota.LoadHistory(p.opts.HistoryFile, time.Now())
+	var corrupt *quota.CorruptHistoryError
+	switch {
+	case errors.Is(err, quota.ErrHistoryVersion):
+		p.host.log("warn", "claude-seat-pacer leaves a newer history file alone and keeps no history on disk this run", map[string]any{"path": p.opts.HistoryFile})
+		p.mu.Lock()
+		p.historyRefused = true
+		p.mu.Unlock()
+		return
+	case errors.As(err, &corrupt):
+		p.host.log("warn", "claude-seat-pacer set an unreadable history file aside and starts a fresh one", map[string]any{"aside": corrupt.Aside, "error": corrupt.Err.Error()})
+	case err != nil:
 		p.host.log("warn", "claude-seat-pacer could not read the utilization history", map[string]any{"error": err.Error()})
 		return
 	}
@@ -132,9 +157,9 @@ func (p *Plugin) saveHistory(cfg model.Config) {
 //
 // The final save takes pollMu, the lock a poll's own save already runs under.
 // Joining the loop goroutine does not cover a management refresh, which runs
-// p.poll inline on the HTTP goroutine, and SaveHistory writes one fixed
-// sibling path before renaming it: two writers there would leave a truncated
-// history file behind.
+// p.poll inline on the HTTP goroutine; under the lock the two saves run one
+// after the other, so the file ends holding the newer store and historySaved
+// names the version it holds.
 func (p *Plugin) stopPoller() {
 	p.lifeMu.Lock()
 	defer p.lifeMu.Unlock()
@@ -176,7 +201,13 @@ func (p *Plugin) runPoller(pl *poller) {
 
 	timer := time.NewTimer(p.startDelay)
 	defer timer.Stop()
-	p.guard("history load", func() { p.loadHistory(p.config()) })
+	// The load takes pollMu, as a poll's own load does, so a management
+	// refresh landing before the first poll cannot read the file beside it.
+	p.guard("history load", func() {
+		p.pollMu.Lock()
+		defer p.pollMu.Unlock()
+		p.loadHistory(p.config())
+	})
 	for {
 		select {
 		case <-pl.stop:
@@ -220,12 +251,14 @@ func (p *Plugin) guard(what string, fn func()) (panicked bool) {
 	return false
 }
 
-// pollAndSchedule runs one poll and records when the next one falls due. The
-// wake it returns is the one the loop takes, so nextPollAt names it and the
-// status view's "next in" counts down to the poll that actually happens.
+// pollAndSchedule runs one poll, drops the bindings idle past the affinity
+// TTL, and records when the next poll falls due. The wake it returns is the
+// one the loop takes, so nextPollAt names it and the status view's "next in"
+// counts down to the poll that actually happens.
 func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
 	wait := p.pollOnce(ctx)
 	now := p.now()
+	p.bindingStore().Sweep(now)
 	wait = nextPollWait(p.quota.All(), now, wait)
 	p.mu.Lock()
 	p.polledAt = now
@@ -242,9 +275,10 @@ func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
 //
 // Only a reset still in the future shortens a wake, which is what keeps the
 // loop off a reset it has already served: the poll a reset drives leaves that
-// instant in the past, and the wake after it is the plain interval. A reset a
-// hair ahead of now would undercut the settle the provider needs, so the wait
-// floors at resetSettle and is never zero or negative. Several seats resetting
+// instant in the past, and the wake after it is the plain interval. A
+// shortened wait floors at resetWakeFloor, never past the interval, so a reset
+// a hair ahead of now neither undercuts the settle the provider needs nor, if
+// the provider keeps reporting one, spins the loop. Several seats resetting
 // inside one settle window share the single poll at its end.
 //
 // MinForcedPollGap does not apply. It bounds what open status pages may ask of
@@ -266,7 +300,7 @@ func nextPollWait(snaps []model.AuthSnapshot, now time.Time, interval time.Durat
 	if earliest.IsZero() {
 		return interval
 	}
-	return min(max(earliest.Sub(now)+resetSettle, resetSettle), interval)
+	return min(max(earliest.Sub(now)+resetSettle, resetWakeFloor), interval)
 }
 
 // pollOnce runs one background poll under the deadline a manual refresh uses,
@@ -308,7 +342,11 @@ func (e errPoll) Error() string { return string(e) }
 func (p *Plugin) poll(ctx context.Context) time.Duration {
 	p.pollMu.Lock()
 	defer p.pollMu.Unlock()
+	return p.pollLocked(ctx)
+}
 
+// pollLocked is poll for a caller already holding pollMu.
+func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 	cfg := p.config()
 	if !cfg.Enabled {
 		p.mu.Lock()

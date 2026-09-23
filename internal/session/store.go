@@ -189,17 +189,29 @@ func (s *Store) All() []model.Binding {
 	return out
 }
 
-// CountByAuth reports how many bindings each credential holds, which is the
-// per-credential session count the status UI shows. Bindings that have expired
-// since the last Sweep or Lookup are still counted, because expiry is only
-// observed when a caller supplies the time.
-func (s *Store) CountByAuth() map[string]int {
+// CountByAuth reports how many live bindings each credential holds at now,
+// which is the per-credential session count the status UI shows. A binding
+// idle past the TTL is not counted, though it stays in the table until Sweep
+// or Lookup removes it.
+//
+// Expired bindings sit at the back of the access order, so only they are
+// walked: the cost is the tally plus the expired tail, never the table.
+func (s *Store) CountByAuth(now time.Time) map[string]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	counts := make(map[string]int, len(s.counts))
 	for authID, n := range s.counts {
 		counts[authID] = n
+	}
+	for el := s.order.Back(); el != nil; el = el.Prev() {
+		e := el.Value.(*entry)
+		if !s.expired(e, now) {
+			break
+		}
+		if counts[e.binding.AuthID]--; counts[e.binding.AuthID] <= 0 {
+			delete(counts, e.binding.AuthID)
+		}
 	}
 	return counts
 }
@@ -212,7 +224,21 @@ func (s *Store) Len() int {
 	return len(s.index)
 }
 
+// sweepSlack is how far short of expiry Sweep keeps walking. A pick reads
+// its clock before it takes the lock, so concurrent picks can file a binding
+// ahead of one seen a moment later, and the access order is monotonic in
+// LastSeen only to within that gap.
+const sweepSlack = time.Minute
+
 // Sweep removes bindings idle past the TTL and returns how many it removed.
+//
+// It walks from the least recently seen end and stops at the first binding
+// more than sweepSlack short of expiry, so it visits the expired tail and the
+// bindings about to join it rather than the table. That removes every expired
+// binding while the order is out of step by less than sweepSlack. A binding
+// out of step by more waits for the first Sweep at which every binding behind
+// it is within sweepSlack of expiry or has moved ahead of it, and each one
+// does one or the other within the TTL.
 func (s *Store) Sweep(now time.Time) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -221,13 +247,17 @@ func (s *Store) Sweep(now time.Time) int {
 		return 0
 	}
 	n := 0
-	for el := s.order.Front(); el != nil; {
-		next := el.Next()
-		if s.expired(el.Value.(*entry), now) {
+	for el := s.order.Back(); el != nil; {
+		prev := el.Prev()
+		e := el.Value.(*entry)
+		if now.Sub(e.binding.LastSeen) <= s.ttl-sweepSlack {
+			break
+		}
+		if s.expired(e, now) {
 			s.remove(el)
 			n++
 		}
-		el = next
+		el = prev
 	}
 	return n
 }

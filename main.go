@@ -76,6 +76,7 @@ import (
 	"math"
 	"unsafe"
 
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
@@ -96,15 +97,16 @@ const (
 
 // configFields are the knobs the Management Center renders inputs for. The
 // full set lives in model.Config; these are the ones an operator tunes.
+// enabled is absent: the host renders its own toggle for every plugin, and
+// loads no disabled plugin at all.
 var configFields = []runtime.ConfigField{
-	{Name: "enabled", Type: "boolean", Description: "Route governed requests. Off leaves the host's own selector in charge."},
 	{Name: "providers", Type: "array", Description: "Provider keys the plugin governs. Default [claude]."},
 	{Name: "affinity.ttl", Type: "string", Description: "Idle time before a conversation's credential binding expires. Default 1h."},
-	{Name: "pace.shape", Type: "string", Description: "Target curve shape: linear, power or sigmoid. Default linear."},
+	{Name: "pace.shape", Type: "enum", EnumValues: []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid}, Description: "Target curve shape. Linear spends evenly, power bends the curve by pace.curve-exponent, and sigmoid holds back early and eases off near the end. Default linear."},
 	{Name: "pace.curve-exponent", Type: "number", Description: "Exponent for the power shape; above 1.0 holds back early. Selects the power shape when pace.shape is unset, and is ignored by the sigmoid shape. Default 1.0."},
 	{Name: "pace.steepness", Type: "number", Description: "Slope through the sigmoid's midpoint. Ignored by the other shapes. Default 8.0."},
 	{Name: "pace.landing-target", Type: "number", Description: "How far each seat's plan runs ahead of an even pace. 1.10 finishes the week's quota about 9% early on the linear shape, which leans toward a seat near its reset; 1.0 finishes at the reset. Default 1.10."},
-	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m; a value below 30s falls back to the default."},
+	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m; a value below 30s falls back to the default. quota.max-staleness is raised to twice this when it is shorter."},
 	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page, and the management route its data comes from. Default true."},
 }
 

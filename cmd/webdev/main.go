@@ -392,7 +392,7 @@ func (f *fixture) rebuildWarnings() {
 	if len(f.auths) == 1 {
 		single = []string{"claude"}
 	}
-	f.warnings = runtime.Warnings(f.cfg.Enabled, f.listErr, single, rows, seats)
+	f.warnings = runtime.Warnings(f.cfg.Enabled, nil, f.listErr, single, rows, seats)
 }
 
 // rankAt is the score list a decision carries, over the readings as they stood
