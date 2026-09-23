@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -175,15 +176,39 @@ func (p *Plugin) runPoller(pl *poller) {
 
 	timer := time.NewTimer(p.startDelay)
 	defer timer.Stop()
-	p.loadHistory(p.config())
+	p.guard("history load", func() { p.loadHistory(p.config()) })
 	for {
 		select {
 		case <-pl.stop:
 			return
 		case <-timer.C:
 		}
-		timer.Reset(p.pollAndSchedule(ctx))
+		// A poll that panics costs itself only: the next one waits a regular
+		// interval and the loop carries on.
+		wait := p.config().Quota.PollInterval
+		p.guard("poll", func() { wait = p.pollAndSchedule(ctx) })
+		timer.Reset(wait)
 	}
+}
+
+// guard runs fn and recovers a panic from it, logging what panicked. The poll
+// loop runs its work through guard because it runs on its own goroutine, where
+// a panic cannot reach Call's recover and recover() does not cross the C
+// boundary: one escaping would terminate the host process.
+func (p *Plugin) guard(what string, fn func()) (panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicked = true
+			p.host.spawn(func() {
+				p.host.log("error", "claude-seat-pacer recovered from a panic", map[string]any{
+					"in":    what,
+					"panic": fmt.Sprintf("%v", r),
+				})
+			})
+		}
+	}()
+	fn()
+	return false
 }
 
 // pollAndSchedule runs one poll and records when the next one falls due. The

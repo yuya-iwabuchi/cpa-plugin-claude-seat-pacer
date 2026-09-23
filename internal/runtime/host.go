@@ -137,16 +137,23 @@ func (h host) invokeCtx(ctx context.Context, method string, payload any, out any
 	}
 }
 
-// spawn runs fn on a tracked goroutine.
+// spawn runs fn on a tracked goroutine. A panic in fn is dropped rather than
+// reported: recover() does not cross the C boundary, so one escaping this
+// goroutine would terminate the host process, and what spawn runs is a host log
+// call, which leaves nowhere safer to report it.
 func (h host) spawn(fn func()) {
+	run := func() {
+		defer func() { _ = recover() }()
+		fn()
+	}
 	if h.tracker == nil {
-		go fn()
+		go run()
 		return
 	}
 	h.tracker.begin()
 	go func() {
 		defer h.tracker.end()
-		fn()
+		run()
 	}()
 }
 
