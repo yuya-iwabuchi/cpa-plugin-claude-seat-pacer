@@ -286,11 +286,23 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
    and whenever the host refuses one. */
 .key-gate p { margin: 0; color: var(--ink-1); max-width: 72ch; }
 .key-gate .key-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.key-gate .key-field { position: relative; display: flex; flex: 1 1 260px; min-width: 0; }
 .key-gate input {
-  flex: 1 1 260px; min-width: 0;
+  flex: 1 1 auto; min-width: 0;
   font: 500 12.5px/1 var(--mono); color: var(--ink-1); background: var(--surface-1);
-  border: 1px solid var(--axis); border-radius: 6px; padding: 7px 10px;
+  border: 1px solid var(--axis); border-radius: 6px; padding: 7px 36px 7px 10px;
 }
+/* The reveal toggle sits inside the field. Pressed, it shows the key and
+   crosses out its eye, and keeps the field's colours rather than taking the
+   filled look of the page's other pressed buttons. */
+.key-gate .key-reveal {
+  position: absolute; right: 3px; top: 50%; transform: translateY(-50%);
+  padding: 4px 6px; line-height: 0; border: 0; border-radius: 4px;
+  color: var(--ink-2); background: transparent;
+}
+.key-gate .key-reveal:hover, .key-gate .key-reveal[aria-pressed="true"] { color: var(--ink-1); background: var(--surface-2); }
+.key-gate .key-reveal .key-slash { display: none; }
+.key-gate .key-reveal[aria-pressed="true"] .key-slash { display: inline; }
 /* A remark the pointer or the keyboard opens rather than a line of text: the
    dotted rule is the page's mark for a figure carrying one, and the muted
    grey keeps it a remark rather than a fault. A kept seat's note in the log
@@ -840,7 +852,18 @@ th[aria-sort] button { color: var(--ink-1); }
       <p id="key-gate-msg"></p>
       <div class="key-row">
         <label class="sr-only" for="key-input">Management key</label>
-        <input id="key-input" type="password" spellcheck="false" autocomplete="current-password" required>
+        <div class="key-field">
+          <input id="key-input" type="password" spellcheck="false" autocomplete="current-password" required>
+          <button type="button" id="key-reveal" class="key-reveal" aria-pressed="false" aria-controls="key-input"
+                  aria-label="Show key" title="Show key">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/>
+              <circle cx="12" cy="12" r="3"/>
+              <path class="key-slash" d="M3 3l18 18"/>
+            </svg>
+          </button>
+        </div>
         <button type="submit">Unlock</button>
       </div>
     </form>
@@ -4976,7 +4999,19 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* ------------------------------------------------------------- key gate */
 
-  var gate = $("key-gate"), gateMsg = $("key-gate-msg"), keyInput = $("key-input");
+  var gate = $("key-gate"), gateMsg = $("key-gate-msg"), keyInput = $("key-input"), keyReveal = $("key-reveal");
+
+  /* The field starts masked and masks again once a key is submitted, so the
+     next prompt never opens showing a key. */
+  function revealKey(on) {
+    keyInput.type = on ? "text" : "password";
+    keyReveal.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  keyReveal.addEventListener("click", function () {
+    revealKey(keyInput.type === "password");
+    keyInput.focus();
+  });
 
   /* Called on every refresh tick while the page waits for a key, so focus
      moves only when the form first appears. With nothing fetched yet the
@@ -5031,6 +5066,7 @@ th[aria-sort] button { color: var(--ink-1); }
       return;
     }
     keyInput.value = "";
+    revealKey(false);
     state.key = key;
     state.keyVerified = false;
     state.locked = false;
