@@ -13,25 +13,32 @@ import (
 // menuLabel is the Management Center menu entry for the status page.
 const menuLabel = "Claude Seat Pacer"
 
-// Resource paths under the plugin's resource prefix. The host matches a
-// resource route by exact path and rejects a bare "/" (the trailing slash is
-// trimmed and an empty path refused, internal/pluginhost/management.go:209),
-// so every page the app needs is its own route and the app must fetch
-// "api/status" relative to index.html. The host serves these without the
-// management key, so they carry read-only, credential-free content.
-const (
-	resourceIndexPath  = "/index.html"
-	resourceStatusPath = "/api/status"
-)
+// resourceIndexPath is the one resource route: the status page itself. The host
+// serves resource routes to anyone who can reach its port, with no management
+// key and no loopback check, so the route carries the static page and no data.
+// The host matches a resource route by exact path and rejects a bare "/" (the
+// trailing slash is trimmed and an empty path refused,
+// internal/pluginhost/management.go:209).
+const resourceIndexPath = "/index.html"
 
-// Management routes, authenticated by the host with the management key.
-// Setting Menu on a GET management route would reclassify it as an
+// appStatusPath is where the status app answers for its data inside the
+// plugin. No resource route reaches it: routePageStatus does, behind the key.
+const appStatusPath = "/api/status"
+
+// Management routes, authenticated by the host with the management key and,
+// unless remote-management.allow-remote is set, answered for loopback clients
+// only. Setting Menu on a GET management route would reclassify it as an
 // unauthenticated resource (management.go:153), so none of these carry one.
+//
+// routePageStatus is the status page's own data: the routeStatus payload as the
+// status app shapes it, with non-finite readings made null, the binding list
+// bounded and each seat named without its account address.
 const (
-	routeStatus  = "/status"
-	routeRefresh = "/refresh"
-	routeUnbind  = "/unbind"
-	routeSweep   = "/bindings/sweep"
+	routeStatus     = "/status"
+	routePageStatus = "/page-status"
+	routeRefresh    = "/refresh"
+	routeUnbind     = "/unbind"
+	routeSweep      = "/bindings/sweep"
 )
 
 // Defaults for the prefixes when the registration request omits them; the host
@@ -54,11 +61,10 @@ const refreshHeadroom = 5 * time.Second
 // loop for good.
 const pollBudget = 2 * time.Minute
 
-// MinForcedPollGap floors how often the status route may force a usage read.
-// That route is served unauthenticated, so without a floor anything that can
-// reach the management port could drive the usage endpoint as fast as it likes
-// and earn the pool a throttle. A forced read is otherwise the same work the
-// loop does on its own.
+// MinForcedPollGap floors how often the page's status route may force a usage
+// read. Every open page can ask for one, and without a floor a few tabs clicking
+// Sync now could drive the usage endpoint fast enough to earn the pool a
+// throttle. A forced read is otherwise the same work the loop does on its own.
 const MinForcedPollGap = 10 * time.Second
 
 // managementRegister answers management.register. The host re-issues it on
@@ -90,10 +96,11 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 			{Method: http.MethodPost, Path: prefix + routeSweep, Description: "Drop session bindings idle past the affinity TTL."},
 		},
 	}
+	// The page and its data route come and go together with web.enabled.
 	if p.config().Web.Enabled {
+		resp.Routes = append(resp.Routes, ManagementRoute{Method: http.MethodGet, Path: prefix + routePageStatus, Description: "The status page's data. Takes ?model=<id>, and ?sync=1 to read usage first."})
 		resp.Resources = []ResourceRoute{
-			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Status page."},
-			{Path: resourceBase + resourceStatusPath, Description: "Status JSON for the page."},
+			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Status page. Its data comes from " + prefix + routePageStatus + ", which needs the management key."},
 		}
 	}
 	return okEnvelope(resp)
@@ -108,10 +115,10 @@ func (p *Plugin) managementPrefix(mgmtBase string) string {
 // HTTP statuses inside a success envelope, because an error envelope would
 // fail the request at the host with a 502.
 //
-// The host HTML-escapes every string in a JSON body on the authenticated
-// routes (management.go:267 via htmlsanitize), so & < > " arrive escaped
-// there; resource-route bodies pass through untouched, which is why the
-// status app reads its JSON from the resource route.
+// The host HTML-escapes every string value in a JSON body on the authenticated
+// routes (htmlsanitize.JSONBody, html.EscapeString) for a plugin declaring a
+// schema version below 6, so & < > " ' arrive as entities. The status page
+// decodes them once on arrival; it renders with textContent, never as markup.
 func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	var req ManagementRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -128,7 +135,11 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	}
 
 	if strings.HasPrefix(req.Path, resourceBase+"/") {
-		return okEnvelope(p.serveResource(req, strings.TrimPrefix(req.Path, resourceBase)))
+		path := strings.TrimPrefix(req.Path, resourceBase)
+		if path != resourceIndexPath {
+			return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
+		}
+		return okEnvelope(p.serveResource(req, path))
 	}
 
 	prefix := p.managementPrefix(mgmtBase)
@@ -140,7 +151,7 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	if method == "" {
 		method = http.MethodGet
 	}
-	want := map[string]string{routeStatus: http.MethodGet, routeRefresh: http.MethodPost, routeUnbind: http.MethodPost, routeSweep: http.MethodPost}[route]
+	want := map[string]string{routeStatus: http.MethodGet, routePageStatus: http.MethodGet, routeRefresh: http.MethodPost, routeUnbind: http.MethodPost, routeSweep: http.MethodPost}[route]
 	switch {
 	case want == "":
 		return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
@@ -152,6 +163,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	switch route {
 	case routeStatus:
 		return okEnvelope(jsonResponse(http.StatusOK, p.Status(now, req.Query.Get("model"))))
+	case routePageStatus:
+		return okEnvelope(p.serveResource(req, appStatusPath))
 	case routeRefresh:
 		ctx, cancel := context.WithTimeout(context.Background(), p.refreshTimeout())
 		defer cancel()
@@ -189,12 +202,12 @@ func (p *Plugin) refreshTimeout() time.Duration {
 	return time.Duration(n)*cfg.Quota.RequestTimeout + refreshHeadroom
 }
 
-// serveResource hands a resource request to the status app with the plugin
-// prefix stripped, so the app sees /index.html and /api/status. Without an
-// installed app the route answers 503 rather than 404, which tells an operator
-// the route exists and the build is missing its front end. With web.enabled
-// off the routes are never declared, so a request that still arrives — from a
-// registration the host has not replaced yet — is a 404.
+// serveResource hands a request to the status app at an app-relative path:
+// /index.html for the resource route, /api/status for routePageStatus. Without
+// an installed app it answers 503 rather than 404, which tells an operator the
+// route exists and the build is missing its front end. With web.enabled off the
+// page is never declared and both paths answer 404, including a request that
+// arrives from a registration the host has not replaced yet.
 func (p *Plugin) serveResource(req ManagementRequest, path string) ManagementResponse {
 	h := p.resource.Load()
 	if h == nil {

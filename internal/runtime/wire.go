@@ -453,8 +453,8 @@ type ManagementRoute struct {
 // Casing: PascalCase. Source: sdk/pluginapi/types.go:1300.
 //
 // Path matches exactly — the host looks the request path up in a map, with no
-// prefix or subtree serving — so every servable path is its own route:
-// /index.html and /api/status are two declarations, not one. A Path that
+// prefix or subtree serving — so every servable path is its own route, and a
+// path that is not declared is never forwarded to the plugin. A Path that
 // trims to empty, "/" among them, is rejected, as is one containing a space,
 // ":", "*" or "..".
 type ResourceRoute struct {

@@ -141,9 +141,9 @@ func New(opts Options) *Plugin {
 	return p
 }
 
-// SetResourceHandler installs the status app served on the plugin's resource
-// routes. The host serves those routes unauthenticated, so the handler must
-// expose read-only, credential-free content.
+// SetResourceHandler installs the status app. Its page is served on the
+// plugin's resource route, which the host serves with no key, and its data on
+// routePageStatus, behind the management key; neither carries a credential.
 func (p *Plugin) SetResourceHandler(h http.Handler) {
 	if h == nil {
 		p.resource.Store(nil)
@@ -209,8 +209,8 @@ func degrade(method, code, message string) ([]byte, bool) {
 	case MethodRequestInterceptAfter, MethodUsageHandle:
 		result = emptyResult
 	case MethodManagementHandle:
-		// The message may name plugin internals and the resource routes are
-		// unauthenticated, so the body says only that the call failed.
+		// The message may name plugin internals and the resource route is
+		// served with no key, so the body says only that the call failed.
 		result = jsonResponse(http.StatusInternalServerError, map[string]string{"error": "plugin request failed"})
 	default:
 		return errorEnvelope(code, message), false

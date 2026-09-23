@@ -22,9 +22,9 @@ import (
 // siblings: a provider-blind or model-blind lookup hands back a credential
 // that cannot serve the request.
 //
-// The lock is an RWMutex because the status route is unauthenticated and the
-// pick path shares this table: All and CountByAuth take it for reading only, so
-// a status request cannot serialize routing. counts is maintained on every
+// The lock is an RWMutex because every open status page reads this table on
+// each refresh while the pick path shares it: All and CountByAuth take it for
+// reading only, so a status request cannot serialize routing. counts is maintained on every
 // insert and removal for the same reason — the per-credential tally is read on
 // every status render and on every pick that falls back to least-bound, and
 // walking the whole table for it costs the cap, which is 65536 by default.

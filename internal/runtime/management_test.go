@@ -49,6 +49,7 @@ func TestManagementRegisterDeclaresRoutesAndResources(t *testing.T) {
 	}
 	for _, want := range []string{
 		"GET " + testMgmtPrefix + "/status",
+		"GET " + testMgmtPrefix + "/page-status",
 		"POST " + testMgmtPrefix + "/refresh",
 		"POST " + testMgmtPrefix + "/unbind",
 		"POST " + testMgmtPrefix + "/bindings/sweep",
@@ -57,14 +58,13 @@ func TestManagementRegisterDeclaresRoutesAndResources(t *testing.T) {
 			t.Errorf("route %q not declared; got %v", want, out.Routes)
 		}
 	}
-	if len(out.Resources) != 2 {
-		t.Fatalf("resources = %+v, want index.html and api/status", out.Resources)
+	// The page is the only resource: the host serves resource routes with no
+	// key, so the data the page renders is a management route.
+	if len(out.Resources) != 1 {
+		t.Fatalf("resources = %+v, want index.html alone", out.Resources)
 	}
 	if out.Resources[0].Path != testResourceBase+"/index.html" || out.Resources[0].Menu != menuLabel {
 		t.Errorf("index resource = %+v", out.Resources[0])
-	}
-	if out.Resources[1].Path != testResourceBase+"/api/status" || out.Resources[1].Menu != "" {
-		t.Errorf("status resource = %+v, want no menu entry", out.Resources[1])
 	}
 
 	// The same answer comes back on every registration.
@@ -101,10 +101,21 @@ func TestManagementAdapterStripsResourcePrefix(t *testing.T) {
 	h := &recordingHandler{}
 	tp.SetResourceHandler(h)
 
+	// A path that reaches no resource route never reaches the app, whatever
+	// the app would answer for it: api/status is data, and the host refuses a
+	// bare "/" before it gets here.
+	for _, path := range []string{testResourceBase + "/api/status", testResourceBase + "/"} {
+		h.path = ""
+		var out ManagementResponse
+		tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodGet, Path: path}), &out)
+		if out.StatusCode != http.StatusNotFound || h.path != "" {
+			t.Errorf("%s: status %d, handler saw %q; want 404 without reaching the app", path, out.StatusCode, h.path)
+		}
+	}
+
 	for _, tc := range []struct{ path, want string }{
 		{testResourceBase + "/index.html", "/index.html"},
-		{testResourceBase + "/api/status", "/api/status"},
-		{testResourceBase + "/", "/"},
+		{testMgmtPrefix + "/page-status", "/api/status"},
 	} {
 		payload := mustJSON(t, ManagementRequest{
 			Method:  http.MethodGet,
@@ -230,9 +241,9 @@ func mustString(t *testing.T, v any) string {
 }
 
 // TestManagementStatusKeepsRealIDs covers the split between the two routes the
-// same status reaches: the resource route is unauthenticated and publishes a
-// hashed credential id, and the management route sits behind the host's key
-// and serves the id an operator needs for unbind.
+// same status reaches: the page's route names each seat by a hashed credential
+// id so the page is safe to show, and the status route serves the id an
+// operator needs for unbind.
 func TestManagementStatusKeepsRealIDs(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.registerManagement(t)
@@ -264,21 +275,21 @@ func TestManagementStatusKeepsRealIDs(t *testing.T) {
 		t.Errorf("management bindings = %+v, want a real id", full.Bindings)
 	}
 
-	served := tp.manage(t, http.MethodGet, testResourceBase+"/api/status", nil)
+	served := tp.manage(t, http.MethodGet, testMgmtPrefix+routePageStatus, nil)
 	if served.StatusCode != http.StatusOK {
-		t.Fatalf("resource status = %d: %s", served.StatusCode, served.Body)
+		t.Fatalf("page status = %d: %s", served.StatusCode, served.Body)
 	}
 	// Matched as an id rather than as a substring: a credential the host
 	// gives neither a label nor an email keeps its file name as its label,
 	// and that name is the real id.
 	for id := range real {
 		if quoted := `auth_id":"` + id + `"`; strings.Contains(string(served.Body), quoted) {
-			t.Errorf("the unauthenticated route serves the real id %q: %s", id, served.Body)
+			t.Errorf("the page's route serves the real id %q: %s", id, served.Body)
 		}
 	}
 	var public model.Status
 	if err := json.Unmarshal(served.Body, &public); err != nil {
-		t.Fatalf("decode resource status: %v", err)
+		t.Fatalf("decode page status: %v", err)
 	}
 	if len(public.Auths) != len(full.Auths) || len(public.Bindings) != len(full.Bindings) {
 		t.Errorf("resource view = %d auths %d bindings, want the same rows as %d and %d",

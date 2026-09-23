@@ -21,9 +21,10 @@ const defaultStatusModel = "claude-opus-5"
 // routed model, or defaultStatusModel before the first pick.
 //
 // The result carries labels, ids and the warnings' error text. Nothing here
-// reads a credential file, and the poller stores no token, so there is none
-// to leak even though the resource route that serves this is unauthenticated;
-// the web package reduces the warnings' text before it ships.
+// reads a credential file and the poller stores no token, so there is none to
+// leak. The page's route is behind the management key, and the web package
+// still names each seat without its account address and drops paths and URLs
+// from the warnings' text, so the page is safe to show on a screen.
 //
 // There is no warning for the host's own routing.session-affinity: the host
 // stamps session_affinity_provider on every pick regardless of that setting

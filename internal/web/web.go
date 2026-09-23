@@ -1,12 +1,15 @@
 // Package web serves the plugin's embedded status app.
 //
-// The host mounts these routes without authentication, so everything they
-// expose is read-only and reduced for an anonymous reader: the app issues no
-// mutating request, model.Status carries ids and labels but no credential
-// material, and serveStatus names each seat without its account address,
-// withholds the credential file name, keeps only the config block the page
-// reads, strips URLs out of the operator warnings and bounds the binding
-// list. The authenticated management route serves the same status unreduced.
+// The page itself is a resource route, which the host serves to anyone who can
+// reach its port; it is static and carries no data. The status it renders comes
+// from the plugin's page-status management route, which the host answers only
+// with the management key and, by default, only for loopback clients. The app
+// issues no mutating request, model.Status carries ids and labels but no
+// credential material, and serveStatus still names each seat without its
+// account address, withholds the credential file name, keeps only the config
+// block the page reads, strips URLs out of the operator warnings and bounds the
+// binding list, so the page is safe to show on a screen or in a screenshot. The
+// management status route serves the same status unreduced.
 //
 // A credential's id is published as a truncated hash of the real one rather
 // than masked: every table on the page correlates on the id, and masking is
@@ -97,10 +100,11 @@ type Source interface {
 	Status(now time.Time, modelID string) model.Status
 }
 
-// NewHandler serves the app. The caller mounts it with the URL prefix already
-// stripped, so it sees "/index.html" and "/api/status". A bare "/" reaches it
-// only from cmd/webdev: the host matches a resource route by exact path and
-// refuses an empty one (internal/runtime/management.go).
+// NewHandler serves the app at app-relative paths: "/index.html" for the page
+// and "/api/status" for its data, which the plugin reaches from the page-status
+// management route. A bare "/" reaches it only from cmd/webdev: the host
+// matches a resource route by exact path and refuses an empty one
+// (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -121,8 +125,8 @@ func NewHandler(src Source) http.Handler {
 	})
 }
 
-// allowRead rejects any method that could imply a write. The app is served
-// unauthenticated, so nothing here accepts a request body.
+// allowRead rejects any method that could imply a write. The page is served
+// with no key, so nothing here accepts a request body.
 func allowRead(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		return true
@@ -152,14 +156,14 @@ func servePage(w http.ResponseWriter) {
 
 func serveStatus(w http.ResponseWriter, r *http.Request, src Source) {
 	// A sync is a read of the provider rather than a write of any local state,
-	// which is why the unauthenticated route may serve it at all. The source
-	// throttles it; this route only asks.
+	// which is why a read-only route may serve it at all. The source throttles
+	// it; this route only asks.
 	if r.URL.Query().Get("sync") == "1" {
 		if s, ok := src.(Syncer); ok {
 			s.SyncNow(r.Context())
 		}
 	}
-	status := reduceForPublic(src.Status(time.Now(), r.URL.Query().Get("model")))
+	status := reduceForPage(src.Status(time.Now(), r.URL.Query().Get("model")))
 
 	// The body is built before any header is written so an encoding failure
 	// can still produce a 500 rather than a truncated 200.
@@ -197,9 +201,9 @@ func encodeStatus(status model.Status) ([]byte, error) {
 	return bytes.ReplaceAll(buf.Bytes(), nonFiniteLiteral, jsonNull), nil
 }
 
-// reduceForPublic is the status as the unauthenticated route serves it. It
-// copies every slice it rewrites, so the source's own state is untouched.
-func reduceForPublic(st model.Status) model.Status {
+// reduceForPage is the status as the page's route serves it. It copies every
+// slice it rewrites, so the source's own state is untouched.
+func reduceForPage(st model.Status) model.Status {
 	// The page reads the pace curve and the poll cadence out of the config and
 	// nothing else. The rest is operator configuration, the usage endpoint
 	// above all: it is operator-set and may name internal infrastructure. A
@@ -352,8 +356,8 @@ func authIDReplacer(st model.Status) *strings.Replacer {
 // quote: a transport error quotes one inside its message.
 var absoluteURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"']*`)
 
-// absolutePath is a filesystem path an os error names, which would tell an
-// unauthenticated reader where the host keeps its credentials.
+// absolutePath is a filesystem path an os error names, which would tell anyone
+// looking at the page where the host keeps its credentials.
 var absolutePath = regexp.MustCompile(`(?:^|[\s"'(:])(?:/[^\s"'():]+){2,}`)
 
 // bareEmail matches an account address inside free text. A credential this
@@ -394,8 +398,8 @@ func seatEmail(a model.AuthStatus) string {
 	return ""
 }
 
-// publicSeatLabels is the Label of every seat, in row order, as the
-// unauthenticated route publishes it. Every name is unique across the
+// publicSeatLabels is the Label of every seat, in row order, as the page's
+// route serves it. Every name is unique across the
 // rows, so the two credentials one account holds in two organizations stay
 // apart on the page.
 //

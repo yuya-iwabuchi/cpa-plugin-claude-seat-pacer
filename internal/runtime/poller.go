@@ -213,8 +213,8 @@ func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
 // floors at resetSettle and is never zero or negative. Several seats resetting
 // inside one settle window share the single poll at its end.
 //
-// MinForcedPollGap does not apply. It bounds what the status route's visitors
-// may ask of the usage endpoint, and this is the loop's own scheduled poll. A
+// MinForcedPollGap does not apply. It bounds what open status pages may ask of
+// the usage endpoint, and this is the loop's own scheduled poll. A
 // reset seconds after a regular poll does cost one extra read; window resets
 // are few, and each instant shortens exactly one wake.
 func nextPollWait(snaps []model.AuthSnapshot, now time.Time, interval time.Duration) time.Duration {
