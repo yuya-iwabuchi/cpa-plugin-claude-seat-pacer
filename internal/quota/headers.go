@@ -132,6 +132,7 @@ func markRepresentative(set *windowSet, get func(string) (string, bool), now tim
 		}
 		w = set.at(key.kind, key.scope)
 		w.Duration = model.WeeklyDuration
+		w.Derived = true
 		if weekly, ok := set.lookup(model.WindowWeekly, ""); ok {
 			w.Utilization = weekly.Utilization
 		}

@@ -2688,24 +2688,40 @@ th[aria-sort] button { color: var(--ink-1); }
     return null;
   }
 
-  /* The cycle whose reset is the window's present one, or null. A cycle's
-     reset matches within the two minutes the server allows for clock skew;
-     a window whose reset no cycle carries has no path yet. */
-  function currentCycle(hist, resetsAt) {
-    if (!hist || !hist.cycles || !hist.cycles.length) return null;
+  /* The cycles whose reset is the window's present one, oldest first. A
+     cycle's reset matches within the two minutes the server allows for clock
+     skew; a window whose reset no cycle carries has no path yet. There is
+     more than one where the provider cleared the window early and kept its
+     reset: the store opens a cycle at each clearing. A cycle that opens past
+     the reset is a fresh window the provider still stamps with the old
+     instant, and the cycles before it are the window that ended. */
+  function currentCycles(hist, resetsAt) {
+    var out = [];
+    if (!hist || !hist.cycles) return out;
     var cycles = hist.cycles, target = resetsAt ? resetsAt.getTime() : null;
     for (var i = cycles.length - 1; i >= 0; i--) {
       var r = parseT(cycles[i].resets_at);
-      if (target === null ? !r : (r && Math.abs(r.getTime() - target) <= 2 * 60000)) return cycles[i];
+      var match = target === null ? !r : (r && Math.abs(r.getTime() - target) <= 2 * 60000);
+      if (!match) { if (out.length) break; continue; }
+      var opened = out.length && out[0].samples && out[0].samples[0];
+      if (opened && target !== null && opened[0] * 1000 > target + 2 * 60000) break;
+      out.unshift(cycles[i]);
     }
-    return null;
+    return out;
   }
 
-  /* Samples as {t: ms, u} in order, dropping any the encoder nulled. */
-  function samplesOf(cycle) {
+  /* Samples as {t: ms, u, est} in order across the cycles, dropping any the
+     encoder nulled; est marks an estimate rebuilt from token spend. A fall
+     between two samples is a clearing. */
+  function samplesOf(cycles) {
     var out = [];
-    ((cycle && cycle.samples) || []).forEach(function (s) {
-      if (s && num(s[0]) && num(s[1])) out.push({ t: s[0] * 1000, u: s[1] });
+    cycles.forEach(function (cycle) {
+      (cycle.samples || []).forEach(function (s) {
+        if (!s || !num(s[0]) || !num(s[1])) return;
+        var p = { t: s[0] * 1000, u: s[1] };
+        p.est = estimatedAt(cycle, p);
+        out.push(p);
+      });
     });
     return out;
   }
@@ -2730,12 +2746,14 @@ th[aria-sort] button { color: var(--ink-1); }
      mark's x, then a riser only where the mark's reading differs. */
   function tailTo(cx, cy) { return "H" + cx.toFixed(1) + "V" + cy.toFixed(1); }
 
-  /* Change in utilization over the newest span of a cycle, in percentage
-     points per hour, or null with fewer than two samples in the span. */
+  /* Change in utilization over the newest span of a window, in percentage
+     points per hour, or null with fewer than two samples in the span. The
+     span stops at a clearing, so the rate is the fresh window's spend. */
   function recentSlope(samples, spanMs) {
     if (samples.length < 2) return null;
     var last = samples[samples.length - 1], from = last.t - spanMs, first = null;
     for (var i = samples.length - 1; i >= 0; i--) {
+      if (first && samples[i].u > first.u) break;
       if (samples[i].t <= from) { first = samples[i]; break; }
       first = samples[i];
     }
@@ -2914,14 +2932,14 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Draws one cycle's samples as a line under parent, the estimated stretch
+  /* Draws a window's samples as a line under parent, the estimated stretch
      dashed and pale and the observed stretch solid; the two share the sample
      at the boundary so the line has no gap. tail, if given, is a path
      segment to the present mark, which is always an observed reading, so it
      is drawn solid. Returns the count of estimated samples. */
-  function historyLine(parent, cycle, samples, xOf, Y, col, tail) {
+  function historyLine(parent, samples, xOf, Y, col, tail) {
     var est = [], obs = [];
-    samples.forEach(function (s) { (estimatedAt(cycle, s) ? est : obs).push(s); });
+    samples.forEach(function (s) { (s.est ? est : obs).push(s); });
     est = anchoredEstimate(est, obs);
     if (est.length && obs.length) obs.unshift(est[est.length - 1]);
     if (est.length >= 2) svg("path", { "class": "hist hist-est", d: pathOf(est, xOf, Y), stroke: col }, parent);
@@ -3195,10 +3213,10 @@ th[aria-sort] button { color: var(--ink-1); }
       var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0;
       if (resets && hist) {
         var start = resets.getTime() - PACE_DAYS * 86400000;
-        var cycle = currentCycle(hist, resets), cur = samplesOf(cycle);
+        var cur = samplesOf(currentCycles(hist, resets));
         if (cur.length >= 2) {
           var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
-          est = historyLine(gl, cycle, cur, xOf, Y, col, tailTo(cx, cy));
+          est = historyLine(gl, cur, xOf, Y, col, tailTo(cx, cy));
           anyEst = anyEst || est > 0;
           line = cur;
           slope = recentSlope(cur, SLOPE_SPAN_MS);
@@ -3528,10 +3546,9 @@ th[aria-sort] button { color: var(--ink-1); }
          seat it never evaluated draws its line with no head tick. */
       var ws = scoreFor(a, { kind: "five_hour" });
       var entry = { auth: a, w: w, ws: ws && num(ws.target) && num(ws.slack) ? ws : null, resets: resets,
-        gap: sessionGap(a, w, resets), cur: [], curCycle: null };
+        gap: sessionGap(a, w, resets), cur: [] };
       if (!entry.gap) {
-        entry.curCycle = currentCycle(historyFor(a, "five_hour", ""), resets);
-        entry.cur = samplesOf(entry.curCycle);
+        entry.cur = samplesOf(currentCycles(historyFor(a, "five_hour", ""), resets));
         entry.start = resets.getTime() - SESSION_MS;
       }
       return entry;
@@ -3609,7 +3626,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "\n" + resetText(s.resets, now) +
         "\nlast hour " + lastHour;
       if (s.cur.length >= 2) {
-        estCur = historyLine(gSegs, s.curCycle, s.cur, xOf, Y, col, tailTo(cx, cy));
+        estCur = historyLine(gSegs, s.cur, xOf, Y, col, tailTo(cx, cy));
         anyEst = anyEst || estCur > 0;
         /* One focusable stretch per SEG_MS of the line, carrying the
            conversations the log shows on the seat in that stretch. */
@@ -3625,7 +3642,7 @@ th[aria-sort] button { color: var(--ink-1); }
             var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, gSegs);
             g.setAttribute("data-seat", a.auth_id);
             g.setAttribute("data-fk", "seg:" + a.auth_id + ":" + k);
-            var estHere = pts.some(function (p) { return estimatedAt(s.curCycle, p); });
+            var estHere = pts.some(function (p) { return p.est; });
             var segHead = clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) +
               " · " + pct(pts[0].u) + " → " + pct(pts[pts.length - 1].u) +
               " · " + rateText(dh > 0 ? du * 100 / dh : null) +

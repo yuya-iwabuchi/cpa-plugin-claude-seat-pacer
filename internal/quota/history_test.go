@@ -573,3 +573,90 @@ func TestALowerReadingInsideACycleIsNotRecorded(t *testing.T) {
 		t.Errorf("samples = %d, want 3: the lower reading is not recorded", h.Samples())
 	}
 }
+
+// TestAClearedWindowOpensACycleUnderTheSameReset covers the provider clearing
+// a window's usage early and keeping its reset instant: the fall is too deep
+// to be one source lagging the other, so the fresh window's readings open a
+// cycle of their own under the same reset instead of being dropped until the
+// window climbs back to where it stood. A replayed file keeps the split.
+func TestAClearedWindowOpensACycleUnderTheSameReset(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(3 * 24 * time.Hour)
+	weekly := func(u float64) model.Window {
+		return model.Window{Kind: model.WindowWeekly, Utilization: u, ResetsAt: resets, Duration: model.WeeklyDuration}
+	}
+	for i, u := range []float64{0.90, 1.00, 1.00, 0.02, 0.05, 0.19} {
+		s.Put(endpointSnapshot("auth-1", testNow.Add(time.Duration(i)*10*time.Minute), weekly(u)))
+	}
+
+	h := historyOf(t, s, "auth-1", model.WindowWeekly)
+	if len(h.Cycles) != 2 {
+		t.Fatalf("cycles = %+v, want the clearing to open a second cycle", h.Cycles)
+	}
+	for i, c := range h.Cycles {
+		if !c.ResetsAt.Equal(resets) {
+			t.Errorf("cycle %d resets_at = %v, want %v", i, c.ResetsAt, resets)
+		}
+	}
+	var got []float64
+	for _, smp := range h.Cycles[1].Samples {
+		got = append(got, smp.Utilization)
+	}
+	if want := []float64{0.02, 0.05, 0.19}; !reflect.DeepEqual(got, want) {
+		t.Errorf("fresh cycle = %v, want %v", got, want)
+	}
+
+	r := &ring{}
+	r.replay(h)
+	if back := r.export(h.Kind, h.Scope, 0); !reflect.DeepEqual(back, h) {
+		t.Errorf("replayed history = %+v, want %+v", back, h)
+	}
+}
+
+// TestAnEstimateAboveTheFirstReadingIsNotAClearing covers the one fall that
+// is not the provider's: an estimate rebuilt from token spend carries its
+// shape and not its level, so an observed reading under it is the estimate
+// running high, and it stays in the estimated cycle's reset.
+func TestAnEstimateAboveTheFirstReadingIsNotAClearing(t *testing.T) {
+	resets := testNow.Add(3 * time.Hour)
+	r := &ring{}
+	r.put(testNow, sessionAt(0.40, resets), true)
+	r.put(testNow.Add(10*time.Minute), sessionAt(0.50, resets), true)
+	r.put(testNow.Add(20*time.Minute), sessionAt(0.30, resets), false)
+	if len(r.cycles) != 1 {
+		t.Errorf("cycles = %+v, want the reading under the estimate to open no cycle", r.cycles)
+	}
+}
+
+// TestADerivedCapReadingIsNotRecorded covers a family cap the headers refuse
+// without reporting: its utilization is the 7-day figure standing in, so the
+// cap's history keeps the endpoint's readings and neither drops nor splits on
+// it.
+func TestADerivedCapReadingIsNotRecorded(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(3 * 24 * time.Hour)
+	opus := func(u float64, derived bool) model.Window {
+		return model.Window{Kind: model.WindowWeeklyScoped, Scope: model.FamilyOpus, Utilization: u,
+			ResetsAt: resets, Duration: model.WeeklyDuration, Status: model.StatusRejected, Derived: derived}
+	}
+	for i := 0; i < 3; i++ {
+		at := testNow.Add(time.Duration(i) * 10 * time.Minute)
+		s.Put(endpointSnapshot("auth-1", at, opus(1.00, false)))
+		s.MergeHeaders("auth-1", []model.Window{opus(0.45, true)}, at.Add(5*time.Minute))
+	}
+	for _, h := range s.History("auth-1", 0) {
+		if h.Kind != model.WindowWeeklyScoped {
+			continue
+		}
+		if len(h.Cycles) != 1 {
+			t.Fatalf("cycles = %+v, want the derived readings to open none", h.Cycles)
+		}
+		for _, smp := range h.Cycles[0].Samples {
+			if smp.Utilization != 1.00 {
+				t.Errorf("sample %v, want only the endpoint's 1.00", smp)
+			}
+		}
+		return
+	}
+	t.Fatal("no Opus cap history")
+}

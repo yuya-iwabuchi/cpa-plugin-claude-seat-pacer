@@ -29,7 +29,7 @@ import (
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many, collide, exhausted or empty")
+		"fixture scenario: full, single, stale, degraded, many, collide, cleared, exhausted or empty")
 	seats := flag.Int("seats", 6, "credential count for the many scenario")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
@@ -70,6 +70,11 @@ func main() {
 		// one of them is at its Fable cap with its weekly window fine, so it
 		// is eligible for Standard requests and not for Fable ones.
 		src.collide()
+	case "cleared":
+		// A seat whose provider cleared both weekly windows half a day ago and
+		// kept their reset instant, so its recorded lines climb to near full,
+		// fall and climb again to the reading.
+		src.cleared()
 	case "exhausted":
 		// Every seat past its 5-hour window, with the host falling through to
 		// the priority tier below: an API-key credential the poller never
@@ -182,6 +187,9 @@ type fixture struct {
 	// succeeds.
 	listErr  string
 	warnings []string
+	// clearedAgo is how long before the request the provider cleared a
+	// seat's weekly windows without moving their reset.
+	clearedAgo map[string]time.Duration
 	// forcedAt is when the last forced read landed, in Unix nanoseconds, as
 	// SyncNow moves it. The polling loop's own schedule is untouched by one,
 	// the way the plugin leaves its timer alone.
@@ -676,6 +684,23 @@ func (f *fixture) collide() {
 	f.decisions = f.buildDecisions()
 }
 
+func (f *fixture) cleared() {
+	snap := f.snapshots[seatBID]
+	snap.Windows = append([]model.Window(nil), snap.Windows...)
+	resets := f.anchor.Add(3 * 24 * time.Hour)
+	for i := range snap.Windows {
+		w := &snap.Windows[i]
+		switch w.Kind {
+		case model.WindowWeekly:
+			w.Utilization, w.ResetsAt, w.Status, w.Severity = 0.19, resets, model.StatusAllowed, model.SeverityNormal
+		case model.WindowWeeklyScoped:
+			w.Utilization, w.ResetsAt = 0.18, resets
+		}
+	}
+	f.snapshots[seatBID] = snap
+	f.clearedAgo = map[string]time.Duration{seatBID: 12 * time.Hour}
+}
+
 // growTo replaces the fixture's credentials with n synthesized seats. Past the
 // table above, seats repeat its rows under numbered names.
 func (f *fixture) growTo(n int) {
@@ -927,12 +952,24 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 			elapsed := span / w.Duration.Seconds()
 			curve = paceCurve(paceShapes[shapeIdx], elapsed, w.Utilization, n)
 		}
+		// The sample the provider cleared the window after, or -1. The replay
+		// is stretched to near full there, and the fresh window climbs
+		// steadily from zero to the reading.
+		ci := -1
+		if ago, ok := f.clearedAgo[snap.AuthID]; ok && walks {
+			ci = min(max(int(now.Add(-ago).Sub(start)/step), 0), n-1)
+		}
 		for i := 0; i < n; i++ {
 			t := start.Add(time.Duration(i) * step)
 			frac := t.Sub(start).Seconds() / span
 			u := w.Utilization * math.Pow(frac, sessionShape)
 			if walks {
 				u = curve[i]
+			}
+			if ci >= 0 && i <= ci {
+				u = math.Min(1, 0.98*curve[i]/math.Max(curve[ci], 1e-9))
+			} else if ci >= 0 {
+				u = w.Utilization * float64(i-ci) / float64(n-1-ci)
 			}
 			if idle && frac > 0.25 && frac < 0.75 {
 				u = w.Utilization * math.Pow(0.25, sessionShape)
