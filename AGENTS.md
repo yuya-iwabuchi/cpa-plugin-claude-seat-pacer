@@ -146,6 +146,11 @@ and fully unit-testable without the host.
   (`vuln.yml`) judges the standard library of that toolchain, so a
   standard-library finding is fixed by raising the pin, and a dependency
   finding by raising that module's requirement.
+- Both workflows set `MACOSX_DEPLOYMENT_TARGET` to the oldest macOS the
+  pinned Go supports (Go 1.25 and 1.26: 12.0), and the release fails a macOS
+  library whose recorded minimum differs. Raising the toolchain past a Go that
+  drops a macOS release means raising the target with it, and the README's
+  stated minimums.
 - No blocking I/O on the pick path. Ever.
 - Every exported cgo entry point recovers from panics.
 - Prefer declining (`Handled: false`) over guessing.
