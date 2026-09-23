@@ -126,7 +126,7 @@ type QuotaConfig struct {
 // WebConfig governs the built-in status app.
 type WebConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// HistoryLimit caps retained routing decisions.
+	// HistoryLimit caps retained routing decisions, at most 10000.
 	HistoryLimit int `yaml:"history-limit" json:"history_limit"`
 }
 
@@ -251,7 +251,9 @@ func (c *Config) Normalize() {
 	if c.Quota.UsageURL == "" {
 		c.Quota.UsageURL = d.Quota.UsageURL
 	}
-	if c.Web.HistoryLimit <= 0 {
+	// The decision log allocates every slot up front, so a cap in the
+	// billions is an allocation no recover survives.
+	if c.Web.HistoryLimit <= 0 || c.Web.HistoryLimit > 10000 {
 		c.Web.HistoryLimit = d.Web.HistoryLimit
 	}
 }

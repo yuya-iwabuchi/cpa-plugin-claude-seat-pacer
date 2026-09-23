@@ -272,3 +272,25 @@ func TestNormalizeCorrectsANegativeWeightAndKeepsZero(t *testing.T) {
 			kept.Pace.WeeklyWeight, kept.Pace.SessionWeight, kept.Pace.ScopedWeight)
 	}
 }
+
+// The decision log allocates its whole ring at once, so a limit past the cap
+// is an out-of-memory crash rather than a long history.
+func TestNormalizeBoundsTheHistoryLimit(t *testing.T) {
+	d := Defaults()
+	for _, tc := range []struct {
+		in, want int
+	}{
+		{1, 1},
+		{10000, 10000},
+		{10001, d.Web.HistoryLimit},
+		{1000000000, d.Web.HistoryLimit},
+		{0, d.Web.HistoryLimit},
+		{-5, d.Web.HistoryLimit},
+	} {
+		cfg := Config{Web: WebConfig{HistoryLimit: tc.in}}
+		cfg.Normalize()
+		if cfg.Web.HistoryLimit != tc.want {
+			t.Errorf("HistoryLimit %d normalized to %d, want %d", tc.in, cfg.Web.HistoryLimit, tc.want)
+		}
+	}
+}
