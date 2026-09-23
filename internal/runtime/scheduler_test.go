@@ -570,6 +570,21 @@ func TestPinnedRequestLeavesTheBindingAlone(t *testing.T) {
 	}
 }
 
+// The host never pins to a blank id, so a blank value is an ordinary request
+// and binds its conversation.
+func TestABlankPinnedIDIsNotAPin(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	for key, blank := range map[string]string{"empty": "", "spaces": "  "} {
+		req := pickRequest(fableModel, key, "seat-a", "seat-b")
+		req.Options.Metadata[MetadataPinnedAuthID] = blank
+		tp.pick(t, req)
+		if _, ok := tp.bindings.Lookup("claude", fableModel, key, testNow); !ok {
+			t.Errorf("pinned_auth_id %q left the conversation unbound", blank)
+		}
+	}
+}
+
 func TestPickIsSafeUnderConcurrency(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)

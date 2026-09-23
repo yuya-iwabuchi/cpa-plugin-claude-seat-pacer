@@ -119,7 +119,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 	now := p.now()
 	in := pickInput{req: req, cfg: cfg, now: now, identity: readBridge(req.Options.Headers)}
 	in.retryOf = metadataString(req.Options.Metadata, MetadataSelectedAuthID)
-	_, in.pinned = req.Options.Metadata[MetadataPinnedAuthID]
+	in.pinned = strings.TrimSpace(metadataString(req.Options.Metadata, MetadataPinnedAuthID)) != ""
 
 	decline := func(note string) SchedulerPickResponse {
 		p.record(model.Decision{
