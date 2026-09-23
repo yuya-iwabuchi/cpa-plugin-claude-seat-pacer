@@ -43,6 +43,18 @@ func get(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder
 	return rec
 }
 
+// testIDKey is the key testHandler publishes credential ids under, so a test
+// can name the id a response carries.
+var testIDKey = bytes.Repeat([]byte{0x5a}, idKeyBytes)
+
+// testHandler is the handler NewHandler builds, publishing ids under testIDKey.
+func testHandler(src Source) http.Handler {
+	return newHandler(src, func() []byte { return testIDKey })
+}
+
+// testID is id as testHandler publishes it.
+func testID(id string) string { return publicID(testIDKey, id) }
+
 // base is the instant every fixture status is stamped with, so two fixtures
 // never differ by a clock the assertions do not name.
 var base = time.Date(2026, 9, 4, 15, 4, 5, 0, time.UTC)
@@ -125,7 +137,7 @@ func richStatus() model.Status {
 func TestRoutes(t *testing.T) {
 	t.Parallel()
 	src := &stubSource{status: richStatus()}
-	h := NewHandler(src)
+	h := testHandler(src)
 
 	cases := []struct {
 		method, target string
@@ -156,7 +168,7 @@ func TestRoutes(t *testing.T) {
 
 	// A rejected method must be refused before the Source is consulted.
 	rejected := &stubSource{status: richStatus()}
-	rh := NewHandler(rejected)
+	rh := testHandler(rejected)
 	for _, c := range []struct{ method, target string }{
 		{http.MethodPost, "/api/status"},
 		{http.MethodDelete, "/index.html"},
@@ -176,7 +188,7 @@ func TestRoutes(t *testing.T) {
 
 func TestHeaders(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(&stubSource{status: richStatus()})
+	h := testHandler(&stubSource{status: richStatus()})
 	for _, target := range []string{"/", "/index.html", "/api/status", "/missing"} {
 		rec := get(t, h, target)
 		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
@@ -230,7 +242,7 @@ func TestHeaders(t *testing.T) {
 func TestStatusJSONRoundTrip(t *testing.T) {
 	t.Parallel()
 	want := richStatus()
-	h := NewHandler(&stubSource{status: want})
+	h := testHandler(&stubSource{status: want})
 
 	rec := get(t, h, "/api/status")
 	var got model.Status
@@ -245,18 +257,18 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 		Quota: model.QuotaConfig{PollInterval: want.Config.Quota.PollInterval},
 	}
 	expect.Auths = []model.AuthStatus{want.Auths[0]}
-	expect.Auths[0].AuthID = publicID("auth-a")
-	expect.Auths[0].Snapshot.AuthID = publicID("auth-a")
+	expect.Auths[0].AuthID = testID("auth-a")
+	expect.Auths[0].Snapshot.AuthID = testID("auth-a")
 	expect.Auths[0].Snapshot.AuthIndex = ""
-	expect.Auths[0].Score.AuthID = publicID("auth-a")
+	expect.Auths[0].Score.AuthID = testID("auth-a")
 	expect.Bindings = []model.Binding{want.Bindings[0]}
-	expect.Bindings[0].AuthID = publicID("auth-a")
+	expect.Bindings[0].AuthID = testID("auth-a")
 	expect.Decisions = []model.Decision{want.Decisions[0]}
-	expect.Decisions[0].ChosenAuthID = publicID("auth-a")
-	expect.Decisions[0].PreviousAuthID = publicID("auth-b")
+	expect.Decisions[0].ChosenAuthID = testID("auth-a")
+	expect.Decisions[0].PreviousAuthID = testID("auth-b")
 	expect.Decisions[0].Scores = []model.Score{want.Decisions[0].Scores[0]}
-	expect.Decisions[0].Scores[0].AuthID = publicID("auth-b")
-	expect.Warnings = []string{"quota poll failing for " + publicID("auth-a") + " (timeout): boom"}
+	expect.Decisions[0].Scores[0].AuthID = testID("auth-b")
+	expect.Warnings = []string{"quota poll failing for " + testID("auth-a") + " (timeout): boom"}
 	if !reflect.DeepEqual(got, expect) {
 		t.Errorf("round trip changed the status\n got: %+v\nwant: %+v", got, expect)
 	}
@@ -268,7 +280,7 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 func TestStatusPassesModelAndNow(t *testing.T) {
 	t.Parallel()
 	src := &stubSource{status: richStatus()}
-	h := NewHandler(src)
+	h := testHandler(src)
 
 	before := time.Now()
 	get(t, h, "/api/status?model=claude-opus-4-6")
@@ -316,7 +328,7 @@ func TestPageUndoesHostEscaping(t *testing.T) {
 
 func TestPageIsOffline(t *testing.T) {
 	t.Parallel()
-	page := get(t, NewHandler(&stubSource{status: richStatus()}), "/").Body.String()
+	page := get(t, testHandler(&stubSource{status: richStatus()}), "/").Body.String()
 
 	for _, banned := range []string{"http://", "https://", "//fonts.", "cdn."} {
 		if strings.Contains(page, banned) {
@@ -342,7 +354,7 @@ func TestPageIsOffline(t *testing.T) {
 
 func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 	t.Parallel()
-	page := get(t, NewHandler(&stubSource{status: richStatus()}), "/index.html").Body.String()
+	page := get(t, testHandler(&stubSource{status: richStatus()}), "/index.html").Body.String()
 
 	ids := []string{
 		"tooltip", "svg-ns",
@@ -379,7 +391,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 // page actually carries: a drift between them stops the document running.
 func TestScriptHashCoversTheServedPage(t *testing.T) {
 	t.Parallel()
-	page := get(t, NewHandler(&stubSource{}), "/index.html").Body.Bytes()
+	page := get(t, testHandler(&stubSource{}), "/index.html").Body.Bytes()
 	i := bytes.Index(page, []byte("<script>"))
 	j := bytes.Index(page, []byte("</script>"))
 	if i < 0 || j < i {
@@ -402,7 +414,7 @@ func TestScriptHashCoversTheServedPage(t *testing.T) {
 // and to another in the browser, which then blocks the page whole.
 func TestPageHoldsNoRewrittenByte(t *testing.T) {
 	t.Parallel()
-	page := get(t, NewHandler(&stubSource{}), "/index.html").Body.Bytes()
+	page := get(t, testHandler(&stubSource{}), "/index.html").Body.Bytes()
 	for _, c := range []struct {
 		b    byte
 		name string
@@ -432,7 +444,7 @@ func TestNonFiniteSurvivesEncoding(t *testing.T) {
 	st.Decisions[0].Scores[0].Cost = math.Inf(1)
 	st.Decisions[0].Scores[0].Windows[0].Slack = math.NaN()
 
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
 	}
@@ -475,7 +487,7 @@ func TestSourceStateIsNotMutated(t *testing.T) {
 	st.Auths[0].Snapshot.Windows[0].Utilization = math.NaN()
 	src := &stubSource{status: st}
 
-	get(t, NewHandler(src), "/api/status")
+	get(t, testHandler(src), "/api/status")
 	if src.status.Auths[0].Label != "ops@example.com" {
 		t.Errorf("label was rewritten in place: %q", src.status.Auths[0].Label)
 	}
@@ -541,11 +553,11 @@ func TestPublicSeatNamesAreDistinct(t *testing.T) {
 		{AuthID: "claude-lone@acme.example.json", Label: "lone@acme.example", Name: "claude-lone@acme.example.json", Provider: "claude"},
 		{AuthID: "bare"},
 	}
-	got := publicSeatLabels(auths)
+	got := publicSeatLabels(auths, testID)
 	want := []string{
 		"team-a", "team-b",
-		"o…@acme.example #" + publicID(auths[2].AuthID)[:seatTagLen],
-		"o…@acme.example #" + publicID(auths[3].AuthID)[:seatTagLen],
+		"o…@acme.example #" + testID(auths[2].AuthID)[:seatTagLen],
+		"o…@acme.example #" + testID(auths[3].AuthID)[:seatTagLen],
 		"Seat E", "l…@acme.example", "",
 	}
 	for i := range want {
@@ -581,7 +593,7 @@ func TestSeatIdentityIsReduced(t *testing.T) {
 	st.Auths[0].Name = "claude-quota.bot@acme-corp.example-primary.json"
 	st.Auths[0].Snapshot.Label = "quota.bot@acme-corp.example"
 
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	if body := rec.Body.String(); strings.Contains(body, "quota.bot") {
 		t.Errorf("the account's local part is served on the unauthenticated route: %s", body)
 	}
@@ -610,7 +622,7 @@ func TestConfigIsReducedToThePaceCurve(t *testing.T) {
 	st.Config.Quota.UsageURL = "https://usage.internal.example/api/oauth/usage"
 	st.Config.Quota.PollInterval = 2 * time.Minute
 
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	var got model.Status
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -642,13 +654,13 @@ func TestWarningsDropURLs(t *testing.T) {
 	original := st.Warnings[0]
 	src := &stubSource{status: st}
 
-	rec := get(t, NewHandler(src), "/api/status")
+	rec := get(t, testHandler(src), "/api/status")
 	var got model.Status
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	want := []string{
-		`quota poll failing for ` + publicID("auth-a") + ` (timeout): Get "…": context deadline exceeded`,
+		`quota poll failing for ` + testID("auth-a") + ` (timeout): Get "…": context deadline exceeded`,
 		"provider claude offered a single candidate; the pool shares one priority tier",
 	}
 	if !reflect.DeepEqual(got.Warnings, want) {
@@ -670,7 +682,7 @@ func TestWarningsDropFilesystemPaths(t *testing.T) {
 	}
 	src := &stubSource{status: st}
 
-	rec := get(t, NewHandler(src), "/api/status")
+	rec := get(t, testHandler(src), "/api/status")
 	var got model.Status
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -689,7 +701,7 @@ func TestWarningsDropFilesystemPaths(t *testing.T) {
 // id does not panic the tag.
 func TestPublicSeatLabelsSurviveAnEmptyID(t *testing.T) {
 	t.Parallel()
-	got := publicSeatLabels([]model.AuthStatus{{AuthID: ""}, {AuthID: ""}})
+	got := publicSeatLabels([]model.AuthStatus{{AuthID: ""}, {AuthID: ""}}, testID)
 	if len(got) != 2 || got[0] == "" || got[1] == "" || got[0] == got[1] {
 		t.Errorf("labels for two empty ids = %q, want two distinct non-empty labels", got)
 	}
@@ -702,7 +714,7 @@ func TestSnapshotWithNoWindowsShipsAnEmptyList(t *testing.T) {
 	t.Parallel()
 	st := richStatus()
 	st.Auths[0].Snapshot = model.AuthSnapshot{AuthID: st.Auths[0].AuthID, ObservedAt: base}
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -728,7 +740,7 @@ func TestBindingsAreBounded(t *testing.T) {
 	}
 	src := &stubSource{status: st}
 
-	rec := get(t, NewHandler(src), "/api/status")
+	rec := get(t, testHandler(src), "/api/status")
 	var got model.Status
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -751,7 +763,7 @@ func TestBindingsAreBounded(t *testing.T) {
 
 	// A list within the cap is served whole and says nothing about truncation.
 	small := richStatus()
-	whole := get(t, NewHandler(&stubSource{status: small}), "/api/status").Body.String()
+	whole := get(t, testHandler(&stubSource{status: small}), "/api/status").Body.String()
 	if strings.Contains(whole, "truncated") {
 		t.Errorf("an untruncated list reports truncation: %s", whole)
 	}
@@ -759,7 +771,7 @@ func TestBindingsAreBounded(t *testing.T) {
 
 func TestEmptyStatusStillServes(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(&stubSource{})
+	h := testHandler(&stubSource{})
 	rec := get(t, h, "/api/status")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d", rec.Code)
@@ -825,7 +837,7 @@ func idStatus() model.Status {
 func TestCredentialIDsArePublished(t *testing.T) {
 	t.Parallel()
 	src := &stubSource{status: idStatus()}
-	rec := get(t, NewHandler(src), "/api/status")
+	rec := get(t, testHandler(src), "/api/status")
 
 	// The whole body, so a field added to model.Status and left carrying a
 	// real id fails here rather than at the fields this test enumerates.
@@ -840,7 +852,7 @@ func TestCredentialIDsArePublished(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	a, b := publicID(seatAID), publicID(seatBID)
+	a, b := testID(seatAID), testID(seatBID)
 	if a == b {
 		t.Fatalf("two credentials share the published id %q", a)
 	}
@@ -881,32 +893,17 @@ func TestCredentialIDsArePublished(t *testing.T) {
 	}
 }
 
-// TestPublishedIDsAreStable covers the operator watching the page: one seat
-// reads the same across polls, and across the process restart that empties
-// every in-memory table.
-func TestPublishedIDsAreStable(t *testing.T) {
-	t.Parallel()
-	first := get(t, NewHandler(&stubSource{status: idStatus()}), "/api/status").Body.String()
-	second := get(t, NewHandler(&stubSource{status: idStatus()}), "/api/status").Body.String()
-	if first != second {
-		t.Errorf("two responses for one state differ\nfirst:  %s\nsecond: %s", first, second)
-	}
-	if got := publicID(seatAID); got != "e70f945ee048d448" {
-		t.Errorf("publicID(%q) = %q; the published id is derived from nothing but the real id, so it survives a restart", seatAID, got)
-	}
-}
-
 // TestEveryAuthIDFieldIsPublished walks the served JSON rather than the fields
 // this package names, so a field whose key ends in auth_id and whose value is
 // not a published id fails here whenever it is added.
 func TestEveryAuthIDFieldIsPublished(t *testing.T) {
 	t.Parallel()
-	rec := get(t, NewHandler(&stubSource{status: idStatus()}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: idStatus()}), "/api/status")
 	var raw any
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	published := map[string]bool{publicID(seatAID): true, publicID(seatBID): true}
+	published := map[string]bool{testID(seatAID): true, testID(seatBID): true}
 
 	var walk func(path string, v any)
 	walk = func(path string, v any) {
@@ -940,7 +937,7 @@ func TestSnapshotErrorDropsURLs(t *testing.T) {
 	st.Auths[0].Snapshot.Err = `Get "https://usage.internal.example/api/oauth/usage": context deadline exceeded`
 	st.Auths[0].Snapshot.ErrCategory = "timeout"
 
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	var got model.Status
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -961,7 +958,7 @@ func TestFreeTextMasksAnUnlistedCredential(t *testing.T) {
 	st := idStatus()
 	st.Decisions[0].Note = "retry after removed@acme.example.json"
 
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	if strings.Contains(rec.Body.String(), "removed@") {
 		t.Errorf("an unlisted credential's address is served: %s", rec.Body.String())
 	}
@@ -980,7 +977,7 @@ func (s *syncSource) SyncNow(context.Context) bool { s.syncs++; return true }
 func TestStatusSyncsOnlyWhenAsked(t *testing.T) {
 	t.Parallel()
 	src := &syncSource{stubSource: stubSource{status: richStatus()}}
-	h := NewHandler(src)
+	h := testHandler(src)
 
 	if rec := get(t, h, "/api/status"); rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -999,7 +996,7 @@ func TestStatusSyncsOnlyWhenAsked(t *testing.T) {
 		t.Errorf("Status calls = %d, want one per request", src.calls)
 	}
 
-	plain := NewHandler(&stubSource{status: richStatus()})
+	plain := testHandler(&stubSource{status: richStatus()})
 	if rec := get(t, plain, "/api/status?sync=1"); rec.Code != http.StatusOK {
 		t.Errorf("a source without SyncNow answered %d, want 200", rec.Code)
 	}
@@ -1014,7 +1011,7 @@ func TestNonFiniteHistorySampleSurvivesEncoding(t *testing.T) {
 	st.Auths[0].History[0].Cycles[0].Samples[0].Utilization = math.NaN()
 	st.Auths[0].History[0].Cycles[0].Samples[1].Utilization = math.Inf(1)
 
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
 	}
@@ -1055,7 +1052,7 @@ func TestFileNameResidueFoldsWithoutRealigning(t *testing.T) {
 	st.Auths[0].Label = "bob@acme.example"
 	st.Auths[0].Email = "bob@acme.example"
 	st.Auths[0].Name = "\u023a\u023a\u023a\u023a-bob.json"
-	rec := get(t, NewHandler(&stubSource{status: st}), "/api/status")
+	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200\nbody: %s", rec.Code, rec.Body.String())
 	}
