@@ -300,6 +300,33 @@ func TestStoreMergeHeadersKeepsWhatTheHeadersDoNotReport(t *testing.T) {
 	}
 }
 
+// TestStoreMergeHeadersKeepsTheResetAReadingLacks covers a header reading whose
+// reset was missing or out of range: the window keeps its place on the pace
+// curve rather than losing it.
+func TestStoreMergeHeadersKeepsTheResetAReadingLacks(t *testing.T) {
+	stored := sessionWindow(0.5)
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, stored))
+
+	noReset := sessionWindow(0.6)
+	noReset.ResetsAt = time.Time{}
+	s.MergeHeaders("auth-1", []model.Window{noReset}, testNow.Add(time.Minute))
+	session, _ := mustGet(t, s, "auth-1").Window(model.WindowSession, "")
+	if session.Utilization != 0.6 {
+		t.Errorf("utilization = %v, want the merged 0.6", session.Utilization)
+	}
+	if !session.ResetsAt.Equal(stored.ResetsAt) {
+		t.Errorf("resets at %v, want the stored %v", session.ResetsAt, stored.ResetsAt)
+	}
+
+	moved := sessionWindow(0.1)
+	moved.ResetsAt = stored.ResetsAt.Add(5 * time.Hour)
+	s.MergeHeaders("auth-1", []model.Window{moved}, testNow.Add(2*time.Minute))
+	if session, _ := mustGet(t, s, "auth-1").Window(model.WindowSession, ""); !session.ResetsAt.Equal(moved.ResetsAt) {
+		t.Errorf("resets at %v, want the reading's %v", session.ResetsAt, moved.ResetsAt)
+	}
+}
+
 func TestStoreMergeHeadersLeavesOneActiveWindow(t *testing.T) {
 	active := sessionWindow(0.5)
 	active.Active = true
