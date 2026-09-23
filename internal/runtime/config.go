@@ -9,7 +9,8 @@ import (
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
-// decodeConfig turns the plugin's YAML block into a normalized config. Keys
+// decodeConfig turns the plugin's YAML block into a normalized config and the
+// warnings Normalize raised over it. Keys
 // the block omits keep their defaults, because yaml.v3 leaves absent fields
 // untouched, and Normalize then clamps whatever the block did set. Duration
 // fields accept Go duration strings such as "2m" and "15m".
@@ -22,15 +23,15 @@ import (
 // config file leaves the plugin loaded but inert rather than routing on a
 // half-read configuration. A dotted key whose path runs through a value that
 // is not a mapping, such as pace.shape beside pace: 3, is unparsable.
-func decodeConfig(configYAML []byte) (model.Config, error) {
+func decodeConfig(configYAML []byte) (model.Config, []string, error) {
 	cfg := model.Defaults()
 	if err := decodeYAML(configYAML, &cfg); err != nil {
 		inert := model.Defaults()
 		inert.Enabled = false
-		return inert, fmt.Errorf("parse plugin config: %w", err)
+		return inert, nil, fmt.Errorf("parse plugin config: %w", err)
 	}
-	cfg.Normalize()
-	return cfg, nil
+	warnings := cfg.Normalize()
+	return cfg, warnings, nil
 }
 
 // decodeYAML decodes a config block into cfg with its dotted keys expanded.

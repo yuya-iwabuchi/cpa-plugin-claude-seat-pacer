@@ -52,6 +52,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	lastModel := p.lastModel
 	polledAt, nextPollAt := p.polledAt, p.nextPollAt
 	listErr := p.listErr
+	configWarnings := p.configWarnings
 	// Only providers whose latest pick was still down to one candidate, so the
 	// warning clears once the pool's priority values are fixed.
 	single := make([]string, 0, len(p.singleCandidates))
@@ -138,7 +139,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		}
 		seats[id] = state
 	}
-	warnings := Warnings(cfg.Enabled, listErr, single, rows, seats)
+	warnings := Warnings(cfg.Enabled, configWarnings, listErr, single, rows, seats)
 
 	decisions := p.decisions.newestFirst()
 	bound := bindings.All()
@@ -229,17 +230,19 @@ type SeatWarningState struct {
 }
 
 // Warnings is the operator warning list a status view carries: the plugin
-// being off, a failing credential listing, a provider the host offered one
-// candidate for, and per credential a failing poll or a missing reading. A
+// being off, each setting Normalize raised to fit another, a failing
+// credential listing, a provider the host offered one candidate for, and per
+// credential a failing poll or a missing reading. A
 // credential the host no longer lists, or has disabled, warns about neither:
 // the poller skips it, so it holds no reading by design.
 //
 // Order follows rows, so the same state renders the same list twice.
-func Warnings(enabled bool, listErr string, singleCandidateProviders []string, rows []model.AuthStatus, seats map[string]SeatWarningState) []string {
+func Warnings(enabled bool, configWarnings []string, listErr string, singleCandidateProviders []string, rows []model.AuthStatus, seats map[string]SeatWarningState) []string {
 	warnings := make([]string, 0, 4)
 	if !enabled {
 		warnings = append(warnings, "plugin is disabled by configuration; the host's own selector routes every request")
 	}
+	warnings = append(warnings, configWarnings...)
 	if listErr != "" {
 		warnings = append(warnings, "credential listing is failing: "+listErr)
 	}

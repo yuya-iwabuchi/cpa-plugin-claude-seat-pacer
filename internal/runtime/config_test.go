@@ -11,7 +11,7 @@ import (
 // its dotted name, so every dotted key it renders has to reach the nested
 // field it names.
 func TestDottedKeysSetTheirNestedField(t *testing.T) {
-	cfg, err := decodeConfig([]byte("enabled: true\n" +
+	cfg, _, err := decodeConfig([]byte("enabled: true\n" +
 		"affinity.ttl: 2h\n" +
 		"pace.landing-target: 1.0\n" +
 		"quota.poll-interval: 5m\n" +
@@ -37,7 +37,7 @@ func TestDottedKeysSetTheirNestedField(t *testing.T) {
 }
 
 func TestDottedAndNestedKeysMix(t *testing.T) {
-	cfg, err := decodeConfig([]byte("quota:\n  max-staleness: 20m\n" +
+	cfg, _, err := decodeConfig([]byte("quota:\n  max-staleness: 20m\n" +
 		"quota.poll-interval: 5m\n" +
 		"pace:\n  shape: sigmoid\n" +
 		"affinity.ttl: 2h\n"))
@@ -61,7 +61,7 @@ func TestADottedKeyOverridesItsNestedTwin(t *testing.T) {
 		"under a null parent":  "pace:\npace.shape: sigmoid\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			cfg, err := decodeConfig([]byte(block))
+			cfg, _, err := decodeConfig([]byte(block))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,7 +73,7 @@ func TestADottedKeyOverridesItsNestedTwin(t *testing.T) {
 }
 
 func TestADottedKeyThroughAScalarIsInvalid(t *testing.T) {
-	cfg, err := decodeConfig([]byte("enabled: true\npace: 3\npace.shape: sigmoid\n"))
+	cfg, _, err := decodeConfig([]byte("enabled: true\npace: 3\npace.shape: sigmoid\n"))
 	if err == nil {
 		t.Fatal("a dotted key under a scalar parsed")
 	}
@@ -86,7 +86,7 @@ func TestAnEmptyBlockDecodesToTheDefaults(t *testing.T) {
 	want := model.Defaults()
 	want.Normalize()
 	for _, block := range []string{"", "\n", "# nothing set\n", "null\n"} {
-		cfg, err := decodeConfig([]byte(block))
+		cfg, _, err := decodeConfig([]byte(block))
 		if err != nil {
 			t.Errorf("%q: %v", block, err)
 			continue
@@ -94,5 +94,23 @@ func TestAnEmptyBlockDecodesToTheDefaults(t *testing.T) {
 		if cfg.Pace != want.Pace || cfg.Quota != want.Quota || cfg.Affinity != want.Affinity || cfg.Web != want.Web {
 			t.Errorf("%q decoded to %+v, want the defaults", block, cfg)
 		}
+	}
+}
+
+// The raise is in range on its own terms, so the status page is where the
+// operator learns the setting they wrote is not the one in force.
+func TestStatusWarnsWhenMaxStalenessIsRaised(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML+"quota.poll-interval: 30m\n")
+	status := tp.Status(testNow, "")
+	if status.Config.Quota.MaxStaleness != time.Hour {
+		t.Errorf("MaxStaleness = %v, want 1h", status.Config.Quota.MaxStaleness)
+	}
+	if !hasWarning(status, "quota.max-staleness 15m0s is under twice quota.poll-interval 30m0s") {
+		t.Errorf("warnings = %q, want one naming both values", status.Warnings)
+	}
+
+	tp.register(t, MethodPluginReconfigure, testConfigYAML)
+	if hasWarning(tp.Status(testNow, ""), "quota.max-staleness") {
+		t.Error("the warning outlived the config that raised it")
 	}
 }

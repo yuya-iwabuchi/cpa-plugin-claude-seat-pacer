@@ -69,6 +69,8 @@ type Plugin struct {
 	polls       map[string]pollState
 	listErr     string
 	fetchErr    string
+	// configWarnings are the adjustments Normalize made to the live config.
+	configWarnings []string
 	// polledAt is when the last poll finished and nextPollAt when the loop
 	// wakes for the next one, so the status view can count down to a sync it
 	// does not schedule. Both are zero until the first poll returns.
@@ -263,13 +265,14 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 			req = LifecycleRequest{}
 		}
 	}
-	cfg, err := decodeConfig(req.ConfigYAML)
+	cfg, configWarnings, err := decodeConfig(req.ConfigYAML)
 	if err != nil {
 		p.host.log("warn", "claude-seat-pacer config is invalid; plugin is inert", map[string]any{"error": err.Error()})
 	}
 	p.applyConfig(cfg)
 
 	p.mu.Lock()
+	p.configWarnings = configWarnings
 	p.hostSchema = req.SchemaVersion
 	if p.startedAt.IsZero() {
 		p.startedAt = p.now()

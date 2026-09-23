@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"math"
 	"net"
 	"net/url"
@@ -115,7 +116,8 @@ type QuotaConfig struct {
 	// RequestTimeout bounds one usage fetch, at most a minute.
 	RequestTimeout time.Duration `yaml:"request-timeout" json:"request_timeout"`
 	// MaxStaleness is the age past which a snapshot stops being trusted and
-	// the plugin declines rather than routing on stale data.
+	// the plugin declines rather than routing on stale data. It is at least
+	// twice PollInterval.
 	MaxStaleness time.Duration `yaml:"max-staleness" json:"max_staleness"`
 	// UsageURL is the endpoint read for per-window utilization. Every seat's
 	// OAuth bearer token goes to it, so it is https, or http to a loopback
@@ -177,8 +179,10 @@ func Defaults() Config {
 
 // Normalize fills zero values with defaults and clamps out-of-range settings
 // so a partial or hostile config block cannot produce a scorer that divides by
-// zero, compares against NaN, or a poller that spins.
-func (c *Config) Normalize() {
+// zero, compares against NaN, or a poller that spins. It returns a warning for
+// each setting it raises to fit another: that setting is valid on its own, so
+// the raise is not a fallback the operator can expect.
+func (c *Config) Normalize() (warnings []string) {
 	d := Defaults()
 	for _, f := range []struct {
 		v   *float64
@@ -265,6 +269,16 @@ func (c *Config) Normalize() {
 	if c.Quota.MaxStaleness <= 0 {
 		c.Quota.MaxStaleness = d.Quota.MaxStaleness
 	}
+	// A reading has to outlive the wait for the next one, with an interval to
+	// spare for a slow or failed read, or a seat idle between polls goes stale
+	// and cannot take a new conversation. A doubling that overflows leaves
+	// MaxStaleness as set.
+	if floor := 2 * c.Quota.PollInterval; floor > c.Quota.MaxStaleness {
+		warnings = append(warnings, fmt.Sprintf(
+			"quota.max-staleness %v is under twice quota.poll-interval %v, so it runs at %v to keep a seat idle between polls from going stale",
+			c.Quota.MaxStaleness, c.Quota.PollInterval, floor))
+		c.Quota.MaxStaleness = floor
+	}
 	if !trustedUsageURL(c.Quota.UsageURL) {
 		c.Quota.UsageURL = d.Quota.UsageURL
 	}
@@ -273,6 +287,7 @@ func (c *Config) Normalize() {
 	if c.Web.HistoryLimit <= 0 || c.Web.HistoryLimit > 10000 {
 		c.Web.HistoryLimit = d.Web.HistoryLimit
 	}
+	return warnings
 }
 
 // trustedUsageURL reports whether a usage URL may receive every seat's OAuth

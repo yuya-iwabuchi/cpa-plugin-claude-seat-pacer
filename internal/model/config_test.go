@@ -2,6 +2,7 @@ package model
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -368,5 +369,24 @@ func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
 		if cfg.Quota.UsageURL != want {
 			t.Errorf("UsageURL %q normalized to %q, want %q", tc.in, cfg.Quota.UsageURL, want)
 		}
+	}
+}
+
+// A seat is read once per poll interval, so a reading that goes stale before
+// the next one lands leaves an idle seat ineligible for part of every
+// interval.
+func TestNormalizeKeepsMaxStalenessPastTwoPolls(t *testing.T) {
+	cfg := Config{Quota: QuotaConfig{PollInterval: 30 * time.Minute}}
+	warnings := cfg.Normalize()
+	if cfg.Quota.MaxStaleness != time.Hour {
+		t.Errorf("MaxStaleness = %v, want it raised to twice the 30m poll interval", cfg.Quota.MaxStaleness)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "15m0s") || !strings.Contains(warnings[0], "30m0s") {
+		t.Errorf("warnings = %q, want one naming the configured 15m0s and 30m0s", warnings)
+	}
+
+	kept := Config{Quota: QuotaConfig{PollInterval: 5 * time.Minute, MaxStaleness: 10 * time.Minute}}
+	if warnings := kept.Normalize(); len(warnings) != 0 || kept.Quota.MaxStaleness != 10*time.Minute {
+		t.Errorf("MaxStaleness = %v with warnings %q, want exactly two polls kept silently", kept.Quota.MaxStaleness, warnings)
 	}
 }
