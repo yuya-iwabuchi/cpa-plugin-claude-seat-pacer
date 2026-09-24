@@ -652,7 +652,6 @@ svg.hist-tl rect.hs-handle { fill: var(--ink-2); }
 @media (max-width: 1000px) { .hist-card .pace-body { grid-template-columns: minmax(0, 1fr); } }
 svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .7; }
 .rank-row.hist-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 1px; align-items: start; }
-.hist-row[data-dim] { opacity: .38; }
 .hist-row .hist-row-sub { grid-column: 1 / -1; padding-left: 15px; font: 500 10.5px/1.4 var(--mono); color: var(--ink-3); }
 .hist-row .hist-row-sub span { display: block; }
 svg.hist-tl path.hs-target { fill: none; stroke-width: 1; stroke-dasharray: 5 4; opacity: .7; }
@@ -4646,6 +4645,14 @@ th[aria-sort] button { color: var(--ink-1); }
     var pace = (st.config && st.config.pace) || {};
     var now = nowMs();
 
+    /* Where a finished window's line falls to zero: at its reset, or at the
+       next window's first reading where that comes first, and never before
+       its own last reading. */
+    function fallAt(win, next) {
+      var last = win.samples[win.samples.length - 1], first = next.samples[0];
+      return Math.max(last.t, win.at === null ? first.t : Math.min(win.at, first.t));
+    }
+
     /* Everything a seat draws that does not depend on the range shown. A
        seat's cycles fall into windows, one per reset: consecutive cycles
        whose resets agree within RESET_TOLERANCE_MS are one window the provider
@@ -4653,8 +4660,14 @@ th[aria-sort] button { color: var(--ink-1); }
        window, still stamped with the old instant, and takes the reset of the
        cycle after it. A window whose reset has passed is finished, and its
        last reading is what it spent; an estimated last reading names no
-       unused figure, since an estimate's level is not sound. */
-    var anyEst = false, anyGap = false;
+       unused figure, since an estimate's level is not sound.
+
+       Each window's line runs from its first reading to its end: the fall at
+       its reset for a finished one, the present reading for the newest. Its
+       refusal spans, its vertices and its sections are read over that
+       stretch, as the Weekly chart reads them over one window. */
+    var anyEst = false, anyGap = false, anyLock = false;
+    var idleMs = view.weekly ? PACE_IDLE_MS : SESSION_IDLE_MS;
     var data = seats.map(function (a) {
       var w = windowOf(a, view.kind, view.scope);
       var hist = historyFor(a, view.kind, view.scope);
@@ -4675,22 +4688,33 @@ th[aria-sort] button { color: var(--ink-1); }
           wins.push({ at: at, cycles: [c] });
         }
       });
-      wins.forEach(function (win) {
-        win.samples = samplesOf(win.cycles);
-        win.samples.forEach(function (s, i) {
+      wins.forEach(function (win) { win.samples = drawnSamples(samplesOf(win.cycles)); });
+      wins = wins.filter(function (win) { return win.samples.length; });
+      var cur = w && num(w.utilization) ? w.utilization : null;
+      var resets = w ? parseT(w.resets_at) : null;
+      wins.forEach(function (win, i) {
+        var next = wins[i + 1], last = win.samples[win.samples.length - 1];
+        win.end = next ? fallAt(win, next) : Math.max(now, last.t);
+        win.endU = next || cur === null ? last.u : cur;
+        var at = next ? win.at : resets ? resets.getTime() : win.at;
+        win.start = at !== null ? at - dur : win.samples[0].t;
+        win.v = lineVertices(win.samples, win.start, win.end, win.endU);
+        win.locks = lockSpans(a, view, win.start, win.end, now);
+        win.sections = lineSections(win.samples, win.start, win.end, win.endU, win.locks.drawn, idleMs);
+        if (win.locks.drawn.some(function (sp) { return flatRuns(win.v, sp.t0, sp.t1).length; })) anyLock = true;
+        win.samples.forEach(function (s, j) {
           if (s.est) anyEst = true;
-          if (s.fresh && s.t - win.samples[i - 1].t >= UNRECORDED_MS) anyGap = true;
+          if (s.fresh && s.t - win.samples[j - 1].t >= UNRECORDED_MS) anyGap = true;
         });
       });
-      wins = wins.filter(function (win) { return win.samples.length; });
       var done = wins.filter(function (win) { return win.at !== null && win.at <= now; }).map(function (win) {
         var last = win.samples[win.samples.length - 1];
         return { at: win.at, u: last.u, est: !!last.est };
       });
       return {
-        a: a, col: seatColor(a), dur: dur, done: done, wins: wins,
-        resets: w ? parseT(w.resets_at) : null,
-        cur: w && num(w.utilization) ? w.utilization : null
+        a: a, col: seatColor(a), dur: dur, done: done, wins: wins, resets: resets, cur: cur,
+        head: { seat: seatLabel(a), col: seatColor(a), win: view.label, cap: view.kind === "weekly_scoped" },
+        key: a.auth_id + ":hist:" + view.id
       };
     });
 
@@ -4763,23 +4787,6 @@ th[aria-sort] button { color: var(--ink-1); }
       draw();
     }
 
-    function focus(id) {
-      if (histGeo) focusSeat(histGeo.root, id);
-      var rows = list.querySelectorAll("li.hist-row");
-      for (var j = 0; j < rows.length; j++) {
-        if (id && rows[j].getAttribute("data-seat") !== id) rows[j].setAttribute("data-dim", "");
-        else rows[j].removeAttribute("data-dim");
-      }
-    }
-
-    /* Where a finished window's line falls to zero: at its reset, or at the
-       next window's first reading where that comes first, and never before
-       its own last reading. */
-    function fallAt(win, next) {
-      var last = win.samples[win.samples.length - 1], first = next.samples[0];
-      return Math.max(last.t, win.at === null ? first.t : Math.min(win.at, first.t));
-    }
-
     function draw() {
       var hadFocus = host.contains(document.activeElement);
       host.textContent = "";
@@ -4822,20 +4829,22 @@ th[aria-sort] button { color: var(--ink-1); }
         var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
         svg("rect", { "class": "hs-weekend", x: wx0, y: m.t, width: Math.max(0, wx1 - wx0), height: ph }, root);
       }
-      [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
-        var gy = Y(t);
-        svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
-        svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
-      });
+      yGrid(root, m, pw, Y);
       timeAxis(root, t0, t1, X, pw, m.t, Y(0), Y(0) + 20, true);
       svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0) + 0.5, y2: Y(0) + 0.5, stroke: "var(--axis)", "stroke-width": 1 }, root);
       svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
 
+      /* Three layers, as on the Weekly chart: every refusal underlay under
+         every line, and every mark and label over both. */
+      var gUnder = svg("g", { "clip-path": "url(#hist-clip)" }, root);
       var gPlot = svg("g", { "clip-path": "url(#hist-clip)" }, root);
       var gMarks = svg("g", { "clip-path": "url(#hist-clip)" }, root);
+      dimOnHover(root);
+      var inView = function (a, b) { return b >= t0 && a <= t1; }, labels = [];
       data.forEach(function (sd) {
-        var gl = svg("g", { "class": "hs", "data-seat": sd.a.auth_id }, gPlot);
-        var gm = svg("g", { "class": "hs", "data-seat": sd.a.auth_id }, gMarks);
+        var gu = svg("g", { "class": "pt-under", "data-seat": sd.a.auth_id }, gUnder);
+        var gl = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, gPlot);
+        var gm = svg("g", { "class": "pt", "data-seat": sd.a.auth_id }, gMarks);
         /* A finished cycle's target and reset mark are drawn only where the
            cycle is wide enough on screen for them to read as one. */
         var cyclePx = sd.dur / pxPer;
@@ -4849,8 +4858,8 @@ th[aria-sort] button { color: var(--ink-1); }
           svg("circle", { cx: ex, cy: ey, r: 3.5, fill: "var(--surface-1)", stroke: sd.col, "stroke-width": 1.6 }, gm);
           /* A cycle that spent its whole budget left nothing to name. */
           if (view.weekly && !c.est && left >= 0.005 && cyclePx >= 60) {
-            svgText(gm, clamp(ex, m.l + 34, m.l + pw - 34), ey - 8, pct(left, 0) + " unused", "gap-label t-mono",
-              { "font-size": 9.5, "text-anchor": "middle" });
+            labels.push({ el: svgText(gm, clamp(ex, m.l + 34, m.l + pw - 34), ey - 8, pct(left, 0) + " unused", "gap-label t-mono",
+              { "font-size": 9.5, "text-anchor": "middle" }) });
           }
         });
         if (sd.resets) {
@@ -4858,27 +4867,28 @@ th[aria-sort] button { color: var(--ink-1); }
         }
         /* A window's line holds its last reading to the reset, falls to zero
            there and holds zero to the next window's first reading; the last
-           window's runs on to the present reading. */
+           window's runs on to the present reading. Refusals lie along its
+           flat runs, and each section of it carries its tooltip. A section
+           or reset in the range shown is a keyboard stop. */
         sd.wins.forEach(function (win, i) {
           var next = sd.wins[i + 1], last = win.samples[win.samples.length - 1];
-          if (!next) {
-            historyLine(gl, win.samples, X, Y, sd.col, sd.cur !== null ? tailTo(X(now), Y(sd.cur)) : null);
-            return;
-          }
-          var first = next.samples[0], at = fallAt(win, next);
-          historyLine(gl, win.samples, X, Y, sd.col, at > last.t ? tailTo(X(at), Y(last.u)) : null);
-          var x = X(at).toFixed(1);
+          lockUnderlay(gu, win.locks.drawn, win.v, X, Y);
+          var tail = next ? (win.end > last.t ? tailTo(X(win.end), Y(last.u)) : null) : (sd.cur !== null ? tailTo(X(now), Y(sd.cur)) : null);
+          var drawn = historyLine(gl, win.samples, X, Y, sd.col, tail);
+          resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key);
+          sectionHits(gl, win.sections, win.v, X, Y, sd.col,
+            function (sec) { return sectionTip(sd.head, sec, win.samples, win.end, win.endU, now); },
+            function (sec) { return !!(sec.spans && sec.spans.length) && inView(sec.a, sec.b); }, sd.key);
+          if (!next) return;
+          var first = next.samples[0], x = X(win.end).toFixed(1);
           svg("path", { "class": "hs-reset", d: "M" + x + " " + Y(last.u).toFixed(1) + "V" + Y(0).toFixed(1), stroke: sd.col }, gl);
           svg("path", { "class": "hist", d: "M" + x + " " + Y(0).toFixed(1) + tailTo(X(first.t), Y(first.u)), stroke: sd.col }, gl);
         });
         if (sd.cur !== null && now >= t0 && now <= t1) {
           svg("circle", { cx: X(now), cy: Y(sd.cur), r: 4, fill: sd.col, stroke: "var(--surface-1)", "stroke-width": 1.5 }, gm);
         }
-        [gl, gm].forEach(function (n) {
-          n.addEventListener("pointerenter", function () { focus(sd.a.auth_id); });
-          n.addEventListener("pointerleave", function () { focus(null); });
-        });
       });
+      clearResetLabels(root, labels);
       if (now >= t0 && now <= t1) {
         var nx = X(now);
         svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2" }, root);
@@ -4948,8 +4958,10 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       li.appendChild(sub);
       ul.appendChild(li);
-      li.addEventListener("pointerenter", function () { focus(sd.a.auth_id); });
-      li.addEventListener("pointerleave", function () { focus(null); });
+      li.addEventListener("pointerenter", function () { if (histGeo) focusSeat(histGeo.root, sd.a.auth_id); });
+      li.addEventListener("pointerleave", function () {
+        if (histGeo) focusSeat(histGeo.root, seatOn(histGeo.root, document.activeElement));
+      });
     });
     var fam = h("div", "rank-fam", ""), head = h("p", "rank-fam-head", "");
     head.appendChild(h("span", "rank-fam-name", view.label));
@@ -4973,6 +4985,7 @@ th[aria-sort] button { color: var(--ink-1); }
     });
     if (anyEst) legendRow(legend, SW_EST, "estimated from token spend");
     if (anyGap) legendRow(legend, SW_GAP, UNRECORDED_KEY);
+    if (anyLock) legendRow(legend, SW_LOCK, LOCK_KEY);
 
     bindHistPointer(host);
     draw();
