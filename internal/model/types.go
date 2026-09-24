@@ -192,14 +192,41 @@ func (c Cycle) SampleEstimated(s Sample) bool {
 	return c.Estimated || (c.EstimatedUntil != nil && !s.At.After(*c.EstimatedUntil))
 }
 
-// WindowHistory is the recorded utilization of one window of one credential,
-// oldest cycle first and oldest sample first within a cycle. It carries no
+// WindowHistory is the recorded utilization and refusal spans of one window of
+// one credential, oldest cycle first and oldest sample first within a cycle. It carries no
 // identity beyond the window's own, so the page's status route serves it as
 // is.
 type WindowHistory struct {
 	Kind   WindowKind `json:"kind"`
 	Scope  string     `json:"scope,omitempty"`
 	Cycles []Cycle    `json:"cycles"`
+	// Locks are the spans in which the provider refused requests on this
+	// window, oldest first and disjoint. Only the newest can be ongoing.
+	Locks []Lock `json:"locks,omitempty"`
+}
+
+// LockEnd names what ended a refusal span.
+type LockEnd string
+
+const (
+	// LockEndReset is a span that ran to a reset: the one its refusals
+	// expected, or the window rolling onto a new reset, earlier or later.
+	LockEndReset LockEnd = "reset"
+	// LockEndServed is a span ended by a request for a model the window caps,
+	// admitted after the span's latest refusal.
+	LockEndServed LockEnd = "served"
+	// LockEndCleared is a span ended by the provider clearing the window's
+	// usage early and keeping its reset.
+	LockEndCleared LockEnd = "cleared"
+)
+
+// Lock is one span in which the provider refused requests on a window, its
+// ends in Unix seconds. End is empty while the span is ongoing, and To is
+// then the reset its latest refusal expected.
+type Lock struct {
+	From int64   `json:"from"`
+	To   int64   `json:"to"`
+	End  LockEnd `json:"end,omitempty"`
 }
 
 // Samples counts the samples across every cycle.
@@ -406,8 +433,8 @@ type AuthStatus struct {
 	// Bindings counts live conversations pinned to this credential.
 	Bindings int        `json:"bindings"`
 	Cache    CacheStats `json:"cache"`
-	// History is the recorded utilization of each window, thinned to what a
-	// chart can draw. Utilization only: no identity travels in it.
+	// History is each window's recorded utilization, thinned to what a chart
+	// can draw, with every refusal span. No identity travels in it.
 	History []WindowHistory `json:"history"`
 }
 

@@ -529,7 +529,7 @@ func TestPollKeepsHistoryForCredentialsItDoesNotFetch(t *testing.T) {
 		t.Fatalf("refresh: %v", err)
 	}
 	for _, id := range []string{"claude-off.json", "claude-key"} {
-		if h := tp.quota.History(id, 0); len(h) != 1 || h[0].Samples() != 1 {
+		if h := tp.quota.History(id, 0, testNow); len(h) != 1 || h[0].Samples() != 1 {
 			t.Errorf("history for %s after one poll = %+v, want the header sample kept", id, h)
 		}
 	}
@@ -542,11 +542,11 @@ func TestPollKeepsHistoryForCredentialsItDoesNotFetch(t *testing.T) {
 	if err := tp.refresh(context.Background()); err != nil {
 		t.Fatalf("refresh after removal: %v", err)
 	}
-	if h := tp.quota.History("claude-off.json", 0); h != nil {
+	if h := tp.quota.History("claude-off.json", 0, testNow); h != nil {
 		t.Errorf("an unlisted credential kept its status row: %+v", h)
 	}
 	tp.quota.MergeHeaders("claude-off.json", headerWindow, testNow.Add(time.Hour))
-	if h := tp.quota.History("claude-off.json", 0); len(h) != 1 || h[0].Samples() != 2 {
+	if h := tp.quota.History("claude-off.json", 0, testNow); len(h) != 1 || h[0].Samples() != 2 {
 		t.Errorf("history after the credential returned = %+v, want the earlier sample adopted", h)
 	}
 }

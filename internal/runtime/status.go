@@ -112,7 +112,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			Score:    pace.ScoreWithStaleness(cfg, snap, hasSnap, id, modelID, now),
 			Bindings: counts[id],
 			Cache:    cache[id],
-			History:  p.quota.History(id, quota.HistoryPublishMax),
+			History:  p.quota.History(id, quota.HistoryPublishMax, now),
 		}
 		if row.History == nil {
 			row.History = []model.WindowHistory{}
