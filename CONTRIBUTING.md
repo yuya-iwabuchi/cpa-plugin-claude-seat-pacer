@@ -35,7 +35,13 @@ invocation.
 
 `go run ./cmd/webdev` serves the status page on `127.0.0.1:8377` from fixture
 seats, with `-scenario` choosing the pool it shows, so a page change can be
-seen without a host.
+seen without a host. `-scenario replay -history <file>` draws the seats of a
+recorded history file instead, `-at` renders it as of a recorded instant, and
+`-locks` adds refusal spans to the ones the file records. A locks file is a JSON
+object keyed by credential id, each holding a list of spans
+`{"kind", "scope", "from", "to", "cut_by_success"}` with `from` and `to` in Unix
+seconds; `cut_by_success` marks a span a served request ended, and any other
+ran to its reset.
 
 ## Landing an arranged change
 

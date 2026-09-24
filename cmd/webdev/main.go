@@ -1,5 +1,6 @@
-// Command webdev serves the embedded status app against a fixture Source so
-// the page can be developed and screenshotted without a CLIProxyAPI host.
+// Command webdev serves the embedded status app against a fixture Source, of
+// synthetic seats or of a recorded history file, so the page can be developed
+// and screenshotted without a CLIProxyAPI host.
 //
 // It is a development harness: it binds to loopback only and never reads a
 // real credential.
@@ -29,12 +30,20 @@ import (
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many, collide, cleared, exhausted or empty")
+		"fixture scenario: full, single, stale, degraded, many, collide, cleared, exhausted, replay or empty")
+	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
+	locksPath := flag.String("locks", "",
+		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
+			`each a list of {"kind", "scope", "from", "to", "cut_by_success"} with Unix-second ends`)
+	at := flag.String("at", "", "instant the replay scenario renders the page as of, local time, 2006-01-02T15:04")
 	seats := flag.Int("seats", 6, "credential count for the many scenario")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
 		"fail status requests after this many successes; 0 fails the first, -1 never fails")
 	flag.Parse()
+	if *scenario != "replay" && (*historyPath != "" || *locksPath != "" || *at != "") {
+		log.Fatal("-history, -locks and -at apply only to the replay scenario")
+	}
 	// The many scenario spreads its bindings across the seats, so it needs at
 	// least one.
 	if *seats < 1 {
@@ -80,6 +89,24 @@ func main() {
 		// the priority tier below: an API-key credential the poller never
 		// reads, which takes the traffic until a seat resets.
 		src.exhausted()
+	case "replay":
+		// The seats of a recorded history file, with the spans in which the
+		// provider refused them.
+		if *historyPath == "" {
+			log.Fatal("the replay scenario needs -history")
+		}
+		replayNow := time.Now()
+		if *at != "" {
+			t, err := time.ParseInLocation("2006-01-02T15:04", *at, time.Local)
+			if err != nil {
+				log.Fatalf("-at: %v", err)
+			}
+			replayNow = t
+			src.moveClock(time.Until(t))
+		}
+		if err := src.replay(*historyPath, *locksPath, replayNow); err != nil {
+			log.Fatalf("replay: %v", err)
+		}
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
@@ -190,6 +217,12 @@ type fixture struct {
 	// clearedAgo is how long before the request the provider cleared a
 	// seat's weekly windows without moving their reset.
 	clearedAgo map[string]time.Duration
+	// replayed is each seat's published history in the replay scenario, which
+	// stands in for the synthesized one.
+	replayed map[string][]model.WindowHistory
+	// shift moves the clock every status response reads, so a replay can
+	// render as of a recorded instant; moveClock sets it.
+	shift time.Duration
 	// forcedAt is when the last forced read landed, in Unix nanoseconds, as
 	// SyncNow moves it. The polling loop's own schedule is untouched by one,
 	// the way the plugin leaves its timer alone.
@@ -201,13 +234,22 @@ type fixture struct {
 // harness holds no upstream to re-read, so a read here moves only the stamp
 // the page counts from.
 func (f *fixture) SyncNow(context.Context) bool {
-	now := time.Now()
+	now := time.Now().Add(f.shift)
 	last := f.forcedAt.Load()
 	if last != 0 && now.Sub(time.Unix(0, last)) < runtime.MinForcedPollGap {
 		return false
 	}
 	f.forcedAt.Store(now.UnixNano())
 	return true
+}
+
+// moveClock moves every instant the page counts from by d: each status
+// response's now, the poll schedule's anchor, a forced read's stamp and the
+// plugin's start.
+func (f *fixture) moveClock(d time.Duration) {
+	f.shift = d
+	f.anchor = f.anchor.Add(d)
+	f.plugin.StartedAt = f.plugin.StartedAt.Add(d)
 }
 
 // pollTimes is the poller's schedule as the harness keeps it: scheduled reads
@@ -434,7 +476,9 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 		a.Snapshot = snap
 		a.Score = pace.ScoreWithStaleness(f.cfg, snap, ok, a.AuthID, modelID, now)
 		a.History = []model.WindowHistory{}
-		if ok {
+		if hs, replayed := f.replayed[a.AuthID]; replayed {
+			a.History = hs
+		} else if ok {
 			a.History = f.history(snap, now, shapeIdx)
 		}
 		auths = append(auths, a)
@@ -445,6 +489,7 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 
 // Status evaluates every fixture credential for modelID at now.
 func (f *fixture) Status(now time.Time, modelID string) model.Status {
+	now = now.Add(f.shift)
 	if modelID == "" {
 		modelID = modelFable
 	}
@@ -1008,8 +1053,8 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 		}
 		saved = append(saved, h)
 	}
-	store.ImportHistory(map[string][]model.WindowHistory{snap.AuthID: saved})
-	return store.History(snap.AuthID, quota.HistoryPublishMax)
+	store.ImportHistory(map[string][]model.WindowHistory{snap.AuthID: saved}, now)
+	return store.History(snap.AuthID, quota.HistoryPublishMax, now)
 }
 
 //go:embed pace_shapes.json

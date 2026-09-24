@@ -2,6 +2,7 @@ package quota
 
 import (
 	"math"
+	"slices"
 	"time"
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
@@ -23,6 +24,9 @@ const (
 	// window: one per four pixels of a chart a thousand pixels wide, which
 	// is finer than a 1.6px line shows.
 	HistoryPublishMax = 240
+	// historyMaxLocks bounds the refusal spans a window keeps; past it the
+	// oldest go.
+	historyMaxLocks = 64
 )
 
 // utilizationScale rounds a recorded utilization to a hundredth of a percent,
@@ -47,6 +51,28 @@ type ring struct {
 	// rolls or closes. It is never exported, so a restart forgets an
 	// unconfirmed fall.
 	fall *pendingFall
+	// locks are the spans in which the provider refused the window, oldest
+	// first and disjoint. A span ends where a request the window caps was
+	// served, where the provider cleared the window early, or at a reset:
+	// when a cycle rolls or closes, or when its expected reset passes. Until
+	// then it is ongoing and runs to the reset its latest refusal expected.
+	// Only the newest span can be ongoing.
+	locks []lock
+	// refused is when the newest span's latest refusal was admitted, at full
+	// precision. It is never exported; a ring loaded from disk holds the load
+	// instant instead, which every request admitted since is after, or the
+	// live ring's own where an import merged live spans into it.
+	refused time.Time
+	// served is the newest admission of a request the window caps that was
+	// served, at full precision. It is never exported.
+	served time.Time
+}
+
+// lock is one refusal span, at second precision. end is empty while it is
+// ongoing.
+type lock struct {
+	from, to time.Time
+	end      model.LockEnd
 }
 
 // pendingFall is a candidate clearing's first reading.
@@ -91,6 +117,10 @@ func (f *pendingFall) after(r *ring) *pendingFall {
 // the last sample's level, so the flat run still ends at the newest reading.
 // One lower than an estimated sample is dropped, since an estimate's level
 // can run high.
+//
+// A cycle that opens after another ends an ongoing refusal span: as reset at
+// the reading that rolled or closed it, or as cleared at a clearing's first
+// fallen reading.
 func (r *ring) record(at time.Time, w model.Window) {
 	r.put(at, w, false)
 }
@@ -120,6 +150,9 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 		// A cycle opened by a reading the provider is still stamping with the
 		// expired reset inherits that stale instant; the first reading to
 		// carry the real one rolls the cycle onto it.
+		if n > 0 {
+			r.end(s.At, model.LockEndReset)
+		}
 		r.fall = nil
 		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
 		return true
@@ -133,10 +166,12 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 	case !s.At.After(r.fall.sample.At):
 		return false
 	case r.fall.sample.Utilization-s.Utilization > clearDrop:
+		r.end(r.fall.sample.At, model.LockEndCleared)
 		r.fall = nil
 		r.cycles = append(r.cycles, model.Cycle{ResetsAt: w.ResetsAt, Samples: []model.Sample{s}})
 		return true
 	default:
+		r.end(r.fall.sample.At, model.LockEndCleared)
 		r.cycles = append(r.cycles, model.Cycle{ResetsAt: r.fall.resetsAt, Samples: []model.Sample{r.fall.sample}})
 		r.fall = nil
 	}
@@ -209,8 +244,10 @@ func cleared(c model.Cycle, s model.Sample, estimated bool) bool {
 // compact applies the coarse tier and the cap. Every sample older than
 // historyFineSpan before the newest keeps only the last reading in its
 // historyCoarseStep bucket; then the oldest samples go until the ring is
-// within historyMaxSamples, and a cycle emptied that way goes with them.
+// within historyMaxSamples, and a cycle emptied that way goes with them. The
+// refusal spans are trimmed to what is left.
 func (r *ring) compact() {
+	defer r.trimLocks()
 	if len(r.cycles) == 0 {
 		return
 	}
@@ -259,8 +296,10 @@ func coarsen(samples []model.Sample, edge time.Time) []model.Sample {
 // export copies the ring as a WindowHistory holding at most max samples. A
 // ring over the bound keeps every cycle's first and last sample and every k-th
 // in between, so the shape and the boundaries survive the thinning. max <= 0
-// means the whole ring.
-func (r *ring) export(kind model.WindowKind, scope string, max int) model.WindowHistory {
+// means the whole ring. Every refusal span is copied whatever max is; an
+// ongoing one whose expected reset is not after now is copied as ended there
+// by the reset.
+func (r *ring) export(kind model.WindowKind, scope string, max int, now time.Time) model.WindowHistory {
 	out := model.WindowHistory{Kind: kind, Scope: scope, Cycles: make([]model.Cycle, 0, len(r.cycles))}
 	total := 0
 	for _, c := range r.cycles {
@@ -279,6 +318,15 @@ func (r *ring) export(kind model.WindowKind, scope string, max int) model.Window
 		}
 		out.Cycles = append(out.Cycles, model.Cycle{ResetsAt: c.ResetsAt, Samples: kept, Estimated: c.Estimated, EstimatedUntil: c.EstimatedUntil})
 	}
+	if len(r.locks) > 0 {
+		out.Locks = make([]model.Lock, len(r.locks))
+		for i, l := range r.locks {
+			if l.end == "" && !l.to.After(now) {
+				l.end = model.LockEndReset
+			}
+			out.Locks[i] = model.Lock{From: l.from.Unix(), To: l.to.Unix(), End: l.end}
+		}
+	}
 	return out
 }
 
@@ -287,8 +335,18 @@ func (r *ring) export(kind model.WindowKind, scope string, max int) model.Window
 // the same spacing, tiering and cap as one built live. The tiering and the cap
 // run once, after the last sample: compaction never drops the newest cycle's
 // last two samples, the only ones a following reading is compared against.
-func (r *ring) replay(h model.WindowHistory) {
+//
+// The stored refusal spans are restored as they were written, and loaded
+// stands in for the admission of the newest span's latest refusal: every
+// stored refusal came before the load.
+func (r *ring) replay(h model.WindowHistory, loaded time.Time) {
 	r.addCycles(h.Kind, h.Scope, h.Cycles)
+	for _, l := range h.Locks {
+		r.mergeLock(lock{from: time.Unix(l.From, 0).UTC(), to: time.Unix(l.To, 0).UTC(), end: l.End})
+	}
+	if len(r.locks) > 0 {
+		r.refused = loaded
+	}
 	r.compact()
 }
 
@@ -316,5 +374,134 @@ func (r *ring) addCycles(kind model.WindowKind, scope string, cycles []model.Cyc
 			r.fall = nil
 			r.cycles = append(r.cycles, model.Cycle{ResetsAt: c.ResetsAt, Samples: []model.Sample{s}, Estimated: estimated})
 		}
+	}
+}
+
+// refuse records a refusal at `at` of a request admitted at `admitted`, which
+// the provider expects to last until `until`, and reports whether the spans
+// changed. A refusal admitted at or before the newest served admission is
+// stale, since the window admitted a later request, and changes nothing. A
+// refusal inside the newest span runs it to `until`, reopening it where a
+// served request had ended it; one inside a span a reset or a clearing ended
+// leaves it ended; one before the span's start moves the start back to it;
+// one at or after the span's end opens a span of its own. One with no end
+// after `at`, or reaching back into an older span, is dropped.
+func (r *ring) refuse(admitted, at, until time.Time) bool {
+	at, until = at.Truncate(time.Second), until.Truncate(time.Second)
+	if !until.After(at) || !admitted.After(r.served) {
+		return false
+	}
+	n := len(r.locks)
+	if n == 0 || !at.Before(r.locks[n-1].to) {
+		r.push(lock{from: at, to: until})
+		r.refused = admitted
+		r.trimLocks()
+		return true
+	}
+	last := &r.locks[n-1]
+	changed := false
+	switch {
+	case at.Before(last.from):
+		if n > 1 && at.Before(r.locks[n-2].to) {
+			return false
+		}
+		last.from, changed = at, true
+	case last.end == "" || last.end == model.LockEndServed:
+		changed = last.to != until || last.end != ""
+		last.to, last.end = until, ""
+	}
+	if admitted.After(r.refused) {
+		r.refused = admitted
+	}
+	return changed
+}
+
+// serve records a request admitted at `admitted` whose response began at
+// `at`, and reports whether the spans changed. It keeps the newest served
+// admission. A request admitted after the newest span's latest refusal ends
+// that span at `at` as served while it is ongoing, and drops it when `at` is
+// at or before the second the span opened; one admitted at or before that
+// refusal was in flight while the window refused, so it leaves the span
+// running.
+func (r *ring) serve(admitted, at time.Time) bool {
+	if admitted.After(r.served) {
+		r.served = admitted
+	}
+	n := len(r.locks)
+	if n == 0 || r.locks[n-1].end != "" || !admitted.After(r.refused) {
+		return false
+	}
+	if !at.Truncate(time.Second).After(r.locks[n-1].from) {
+		r.locks = r.locks[:n-1]
+		return true
+	}
+	return r.end(at, model.LockEndServed)
+}
+
+// end ends the newest span at `at` for cause, when it is ongoing and began
+// before `at`. A span whose expected reset `at` has reached keeps that end
+// and ends as reset. It reports whether the spans changed.
+func (r *ring) end(at time.Time, cause model.LockEnd) bool {
+	at = at.Truncate(time.Second)
+	n := len(r.locks)
+	if n == 0 {
+		return false
+	}
+	last := &r.locks[n-1]
+	if last.end != "" || !at.After(last.from) {
+		return false
+	}
+	if at.Before(last.to) {
+		last.to, last.end = at, cause
+	} else {
+		last.end = model.LockEndReset
+	}
+	return true
+}
+
+// push appends a span that begins at or after the newest one's end. A newest
+// span still ongoing then ends as reset, since the new span begins at or
+// after the reset it expected.
+func (r *ring) push(l lock) {
+	if n := len(r.locks); n > 0 && r.locks[n-1].end == "" {
+		r.locks[n-1].end = model.LockEndReset
+	}
+	r.locks = append(r.locks, l)
+}
+
+// mergeLock appends a recorded span behind the newest one. A span with no
+// length is dropped; one overlapping the newest takes it over from the earlier
+// start to its own end and cause, as the newer evidence of when and how the
+// refusal ended; one that ends at or before the newest starts is dropped.
+func (r *ring) mergeLock(l lock) {
+	if !l.to.After(l.from) {
+		return
+	}
+	n := len(r.locks)
+	switch {
+	case n == 0 || !l.from.Before(r.locks[n-1].to):
+		r.push(l)
+	case l.to.After(r.locks[n-1].from):
+		last := &r.locks[n-1]
+		if l.from.Before(last.from) {
+			last.from = l.from
+		}
+		last.to, last.end = l.to, l.end
+	}
+}
+
+// trimLocks drops every span that ended before the oldest sample the ring
+// holds, then the oldest spans past historyMaxLocks.
+func (r *ring) trimLocks() {
+	drop := 0
+	if len(r.cycles) > 0 && len(r.cycles[0].Samples) > 0 {
+		oldest := r.cycles[0].Samples[0].At
+		for drop < len(r.locks) && r.locks[drop].to.Before(oldest) {
+			drop++
+		}
+	}
+	drop = max(drop, len(r.locks)-historyMaxLocks)
+	if drop > 0 {
+		r.locks = slices.Delete(r.locks, 0, drop)
 	}
 }

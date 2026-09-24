@@ -106,8 +106,9 @@ func (p *Plugin) loadHistory(cfg model.Config) {
 	if done {
 		return
 	}
-	// The aside file is named by the wall clock, which is what an operator
-	// reading the directory compares it against.
+	// The load instant is the wall clock: an operator reading the directory
+	// compares the aside file's name against it, and requests the host stamps
+	// after the load are after it.
 	err := p.quota.LoadHistory(p.opts.HistoryFile, time.Now())
 	var corrupt *quota.CorruptHistoryError
 	switch {
@@ -143,7 +144,7 @@ func (p *Plugin) saveHistory(cfg model.Config) {
 	if unchanged {
 		return
 	}
-	if err := p.quota.SaveHistory(p.opts.HistoryFile); err != nil {
+	if err := p.quota.SaveHistory(p.opts.HistoryFile, p.now()); err != nil {
 		p.host.log("warn", "claude-seat-pacer could not write the utilization history", map[string]any{"error": err.Error()})
 		return
 	}

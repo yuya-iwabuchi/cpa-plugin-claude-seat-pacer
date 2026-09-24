@@ -493,10 +493,11 @@ svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; 
    still read as the chart's shape behind the one pointed at. */
 svg.pace[data-focus] g.pt:not([data-focused]),
 svg.pace[data-focus] g.pt-line:not([data-focused]),
-svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .38; }
+svg.pace[data-focus] g.pt-under:not([data-focused]) { opacity: .38; }
 /* Pointing at one seat holds the others back only while the pointer is there;
-   a stop the keyboard reaches comes back whole, so its ring is never dimmed. */
-svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.seg:focus-visible { opacity: 1; }
+   a stop the keyboard reaches keeps its mark and line, so its ring is never
+   dimmed, and its underlay follows the pointer's seat. */
+svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.pt-line:has(:focus-visible) { opacity: 1; }
 /* The gap label reads in ink over the curve and grid; the gap tick under
    the mark carries the seat's colour. A label that crowding pushed off its
    mark waits for the seat to be pointed at or focused, in the legend or on
@@ -515,24 +516,34 @@ svg.pace path.hist { fill: none; stroke-width: 1.4; stroke-linejoin: round; stro
 /* A stretch reconstructed from token spend is an estimate: dashed and paler
    than the observed stretch. */
 svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .5; stroke-dasharray: 2 3; }
-/* The climb from a clearing to the first reading after it, where no reading
-   between them was recorded: a straight, sparse dotted line, because only its
-   two ends are known. */
+/* A clearing's fall to zero, and the climb from it to the first reading
+   after it where no reading between them was recorded: a straight, sparse
+   dotted line, because only its two ends are known. */
 svg.pace path.hist-gap { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: .55; stroke-dasharray: 1 4; }
-/* The curve's own label sits on the line it names, and a curve that reaches
-   full inside the window runs its ramp under that label, so it carries the
-   same halo as every other label drawn over the plot. */
-svg.pace text.curve-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
+/* A span in which the provider refused the seat: a wide soft critical stroke
+   along the seat's own line, under it. */
+svg.pace path.lock-under { fill: none; stroke: var(--critical); stroke-width: 4; stroke-opacity: .85; stroke-linecap: round; }
+/* A line's sections take the pointer, the drawn strokes under them never do;
+   the section under the pointer shows in the seat's colour. A square cap
+   closes the corners of a step and gives an instant a target of its own. */
+svg.pace path.hist, svg.pace path.lock-under { pointer-events: none; }
+svg.pace path.span-hit { fill: none; stroke-width: 9; stroke-opacity: 0; stroke-linecap: square; pointer-events: stroke; cursor: default; }
+svg.pace path.span-hit:hover { stroke-opacity: .22; }
+/* A focused section is marked by the halo its target draws; the page's box
+   outline is for elements with an edge to trace, and a line has none. */
+svg.pace path.span-hit:focus-visible { outline: none; stroke: var(--focus); stroke-opacity: .5; }
+/* A focused stop the line has no length in, such as a limit at the present
+   mark, draws a square wider than the mark over it, so its edge shows. */
+svg.pace path.span-hit.span-pt:focus-visible { stroke-width: 20; stroke-opacity: .9; }
+svg.pace g.reset-mark circle { fill: var(--surface-1); stroke-width: 1.4; }
+svg.pace g.reset-mark { cursor: default; }
+svg.pace g.reset-mark:focus-visible { outline: none; }
+svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width: 2; }
+svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 /* A weighted mark's label yields to the full-weight one beside it: it is set
    smaller, and holds its ink, because a figure behind an alpha reads under the
    ratio this page holds text to. */
 svg.pace text.gap-label.gap-label-half { font-size: 9px; }
-/* A focused stretch of line is marked by the halo its hit path draws; the
-   page's box outline is for elements with an edge to trace, and a line has
-   none. */
-svg.pace g.seg:focus-visible { outline: none; }
-svg.pace g.seg:focus-visible path.hit { stroke: var(--focus); opacity: .5; }
-svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
 .sess-focus b { font-weight: 600; color: var(--ink-1); }
 .pace-card { overflow-x: auto; }
@@ -779,6 +790,34 @@ th[aria-sort] button { color: var(--ink-1); }
   white-space: pre-line; opacity: 0; transform: translateY(2px);
 }
 #tooltip[data-show="true"] { opacity: 1; transform: none; }
+/* A chart section's tooltip: the line it belongs to, a badge for the kind
+   of stretch, its figure large, and plain prose under it. */
+#tooltip.rich { white-space: normal; max-width: 300px; padding: 10px 12px 11px; font: 400 12px/1.45 var(--sans); color: var(--ink-2); }
+#tooltip .tip-head { display: flex; align-items: center; gap: 6px; }
+#tooltip .tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+#tooltip .tip-seat { font-weight: 650; font-size: 12.5px; color: var(--ink-1); }
+#tooltip .tip-win { color: var(--ink-3); font-size: 11.5px; }
+#tooltip .tip-tag { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; margin-top: 8px; font-size: 11.5px; }
+#tooltip .tip-badge {
+  --tone: var(--ink-3);
+  font: 700 9.5px/1 var(--mono); letter-spacing: .07em; text-transform: uppercase;
+  padding: 2px 4px 1px; border-radius: 3px; color: var(--ink-1);
+  background: color-mix(in srgb, var(--tone) 13%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--tone) 34%, transparent);
+}
+#tooltip .tip-badge[data-type="usage"] { --tone: var(--info); }
+#tooltip .tip-badge[data-type="limit"] { --tone: var(--critical); }
+#tooltip .tip-badge[data-type="now"] { --tone: var(--ink-1); }
+#tooltip .tip-badge[data-type="reset"] { --tone: var(--ink-2); }
+#tooltip .tip-badge[data-type="unrec"] { background: none; border: 1px dashed var(--ink-3); }
+#tooltip .tip-when { color: var(--ink-1); }
+#tooltip .tip-dur { color: var(--ink-3); font: 500 11px/1 var(--mono); }
+#tooltip .tip-big { display: flex; align-items: baseline; margin-top: 7px; font: 600 17px/1.15 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; }
+#tooltip .tip-arrow { color: var(--ink-3); font-weight: 400; margin: 0 5px; }
+#tooltip .tip-delta { margin-left: 9px; font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
+#tooltip .tip-line { margin-top: 5px; }
+#tooltip .tip-line b { color: var(--ink-1); font-weight: 600; margin-right: 5px; }
+#tooltip .tip-alert { color: var(--critical); font-weight: 600; margin-left: 5px; }
 
 /* Every animation on the page sits behind this query, including the ones that
    only fade. */
@@ -926,7 +965,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-pace">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub" id="seats-sub">one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation</span>
+        <span class="sec-sub" id="seats-sub">one row per seat, in name order; the #1 eligible seat takes the next new conversation</span>
         <span class="sec-line"></span>
       </div>
       <div class="card tl-card">
@@ -1736,14 +1775,16 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function shows(view, fam) { return view === PACE_ALL || view === fam; }
 
-  /* Seats in id order, minus the ones this browser hides: the order colours
-     are assigned in, and the one every per-seat view keeps so a change of
-     ranking moves badges, not rows. Every seat list on the page comes through
-     here, which is what makes one filter reach all of them. */
+  /* Seats in name order, numbers within a name read as numbers, then by id
+     where two names match, minus the ones this browser hides: the order every
+     per-seat view keeps, so a change of ranking moves badges, not rows. Every
+     seat list on the page comes through here, which is what makes one filter
+     reach all of them. */
   function stableAuths(auths) {
     return (auths || []).filter(function (a) { return !hiddenSeats[a.auth_id]; })
       .sort(function (x, y) {
-        return String(x.auth_id).localeCompare(String(y.auth_id));
+        return seatLabel(x).localeCompare(seatLabel(y), undefined, { numeric: true, sensitivity: "base" }) ||
+          String(x.auth_id).localeCompare(String(y.auth_id));
       });
   }
 
@@ -1859,6 +1900,8 @@ th[aria-sort] button { color: var(--ink-1); }
      causes to bring the element into view, and any later one — and the tip
      follows the element instead. */
   var tipByFocus = false;
+  /* What the tooltip holds: the spec it drew, or the plain text it set. */
+  var tipBody = null;
 
   function focusTip(el) {
     var r = el.getBoundingClientRect();
@@ -1871,7 +1914,14 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   function showTip(el, x, y) {
-    tipEl.textContent = el.getAttribute("data-tip");
+    var body = el.tipSpec || el.getAttribute("data-tip");
+    if (tipFor !== el || tipBody !== body) {
+      tipBody = body;
+      tipEl.textContent = "";
+      tipEl.classList.toggle("rich", !!el.tipSpec);
+      if (el.tipSpec) tipRender(el.tipSpec, tipEl);
+      else tipEl.textContent = body;
+    }
     tipEl.setAttribute("data-show", "true");
     if (tipFor !== el) {
       if (tipFor) tipFor.removeAttribute("aria-describedby");
@@ -2409,7 +2459,7 @@ th[aria-sort] button { color: var(--ink-1); }
     day.setHours(0, 0, 0, 0);
     if (day.getTime() < t0) day.setDate(day.getDate() + 1);
     var perLabel = Math.max(1, Math.ceil(DAY_LABEL_PX / (86400000 / (t1 - t0) * plotW)));
-    root.setAttribute("aria-label", "Every seat, in a fixed order with its rank, with its quota windows on one time axis, " +
+    root.setAttribute("aria-label", "Every seat, in name order with its rank, with its quota windows on one time axis, " +
       new Date(t0).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " to " +
       new Date(t1).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
       ", one day per gridline, dated every " + (perLabel === 1 ? "day" : perLabel + " days"));
@@ -2732,11 +2782,16 @@ th[aria-sort] button { color: var(--ink-1); }
     return null;
   }
 
+  /* How far apart two instants the provider stamps may lie and still be
+     one reset, for clock skew between the host and Anthropic. It mirrors
+     resetTolerance in internal/quota. */
+  var RESET_TOLERANCE_MS = 2 * 60000;
+
   /* The cycles whose reset is the window's present one, oldest first. A
-     cycle's reset matches within the two minutes the server allows for clock
-     skew; a window whose reset no cycle carries has no path yet. There is
-     more than one where the provider cleared the window early and kept its
-     reset: the store opens a cycle at each clearing. A cycle that opens past
+     cycle's reset matches within RESET_TOLERANCE_MS; a window whose reset
+     no cycle carries has no path yet. There is more than one where the
+     provider cleared the window early and kept its reset: the store opens a
+     cycle at each clearing. A cycle that opens past
      the reset is a fresh window the provider still stamps with the old
      instant, and the cycles before it are the window that ended. */
   function currentCycles(hist, resetsAt) {
@@ -2745,10 +2800,10 @@ th[aria-sort] button { color: var(--ink-1); }
     var cycles = hist.cycles, target = resetsAt ? resetsAt.getTime() : null;
     for (var i = cycles.length - 1; i >= 0; i--) {
       var r = parseT(cycles[i].resets_at);
-      var match = target === null ? !r : (r && Math.abs(r.getTime() - target) <= 2 * 60000);
+      var match = target === null ? !r : (r && Math.abs(r.getTime() - target) <= RESET_TOLERANCE_MS);
       if (!match) { if (out.length) break; continue; }
       var opened = out.length && out[0].samples && out[0].samples[0];
-      if (opened && target !== null && opened[0] * 1000 > target + 2 * 60000) break;
+      if (opened && target !== null && opened[0] * 1000 > target + RESET_TOLERANCE_MS) break;
       out.unshift(cycles[i]);
     }
     return out;
@@ -2880,16 +2935,6 @@ th[aria-sort] button { color: var(--ink-1); }
     return hi;
   }
 
-  /* The curve's own slope at elapsed, in points of budget per hour across a
-     window of the given length. Measured off targetAt rather than
-     differentiated shape by shape, so the flat run past full reads as the
-     zero rate it is. */
-  function targetRate(cfg, e, hours) {
-    var d = 1 / 2000, lo = clamp(e - d, 0, 1), hi = clamp(e + d, 0, 1);
-    if (hi <= lo || !(hours > 0)) return 0;
-    return (targetAt(cfg, hi) - targetAt(cfg, lo)) * 100 / ((hi - lo) * hours);
-  }
-
   /* The curve as a polyline, x mapped from elapsed. The cap puts a corner in
      the line where the curve reaches full; the sampling is fine enough to
      keep that corner inside a pixel or two rather than rounding it off. */
@@ -2911,11 +2956,11 @@ th[aria-sort] button { color: var(--ink-1); }
     return full === null ? base : base + " · 100% from " + unitText(full);
   }
 
-  /* The label sits above the line's end where there is room, and below it
-     where a flat top has pushed that end against the top of the plot. */
+  /* The curve's label sits just above the line's right-hand end, which is
+     the 100% gridline over the plateau of a curve that reaches full, and
+     never above the top of the plot. */
   function curveLabelY(cfg, Y, top) {
-    var y = Y(targetAt(cfg, 1));
-    return y - 10 >= top + 9 ? y - 10 : y + 13;
+    return Math.max(top + 1, Y(targetAt(cfg, 1))) - 5;
   }
 
   /* The curve as its own formula, in the shape the config names. */
@@ -2940,6 +2985,9 @@ th[aria-sort] button { color: var(--ink-1); }
      target and never draws. */
   var PACE_KIND = "seven_day";
   var PACE_DAYS = 7;
+  var PACE_MS = PACE_DAYS * 86400000;
+  /* A weekly line's usage splits into sections across a pause this long. */
+  var PACE_IDLE_MS = 4 * 3600000;
   var PT_R = 4.6;            /* the weekly point's radius; the cap's diamond matches its area */
   var PT_D = 6;
   var MARK_R = PT_D + 1;     /* the square a mark holds against labels: the diamond's reach plus its stroke */
@@ -2979,10 +3027,29 @@ th[aria-sort] button { color: var(--ink-1); }
     var last = est[est.length - 1].u, first = obs[0].u;
     if (!num(last) || !num(first) || last <= 0) return est;
     var factor = first / last;
-    if (Math.abs(factor - 1) < 1e-9) return est;
-    return est.map(function (s) {
-      return { t: s.t, u: Math.max(0, Math.min(1, s.u * factor)) };
+    return est.map(function (s, i) {
+      return { t: s.t, u: i === est.length - 1 ? first : Math.max(0, Math.min(1, s.u * factor)) };
     });
+  }
+
+  /* Samples as historyLine draws them: in each run between clearings, the
+     estimated stretch rescaled by anchoredEstimate, every flag kept. Every
+     reading of a line's figures, targets and underlays comes from this list,
+     so they match the line on screen. */
+  function drawnSamples(samples) {
+    var runs = [], out = [];
+    samples.forEach(function (s) {
+      if (s.fresh || !runs.length) runs.push([]);
+      runs[runs.length - 1].push(s);
+    });
+    runs.forEach(function (run) {
+      var est = run.filter(function (s) { return s.est; });
+      var scaled = anchoredEstimate(est, run.filter(function (s) { return !s.est; })), k = 0;
+      run.forEach(function (s) {
+        out.push(s.est ? { t: s.t, u: scaled[k++].u, est: true, fresh: s.fresh } : s);
+      });
+    });
+    return out;
   }
 
   /* Readings a clearing's first reading lies further than this past the
@@ -2990,27 +3057,35 @@ th[aria-sort] button { color: var(--ink-1); }
      drawn as not recorded. */
   var UNRECORDED_MS = 30 * 60000;
 
-  /* Draws a window's samples as a line under parent, one run per cycle. A
-     run's last sample is the last reading at its level, since an idle run
-     folds into its end, so the clearing after it falls to zero there; the
-     climb from zero to the next run's first reading is solid where the two
-     are close and drawn as not recorded where they are not. Returns the count
-     of estimated samples and the unrecorded spans, each a [from, to] pair
-     of instants. */
+  /* Draws a window's samples, as drawnSamples leaves them, as a line under
+     parent, one run per cycle. A run's last sample is the last reading at its
+     level, since an idle run folds into its end, so the clearing after it
+     falls to zero there, dotted, under a hollow dot named "reset"; the climb
+     from zero to the next run's first reading is solid where the two are
+     close and drawn as not recorded where they are not. Returns the count of
+     estimated samples, the unrecorded spans, each a [from, to] pair of
+     instants, and the resets, each the dot's group with the instant and the
+     level the window fell from. */
   function historyLine(parent, samples, xOf, Y, col, tail) {
     var runs = [];
     samples.forEach(function (s) {
       if (s.fresh || !runs.length) runs.push([]);
       runs[runs.length - 1].push(s);
     });
-    var out = { est: 0, unrecorded: [] };
+    var out = { est: 0, unrecorded: [], resets: [] };
     runs.forEach(function (run, i) {
       var next = runs[i + 1];
       out.est += runLine(parent, run, xOf, Y, col, next ? null : tail);
       if (!next) return;
       var p = run[run.length - 1], q = next[0];
       var x0 = xOf(p.t).toFixed(1), y0 = Y(0).toFixed(1);
-      svg("path", { "class": "hist", d: "M" + x0 + " " + Y(p.u).toFixed(1) + "V" + y0, stroke: col }, parent);
+      svg("path", { "class": "hist hist-gap", d: "M" + x0 + " " + Y(p.u).toFixed(1) + "V" + y0, stroke: col }, parent);
+      /* The clearing itself: a hollow dot at the level it fell from, named
+         once above it. */
+      var gr = svg("g", { "class": "reset-mark" }, parent);
+      svg("circle", { cx: x0, cy: Y(p.u).toFixed(1), r: 2.6, stroke: col }, gr);
+      svgText(gr, x0, (Y(p.u) - 6).toFixed(1), "reset", "t-muted reset-label", { "font-size": 9.5, "text-anchor": "middle" });
+      out.resets.push({ el: gr, t: p.t, u: p.u });
       var gap = q.t - p.t >= UNRECORDED_MS;
       if (gap) out.unrecorded.push([p.t, q.t]);
       svg("path", {
@@ -3029,7 +3104,6 @@ th[aria-sort] button { color: var(--ink-1); }
   function runLine(parent, samples, xOf, Y, col, tail) {
     var est = [], obs = [];
     samples.forEach(function (s) { (s.est ? est : obs).push(s); });
-    est = anchoredEstimate(est, obs);
     if (est.length && obs.length) obs.unshift(est[est.length - 1]);
     if (est.length >= 2) svg("path", { "class": "hist hist-est", d: pathOf(est, xOf, Y), stroke: col }, parent);
     if (!obs.length && est.length && tail) obs.push(est[est.length - 1]);
@@ -3098,6 +3172,19 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
+  /* Drops a clearing's "reset" text wherever it meets the curve's label or a
+     settled gap label; the dot and its tooltip stay. */
+  function clearResetLabels(root, labels) {
+    var box = function (t) { var b = t.getBBox(); return { x0: b.x, x1: b.x + b.width, y0: b.y, y1: b.y + b.height }; };
+    var taken = labels.map(function (l) { return box(l.el); });
+    var cl = root.querySelector("text.curve-label");
+    if (cl) taken.push(box(cl));
+    [].forEach.call(root.querySelectorAll("text.reset-label"), function (t) {
+      var b = box(t);
+      if (taken.some(function (o) { return boxesMeet(b, o); })) t.parentNode.removeChild(t);
+    });
+  }
+
   /* A legend row: a swatch styled by css text, then a caption. */
   function legendRow(leg, swatchCss, caption) {
     var li = h("li", "");
@@ -3111,11 +3198,8 @@ th[aria-sort] button { color: var(--ink-1); }
   var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
   var SW_GAP = "height:0;border-top:2px dotted var(--ink-3);opacity:.55";
   var UNRECORDED_KEY = "not recorded after an early clearing";
-
-  /* A tooltip line for one unrecorded climb after a clearing. */
-  function unrecordedText(span) {
-    return "cleared after " + absTime(new Date(span[0])) + " · no readings until " + absTime(new Date(span[1]));
-  }
+  var SW_LOCK = "height:4px;border-radius:2px;background:var(--critical);opacity:.85";
+  var LOCK_KEY = "limit reached (provider refused)";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
   function dayText(elapsed) {
@@ -3186,6 +3270,420 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
+  /* ------------------------------------------- line sections and tooltips */
+
+  /* An instant as a section reads it: with its weekday, or as a clock alone
+     where ref, the section's start, falls on the same day. */
+  function spanClock(ms, ref) {
+    if (ref && new Date(ms).toDateString() === new Date(ref).toDateString()) return clockText(ms);
+    return new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  }
+
+  /* The lock spans bearing on a mark whose window runs start to end, in ms:
+     the 5-hour and 7-day windows' on every mark, since both cap every
+     request, and a family cap's on its own mark alone. drawn holds each
+     with its own ends, from and to, for its tooltip, and t0 and t1 clipped
+     to the window and to now, the line's present; live holds the spans
+     covering now. A span ending within RESET_TOLERANCE_MS of the window's
+     start is the window before's, and draws nothing. ended is what the
+     store recorded as ending a span: "reset", "served" or "cleared", and ""
+     while it is ongoing, when to is the reset its latest refusal expected,
+     so an ongoing span whose to has passed ran to that reset. */
+  function lockSpans(a, ws, start, end, now) {
+    var out = { drawn: [], live: [] };
+    var kinds = [historyFor(a, "five_hour", ""), historyFor(a, "seven_day", "")];
+    if (ws.kind === "weekly_scoped") kinds.push(historyFor(a, ws.kind, ws.scope));
+    kinds.forEach(function (hist) {
+      ((hist && hist.locks) || []).forEach(function (l) {
+        if (!l || !num(l.from) || !num(l.to)) return;
+        var from = l.from * 1000, to = l.to * 1000;
+        var sp = {
+          from: from, to: to, kind: hist.kind, scope: hist.scope || "",
+          ended: l.end || (to <= now ? "reset" : ""),
+          t0: Math.max(from, start), t1: Math.min(to, end, now)
+        };
+        if (sp.t1 > sp.t0 && to > start + RESET_TOLERANCE_MS) out.drawn.push(sp);
+        if (!sp.ended && from <= now && to > start) out.live.push(sp);
+      });
+    });
+    return out;
+  }
+
+  /* The drawn line as a time-ordered polyline of {t, u} vertices from the
+     window's start: the step pathOf draws and the tail to the present mark at
+     tNow. A clearing's fall and the climb after it are no stretch a lock lies
+     along, so the vertex after one carries fresh and no flat run joins it to
+     the one before. */
+  function lineVertices(samples, start, tNow, uNow) {
+    var v = [];
+    samples.forEach(function (s, i) {
+      var t = Math.max(s.t, start);
+      if (i && !s.fresh) v.push({ t: t, u: samples[i - 1].u });
+      v.push({ t: t, u: s.u, fresh: !!s.fresh });
+    });
+    if (v.length) {
+      var e = v[v.length - 1], tt = Math.max(tNow, e.t);
+      v.push({ t: tt, u: e.u }, { t: tt, u: uNow });
+    }
+    return v;
+  }
+
+  /* The flat runs of a polyline between instants a and b, as [t0, t1, u]
+     triples. A refused seat takes no work, so its line only runs flat under
+     a lock; risers and the stretch across a clearing are left out. Empty
+     where no flat run meets the stretch. */
+  function flatRuns(v, a, b) {
+    var out = [];
+    for (var i = 0; i + 1 < v.length; i++) {
+      var p = v[i], q = v[i + 1];
+      if (q.fresh || p.u !== q.u || q.t <= a || p.t >= b) continue;
+      out.push([Math.max(p.t, a), Math.min(q.t, b), p.u]);
+    }
+    return out;
+  }
+
+  /* Draws each span as a stroke along the flat runs of the line under
+     parent, the layer under every seat's line, so every line runs over every
+     underlay. A run under a pixel wide draws nothing, since its round caps
+     would draw a dot on a climb. Reports whether it drew any. */
+  function lockUnderlay(parent, spans, v, xOf, Y) {
+    var drew = false;
+    spans.forEach(function (sp) {
+      var seg = flatRuns(v, sp.t0, sp.t1).filter(function (r) { return xOf(r[1]) - xOf(r[0]) >= 1; });
+      if (!seg.length) return;
+      var d = seg.map(function (r) { return "M" + xOf(r[0]).toFixed(1) + " " + Y(r[2]).toFixed(1) + "H" + xOf(r[1]).toFixed(1); }).join("");
+      svg("path", { "class": "lock-under", d: d }, parent);
+      drew = true;
+    });
+    return drew;
+  }
+
+  /* A line's sections, oldest first from the window's start, each {type, a,
+     b} in ms with what its tooltip needs. Every early clearing is a section
+     of its own, from the last sample before it to the first after it:
+     "unrec" where the two lie UNRECORDED_MS or more apart, otherwise "usage"
+     with clear set, a climb from zero. Elsewhere a section is "limit" for
+     each continuous stretch in which the provider refused the seat, whatever
+     spans were in force across it, "usage" for each run of rises nearer
+     than idleMs apart, and "idle" for the rest. A usage run takes in a
+     stretch under idleMs between it and a limit, a clearing or the line's
+     ends, and is a single instant where one rise stands alone. spans lists
+     the refusals a section holds: every one in force across a limit, and
+     those overlapping a clearing. Every span is held by a section, the
+     nearest one where none overlaps it. */
+  function lineSections(samples, start, tNow, uNow, spans, idleMs) {
+    var last = samples[samples.length - 1];
+    var t0 = Math.max(samples[0].t, start), t1 = Math.max(tNow, last.t);
+    var rises = [], clears = [];
+    samples.forEach(function (s, i) {
+      if (!i) return;
+      var p = samples[i - 1];
+      if (s.fresh) clears.push({ a: Math.max(p.t, t0), b: Math.max(s.t, t0), gap: s.t - p.t >= UNRECORDED_MS });
+      else if (s.u > p.u) rises.push(Math.max(s.t, t0));
+    });
+    if (uNow > last.u) rises.push(t1);
+    var cuts = [t0, t1];
+    spans.forEach(function (sp) { cuts.push(sp.t0, sp.t1); });
+    clears.forEach(function (c) { cuts.push(c.a, c.b); });
+    cuts = cuts.filter(function (t) { return t >= t0 && t <= t1; }).sort(function (x, y) { return x - y; });
+    var pieces = [];
+    for (var i = 0; i + 1 < cuts.length; i++) {
+      var a = cuts[i], b = cuts[i + 1], mid = (a + b) / 2;
+      if (b <= a) continue;
+      var clear = clears.filter(function (c) { return c.a <= mid && mid < c.b; })[0] || null;
+      var on = clear ? spans.filter(function (sp) { return sp.t0 < clear.b && sp.t1 > clear.a; })
+        : spans.filter(function (sp) { return sp.t0 <= mid && mid < sp.t1; });
+      var type = clear ? (clear.gap ? "unrec" : "usage") : on.length ? "limit" : "free";
+      var key = clear || type;
+      var prev = pieces[pieces.length - 1];
+      if (prev && prev.key === key) {
+        prev.b = b;
+        on.forEach(function (sp) { if (prev.spans.indexOf(sp) < 0) prev.spans.push(sp); });
+      } else pieces.push({ type: type, a: a, b: b, spans: on, key: key, clear: clear });
+    }
+    var out = [];
+    function add(type, a, b, extra) {
+      var prev = out[out.length - 1];
+      if (!extra && prev && prev.type === type && !prev.clear && prev.b === a) { prev.b = b; return; }
+      out.push(Object.assign({ type: type, a: a, b: b }, extra || {}));
+    }
+    pieces.forEach(function (pc) {
+      if (pc.clear) { add(pc.type, pc.a, pc.b, { clear: true, spans: pc.spans }); return; }
+      if (pc.type === "limit") { add("limit", pc.a, pc.b, { spans: pc.spans }); return; }
+      var groups = [];
+      rises.forEach(function (r) {
+        if (r < pc.a || r > pc.b) return;
+        var g = groups[groups.length - 1];
+        if (g && r - g[1] < idleMs) g[1] = r;
+        else groups.push([r, r]);
+      });
+      if (!groups.length) { add("idle", pc.a, pc.b); return; }
+      if (groups[0][0] - pc.a < idleMs) groups[0][0] = pc.a;
+      var tail = groups[groups.length - 1];
+      if (pc.b - tail[1] < idleMs) tail[1] = pc.b;
+      var at = pc.a;
+      groups.forEach(function (g) {
+        if (g[0] > at) add("idle", at, g[0]);
+        add("usage", g[0], g[1]);
+        at = g[1];
+      });
+      if (pc.b > at) add("idle", at, pc.b);
+    });
+    spans.forEach(function (sp) {
+      if (out.some(function (sec) { return sec.spans && sec.spans.indexOf(sp) >= 0; })) return;
+      var near = null, gap = Infinity;
+      out.forEach(function (sec) {
+        var d = Math.max(sec.a - sp.t1, sp.t0 - sec.b, 0);
+        if (d < gap) { near = sec; gap = d; }
+      });
+      if (near) near.spans = (near.spans || []).concat([sp]);
+    });
+    return out;
+  }
+
+  /* The utilization the line shows at an instant: the last sample at or
+     before it, and the present reading from the last sample on. */
+  function levelAt(samples, t, tNow, uNow) {
+    if (t >= tNow) return uNow;
+    var u = samples[0].u;
+    for (var i = 0; i < samples.length && samples[i].t <= t; i++) u = samples[i].u;
+    return u;
+  }
+
+  /* The drawn line between instants a and b as an SVG path, for a section's
+     pointer target. Flat runs are clipped to the stretch; risers are kept at
+     any instant of it where risers is "in", strictly inside it where it is
+     "inside", and nowhere otherwise. A clearing's fall and the climb after it
+     belong to the section across it, drawn as historyLine draws them. A
+     stretch the line has no length in is the point at a. */
+  function sectionPath(v, a, b, xOf, Y, risers) {
+    var d = "";
+    var x = function (t) { return xOf(t).toFixed(1); }, y = function (u) { return Y(u).toFixed(1); };
+    var holds = function (t) { return risers === "in" ? t >= a && t <= b : risers === "inside" && t > a && t < b; };
+    for (var i = 0; i + 1 < v.length; i++) {
+      var p = v[i], q = v[i + 1];
+      if (q.t < a || p.t > b) continue;
+      var s0 = Math.max(p.t, a), s1 = Math.min(q.t, b);
+      if (q.fresh) {
+        if (s1 <= s0) continue;
+        var climb = function (t) { return q.u * (t - p.t) / (q.t - p.t); };
+        if (p.t >= a) d += "M" + x(p.t) + " " + y(p.u) + "V" + y(0);
+        d += "M" + x(s0) + " " + y(climb(s0)) + "L" + x(s1) + " " + y(climb(s1));
+      } else if (p.t === q.t) {
+        if (p.u !== q.u && holds(p.t)) d += "M" + x(p.t) + " " + y(p.u) + "V" + y(q.u);
+      } else if (s1 > s0) {
+        d += "M" + x(s0) + " " + y(p.u) + "H" + x(s1);
+      }
+    }
+    if (!d && v.length) {
+      var u = v[0].u;
+      for (var k = 0; k < v.length && v[k].t <= a; k++) u = v[k].u;
+      d = "M" + x(a) + " " + y(u) + "h0";
+    }
+    return d;
+  }
+
+  /* The badge each type of section carries in its tooltip. */
+  var SECTION_LABEL = { usage: "usage", idle: "idle", limit: "limit reached", unrec: "not recorded" };
+
+  /* What ended a span, as a limit's line reads it. */
+  var LOCK_ENDED = {
+    reset: "until the window reset",
+    served: "until it served a request again",
+    cleared: "until it cleared the window early"
+  };
+
+  /* A limit as a tooltip line reads it: its window, what the provider did
+     and what ended it, with the span's own ends where ranged is set. */
+  function lockLine(sp, now, ranged) {
+    var w = windowShort(sp);
+    if (!sp.ended) {
+      return { b: w, t: "the provider is refusing requests" + (ranged ? " since " + spanClock(sp.from) : ""), alert: resetText(new Date(sp.to), now) };
+    }
+    return { b: w, t: (ranged ? spanClock(sp.from) + " – " + spanClock(sp.to, sp.from) + ": " : "") +
+      "the provider refused requests " + LOCK_ENDED[sp.ended] };
+  }
+
+  /* A section's tooltip: the line, what the section is and when, then what
+     happened in it. A limit section is dated by its spans' own ends, which
+     a clearing or the window's start can cut the section short of; its one
+     span's line leaves the ends to the head, and every line of any other
+     section names a span's own. */
+  function sectionTip(head, sec, samples, tNow, uNow, now) {
+    var a = sec.a, b = sec.b, live = sec.b >= tNow;
+    if (sec.type === "limit") {
+      a = Math.min.apply(null, sec.spans.map(function (sp) { return sp.from; }));
+      live = sec.spans.some(function (sp) { return !sp.ended; });
+      b = live ? now : Math.max.apply(null, sec.spans.map(function (sp) { return sp.to; }));
+    }
+    var spec = Object.assign({}, head, {
+      type: sec.type, label: SECTION_LABEL[sec.type],
+      when: b === a ? spanClock(a) : spanClock(a) + " – " + (live ? "now" : spanClock(b, a)),
+      dur: b === a ? "" : durText(Math.max(0, Math.round(((live ? now : b) - a) / 1000))),
+      lines: []
+    });
+    var u0 = levelAt(samples, sec.a, tNow, uNow), u1 = levelAt(samples, sec.b, tNow, uNow);
+    var rise = function () { return "+" + ((u1 - u0) * 100).toFixed(1) + " pts"; };
+    if (sec.type === "usage") {
+      /* A clearing's climb starts from zero, a run opening on a clearing's
+         fresh reading from that reading, and any other run from the level
+         under its first rise. */
+      var opensFresh = samples.some(function (s) { return s.fresh && s.t === sec.a; });
+      if (sec.clear) u0 = 0;
+      else if (!opensFresh) u0 = levelAt(samples, sec.a - 1, tNow, uNow);
+      u0 = Math.min(u0, u1);
+      spec.big = [pct(u0, 0), pct(u1, 0)];
+      spec.delta = rise();
+      if (sec.clear) spec.lines.push({ t: "the climb after the provider cleared the window early" });
+      if (samples.some(function (s) { return s.est && s.t >= sec.a && s.t <= sec.b; })) spec.lines.push({ t: "estimated from token spend" });
+    } else if (sec.type === "idle") {
+      spec.big = [pct(u0, 0)];
+      spec.delta = "held";
+      spec.lines.push({ t: head.cap ? "no new use counted against this cap" : "no new usage on this seat" });
+    } else if (sec.type === "unrec") {
+      spec.lines.push({ t: "no readings after an early clearing; the climb is drawn straight" });
+    } else {
+      spec.big = u1 > u0 ? [pct(u0, 0), pct(u1, 0)] : [pct(u0, 0)];
+      spec.delta = u1 > u0 ? rise() : "";
+    }
+    (sec.spans || []).forEach(function (sp) {
+      spec.lines.push(lockLine(sp, now, sec.type !== "limit" || sec.spans.length > 1));
+    });
+    return spec;
+  }
+
+  /* A rich tooltip, as data: the line it belongs to (seat, colour, window),
+     the kind of stretch and when, a headline figure, and plain lines under
+     it. tipText reads it out as the plain text data-tip carries, tipSpeech
+     as one line for assistive technology; tipRender draws it into the
+     tooltip. */
+  function tipText(spec) {
+    var out = [spec.seat + " · " + spec.win, spec.label + " · " + spec.when + (spec.dur ? " (" + spec.dur + ")" : "")];
+    if (spec.big) out.push(spec.big.join(" → ") + (spec.delta ? " · " + spec.delta : ""));
+    spec.lines.forEach(function (l) { out.push((l.b ? l.b + ": " : "") + l.t + (l.alert ? " · " + l.alert : "")); });
+    return out.join("\n");
+  }
+
+  function tipSpeech(spec) { return tipText(spec).split("\n").join("; "); }
+
+  /* The drawn rows are for the eye; assistive technology reads the one
+     hidden line under them. */
+  function tipRender(spec, host) {
+    var rows = [];
+    function row(cls) { var e = h("div", cls); rows.push(e); return e; }
+    function put(parent, tag, cls, text) { return parent.appendChild(h(tag, cls, text)); }
+    var top = row("tip-head");
+    put(top, "span", "tip-dot").style.background = spec.col;
+    put(top, "span", "tip-seat", spec.seat);
+    put(top, "span", "tip-win", spec.win);
+    var tag = row("tip-tag");
+    put(tag, "span", "tip-badge", spec.label).setAttribute("data-type", spec.type);
+    put(tag, "span", "tip-when", spec.when);
+    if (spec.dur) put(tag, "span", "tip-dur", spec.dur);
+    if (spec.big) {
+      var big = row("tip-big");
+      spec.big.forEach(function (v, i) {
+        if (i) put(big, "span", "tip-arrow", "→");
+        put(big, "span", "", v);
+      });
+      if (spec.delta) put(big, "span", "tip-delta", spec.delta);
+    }
+    spec.lines.forEach(function (l) {
+      var line = row("tip-line");
+      if (l.b) put(line, "b", "", l.b);
+      put(line, "span", "", l.t);
+      if (l.alert) put(line, "span", "tip-alert", l.alert);
+    });
+    rows.forEach(function (e) { e.setAttribute("aria-hidden", "true"); host.appendChild(e); });
+    put(host, "span", "sr-only", tipSpeech(spec));
+  }
+
+  /* Sets an element's tooltip from a spec: the plain text on data-tip, the
+     spec for the tooltip to draw. */
+  function setTip(el, spec) {
+    el.setAttribute("data-tip", tipText(spec));
+    el.tipSpec = spec;
+  }
+
+  /* Makes a chart element a keyboard stop named by its tooltip, keyed by fk
+     for the focus a re-render restores. Its name already says what the
+     tooltip does, so the tooltip is only drawn for it. */
+  function tipStop(el, spec, fk) {
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("role", "img");
+    el.setAttribute("aria-label", tipSpeech(spec));
+    el.setAttribute("data-tip-visual", "true");
+    el.setAttribute("data-fk", fk);
+  }
+
+  /* Lays a transparent pointer target over each section of the line under
+     parent, carrying that section's tooltip; the one under the pointer
+     shows in the seat's colour. A section isStop accepts is a keyboard stop
+     as well, keyed by key, the line's own; one the line has no length in is
+     marked span-pt, which draws its focus as a square wider than a mark. */
+  function sectionHits(parent, sections, v, xOf, Y, col, tip, isStop, key) {
+    var out = [];
+    sections.forEach(function (sec) {
+      var risers = sec.type === "usage" || sec.type === "unrec" ? "in" : sec.type === "limit" ? "inside" : null;
+      var el = svg("path", { "class": "span-hit", d: sectionPath(v, sec.a, sec.b, xOf, Y, risers), stroke: col }, parent);
+      var spec = tip(sec);
+      setTip(el, spec);
+      if (isStop(sec)) {
+        tipStop(el, spec, "sec:" + key + ":" + sec.type + ":" + sec.a);
+        if (el.getTotalLength() < 1) el.setAttribute("class", "span-hit span-pt");
+      }
+      out.push({ el: el, sec: sec });
+    });
+    /* A reset's dot sits over the sections, so it takes the pointer. */
+    [].forEach.call(parent.querySelectorAll("g.reset-mark"), function (m) { parent.appendChild(m); });
+    return out;
+  }
+
+  /* Each reset dot's tooltip, and the stop it makes, keyed by key, the
+     line's own. */
+  function resetTips(resets, head, key) {
+    resets.forEach(function (r) {
+      var spec = Object.assign({}, head, { type: "reset", label: "reset",
+        when: spanClock(r.t), dur: "", big: [pct(r.u, 0), "0%"], delta: "",
+        lines: [{ t: "the provider cleared the window early and kept its reset time" }] });
+      setTip(r.el, spec);
+      tipStop(r.el, spec, "reset:" + key + ":" + r.t);
+    });
+  }
+
+  /* A present mark's tooltip: where the reading stands against the curve,
+     named by curveWord, and any limit in force now. */
+  function markTip(head, when, u, target, curveWord, live, now) {
+    return Object.assign({}, head, {
+      type: live.length ? "limit" : "now", label: "now", when: when, dur: "",
+      big: [pct(u, 0)], delta: num(target) ? "vs " + pct(target, 0) + " " + curveWord : "",
+      lines: live.map(function (sp) { return lockLine(sp, now, false); })
+    });
+  }
+
+  /* The limits in force now, as a mark's name reads them. */
+  function liveAria(live, now) {
+    return live.map(function (sp) {
+      return ", " + windowShort(sp) + " limit reached, " + resetText(new Date(sp.to), now);
+    }).join("");
+  }
+
+  /* The hairline critical ring inside a circle mark whose seat the provider
+     is refusing now. */
+  function liveRing(g, cx, cy) {
+    svg("circle", { cx: cx, cy: cy, r: PT_R - 1.65, fill: "none", stroke: "var(--critical)", "stroke-width": 1.3 }, g);
+  }
+
+  /* The utilization gridlines both charts share: a labelled line every 20%,
+     and a fainter unlabelled one at each 10% between. */
+  function yGrid(root, m, pw, Y) {
+    for (var i = 0; i <= 10; i++) {
+      var t = i / 10, gy = Y(t), major = i % 2 === 0;
+      svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1, opacity: major ? 1 : .45 }, root);
+      if (major) svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+    }
+  }
+
   function renderPace(st, seats, ranks) {
     var host = $("pace-curve");
     host.textContent = "";
@@ -3210,7 +3708,7 @@ th[aria-sort] button { color: var(--ink-1); }
        a phone still gets a readable chart and a wide screen not a wall. The
        ratio gives the y axis room for seats a few points apart to keep their
        labels beside their marks, and still stands the section with section
-       01 on a laptop viewport; the gridlines stay a quarter of the budget
+       01 on a laptop viewport; the labelled gridlines stay a fifth of the budget
        apart. */
     var W = Math.max(280, host.clientWidth || 480);
     var H = Math.round(clamp(W * 0.375, 294, 510));
@@ -3252,11 +3750,7 @@ th[aria-sort] button { color: var(--ink-1); }
         : "Share of each seat's " + view + " cap used by days into its own week, against the pace target, one point per seat with the recorded path behind it"
     }, host);
 
-    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
-      var gy = Y(t);
-      svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
-      svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
-    });
+    yGrid(root, m, pw, Y);
     /* The window is exactly PACE_DAYS long, so elapsed and days are one axis;
        days are the tick the reader can place a seat on. Each seat's week
        starts at its own wall-clock time, so the axis is not a calendar. */
@@ -3275,9 +3769,8 @@ th[aria-sort] button { color: var(--ink-1); }
       d: curvePath(pace, X, Y), fill: "none", stroke: "var(--ink-1)",
       "stroke-width": 2, "stroke-linecap": "round", opacity: .78
     }, root);
-    /* The curve's label goes on last, over every mark's tick and line, so
-       nothing drawn later runs through it; the gap labels are placed around
-       it, so it covers no reading. */
+    /* The curve's label goes on last and carries no plate, so no line under
+       it is cut; the gap labels are placed around it. */
     var curveLabel = svgText(root, X(1) - 4, curveLabelY(pace, Y, m.t),
       curveLabelText(pace, "target", function (e) { return "day " + (e * PACE_DAYS).toFixed(1); }),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
@@ -3291,87 +3784,106 @@ th[aria-sort] button { color: var(--ink-1); }
        meet. The cap's label carries its weight in the cost; the weekly
        window counts whole. The group's role="img" keeps the label out of the
        accessibility tree; the gap is in its name. */
-    var labels = [], anyEst = false, anyUnrec = false;
-    var SLOPE_SPAN_MS = 6 * 3600000;
-    /* Two layers, because SVG paints in document order and a seat drawn later
-       would otherwise run its recorded line across an earlier seat's mark and
-       label. Every line goes in the lower layer and every mark, label and hit
-       area in the upper one, so no seat can hide another's reading. */
+    var labels = [], anyEst = false, anyUnrec = false, anyLock = false;
+    /* Three layers, because SVG paints in document order and a seat drawn
+       later would otherwise run its recorded line across an earlier seat's
+       mark and label, or its limit underlay across an earlier seat's line.
+       Every underlay goes in the lowest layer, every line above it, and
+       every mark, label and hit area in the top one, so no seat can hide
+       another's reading. */
+    var gUnder = svg("g", {}, root);
     var gLines = svg("g", {}, root);
     var gPts = svg("g", {}, root);
-    function point(a, ws, weighted) {
+    dimOnHover(root);
+    /* weighted marks a family cap's mark; ownStops, that the seat's 7-day line
+       is drawn as well, so the 5-hour and 7-day limits are stops there and
+       the cap's line stops only at its own. It reports whether it drew the
+       line, which takes two samples in the window. */
+    function point(a, ws, weighted, ownStops) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gPts);
       /* The line's own group, carrying the mark's identity: it sits in the
-         lower layer, and the delegated tooltip and the legend's focus dimming
-         both find it by the attributes they find the mark by. It is no stop
-         of its own: its tooltip is the mark's, word for word, so the pointer
-         reads it off the line and the keyboard off the mark. */
-      var gl = svg("g", { "class": "pt-line", "aria-hidden": "true" }, gLines);
+         lower layer, and the legend's focus dimming finds it by the attribute
+         it finds the mark by. Each section of the line carries its own
+         tooltip, and a limit or a reset on it is a stop of its own. */
+      var gl = svg("g", { "class": "pt-line" }, gLines);
       gl.setAttribute("data-seat", a.auth_id);
+      var tipHead = { seat: seatLabel(a), col: col, win: windowShort(ws), cap: ws.kind === "weekly_scoped" };
+      var key = a.auth_id + ":" + ws.kind + ":" + (ws.scope || "");
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
          alone. x is the sample's own elapsed fraction of this window. */
-      var resets = parseT(ws.resets_at), hist = historyFor(a, ws.kind, ws.scope), line = null, slope = null, est = 0, unrec = [];
-      if (resets && hist) {
-        var start = resets.getTime() - PACE_DAYS * 86400000;
-        var cur = samplesOf(currentCycles(hist, resets));
-        if (cur.length >= 2) {
-          var xOf = function (t) { return X((t - start) / (PACE_DAYS * 86400000)); };
-          var drawn = historyLine(gl, cur, xOf, Y, col, tailTo(cx, cy));
-          est = drawn.est;
-          unrec = drawn.unrecorded;
-          anyEst = anyEst || est > 0;
-          anyUnrec = anyUnrec || unrec.length > 0;
-          line = cur;
-          slope = recentSlope(cur, SLOPE_SPAN_MS);
+      var resets = parseT(ws.resets_at), now = nowMs(), locks = { drawn: [], live: [] }, drewLine = false;
+      if (resets) {
+        /* The line's present is the later of now and the mark's own instant,
+           which the scorer's elapsed can put ahead of the page's clock, so a
+           limit in force runs to the mark and reads as now. */
+        var start = resets.getTime() - PACE_MS, tNow = start + clamp(ws.elapsed, 0, 1) * PACE_MS;
+        now = Math.max(now, tNow);
+        var xOf = function (t) { return X((t - start) / PACE_MS); };
+        locks = lockSpans(a, ws, start, resets.getTime(), now);
+        var line = drawnSamples(samplesOf(currentCycles(historyFor(a, ws.kind, ws.scope), resets)));
+        if (line.length >= 2) {
+          drewLine = true;
+          var v = lineVertices(line, start, tNow, ws.utilization);
+          var gu = svg("g", { "class": "pt-under" }, gUnder);
+          gu.setAttribute("data-seat", a.auth_id);
+          anyLock = lockUnderlay(gu, locks.drawn, v, xOf, Y) || anyLock;
+          var drawn = historyLine(gl, line, xOf, Y, col, tailTo(cx, cy));
+          anyEst = anyEst || drawn.est > 0;
+          anyUnrec = anyUnrec || drawn.unrecorded.length > 0;
+          resetTips(drawn.resets, tipHead, key);
+          sectionHits(gl, lineSections(line, start, tNow, ws.utilization, locks.drawn, PACE_IDLE_MS), v, xOf, Y, col,
+            function (sec) { return sectionTip(tipHead, sec, line, tNow, ws.utilization, now); },
+            function (sec) {
+              return (sec.spans || []).some(function (sp) { return !ownStops || sp.kind === "weekly_scoped"; });
+            }, key);
         }
       }
-      /* The target's own slope at this elapsed, in the same units, so the
-         two rates read side by side. Past the point the curve reaches full it
-         is flat, and the rate to keep up with it is zero. */
-      var targetSlope = targetRate(pace, ws.elapsed, PACE_DAYS * 24);
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
         head(g, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), weighted ? "gap-label-half" : null);
       }
       g.setAttribute("data-seat", a.auth_id);
-      g.setAttribute("data-fk", "pt:" + a.auth_id + ":" + ws.kind + ":" + (ws.scope || ""));
+      g.setAttribute("data-fk", "pt:" + key);
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
         ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the " + windowName(ws) + " budget used" +
-        ", " + overText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the cost" : ", cost " + costText(a.score)));
-      g.setAttribute("data-tip", [
-        "day " + (clamp(ws.elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS + " · " +
-          pct(ws.utilization, 0) + " used vs " + pct(ws.target, 0) + " target · " + paceVerdict(ws.slack),
-        weighted ? weightMark(ws) + " in the cost" : "cost " + costText(a.score),
-        line ? "last 6h " + rateText(slope) + " vs " + rateText(targetSlope).replace(/ pts\/h$/, "") + " target" : null,
-        est ? est + " of " + line.length + " readings estimated from token spend" : null
-      ].concat(unrec.map(unrecordedText)).filter(Boolean).join("\n"));
-      gl.setAttribute("data-tip", g.getAttribute("data-tip"));
+        ", " + overText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the cost" : ", cost " + costText(a.score)) +
+        liveAria(locks.live, now));
+      setTip(g, markTip(tipHead, "day " + (clamp(ws.elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS,
+        ws.utilization, ws.target, "target", locks.live, now));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
+      var diamond = function (r) {
+        return "M" + cx + " " + (cy - r) + "L" + (cx + r) + " " + cy + "L" + cx + " " + (cy + r) + "L" + (cx - r) + " " + cy + "Z";
+      };
       if (weighted) {
-        svg("path", {
-          d: "M" + cx + " " + (cy - PT_D) + "L" + (cx + PT_D) + " " + cy + "L" + cx + " " + (cy + PT_D) + "L" + (cx - PT_D) + " " + cy + "Z",
-          fill: col, stroke: "var(--surface-1)", "stroke-width": 2, "stroke-linejoin": "round"
-        }, g);
+        svg("path", { d: diamond(PT_D), fill: col, stroke: "var(--surface-1)", "stroke-width": 2, "stroke-linejoin": "round" }, g);
       } else {
         svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col, stroke: "var(--surface-1)", "stroke-width": 2 }, g);
       }
+      /* A mark whose seat the provider is refusing now keeps its size: a
+         hairline critical ring runs just inside its visible edge. */
+      if (locks.live.length) {
+        if (weighted) svg("path", { d: diamond(PT_D - 2), fill: "none", stroke: "var(--critical)", "stroke-width": 1.3, "stroke-linejoin": "round" }, g);
+        else liveRing(g, cx, cy);
+      }
+      return drewLine;
     }
 
     /* A view of one cap counts its diamonds; any other counts the circles. */
     var plotted = 0;
     series.forEach(function (s) {
-      if (!s.gap && shows(view, STANDARD)) { plotted++; point(s.auth, s.ws, false); }
+      var weeklyLine = false;
+      if (!s.gap && shows(view, STANDARD)) { plotted++; weeklyLine = point(s.auth, s.ws, false, false); }
       s.caps.forEach(function (c) {
         if (c.gap || !shows(view, c.fam)) return;
         if (view === c.fam) plotted++;
-        point(s.auth, c.ws, true);
+        point(s.auth, c.ws, true, weeklyLine);
       });
     });
 
     settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
     root.appendChild(curveLabel);
-    plateUnder(curveLabel);
+    clearResetLabels(root, labels);
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2,
@@ -3379,7 +3891,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec);
+    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock);
     renderRank(st, seats, ranks, view);
     renderPaceNote(st);
   }
@@ -3405,21 +3917,50 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Pointing at a seat in the legend lifts its points out of the rest: with a
-     dozen seats the neutral ones are told apart by name, not hue. */
+  /* Lifts one seat's marks, lines and underlays out of the rest, or none for
+     an empty id: with a dozen seats the neutral ones are told apart by name,
+     not hue. */
   function focusSeat(root, id) {
     if (!id) { root.removeAttribute("data-focus"); }
     else { root.setAttribute("data-focus", id); }
-    var pts = root.querySelectorAll("g.pt, g.pt-line, g.seg");
+    var pts = root.querySelectorAll("g.pt, g.pt-line, g.pt-under");
     for (var i = 0; i < pts.length; i++) {
       if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
       else pts[i].removeAttribute("data-focused");
     }
   }
 
+  /* The seat an element on the chart root belongs to, or null for one
+     outside it or belonging to no seat. */
+  function seatOn(root, el) {
+    var t = el && el.closest ? el.closest("[data-seat]") : null;
+    return t && root.contains(t) ? t.getAttribute("data-seat") : null;
+  }
+
+  /* Pointing at a seat's line, mark or limit on a chart, or focusing one of
+     its stops, lifts that seat out of the rest, as pointing at it in the
+     legend does. Focus leaving the chart gives the lift back to the seat
+     under the pointer, and the pointer leaving it, or resting on a part of
+     the chart that belongs to no seat, to the seat holding focus. */
+  function dimOnHover(root) {
+    var pointed = null;
+    root.addEventListener("pointerover", function (ev) {
+      pointed = seatOn(root, ev.target);
+      focusSeat(root, pointed || seatOn(root, document.activeElement));
+    });
+    root.addEventListener("pointerleave", function () {
+      pointed = null;
+      focusSeat(root, seatOn(root, document.activeElement));
+    });
+    root.addEventListener("focusin", function (ev) { focusSeat(root, seatOn(root, ev.target) || pointed); });
+    root.addEventListener("focusout", function (ev) {
+      if (!root.contains(ev.relatedTarget)) focusSeat(root, pointed);
+    });
+  }
+
   /* Every seat is named: plotted ones in the legend, the rest with the reason
      they have no point, so a seat never vanishes from the chart unexplained. */
-  function renderPaceLegend(series, root, fams, anyEst, view, anyUnrec) {
+  function renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock) {
     var leg = $("pace-legend");
     leg.textContent = "";
     /* Where a seat can carry two marks the legend names the marks before the
@@ -3437,6 +3978,7 @@ th[aria-sort] button { color: var(--ink-1); }
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
+    if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
@@ -3460,7 +4002,7 @@ th[aria-sort] button { color: var(--ink-1); }
       li.appendChild(sw);
       li.appendChild(document.createTextNode(seatLabel(a)));
       li.addEventListener("pointerenter", function () { focusSeat(root, a.auth_id); });
-      li.addEventListener("pointerleave", function () { focusSeat(root, null); });
+      li.addEventListener("pointerleave", function () { focusSeat(root, seatOn(root, document.activeElement)); });
       leg.appendChild(li);
     });
     leg.hidden = !leg.childNodes.length;
@@ -3472,6 +4014,18 @@ th[aria-sort] button { color: var(--ink-1); }
       gap.appendChild(h("b", "", "not plotted  "));
       gap.appendChild(document.createTextNode(missing.join(" · ")));
     }
+  }
+
+  /* What both charts' notes say about a line's stretches, given the pause,
+     in words, that ends a usage stretch. */
+  function sectionsText(pause) {
+    return "Point at a stretch of a line to see what happened in it. A usage stretch is a run of rises less " +
+      "than " + pause + " apart, an idle stretch holds its level, and a not-recorded stretch is a climb after " +
+      "an early clearing that no reading covers. A limit stretch is where the provider refused requests on a " +
+      "window of the line, with a red stroke under it. Its tooltip gives each refusal's own start and end and " +
+      "what ended it, and a stretch a refusal overlaps names that refusal too. A thin red ring inside a mark " +
+      "means the provider is refusing the seat now. A dotted fall to zero under a hollow dot named " +
+      "\u201Creset\u201D is the provider clearing the window early, before its reset time.";
   }
 
   /* One entry of a note: the term that names the topic, and the definition
@@ -3532,10 +4086,15 @@ th[aria-sort] button { color: var(--ink-1); }
 
     var r = def(dl, "the recorded line");
     r.appendChild(document.createTextNode("The thin line behind a mark is the seat's recorded path from the " +
-      "start of its window. Steeper than the curve is spending faster than pace, flatter is slower. The tooltip " +
-      "gives both rates over the last six hours. A dashed, paler stretch is an estimate rebuilt from token spend. " +
-      "The mark itself is always a reading. This is the window the plugin paces against, and the one whose unused " +
-      "capacity is lost at reset."));
+      "start of its window. Steeper than the curve is spending faster than pace, flatter is slower. A dashed, " +
+      "paler stretch is an estimate rebuilt from token spend. The mark itself is always a reading. This is the " +
+      "window the plugin paces against, and the one whose unused capacity is lost at reset."));
+
+    var sec = def(dl, "stretches, limits and resets");
+    sec.appendChild(document.createTextNode(sectionsText(PACE_IDLE_MS / 3600000 + " hours") +
+      " A reset dot also takes keyboard focus, and so does a stretch that holds a limit: a 5-hour or 7-day " +
+      "limit on the seat's 7-day line, and a cap's own limit on the cap's line. Where the 7-day line is not " +
+      "drawn, which takes two readings in the window, the cap's line takes every limit on it."));
 
     var q = def(dl, "cost, ranking and the challenger margin");
     /* The sum the formula line states, in words: one clause per term the
@@ -3600,8 +4159,13 @@ th[aria-sort] button { color: var(--ink-1); }
      shows active on that seat then, not the ones that spent the tokens. */
   var SESSION_HOURS = 5;
   var SESSION_MS = SESSION_HOURS * 3600000;
-  var SEG_MS = 15 * 60000;   /* one hoverable stretch of a seat's line */
-  var SESSION_IDLE = "point at a stretch of a line to list the conversations the routing log shows on that seat then";
+  /* A 5-hour line's usage splits into sections across a pause this long. */
+  var SESSION_IDLE_MS = 15 * 60000;
+  /* The sections of a 5-hour line that are keyboard stops besides any
+     holding a limit: a usage section carries its conversations. */
+  var SESSION_STOPS = ["usage"];
+  var SESSION_IDLE = "point at or focus a usage stretch of a line, a run of rises under " + (SESSION_IDLE_MS / 60000) +
+    " minutes apart, to list the conversations the routing log shows on that seat then";
   /* Everything that gates on this window, in the order internal/pace tests
      them. All three are readings the provider hands over. A reading at full
      and a reading that is not a number leave a conversation already bound to
@@ -3645,14 +4209,16 @@ th[aria-sort] button { color: var(--ink-1); }
     return { list: out, requests: n, covered: oldest !== null && oldest <= from };
   }
 
-  function conversationLines(act) {
-    if (!act.covered && !act.list.length) return ["no log for this stretch"];
-    if (!act.list.length) return ["no request routed to this seat in this stretch"];
-    var lines = act.list.slice(0, 6).map(function (c) {
-      return "  " + c.key.slice(0, 8) + "  " + c.n + (c.n === 1 ? " request" : " requests") + (c.model ? "  " + c.model : "");
+  /* A usage section's conversations as tooltip lines: the key bold, then
+     its requests and model. */
+  function conversationRows(act) {
+    if (!act.covered && !act.list.length) return [{ t: "no routing log for this stretch" }];
+    if (!act.list.length) return [{ t: "no request routed to this seat in this stretch" }];
+    var rows = act.list.slice(0, 4).map(function (c) {
+      return { b: c.key.slice(0, 8), t: c.n + (c.n === 1 ? " request" : " requests") + (c.model ? " \u00B7 " + c.model : "") };
     });
-    if (act.list.length > 6) lines.push("  and " + (act.list.length - 6) + " more");
-    return lines;
+    if (act.list.length > 4) rows.push({ t: "and " + (act.list.length - 4) + " more" });
+    return rows;
   }
 
   function renderSession(st, seats) {
@@ -3695,7 +4261,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var entry = { auth: a, w: w, ws: ws && num(ws.target) && num(ws.slack) ? ws : null, resets: resets,
         gap: sessionGap(a, w, resets), cur: [] };
       if (!entry.gap) {
-        entry.cur = samplesOf(currentCycles(historyFor(a, "five_hour", ""), resets));
+        entry.cur = drawnSamples(samplesOf(currentCycles(historyFor(a, "five_hour", ""), resets)));
         entry.start = resets.getTime() - SESSION_MS;
       }
       return entry;
@@ -3719,11 +4285,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "; " + SESSION_GATES
     }, host);
 
-    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
-      var gy = Y(t);
-      svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
-      svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
-    });
+    yGrid(root, m, pw, Y);
     for (var hr = 0; hr <= SESSION_HOURS; hr++) {
       var gx = X(hr);
       svg("line", { x1: gx, x2: gx, y1: Y(0), y2: Y(0) + 4, stroke: "var(--axis)", "stroke-width": 1 }, root);
@@ -3743,12 +4305,14 @@ th[aria-sort] button { color: var(--ink-1); }
       curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    var plotted = 0, labels = [], anyEst = false, anyUnrec = false;
-    /* Two layers, as on the weekly chart: every line stretch below every mark
-       and label, so a seat drawn later cannot run its line across an earlier
-       seat's reading. */
-    var gSegs = svg("g", {}, root);
+    var plotted = 0, labels = [], anyEst = false, anyUnrec = false, anyLock = false;
+    /* Three layers, as on the weekly chart: every underlay below every line,
+       and every line below every mark and label, so a seat drawn later cannot
+       run its line or its underlay across an earlier seat's reading. */
+    var gUnder = svg("g", {}, root);
+    var gLines = svg("g", {}, root);
     var gMarks = svg("g", {}, root);
+    dimOnHover(root);
     series.forEach(function (s) {
       if (s.gap) return;
       plotted++;
@@ -3756,88 +4320,70 @@ th[aria-sort] button { color: var(--ink-1); }
       var hoursOf = function (t) { return (t - start) / 3600000; };
       var xOf = function (t) { return X(hoursOf(t)); };
       var cx = X(hoursOf(now)), cy = Y(s.w.utilization), ws = s.ws;
+      var sHead = { seat: seatLabel(a), col: col, win: SESSION_SHORT };
+      var key = a.auth_id + ":five_hour:";
+      var locks5 = lockSpans(a, { kind: "five_hour" }, start, s.resets.getTime(), now);
       var estCur = 0;
       var hoursIn = clamp(hoursOf(now), 0, SESSION_HOURS), lastHour = rateText(recentSlope(s.cur, 3600000));
-      /* The tooltip answers the gap and the burn; the name reads a fuller
-         record, since it gets no second hover. */
+      /* The tooltip gives the reading against the curve and any limit in
+         force; the name reads a fuller record, since it gets no second hover. */
       var headAria = seatLabel(a) + ", 5-hour session, " + hoursIn.toFixed(1) + " of " + SESSION_HOURS + " hours elapsed" +
         ", " + pct(s.w.utilization) + " used" +
         (ws ? ", curve " + pct(ws.target) + ", " + headroomText(ws.slack) : "") +
         ", resets " + relText(s.resets, now) +
-        ", last hour " + lastHour +
+        ", last hour " + lastHour + liveAria(locks5.live, now) +
         ", a rate limit: " +
         (num(wt) ? (wt === 0 ? "this headroom weighs nothing in the cost, and " : "this gap counts at " + weightWord(wt) + " weight in the cost, and ") : "") +
         SESSION_GATES;
-      var headTip = hoursIn.toFixed(1) + " h in · " + pct(s.w.utilization, 0) + " used" +
-        (ws ? " vs " + pct(ws.target, 0) + " curve · " + headroomText(ws.slack) : "") +
-        "\n" + resetText(s.resets, now) +
-        "\nlast hour " + lastHour;
       if (s.cur.length >= 2) {
-        var drawnCur = historyLine(gSegs, s.cur, xOf, Y, col, tailTo(cx, cy));
+        var gSeat = svg("g", { "class": "pt-line" }, gLines);
+        gSeat.setAttribute("data-seat", a.auth_id);
+        var v5 = lineVertices(s.cur, start, now, s.w.utilization);
+        var gu = svg("g", { "class": "pt-under" }, gUnder);
+        gu.setAttribute("data-seat", a.auth_id);
+        anyLock = lockUnderlay(gu, locks5.drawn, v5, xOf, Y) || anyLock;
+        var drawnCur = historyLine(gSeat, s.cur, xOf, Y, col, tailTo(cx, cy));
         estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
         anyUnrec = anyUnrec || drawnCur.unrecorded.length > 0;
-        /* One focusable stretch per SEG_MS of the line, carrying the
-           conversations the log shows on the seat in that stretch. */
-        var from = start, i = 0, k = 0;
-        while (from < now && i < s.cur.length) {
-          var to = Math.min(from + SEG_MS, now), pts = [];
-          for (; i < s.cur.length && s.cur[i].t <= to; i++) pts.push(s.cur[i]);
-          if (i > 0 && i < s.cur.length) { pts.push(s.cur[i]); }
-          if (pts.length >= 2) {
-            var d = pathOf(pts, xOf, Y);
-            /* A fall inside the stretch is a clearing: its figures run from
-               the fresh window's first reading. A fall onto the next
-               stretch's first reading ends this one, whose figures stop
-               before it. */
-            var lastI = pts.length - 1, endFall = pts[lastI].u < pts[lastI - 1].u;
-            if (endFall) lastI--;
-            var f0 = 0;
-            for (var q = 1; q <= lastI; q++) if (pts[q].u < pts[q - 1].u) f0 = q;
-            var p0 = pts[f0], last = pts[lastI];
-            var du = last.u - p0.u, dh = (last.t - p0.t) / 3600000;
-            var act = activeOn(st, a.auth_id, pts[0].t, pts[pts.length - 1].t);
-            var g = svg("g", { "class": "seg", tabindex: 0, role: "img" }, gSegs);
-            g.setAttribute("data-seat", a.auth_id);
-            g.setAttribute("data-fk", "seg:" + a.auth_id + ":" + k);
-            var estHere = pts.some(function (p) { return p.est; });
-            var segHead = clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) +
-              (f0 ? " · cleared" : "") + " · " + pct(p0.u) + " → " + pct(last.u) +
-              " · " + rateText(dh > 0 ? du * 100 / dh : null) +
-              (endFall ? " · then cleared" : "") +
-              (estHere ? " · estimated" : "");
-            var convo = conversationLines(act);
-            g.setAttribute("data-tip", segHead + "\n" + (act.list.length
-              ? "on this seat " + act.list.length + (act.list.length === 1 ? " conversation" : " conversations") + ", " + act.requests + (act.requests === 1 ? " request" : " requests") + "\n"
-              : "") + convo.join("\n"));
-            g.setAttribute("aria-label", seatLabel(a) + ", " + segHead.replace(/ · /g, ", ").replace(/\s+/g, " ") +
-              (estHere ? " from token spend, not a reading" : "") + "; " + convo.join("; ").replace(/\s+/g, " "));
-            svg("path", { "class": "hit", d: d, fill: "none", stroke: "transparent", "stroke-width": 14 }, g);
-            (function (g, s, act, pts) {
-              var summary = function () {
-                focusEl.textContent = "";
-                focusEl.appendChild(h("b", "", seatLabel(s.auth) + " " + clockText(pts[0].t) + "–" + clockText(pts[pts.length - 1].t) + ": "));
-                focusEl.appendChild(document.createTextNode(
-                  act.list.length
-                    ? act.list.map(function (c) { return c.key.slice(0, 8) + " ×" + c.n; }).join(" · ") + " — shown by activity on the seat, not by tokens"
-                    : (act.covered ? "no request routed to this seat in this stretch" : "routing log does not reach back this far")));
-              };
-              var reset = function () { focusEl.textContent = SESSION_IDLE; };
-              g.addEventListener("pointerenter", summary);
-              g.addEventListener("focus", summary);
-              g.addEventListener("pointerleave", reset);
-              g.addEventListener("blur", reset);
-            })(g, s, act, pts);
-            k++;
-          }
-          from = to;
-        }
+        resetTips(drawnCur.resets, sHead, key);
+        /* One pointer target per section of the line; a usage section also
+           lists the conversations the routing log shows on the seat in it,
+           in its tooltip and in the line under the chart. */
+        var isStop = function (sec) { return SESSION_STOPS.indexOf(sec.type) >= 0 || !!(sec.spans && sec.spans.length); };
+        var secs = sectionHits(gSeat, lineSections(s.cur, start, now, s.w.utilization, locks5.drawn, SESSION_IDLE_MS),
+          v5, xOf, Y, col, function (sec) {
+            var spec = sectionTip(sHead, sec, s.cur, now, s.w.utilization, now);
+            if (sec.type === "usage") spec.lines = spec.lines.concat(conversationRows(activeOn(st, a.auth_id, sec.a, sec.b)));
+            return spec;
+          }, isStop, key);
+        /* Blink makes an SVG element with a focus listener a stop, so only the
+           stops listen for focus. */
+        secs.forEach(function (hit) {
+          var sec = hit.sec;
+          var summary = function () {
+            if (sec.type !== "usage") { focusEl.textContent = SESSION_IDLE; return; }
+            var act = activeOn(st, a.auth_id, sec.a, sec.b);
+            focusEl.textContent = "";
+            focusEl.appendChild(h("b", "", seatLabel(a) + " " + clockText(sec.a) + "–" + clockText(Math.min(sec.b, now)) + ": "));
+            focusEl.appendChild(document.createTextNode(
+              act.list.length
+                ? act.list.map(function (c) { return c.key.slice(0, 8) + " ×" + c.n; }).join(" · ") + " — shown by activity on the seat, not by tokens"
+                : (act.covered ? "no request routed to this seat in this stretch" : "routing log does not reach back this far")));
+          };
+          var idle = function () { focusEl.textContent = SESSION_IDLE; };
+          hit.el.addEventListener("pointerenter", summary);
+          hit.el.addEventListener("pointerleave", idle);
+          if (!isStop(sec)) return;
+          hit.el.addEventListener("focus", summary);
+          hit.el.addEventListener("blur", idle);
+        });
       }
       var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gMarks);
       hg.setAttribute("data-seat", a.auth_id);
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
       var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated from token spend" : "";
-      hg.setAttribute("data-tip", headTip + (estLine ? "\n" + estLine : ""));
+      setTip(hg, markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, ws ? ws.target : null, "curve", locks5.live, now));
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
       /* The tick is the gap to the curve at this seat's own elapsed, as on
          the weekly chart; the present reading is always observed. */
@@ -3846,27 +4392,29 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
       svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col, stroke: "var(--surface-1)", "stroke-width": 2 }, hg);
+      if (locks5.live.length) liveRing(hg, cx, cy);
     });
 
     settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
     root.appendChild(curveLabel);
-    plateUnder(curveLabel);
+    clearResetLabels(root, labels);
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has an open 5-hour window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(series, root, anyEst, anyUnrec);
+    renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
     renderSessionNote(st);
   }
 
-  function renderSessionLegend(series, root, anyEst, anyUnrec) {
+  function renderSessionLegend(series, root, anyEst, anyUnrec, anyLock) {
     var leg = $("session-legend");
     leg.textContent = "";
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
+    if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
@@ -3879,7 +4427,7 @@ th[aria-sort] button { color: var(--ink-1); }
       li.appendChild(sw);
       li.appendChild(document.createTextNode(seatLabel(a)));
       li.addEventListener("pointerenter", function () { focusSeat(root, a.auth_id); });
-      li.addEventListener("pointerleave", function () { focusSeat(root, null); });
+      li.addEventListener("pointerleave", function () { focusSeat(root, seatOn(root, document.activeElement)); });
       leg.appendChild(li);
     });
     leg.hidden = !leg.childNodes.length;
@@ -3920,12 +4468,15 @@ th[aria-sort] button { color: var(--ink-1); }
       "curve predicts. A pick that went elsewhere for no reason the weekly " +
       "chart shows is read here. A dashed, paler stretch of a line is an estimate " +
       "rebuilt from token spend. The mark is always a reading."));
+    var sec = def(dl, "stretches, limits and resets");
+    sec.appendChild(document.createTextNode(sectionsText(SESSION_IDLE_MS / 60000 + " minutes") +
+      " A usage stretch, a reset dot and a stretch that holds a limit also take keyboard focus."));
     var q = def(dl, "a stretch of a line");
     q.appendChild(document.createTextNode("Spend is measured per seat. The host reports each request's tokens " +
       "against the credential that served it, not against the conversation, so no line here belongs to one " +
-      "conversation. Point at a stretch of a line to list the conversations the routing log placed on that seat in " +
-      "that quarter hour, by request count. A steep stretch with one conversation on it is that conversation; a " +
-      "steep stretch with several is a set to look at. The log is bounded, so an older stretch may fall outside it."));
+      "conversation. Point at or focus a usage stretch of a line to list the conversations the routing log placed " +
+      "on that seat during it, by request count. A steep stretch with one conversation on it is that conversation; " +
+      "a steep stretch with several is a set to look at. The log is bounded, so an older stretch may fall outside it."));
   }
 
   /* -------------------------------------------------------------- ranking */
@@ -4574,9 +5125,9 @@ th[aria-sort] button { color: var(--ink-1); }
        seat carries one rank per family. */
     var fams = scopedFamilies(st);
     $("seats-sub").textContent = fams.length
-      ? "one row per seat, in a fixed order, ranked for Standard and " + fams.join(", ") +
+      ? "one row per seat, in name order, ranked for Standard and " + fams.join(", ") +
         " requests; each family's #1 eligible seat takes its next new conversation"
-      : "one row per seat, in a fixed order; the #1 eligible seat takes the next new conversation";
+      : "one row per seat, in name order; the #1 eligible seat takes the next new conversation";
   }
 
   /* Where the next new conversation lands, one line per request family and

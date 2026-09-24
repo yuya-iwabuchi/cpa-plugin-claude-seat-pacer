@@ -20,7 +20,7 @@ func sessionAt(util float64, resets time.Time) model.Window {
 
 func historyOf(t *testing.T, s *Store, id string, kind model.WindowKind) model.WindowHistory {
 	t.Helper()
-	for _, h := range s.History(id, 0) {
+	for _, h := range s.History(id, 0, testNow) {
 		if h.Kind == kind && h.Scope == "" {
 			return h
 		}
@@ -121,7 +121,7 @@ func TestHistoryCoarsensAndCaps(t *testing.T) {
 	for i := 0; i < n; i++ {
 		r.record(testNow.Add(time.Duration(i)*time.Minute), model.Window{Kind: model.WindowWeekly, Utilization: float64(i) / float64(n), ResetsAt: resets})
 	}
-	h := r.export(model.WindowWeekly, "", 0)
+	h := r.export(model.WindowWeekly, "", 0, testNow)
 	if h.Samples() > historyMaxSamples {
 		t.Fatalf("samples = %d, over the cap %d", h.Samples(), historyMaxSamples)
 	}
@@ -161,7 +161,7 @@ func TestHistoryCoarsensAndCaps(t *testing.T) {
 	if coarse == 0 {
 		t.Error("no coarse samples")
 	}
-	if got := r.export(model.WindowWeekly, "", HistoryPublishMax).Samples(); got > HistoryPublishMax+1 {
+	if got := r.export(model.WindowWeekly, "", HistoryPublishMax, testNow).Samples(); got > HistoryPublishMax+1 {
 		t.Errorf("published samples = %d, want at most %d plus the cycle's last", got, HistoryPublishMax)
 	}
 }
@@ -193,8 +193,8 @@ func TestReplayMatchesALiveRecording(t *testing.T) {
 		}
 	}
 	replayed := &ring{}
-	replayed.replay(saved)
-	want, got := live.export(saved.Kind, "", 0), replayed.export(saved.Kind, "", 0)
+	replayed.replay(saved, testNow)
+	want, got := live.export(saved.Kind, "", 0, testNow), replayed.export(saved.Kind, "", 0, testNow)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("replayed history holds %d samples in %d cycles, live %d in %d", got.Samples(), len(got.Cycles), want.Samples(), len(want.Cycles))
 	}
@@ -203,7 +203,7 @@ func TestReplayMatchesALiveRecording(t *testing.T) {
 func BenchmarkReplay(b *testing.B) {
 	saved := nineDaysOfMinutes()
 	for b.Loop() {
-		(&ring{}).replay(saved)
+		(&ring{}).replay(saved, testNow)
 	}
 }
 
@@ -215,7 +215,7 @@ func TestHistoryCapEvictsWholeOldCycles(t *testing.T) {
 			r.record(testNow.Add(time.Duration(c*historyMaxSamples+i)*time.Minute), model.Window{Kind: model.WindowSession, Utilization: float64(i%7) / 10, ResetsAt: resets})
 		}
 	}
-	h := r.export(model.WindowSession, "", 0)
+	h := r.export(model.WindowSession, "", 0, testNow)
 	if h.Samples() > historyMaxSamples {
 		t.Errorf("samples = %d, over the cap", h.Samples())
 	}
@@ -231,13 +231,13 @@ func TestHistoryIsPrunedWithTheSnapshot(t *testing.T) {
 	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.1)))
 	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.2)))
 	s.Prune(map[string]struct{}{"auth-2": {}})
-	if s.History("auth-1", 0) != nil {
+	if s.History("auth-1", 0, testNow) != nil {
 		t.Error("pruned credential still has history")
 	}
-	if len(s.History("auth-2", 0)) != 1 {
+	if len(s.History("auth-2", 0, testNow)) != 1 {
 		t.Error("kept credential lost its history")
 	}
-	if s.History("auth-9", 0) != nil {
+	if s.History("auth-9", 0, testNow) != nil {
 		t.Error("unknown credential reports history")
 	}
 }
@@ -245,7 +245,7 @@ func TestHistoryIsPrunedWithTheSnapshot(t *testing.T) {
 func TestHistoryPublishedRowsCarryNoIdentity(t *testing.T) {
 	s := NewStore()
 	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.1)))
-	b, err := json.Marshal(s.History("auth-1", 0))
+	b, err := json.Marshal(s.History("auth-1", 0, testNow))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestHistorySurvivesSaveAndLoad(t *testing.T) {
 	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionAt(0.95, first), weeklyWindow(0.31)))
 	s.Put(endpointSnapshot("auth-1", testNow.Add(62*time.Minute), sessionAt(0.02, first.Add(model.SessionDuration)), weeklyWindow(0.32)))
 	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.5)))
-	if err := s.SaveHistory(path); err != nil {
+	if err := s.SaveHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -316,7 +316,7 @@ func TestSaveHistoryWritesThroughATemporaryFileOfItsOwn(t *testing.T) {
 	}
 	s := NewStore()
 	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.5)))
-	if err := s.SaveHistory(path); err != nil {
+	if err := s.SaveHistory(path, testNow); err != nil {
 		t.Fatalf("SaveHistory beside another writer's temporary path: %v", err)
 	}
 	fresh := NewStore()
@@ -365,7 +365,7 @@ func TestLoadHistorySetsAnUnreadableFileAside(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("the unreadable file is still in place: %v", err)
 		}
-		if len(s.ExportHistory()) != 0 {
+		if len(s.ExportHistory(testNow)) != 0 {
 			t.Error("an unreadable file imported something")
 		}
 	}
@@ -396,7 +396,7 @@ func TestPrunedHistorySurvivesASave(t *testing.T) {
 
 	// auth-1 leaves the listing; its history moves to pending.
 	s.Prune(map[string]struct{}{"auth-2": {}})
-	if err := s.SaveHistory(path); err != nil {
+	if err := s.SaveHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 
@@ -420,7 +420,7 @@ func TestImportBehindLiveReadings(t *testing.T) {
 		Cycles: []model.Cycle{{ResetsAt: resets, Samples: []model.Sample{
 			{At: testNow, Utilization: 0.3}, {At: testNow.Add(5 * time.Minute), Utilization: 0.4},
 		}}},
-	}}})
+	}}}, testNow)
 	h := historyOf(t, live, "auth-1", model.WindowSession)
 	if h.Samples() != 3 || h.Cycles[0].Samples[2].Utilization != 0.5 {
 		t.Errorf("history = %+v, want the saved samples ahead of the live one", h)
@@ -442,7 +442,7 @@ func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 		Cycles: []model.Cycle{{ResetsAt: resets, Estimated: true, Samples: []model.Sample{
 			{At: testNow, Utilization: 0.3}, {At: testNow.Add(5 * time.Minute), Utilization: 0.4},
 		}}},
-	}}})
+	}}}, testNow)
 	// The estimate is adopted as one, ahead of any observation.
 	s.Put(endpointSnapshot("auth-1", testNow.Add(5*time.Minute+20*time.Second), sessionAt(0.41, resets)))
 	h := historyOf(t, s, "auth-1", model.WindowSession)
@@ -457,7 +457,7 @@ func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "history.json")
-	if err := s.SaveHistory(path); err != nil {
+	if err := s.SaveHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 	fresh := NewStore()
@@ -476,10 +476,10 @@ func TestHistoryEstimatedCycleTurnsObserved(t *testing.T) {
 	est.ImportHistory(map[string][]model.WindowHistory{"auth-1": {{
 		Kind:   model.WindowSession,
 		Cycles: []model.Cycle{{ResetsAt: resets, Estimated: true, Samples: []model.Sample{{At: testNow, Utilization: 0.3}}}},
-	}}})
+	}}}, testNow)
 	// The seat's reading opens a new cycle, so the estimated one stays whole.
 	est.Put(endpointSnapshot("auth-1", testNow.Add(4*time.Hour), sessionAt(0.02, resets.Add(model.SessionDuration))))
-	if err := est.SaveHistory(path); err != nil {
+	if err := est.SaveHistory(path, testNow); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := readFile(path)
@@ -607,8 +607,8 @@ func TestAClearedWindowOpensACycleUnderTheSameReset(t *testing.T) {
 	}
 
 	r := &ring{}
-	r.replay(h)
-	if back := r.export(h.Kind, h.Scope, 0); !reflect.DeepEqual(back, h) {
+	r.replay(h, testNow)
+	if back := r.export(h.Kind, h.Scope, 0, testNow); !reflect.DeepEqual(back, h) {
 		t.Errorf("replayed history = %+v, want %+v", back, h)
 	}
 }
@@ -645,7 +645,7 @@ func TestADerivedCapReadingIsNotRecorded(t *testing.T) {
 		s.Put(endpointSnapshot("auth-1", at, opus(1.00, false)))
 		s.MergeHeaders("auth-1", []model.Window{opus(0.45, true)}, at.Add(5*time.Minute))
 	}
-	for _, h := range s.History("auth-1", 0) {
+	for _, h := range s.History("auth-1", 0, testNow) {
 		if h.Kind != model.WindowWeeklyScoped {
 			continue
 		}
@@ -743,8 +743,8 @@ func TestAClearingConfirmedWithinAMinuteSurvivesReplay(t *testing.T) {
 		t.Fatalf("cycles = %+v, want the confirmed clearing as a one-sample cycle at 0.01", h.Cycles)
 	}
 	r := &ring{}
-	r.replay(h)
-	if back := r.export(h.Kind, h.Scope, 0); !reflect.DeepEqual(back, h) {
+	r.replay(h, testNow)
+	if back := r.export(h.Kind, h.Scope, 0, testNow); !reflect.DeepEqual(back, h) {
 		t.Errorf("replayed history = %+v, want %+v", back, h)
 	}
 }
@@ -812,7 +812,7 @@ func TestImportKeepsALiveClearing(t *testing.T) {
 	live.ImportHistory(map[string][]model.WindowHistory{"auth-1": {{
 		Kind:   model.WindowSession,
 		Cycles: []model.Cycle{{ResetsAt: resets, Samples: []model.Sample{{At: testNow.Add(-10 * time.Minute), Utilization: 0.5}}}},
-	}}})
+	}}}, testNow)
 
 	h := historyOf(t, live, "auth-1", model.WindowSession)
 	if len(h.Cycles) != 2 || len(h.Cycles[0].Samples) != 2 || h.Cycles[1].Samples[0].Utilization != 0.01 {
@@ -837,7 +837,7 @@ func TestImportKeepsAFallHeldOnEitherSide(t *testing.T) {
 	// The only live reading falls under the stored level.
 	s := NewStore()
 	s.Put(endpointSnapshot("auth-1", testNow.Add(10*time.Minute), sessionAt(0.10, resets)))
-	s.ImportHistory(stored(testNow, 0.90))
+	s.ImportHistory(stored(testNow, 0.90), testNow)
 	s.Put(endpointSnapshot("auth-1", testNow.Add(12*time.Minute), sessionAt(0.12, resets)))
 	h := historyOf(t, s, "auth-1", model.WindowSession)
 	if len(h.Cycles) != 2 || !h.Cycles[1].Samples[0].At.Equal(testNow.Add(10*time.Minute)) {
@@ -848,7 +848,7 @@ func TestImportKeepsAFallHeldOnEitherSide(t *testing.T) {
 	s = NewStore()
 	s.Put(endpointSnapshot("auth-1", testNow, sessionAt(0.50, resets)))
 	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionAt(0.10, resets)))
-	s.ImportHistory(stored(testNow.Add(10*time.Minute), 0.80))
+	s.ImportHistory(stored(testNow.Add(10*time.Minute), 0.80), testNow)
 	s.Put(endpointSnapshot("auth-1", testNow.Add(12*time.Minute), sessionAt(0.08, resets)))
 	h = historyOf(t, s, "auth-1", model.WindowSession)
 	for i := 1; i < len(h.Cycles); i++ {
