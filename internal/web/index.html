@@ -3223,8 +3223,8 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Drops a clearing's "reset" text wherever it meets the curve's label or a
-     settled gap label; the dot and its tooltip stay. */
+  /* Drops a clearing's "reset" text wherever it meets the curve's label, a
+     settled gap label or another reset's text; the dot and its tooltip stay. */
   function clearResetLabels(root, labels) {
     var box = function (t) { var b = t.getBBox(); return { x0: b.x, x1: b.x + b.width, y0: b.y, y1: b.y + b.height }; };
     var taken = labels.map(function (l) { return box(l.el); });
@@ -3233,6 +3233,7 @@ th[aria-sort] button { color: var(--ink-1); }
     [].forEach.call(root.querySelectorAll("text.reset-label"), function (t) {
       var b = box(t);
       if (taken.some(function (o) { return boxesMeet(b, o); })) t.parentNode.removeChild(t);
+      else taken.push(b);
     });
   }
 
