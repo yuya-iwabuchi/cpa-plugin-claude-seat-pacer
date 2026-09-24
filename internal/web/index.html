@@ -653,10 +653,26 @@ svg.hist-tl rect.hs-handle { fill: var(--ink-2); }
 .outlook-card .pace-body { grid-template-columns: minmax(0, 1fr) 14rem; }
 @media (max-width: 1000px) { .outlook-card .pace-body { grid-template-columns: minmax(0, 1fr); } }
 svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .7; }
-.rank-row.outlook-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 1px; align-items: start; }
-.outlook-row .outlook-sub { grid-column: 1 / -1; padding-left: 15px; font: 500 10.5px/1.4 var(--mono); color: var(--ink-3); }
-.outlook-row .outlook-sub span { display: block; }
-.outlook-row .outlook-sub .outlook-alert { color: var(--critical); }
+/* A seat's outlook reads as a tooltip does: the seat and a badge for where
+   it is headed, the figure now and at the reset large beside when it
+   resets, a meter of the two against the pace target, and one plain
+   sentence. */
+.ol-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.ol-row { padding: 6px 8px 7px; border-radius: 8px; font: 400 12px/1.4 var(--sans); color: var(--ink-2); }
+.ol-row:hover { background: var(--emph); }
+.ol-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ol-head .seat-mark { font-weight: 650; font-size: 12.5px; color: var(--ink-1); }
+.ol-big { display: flex; align-items: baseline; margin-top: 3px; font: 600 17px/1.15 var(--mono); color: var(--ink-1); }
+.ol-big .ol-when { margin-left: auto; font: 400 11.5px/1 var(--sans); color: var(--ink-2); }
+.ol-big .ol-arrow { color: var(--ink-3); font-weight: 400; margin: 0 5px; }
+.ol-meter { position: relative; height: 6px; margin: 6px 0 2px; border-radius: 3px; background: var(--track); }
+.ol-meter > span { position: absolute; top: 0; bottom: 0; }
+.ol-meter .ol-fill { left: 0; border-radius: 3px; }
+.ol-meter .ol-proj { opacity: .35; border-radius: 0 3px 3px 0; }
+.ol-meter .ol-pace { top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink-1); }
+.ol-line { margin-top: 3px; }
+.ol-line.ol-alert { color: var(--critical); font-weight: 600; }
+.ol-line.ol-muted { color: var(--ink-3); }
 svg.hist-tl path.hs-target { fill: none; stroke-width: 1; stroke-dasharray: 5 4; opacity: .7; }
 svg.hist-tl path.hs-reset { fill: none; stroke-width: 1; stroke-dasharray: 1 3; opacity: .3; }
 svg.hist-tl rect.hs-weekend { fill: var(--ink-3); opacity: .09; }
@@ -823,7 +839,7 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip .tip-seat { font-weight: 650; font-size: 12.5px; color: var(--ink-1); }
 #tooltip .tip-win { color: var(--ink-3); font-size: 11.5px; }
 #tooltip .tip-tag { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; margin-top: 8px; font-size: 11.5px; }
-#tooltip .tip-badge {
+#tooltip .tip-badge, .ol-badge {
   --tone: var(--ink-3);
   font: 700 9.5px/1 var(--mono); letter-spacing: .07em; text-transform: uppercase;
   padding: 2px 4px 1px; border-radius: 3px; color: var(--ink-1);
@@ -835,6 +851,11 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip .tip-badge[data-type="now"] { --tone: var(--ink-1); }
 #tooltip .tip-badge[data-type="reset"] { --tone: var(--ink-2); }
 #tooltip .tip-badge[data-type="unrec"] { background: none; border: 1px dashed var(--ink-3); }
+.ol-badge { flex: none; }
+.ol-badge[data-type="limit"] { --tone: var(--critical); }
+.ol-badge[data-type="fills"] { --tone: var(--good); }
+.ol-badge[data-type="short"] { --tone: var(--serious); }
+.ol-badge[data-type="spent"] { --tone: var(--ink-2); }
 #tooltip .tip-when { color: var(--ink-1); }
 #tooltip .tip-dur { color: var(--ink-3); font: 500 11px/1 var(--mono); }
 #tooltip .tip-big { display: flex; align-items: baseline; margin-top: 7px; font: 600 17px/1.15 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; }
@@ -4305,8 +4326,10 @@ th[aria-sort] button { color: var(--ink-1); }
     sessFacts.push(SESSION_GATED);
     $("session-sub").textContent = "a rate limit, not a budget: " + sessFacts.join(" · ");
 
+    /* As tall for its width as the Over time plot, so the seat list beside
+       it has the plot's height to sit in. */
     var W = Math.max(280, host.clientWidth || 480);
-    var H = Math.round(clamp(W * 0.3, 220, 340));
+    var H = Math.round(clamp(W * 0.34, 260, 440));
     var m = { l: 46, r: 22, t: 18, b: 46 };
     var pw = W - m.l - m.r, ph = H - m.t - m.b;
     var now = nowMs();
@@ -4552,58 +4575,82 @@ th[aria-sort] button { color: var(--ink-1); }
      whose use follows the working day, and an hour on the 5-hour one. */
   var OUTLOOK_WEEKLY_MS = 24 * 3600000, OUTLOOK_SESSION_MS = 3600000;
 
-  /* Where a seat's window is headed by its reset, as one line: refused now,
-     spent, full before the reset at its recent rate, or the level that rate
-     reaches at the reset with what it would leave unused. A seat with no
-     recent rise says so. A refusal by another window names that window, and
-     a refusal names when it lifts where that is not this window's reset. alert
-     marks a line read as a warning. */
-  function outlookLine(o) {
+  /* Where a seat's window is headed by its reset: {type, badge, at, line,
+     alert}. type is "limit" while the provider refuses the seat, "spent" at
+     full, "fills" where its recent rate reaches full before the reset,
+     "short" where that rate leaves some unused, and "idle" with no recent
+     rise; at is the level it reaches at the reset. A refusal by another
+     window names that window, and when it lifts where that is not this
+     window's reset. */
+  function outlookOf(o) {
+    var reset = o.resets.getTime();
     if (o.live.length) {
       var sp = o.live.reduce(function (x, y) { return y.to > x.to ? y : x; });
       var own = sp.kind === o.kind && (sp.scope || "") === (o.scope || "");
-      var atReset = Math.abs(sp.to - o.resets.getTime()) <= RESET_TOLERANCE_MS;
-      var name = own ? "limit reached" : (sp.kind === "five_hour" ? "5h" : sp.kind === "seven_day" ? "7d" : sp.scope) + " limit";
-      return { t: name + (atReset ? "" : " · until " + spanClock(sp.to, o.now)), alert: true };
+      var atReset = Math.abs(sp.to - reset) <= RESET_TOLERANCE_MS;
+      var who = own ? "refused" :
+        (sp.kind === "five_hour" ? "5h" : sp.kind === "seven_day" ? "7d" : sp.scope) + " limit";
+      return { type: "limit", badge: "limit", at: o.cur, alert: true,
+        line: who + (atReset ? " until the reset" : " until " + spanClock(sp.to, o.now)) };
     }
-    if (o.cur >= 1) return { t: "spent", alert: true };
-    var span = o.weekly ? OUTLOOK_WEEKLY_MS : OUTLOOK_SESSION_MS;
-    var rate = recentSlope(o.samples, span);
-    if (!num(rate) || rate <= 0) return { t: "no use in the last " + (o.weekly ? "24h" : "hour") };
-    var hoursLeft = (o.resets.getTime() - o.now) / 3600000;
-    var at = o.cur + rate * hoursLeft / 100;
+    if (o.cur >= 1) return { type: "spent", badge: "spent", at: 1, line: "used in full" };
+    var rate = recentSlope(o.samples, o.weekly ? OUTLOOK_WEEKLY_MS : OUTLOOK_SESSION_MS);
+    var lookback = o.weekly ? "24h" : "hour";
+    if (!num(rate) || rate <= 0) {
+      return { type: "idle", badge: "idle", at: o.cur,
+        line: "no use in the last " + lookback + ", " + pct(1 - o.cur, 0) + " unused" };
+    }
+    var at = o.cur + rate * (reset - o.now) / 3600000 / 100;
     if (at >= 1) {
       var full = o.now + (1 - o.cur) * 100 / rate * 3600000;
-      return { t: "full by " + spanClock(full, o.now), alert: false };
+      return { type: "fills", badge: "fills", at: 1,
+        line: "full " + spanClock(full, o.now) + ", " + durText(Math.round((reset - full) / 1000)) + " early" };
     }
-    return { t: "on course for " + pct(at, 0) + " · " + pct(1 - at, 0) + " unused" };
+    return { type: "short", badge: "short", at: at, line: pct(1 - at, 0) + " unused at this rate" };
   }
 
-  /* The seat list beside a chart of one window: each seat's use now, its
-     pace target and gap, when the window resets and where it is headed by
-     then, and, where it is at least a point, what the last finished cycle
-     left unused. Each row is one entry of rows: {a, cur, target, resets, now,
-     kind, scope, samples, weekly, live, left}. Pointing at a row lifts its seat on the
-     chart rootOf returns. */
+  /* The seat list beside a chart of one window, one row per entry of rows:
+     {a, cur, target, resets, now, kind, scope, samples, weekly, live, left}.
+     A row reads as a tooltip does: the seat with a badge for where it is
+     headed, the level now and at the reset where they differ beside when
+     it resets, a meter of the two with a tick at the pace target, one
+     sentence,
+     and what the last finished cycle left unused where that is at least a
+     point. Pointing at a row lifts its seat on the chart rootOf returns. */
   function outlookList(host, label, rows, rootOf) {
     host.textContent = "";
-    var ul = h("ul", "rank-list", "");
+    var ul = h("ul", "ol-list", "");
     rows.forEach(function (o) {
-      var li = h("li", "rank-row outlook-row");
+      var li = h("li", "ol-row");
       li.setAttribute("data-seat", o.a.auth_id);
-      li.appendChild(seatMark(o.a));
-      li.appendChild(h("span", "rank-cost", num(o.cur) ? pct(o.cur, 0) : "\u2014"));
-      var sub = h("span", "outlook-sub", "");
-      if (num(o.target)) {
-        sub.appendChild(h("span", "", "pace " + pct(o.target, 0) + (num(o.cur) ? " \u00B7 " + signed(o.cur - o.target) : "")));
+      var head = li.appendChild(h("div", "ol-head", ""));
+      head.appendChild(seatMark(o.a));
+      var ok = num(o.cur) && !!o.resets;
+      var out = ok ? outlookOf(o) : null;
+      if (out) head.appendChild(h("span", "ol-badge", out.badge)).setAttribute("data-type", out.type);
+      var big = li.appendChild(h("div", "ol-big", ""));
+      big.appendChild(document.createTextNode(num(o.cur) ? pct(o.cur, 0) : "\u2014"));
+      if (out && Math.round(out.at * 100) !== Math.round(o.cur * 100)) {
+        big.appendChild(h("span", "ol-arrow", "\u2192"));
+        big.appendChild(document.createTextNode(pct(out.at, 0)));
       }
-      if (o.resets && num(o.cur)) {
-        sub.appendChild(h("span", "", resetText(o.resets, o.now)));
-        var line = outlookLine(o);
-        sub.appendChild(h("span", line.alert ? "outlook-alert" : "", line.t));
+      if (ok) big.appendChild(h("span", "ol-when", resetText(o.resets, o.now)));
+      if (num(o.cur)) {
+        var meter = li.appendChild(h("div", "ol-meter", ""));
+        meter.setAttribute("aria-hidden", "true");
+        var fill = meter.appendChild(h("span", "ol-fill", ""));
+        fill.style.width = pct(clamp(o.cur, 0, 1), 1);
+        fill.style.background = seatColor(o.a);
+        if (out && out.at > o.cur) {
+          var proj = meter.appendChild(h("span", "ol-proj", ""));
+          proj.style.left = pct(clamp(o.cur, 0, 1), 1);
+          proj.style.width = pct(clamp(out.at, 0, 1) - clamp(o.cur, 0, 1), 1);
+          proj.style.background = seatColor(o.a);
+        }
+        if (num(o.target)) meter.appendChild(h("span", "ol-pace", "")).style.left = pct(clamp(o.target, 0, 1), 1);
       }
-      if (num(o.left) && o.left >= 0.01) sub.appendChild(h("span", "", "last cycle left " + pct(o.left, 0) + " unused"));
-      li.appendChild(sub);
+      if (ok) li.appendChild(h("div", "ol-line" + (out.alert ? " ol-alert" : ""), out.line));
+      if (num(o.left) && o.left >= 0.01) li.appendChild(h("div", "ol-line ol-muted", "last cycle left " + pct(o.left, 0) + " unused"));
       ul.appendChild(li);
       li.addEventListener("pointerenter", function () { var r = rootOf(); if (r) focusSeat(r, o.a.auth_id); });
       li.addEventListener("pointerleave", function () {
@@ -4613,7 +4660,7 @@ th[aria-sort] button { color: var(--ink-1); }
     });
     var fam = h("div", "rank-fam", ""), head = h("p", "rank-fam-head", "");
     head.appendChild(h("span", "rank-fam-name", label));
-    head.appendChild(h("span", "rank-fam-note", "used now, its pace target, and where it is headed by its reset"));
+    head.appendChild(h("span", "rank-fam-note", "use now \u2192 at its reset, at the rate of the last " + (rows.length && !rows[0].weekly ? "hour" : "24h") + "; the tick is the pace target"));
     fam.appendChild(head);
     fam.appendChild(ul);
     host.appendChild(fam);
