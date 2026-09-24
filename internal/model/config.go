@@ -124,8 +124,8 @@ type QuotaConfig struct {
 	// host.
 	UsageURL string `yaml:"usage-url" json:"usage_url"`
 	// PersistHistory writes the utilization history to disk between polls,
-	// so a chart survives a host restart. The file holds utilization by
-	// credential id and nothing else.
+	// so a chart survives a host restart. The file holds the utilization
+	// history and the refusal spans by credential id and nothing else.
 	PersistHistory bool `yaml:"persist-history" json:"persist_history"`
 }
 

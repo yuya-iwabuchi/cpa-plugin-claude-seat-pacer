@@ -231,7 +231,8 @@ published id. The `status` route serves everything unreduced.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples across restarts: credential ids (file names or account
-emails) and timestamped fractions. An unreadable file is set aside as
+emails), timestamped fractions, and when the provider refused each window and
+what ended each refusal. An unreadable file is set aside as
 `history.json.corrupt-<unix-ts>` and a fresh one starts. No token, refresh
 token or request body is ever logged, and an error that would carry a token is
 scrubbed first.

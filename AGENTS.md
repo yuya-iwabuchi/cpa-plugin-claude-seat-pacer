@@ -123,12 +123,12 @@ which is which. Do not "normalise" the tags.
 main.go              cgo boundary, panic guard, method dispatch
 internal/model       domain types + config; imports nothing else here
 internal/httpx       case-insensitive header index; imports nothing else here
-internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history
+internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history and refusal spans
 internal/pace        the scoring curve and the staleness gates; pure functions over model types
 internal/session     conversation identity extraction + binding store
 internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
 internal/web         embedded status app: page on the resource route, data behind the key
-cmd/webdev           fixture server that renders the status app from synthetic seats or a history file
+cmd/webdev           fixture server that renders the status app from synthetic seats or a recorded history file
 ```
 
 `model` and `httpx` are the leaves: every other package imports `model`, and

@@ -108,6 +108,11 @@ func richStatus() model.Status {
 					ResetsAt: base.Add(2 * time.Hour),
 					Samples:  []model.Sample{{At: base.Add(-time.Hour), Utilization: 0.5}, {At: base.Add(-time.Minute), Utilization: 0.8}},
 				}},
+				Locks: []model.Lock{
+					{From: base.Add(-50 * time.Minute).Unix(), To: base.Add(-40 * time.Minute).Unix(), End: model.LockEndServed},
+					{From: base.Add(-30 * time.Minute).Unix(), To: base.Add(-25 * time.Minute).Unix(), End: model.LockEndCleared},
+					{From: base.Add(-5 * time.Minute).Unix(), To: base.Add(2 * time.Hour).Unix()},
+				},
 			}},
 		}},
 		Bindings: []model.Binding{{
