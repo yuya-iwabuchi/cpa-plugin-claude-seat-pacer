@@ -1,8 +1,9 @@
 // Command webdev serves the embedded status app against a fixture Source so
 // the page can be developed and screenshotted without a CLIProxyAPI host.
 //
-// It is a development harness: it binds to loopback only and never reads a
-// real credential.
+// It is a development harness: it binds to loopback only. Only -history reads
+// an install's files: its history file, the page-id.key beside it, and each
+// seat's note and email from its credential file, never a token.
 package main
 
 import (
@@ -34,6 +35,7 @@ func main() {
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
 		"fail status requests after this many successes; 0 fails the first, -1 never fails")
+	historyPath := flag.String("history", "", "load seats and their utilization from a real history file instead of the scenario's")
 	flag.Parse()
 	// The many scenario spreads its bindings across the seats, so it needs at
 	// least one.
@@ -87,6 +89,11 @@ func main() {
 	case "full":
 	default:
 		log.Fatalf("unknown scenario %q", *scenario)
+	}
+	if *historyPath != "" {
+		if err := src.fromHistory(*historyPath, time.Now()); err != nil {
+			log.Fatalf("history: %v", err)
+		}
 	}
 	src.rebuildWarnings()
 
@@ -194,6 +201,12 @@ type fixture struct {
 	// SyncNow moves it. The polling loop's own schedule is untouched by one,
 	// the way the plugin leaves its timer alone.
 	forcedAt atomic.Int64
+	// realHistory, when set, is the recorded history each seat serves in
+	// place of the synthesized one.
+	realHistory map[string][]model.WindowHistory
+	// idKeyFile is the published-id key file, empty for a key of the
+	// process's own.
+	idKeyFile string
 }
 
 // SyncNow reports whether it read, and reads at most once every
@@ -434,7 +447,9 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 		a.Snapshot = snap
 		a.Score = pace.ScoreWithStaleness(f.cfg, snap, ok, a.AuthID, modelID, now)
 		a.History = []model.WindowHistory{}
-		if ok {
+		if h, saved := f.realHistory[a.AuthID]; saved {
+			a.History = h
+		} else if ok {
 			a.History = f.history(snap, now, shapeIdx)
 		}
 		auths = append(auths, a)

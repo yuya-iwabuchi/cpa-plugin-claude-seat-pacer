@@ -35,7 +35,9 @@ invocation.
 
 `go run ./cmd/webdev` serves the status page on `127.0.0.1:8377` from fixture
 seats, with `-scenario` choosing the pool it shows, so a page change can be
-seen without a host.
+seen without a host. `-history ~/.cli-proxy-api/plugins/claude-seat-pacer/history.json`
+shows an install's own seats instead: their recorded utilization, the notes
+they are named by, and published ids keyed as the host page keys them.
 
 ## Landing an arranged change
 

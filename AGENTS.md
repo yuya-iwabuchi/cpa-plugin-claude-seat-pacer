@@ -128,7 +128,7 @@ internal/pace        the scoring curve and the staleness gates; pure functions o
 internal/session     conversation identity extraction + binding store
 internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
 internal/web         embedded status app: page on the resource route, data behind the key
-cmd/webdev           fixture server that renders the status app from synthetic seats
+cmd/webdev           fixture server that renders the status app from synthetic seats or a history file
 ```
 
 `model` and `httpx` are the leaves: every other package imports `model`, and

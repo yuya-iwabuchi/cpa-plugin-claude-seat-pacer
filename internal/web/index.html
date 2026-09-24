@@ -493,7 +493,8 @@ svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; 
    still read as the chart's shape behind the one pointed at. */
 svg.pace[data-focus] g.pt:not([data-focused]),
 svg.pace[data-focus] g.pt-line:not([data-focused]),
-svg.pace[data-focus] g.seg:not([data-focused]) { opacity: .38; }
+svg.pace[data-focus] g.seg:not([data-focused]),
+svg.pace[data-focus] g.hs:not([data-focused]) { opacity: .38; }
 /* Pointing at one seat holds the others back only while the pointer is there;
    a stop the keyboard reaches comes back whole, so its ring is never dimmed. */
 svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.seg:focus-visible { opacity: 1; }
@@ -626,6 +627,29 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 .pace-note dt { font: 600 10.5px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
 .pace-note dd { margin: -4px 0 0; font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
 .pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+/* -------------------------------------------------------------- over time */
+.pace-body > #hist-chart { min-width: 0; touch-action: pan-y pinch-zoom; user-select: none; }
+.hist-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; }
+.hist-tools .pace-view { margin: 0; }
+.hist-range { font: 500 11px/1 var(--mono); color: var(--ink-2); }
+svg.hist-tl rect.hs-nav-bg { fill: var(--rule); opacity: .35; }
+svg.hist-tl path.hs-nav-line { fill: none; stroke-width: 1; opacity: .85; }
+svg.hist-tl rect.hs-nav-dim { fill: var(--surface-1); opacity: .62; }
+svg.hist-tl rect.hs-brush { fill: none; stroke: var(--ink-2); stroke-width: 1; }
+svg.hist-tl rect.hs-handle { fill: var(--ink-2); }
+.hist-card .pace-body { grid-template-columns: minmax(0, 1fr) 14rem; }
+@media (max-width: 1000px) { .hist-card .pace-body { grid-template-columns: minmax(0, 1fr); } }
+svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .7; }
+.rank-row.hist-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 1px; align-items: start; }
+.hist-row[data-dim] { opacity: .38; }
+.hist-row .hist-row-sub { grid-column: 1 / -1; padding-left: 15px; font: 500 10.5px/1.4 var(--mono); color: var(--ink-3); }
+.hist-row .hist-row-sub span { display: block; }
+svg.hist-tl path.hs-target { fill: none; stroke-width: 1; stroke-dasharray: 5 4; opacity: .7; }
+svg.hist-tl path.hs-reset { fill: none; stroke-width: 1; stroke-dasharray: 1 3; opacity: .3; }
+svg.hist-tl rect.hs-weekend { fill: var(--ink-3); opacity: .09; }
+svg.hist-tl path.hs-target.hs-past { opacity: .28; }
+svg.hist-tl rect.hs-future { fill: var(--emph); }
 
 /* -------------------------------------------------------------- decisions */
 /* About ten rows at default density, then the log scrolls inside its card;
@@ -896,8 +920,8 @@ th[aria-sort] button { color: var(--ink-1); }
     <!-- What a fresh install sees: what the page is waiting on, what the host
          does meanwhile, and the three things to check when it does not
          change. The seat sections stay out until a seat exists; the two
-         below keep their numbers, so 04 and 05 read as their place in the
-         page rather than as three sections that failed. -->
+         below keep their numbers, so 05 and 06 read as their place in the
+         page rather than as four sections that failed. -->
     <div id="empty-state" class="card empty" hidden style="margin-top:24px">
       <p><strong>No seats yet.</strong>
       Each Claude OAuth credential the host has loaded is one seat here, and none
@@ -917,7 +941,7 @@ th[aria-sort] button { color: var(--ink-1); }
     <div id="hidden-state" class="card empty" hidden style="margin-top:24px">
       <p><strong>Every seat is hidden on this page.</strong>
       The pool is unchanged and the plugin still routes to each seat; this
-      browser is set to draw none of them, so the three seat sections have
+      browser is set to draw none of them, so the four seat sections have
       nothing to show. <em>Show</em> in the bar above brings them back.</p>
     </div>
 
@@ -984,7 +1008,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
     <section id="sec-session" hidden tabindex="-1">
       <div class="sec-head">
-        <a class="skip" href="#sec-bindings">skip to next section</a>
+        <a class="skip" href="#sec-hist">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>5-hour window</h2>
         <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour use against the same curve &middot; three provider readings hold a seat back from new conversations</span>
@@ -999,6 +1023,31 @@ th[aria-sort] button { color: var(--ink-1); }
           <summary>How a rate limit reads here, and what a stretch of line shows</summary>
           <div class="pace-note" id="session-note"></div>
         </details>
+      </div>
+    </section>
+
+    <section id="sec-hist" hidden tabindex="-1">
+      <div class="sec-head">
+        <a class="skip" href="#sec-bindings">skip to next section</a>
+        <span class="sec-idx"></span>
+        <h2>Over time</h2>
+        <span class="sec-sub" id="hist-sub">each seat's use of one window across its recorded cycles, against its pace target up to each reset</span>
+        <span class="sec-line"></span>
+      </div>
+      <div class="card pace-card hist-card">
+        <div class="hist-tools">
+          <div class="pace-view" id="hist-view" role="group" aria-label="Window shown"></div>
+          <div class="pace-view" id="hist-span" role="group" aria-label="Span shown"></div>
+          <button type="button" id="hist-live" hidden>Back to now</button>
+          <span class="hist-range" id="hist-range"></span>
+        </div>
+        <div class="pace-body">
+          <div id="hist-chart"></div>
+          <div class="pace-rank">
+            <div id="hist-rank"></div>
+          </div>
+        </div>
+        <ul class="legend" id="hist-legend" aria-label="Marks on the plot"></ul>
       </div>
     </section>
 
@@ -1716,16 +1765,20 @@ th[aria-sort] button { color: var(--ink-1); }
   var PACE_VIEW_KEY = "pacer-pace-view";
   var paceView = PACE_ALL;
 
-  function loadPaceView() {
+  /* A saved view choice, or null for none or a store the browser blocks. */
+  function loadPref(key) {
     var v;
-    try { v = JSON.parse(window.localStorage.getItem(PACE_VIEW_KEY) || "null"); } catch (e) { return; }
-    if (typeof v === "string") paceView = v;
+    try { v = JSON.parse(window.localStorage.getItem(key) || "null"); } catch (e) { return null; }
+    return typeof v === "string" ? v : null;
   }
 
-  function savePaceView() {
-    try { window.localStorage.setItem(PACE_VIEW_KEY, JSON.stringify(paceView)); }
+  function savePref(key, v) {
+    try { window.localStorage.setItem(key, JSON.stringify(v)); }
     catch (e) { /* storage may be blocked; the view still holds for this page */ }
   }
+
+  function loadPaceView() { paceView = loadPref(PACE_VIEW_KEY) || paceView; }
+  function savePaceView() { savePref(PACE_VIEW_KEY, paceView); }
 
   /* The view in force. A pool whose plot draws no cap has one ranking to
      show and no choice. */
@@ -2732,23 +2785,27 @@ th[aria-sort] button { color: var(--ink-1); }
     return null;
   }
 
+  /* Mirrors internal/quota's resetTolerance: the clock skew allowed between
+     this host and the provider when matching a reset instant. */
+  var RESET_SKEW_MS = 2 * 60000;
+
   /* The cycles whose reset is the window's present one, oldest first. A
-     cycle's reset matches within the two minutes the server allows for clock
-     skew; a window whose reset no cycle carries has no path yet. There is
-     more than one where the provider cleared the window early and kept its
-     reset: the store opens a cycle at each clearing. A cycle that opens past
-     the reset is a fresh window the provider still stamps with the old
-     instant, and the cycles before it are the window that ended. */
+     cycle's reset matches within RESET_SKEW_MS; a window whose reset no
+     cycle carries has no path yet. There is more than one where the
+     provider cleared the window early and kept its reset: the store opens a
+     cycle at each clearing. A cycle that opens past the reset is a fresh
+     window the provider still stamps with the old instant, and the cycles
+     before it are the window that ended. */
   function currentCycles(hist, resetsAt) {
     var out = [];
     if (!hist || !hist.cycles) return out;
     var cycles = hist.cycles, target = resetsAt ? resetsAt.getTime() : null;
     for (var i = cycles.length - 1; i >= 0; i--) {
       var r = parseT(cycles[i].resets_at);
-      var match = target === null ? !r : (r && Math.abs(r.getTime() - target) <= 2 * 60000);
+      var match = target === null ? !r : (r && Math.abs(r.getTime() - target) <= RESET_SKEW_MS);
       if (!match) { if (out.length) break; continue; }
       var opened = out.length && out[0].samples && out[0].samples[0];
-      if (opened && target !== null && opened[0] * 1000 > target + 2 * 60000) break;
+      if (opened && target !== null && opened[0] * 1000 > target + RESET_SKEW_MS) break;
       out.unshift(cycles[i]);
     }
     return out;
@@ -3410,7 +3467,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function focusSeat(root, id) {
     if (!id) { root.removeAttribute("data-focus"); }
     else { root.setAttribute("data-focus", id); }
-    var pts = root.querySelectorAll("g.pt, g.pt-line, g.seg");
+    var pts = root.querySelectorAll("g.pt, g.pt-line, g.seg, g.hs");
     for (var i = 0; i < pts.length; i++) {
       if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
       else pts[i].removeAttribute("data-focused");
@@ -3926,6 +3983,554 @@ th[aria-sort] button { color: var(--ink-1); }
       "conversation. Point at a stretch of a line to list the conversations the routing log placed on that seat in " +
       "that quarter hour, by request count. A steep stretch with one conversation on it is that conversation; a " +
       "steep stretch with several is a set to look at. The log is bounded, so an older stretch may fall outside it."));
+  }
+
+  /* ----------------------------------------------------------- over time */
+
+  /* The window the over-time plot draws, one at a time, since a 5-hour
+     sawtooth and a weekly climb share no useful scale of detail. A saved view
+     the payload no longer offers shows the 7d one without being forgotten. */
+  var HIST_VIEW_KEY = "pacer-hist-view";
+  var histView = "seven_day";
+  function loadHistView() { histView = loadPref(HIST_VIEW_KEY) || histView; }
+  function saveHistView() { savePref(HIST_VIEW_KEY, histView); }
+
+  /* The span each view shows and the instant it ends, kept across refreshes;
+     a span of Infinity is the whole history, and an end of null follows now. */
+  var histRange = {};
+  /* What the last draw left for the pointer and key handlers: the plot's and
+     the strip's boxes and time mappings, the range shown, and what moves it:
+     the setter, the least span, where a live range ends, and the svg to
+     refocus. */
+  var histGeo = null;
+
+  var H_HOUR = 3600000, H_DAY = 86400000;
+  /* A Monday, so ticks a week apart land on Mondays. */
+  var H_WEEK0 = new Date(2024, 0, 1).getTime();
+
+  function histPresets(weekly) {
+    return weekly
+      ? [["1d", H_DAY], ["3d", 3 * H_DAY], ["9d", 9 * H_DAY], ["14d", 14 * H_DAY], ["All", Infinity]]
+      : [["6h", 6 * H_HOUR], ["12h", 12 * H_HOUR], ["1d", H_DAY], ["3d", 3 * H_DAY], ["All", Infinity]];
+  }
+
+  /* Maps a window's elapsed fraction to x on a calendar axis, so curvePath
+     lays a cycle's target from the instant the window opened to its reset. */
+  function calendarX(X, open, dur) { return function (e) { return X(open + e * dur); }; }
+
+  function midnightAfter(d) { return new Date(d + 1.5 * H_DAY).setHours(0, 0, 0, 0); }
+
+  function windowOf(a, kind, scope) {
+    var list = (a && a.snapshot && a.snapshot.windows) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === kind && (list[i].scope || "") === (scope || "")) return list[i];
+    }
+    return null;
+  }
+
+  /* A time axis whose tick is the finest from 30 minutes to four weeks
+     that leaves each label DAY_LABEL_PX. On a ruled axis, midnights are
+     ruled wherever a day is 5px or wider. Under a day a tick is timed and a
+     midnight dated; at a day each day is dated at its middle; past a day
+     every k-th midnight is dated. */
+  function timeAxis(g, t0, t1, X, pw, top, bottom, labelY, ruled) {
+    var per = (t1 - t0) / pw;
+    var steps = [30, 60, 120, 180, 360, 720].map(function (n) { return n * 60000; })
+      .concat([H_DAY, 2 * H_DAY, 7 * H_DAY, 14 * H_DAY]);
+    var step = steps.filter(function (s) { return s / per >= DAY_LABEL_PX; })[0] || 28 * H_DAY;
+    var dayFmt = { month: "short", day: "numeric" };
+    var inside = function (t) { return t >= t0 && t <= t1; };
+    var label = function (t, text, bold) {
+      svgText(g, X(t), labelY, text, "t-muted", { "font-size": 10.5, "text-anchor": "middle", "font-weight": bold ? 600 : 400 });
+    };
+    for (var d = new Date(t0).setHours(0, 0, 0, 0); d <= t1; d = midnightAfter(d)) {
+      var next = midnightAfter(d);
+      if (inside(d)) {
+        if (ruled && H_DAY / per >= 5) svg("line", { "class": "hs-midnight", x1: X(d), x2: X(d), y1: top, y2: bottom }, g);
+        if (step < H_DAY) label(d, new Date(d).toLocaleDateString(undefined, dayFmt), true);
+        else if (step > H_DAY && Math.round((d - H_WEEK0) / H_DAY) % Math.round(step / H_DAY) === 0) {
+          label(d, new Date(d).toLocaleDateString(undefined, dayFmt));
+        }
+      }
+      if (step === H_DAY) {
+        var noon = d + (next - d) / 2;
+        if (noon > t0 + 30 * per && noon < t1 - 30 * per) label(noon, new Date(noon).toLocaleDateString(undefined, dayFmt));
+      }
+      if (step < H_DAY) {
+        for (var q = d + step; q < next - 60000; q += step) {
+          if (!inside(q)) continue;
+          if (ruled) svg("line", { x1: X(q), x2: X(q), y1: top, y2: bottom, stroke: "var(--rule)", "stroke-width": 1 }, g);
+          var qd = new Date(q);
+          label(q, qd.toLocaleTimeString(undefined, qd.getMinutes() ? { hour: "numeric", minute: "2-digit" } : { hour: "numeric" }));
+        }
+      }
+    }
+  }
+
+  function renderHistory(st, seats) {
+    var host = $("hist-chart");
+    host.textContent = "";
+    var legend = $("hist-legend");
+    legend.textContent = "";
+    var list = $("hist-rank");
+    list.textContent = "";
+    histGeo = null;
+    if (!seats.length) return;
+
+    var fams = scopedFamilies(st);
+    var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
+      .concat(fams.map(function (f) { return { id: "scoped:" + f, kind: "weekly_scoped", scope: f, weekly: true }; }))
+      .concat([{ id: "five_hour", kind: "five_hour", scope: "", weekly: false }]);
+    views.forEach(function (v) { v.label = windowShort(v); });
+    var view = views.filter(function (v) { return v.id === histView; })[0] || views[0];
+    $("hist-sub").textContent = "each seat's use of one window across its recorded cycles, against its pace target up to each reset" +
+      (view.weekly ? " \u00B7 each finished cycle's reset marks what it left unused" : "");
+
+    var bar = $("hist-view");
+    bar.textContent = "";
+    views.forEach(function (v) {
+      var b = h("button", "", v.label);
+      b.type = "button";
+      b.setAttribute("aria-pressed", v.id === view.id ? "true" : "false");
+      b.setAttribute("data-fk", "hist:" + v.id);
+      b.addEventListener("click", function () { histView = v.id; saveHistView(); render(); });
+      bar.appendChild(b);
+    });
+
+    var pace = (st.config && st.config.pace) || {};
+    var now = nowMs();
+
+    /* Everything a seat draws that does not depend on the range shown. A
+       seat's cycles fall into windows, one per reset: consecutive cycles
+       whose resets agree within RESET_SKEW_MS are one window the provider
+       cleared early and ran on. A cycle that opens past its reset is the next
+       window, still stamped with the old instant, and takes the reset of the
+       cycle after it. A window whose reset has passed is finished, and its
+       last reading is what it spent; an estimated last reading names no
+       unused figure, since an estimate's level is not sound. */
+    var anyEst = false, anyGap = false;
+    var data = seats.map(function (a) {
+      var w = windowOf(a, view.kind, view.scope);
+      var hist = historyFor(a, view.kind, view.scope);
+      var dur = w && num(w.duration) && w.duration > 0 ? w.duration / 1e6 : (view.weekly ? PACE_DAYS * H_DAY : SESSION_MS);
+      var wins = [];
+      ((hist && hist.cycles) || []).forEach(function (c) {
+        var r = parseT(c.resets_at), at = r ? r.getTime() : null, last = wins[wins.length - 1];
+        var s0 = c.samples && c.samples[0];
+        if (at !== null && s0 && num(s0[0]) && s0[0] * 1000 > at + RESET_SKEW_MS) {
+          wins.push({ at: null, stale: true, cycles: [c] });
+        } else if (last && last.stale && at !== null) {
+          last.cycles.push(c);
+          last.at = at;
+          last.stale = false;
+        } else if (last && last.at !== null && at !== null && Math.abs(last.at - at) <= RESET_SKEW_MS) {
+          last.cycles.push(c);
+        } else {
+          wins.push({ at: at, cycles: [c] });
+        }
+      });
+      wins.forEach(function (win) {
+        win.samples = samplesOf(win.cycles);
+        win.samples.forEach(function (s, i) {
+          if (s.est) anyEst = true;
+          if (s.fresh && s.t - win.samples[i - 1].t >= UNRECORDED_MS) anyGap = true;
+        });
+      });
+      wins = wins.filter(function (win) { return win.samples.length; });
+      var done = wins.filter(function (win) { return win.at !== null && win.at <= now; }).map(function (win) {
+        var last = win.samples[win.samples.length - 1];
+        return { at: win.at, u: last.u, est: !!last.est };
+      });
+      return {
+        a: a, col: seatColor(a), dur: dur, done: done, wins: wins,
+        resets: w ? parseT(w.resets_at) : null,
+        cur: w && num(w.utilization) ? w.utilization : null
+      };
+    });
+
+    /* The range the strip spans: from the earlier of the first recorded
+       sample and one default span back, to a day ahead of now for a weekly
+       window and three hours for the 5-hour one. */
+    var ahead = view.weekly ? H_DAY : 3 * H_HOUR;
+    var defSpan = view.weekly ? 9 * H_DAY : 6 * H_HOUR;
+    var minSpan = view.weekly ? 6 * H_HOUR : H_HOUR;
+    var tMax = now + ahead, tMin = tMax - defSpan;
+    data.forEach(function (sd) { if (sd.wins.length) tMin = Math.min(tMin, sd.wins[0].samples[0].t); });
+    tMin = Math.floor(tMin / H_HOUR) * H_HOUR;
+    var rg = histRange[view.id] || (histRange[view.id] = { span: defSpan, end: null });
+    /* Where a range that follows now ends: the strip's end, or half the span
+       ahead of now where that is less, so a short span centres on now. */
+    function liveEnd(span) { return now + Math.min(ahead, span / 2); }
+
+    var spanBar = $("hist-span");
+    spanBar.textContent = "";
+    var presetButtons = histPresets(view.weekly).map(function (p) {
+      var b = h("button", "", p[0]);
+      b.type = "button";
+      b.setAttribute("data-fk", "hist-span:" + p[0]);
+      b.addEventListener("click", function () {
+        if (p[1] === Infinity) {
+          rg.span = Infinity;
+          rg.end = null;
+          draw();
+          return;
+        }
+        /* A range looking into the past keeps its end; any other ends live. */
+        var end = rg.end !== null && rg.end <= now ? rg.end : liveEnd(p[1]);
+        set(end - p[1], end, true);
+      });
+      spanBar.appendChild(b);
+      return { b: b, span: p[1] };
+    });
+    var live = $("hist-live");
+    live.onclick = function () {
+      var span = histGeo.t1 - histGeo.t0;
+      set(liveEnd(span) - span, liveEnd(span), true);
+      histGeo.root.focus({ preventScroll: true });
+    };
+
+    /* Moves the range, clamped to the strip: a move keeps its span, a resize
+       keeps the edge it did not drag, and a zoom below the least span grows
+       back about its middle. A range covering the strip is the whole history;
+       one ending where a live one would follows now. */
+    function set(t0, t1, keep) {
+      if (!keep) {
+        t0 = Math.max(t0, tMin);
+        t1 = Math.min(t1, tMax);
+        if (t1 - t0 < minSpan) {
+          var mid = (t0 + t1) / 2;
+          t0 = mid - minSpan / 2;
+          t1 = mid + minSpan / 2;
+        }
+      }
+      var span = clamp(t1 - t0, minSpan, tMax - tMin);
+      if (span >= tMax - tMin - 1) {
+        rg.span = Infinity;
+        rg.end = null;
+        draw();
+        return;
+      }
+      if (t0 < tMin) { t0 = tMin; t1 = t0 + span; }
+      if (t1 > tMax) { t1 = tMax; t0 = t1 - span; }
+      rg.span = span;
+      rg.end = Math.abs(t1 - liveEnd(span)) <= span * 0.002 ? null : t1;
+      draw();
+    }
+
+    function focus(id) {
+      if (histGeo) focusSeat(histGeo.root, id);
+      var rows = list.querySelectorAll("li.hist-row");
+      for (var j = 0; j < rows.length; j++) {
+        if (id && rows[j].getAttribute("data-seat") !== id) rows[j].setAttribute("data-dim", "");
+        else rows[j].removeAttribute("data-dim");
+      }
+    }
+
+    /* Where a finished window's line falls to zero: at its reset, or at the
+       next window's first reading where that comes first, and never before
+       its own last reading. */
+    function fallAt(win, next) {
+      var last = win.samples[win.samples.length - 1], first = next.samples[0];
+      return Math.max(last.t, win.at === null ? first.t : Math.min(win.at, first.t));
+    }
+
+    function draw() {
+      var hadFocus = host.contains(document.activeElement);
+      host.textContent = "";
+      var span = Math.min(rg.span, tMax - tMin);
+      var t1 = rg.end === null ? liveEnd(span) : clamp(rg.end, tMin + span, tMax), t0 = t1 - span;
+
+      var W = Math.max(280, host.clientWidth || 480);
+      var H = Math.round(clamp(W * 0.34, 260, 440));
+      var m = { l: 46, r: 16, t: 18, b: 30 };
+      var pw = W - m.l - m.r, ph = H - m.t - m.b;
+      var NAV_TOP = H + 6, NAV_H = 40, TOTAL = NAV_TOP + NAV_H + 22;
+      var maxY = 1.05;
+      var X = function (t) { return m.l + (t - t0) / (t1 - t0) * pw; };
+      var Y = function (u) { return m.t + ph - clamp(u, 0, maxY) / maxY * ph; };
+      var XN = function (t) { return m.l + (t - tMin) / (tMax - tMin) * pw; };
+      var YN = function (u) { return NAV_TOP + NAV_H - 3 - clamp(u, 0, 1) * (NAV_H - 6); };
+      var pxPer = (t1 - t0) / pw;
+
+      var root = svg("svg", {
+        "class": "pace hist-tl", width: W, height: TOTAL, viewBox: "0 0 " + W + " " + TOTAL,
+        role: "group", tabindex: 0, "data-fk": "hist-chart:" + view.id,
+        "aria-label": "Each seat's " + view.label + " utilization over time with its pace target, " +
+          absTime(new Date(t0)) + " to " + absTime(new Date(t1)) +
+          "; drag the plot or the strip under it to move, arrow keys to step, plus and minus to zoom, End to return to now"
+      }, host);
+      var defs = svg("defs", {}, root);
+      var clip = svg("clipPath", { id: "hist-clip" }, defs);
+      svg("rect", { x: m.l, y: 0, width: pw, height: m.t + ph + 1 }, clip);
+      var nclip = svg("clipPath", { id: "hist-nclip" }, defs);
+      svg("rect", { x: m.l, y: NAV_TOP, width: pw, height: NAV_H }, nclip);
+
+      /* Ahead of now nothing is recorded; only the targets run on into it. */
+      var fx = clamp(X(now), m.l, m.l + pw);
+      svg("rect", { "class": "hs-future", x: fx, y: m.t, width: m.l + pw - fx, height: ph }, root);
+
+      /* Saturdays and Sundays, clipped to the plot. */
+      for (var wd = new Date(t0).setHours(0, 0, 0, 0); wd < t1; wd = midnightAfter(wd)) {
+        var dow = new Date(wd).getDay();
+        if (dow !== 0 && dow !== 6) continue;
+        var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
+        svg("rect", { "class": "hs-weekend", x: wx0, y: m.t, width: Math.max(0, wx1 - wx0), height: ph }, root);
+      }
+      [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+        var gy = Y(t);
+        svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1 }, root);
+        svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+      });
+      timeAxis(root, t0, t1, X, pw, m.t, Y(0), Y(0) + 20, true);
+      svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0) + 0.5, y2: Y(0) + 0.5, stroke: "var(--axis)", "stroke-width": 1 }, root);
+      svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
+
+      var gPlot = svg("g", { "clip-path": "url(#hist-clip)" }, root);
+      var gMarks = svg("g", { "clip-path": "url(#hist-clip)" }, root);
+      data.forEach(function (sd) {
+        var gl = svg("g", { "class": "hs", "data-seat": sd.a.auth_id }, gPlot);
+        var gm = svg("g", { "class": "hs", "data-seat": sd.a.auth_id }, gMarks);
+        /* A finished cycle's target and reset mark are drawn only where the
+           cycle is wide enough on screen for them to read as one. */
+        var cyclePx = sd.dur / pxPer;
+        sd.done.forEach(function (c) {
+          if (c.at < t0 || c.at - sd.dur > t1) return;
+          if (cyclePx >= 40) {
+            svg("path", { "class": "hs-target hs-past", d: curvePath(pace, calendarX(X, c.at - sd.dur, sd.dur), Y), stroke: sd.col }, gl);
+          }
+          if (c.u === null || c.at > t1 || cyclePx < 16) return;
+          var ex = X(c.at), ey = Y(c.u), left = Math.max(0, 1 - c.u);
+          svg("circle", { cx: ex, cy: ey, r: 3.5, fill: "var(--surface-1)", stroke: sd.col, "stroke-width": 1.6 }, gm);
+          /* A cycle that spent its whole budget left nothing to name. */
+          if (view.weekly && !c.est && left >= 0.005 && cyclePx >= 60) {
+            svgText(gm, clamp(ex, m.l + 34, m.l + pw - 34), ey - 8, pct(left, 0) + " unused", "gap-label t-mono",
+              { "font-size": 9.5, "text-anchor": "middle" });
+          }
+        });
+        if (sd.resets) {
+          svg("path", { "class": "hs-target", d: curvePath(pace, calendarX(X, sd.resets.getTime() - sd.dur, sd.dur), Y), stroke: sd.col }, gl);
+        }
+        /* A window's line holds its last reading to the reset, falls to zero
+           there and holds zero to the next window's first reading; the last
+           window's runs on to the present reading. */
+        sd.wins.forEach(function (win, i) {
+          var next = sd.wins[i + 1], last = win.samples[win.samples.length - 1];
+          if (!next) {
+            historyLine(gl, win.samples, X, Y, sd.col, sd.cur !== null ? tailTo(X(now), Y(sd.cur)) : null);
+            return;
+          }
+          var first = next.samples[0], at = fallAt(win, next);
+          historyLine(gl, win.samples, X, Y, sd.col, at > last.t ? tailTo(X(at), Y(last.u)) : null);
+          var x = X(at).toFixed(1);
+          svg("path", { "class": "hs-reset", d: "M" + x + " " + Y(last.u).toFixed(1) + "V" + Y(0).toFixed(1), stroke: sd.col }, gl);
+          svg("path", { "class": "hist", d: "M" + x + " " + Y(0).toFixed(1) + tailTo(X(first.t), Y(first.u)), stroke: sd.col }, gl);
+        });
+        if (sd.cur !== null && now >= t0 && now <= t1) {
+          svg("circle", { cx: X(now), cy: Y(sd.cur), r: 4, fill: sd.col, stroke: "var(--surface-1)", "stroke-width": 1.5 }, gm);
+        }
+        [gl, gm].forEach(function (n) {
+          n.addEventListener("pointerenter", function () { focus(sd.a.auth_id); });
+          n.addEventListener("pointerleave", function () { focus(null); });
+        });
+      });
+      if (now >= t0 && now <= t1) {
+        var nx = X(now);
+        svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2" }, root);
+        svgText(root, nx + 5, m.t - 4, "NOW", "t-mono", { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600 });
+      }
+
+      /* The strip: every recorded line over the whole history, with the
+         range the plot shows as a window over it. */
+      svg("rect", { "class": "hs-nav-bg", x: m.l, y: NAV_TOP, width: pw, height: NAV_H, rx: 4 }, root);
+      var gNav = svg("g", { "clip-path": "url(#hist-nclip)" }, root);
+      data.forEach(function (sd) {
+        if (!sd.wins.length) return;
+        var tail = sd.cur !== null ? tailTo(XN(now), YN(sd.cur)) : "";
+        var d = sd.wins.map(function (win, i) {
+          var path = pathOf(win.samples, XN, YN), prev = sd.wins[i - 1];
+          if (!prev) return path;
+          var last = prev.samples[prev.samples.length - 1];
+          return tailTo(XN(fallAt(prev, win)), YN(last.u)) + "V" + YN(0).toFixed(1) + "H" + XN(win.samples[0].t).toFixed(1) +
+            path.replace(/^M/, "L");
+        }).join("");
+        svg("path", { "class": "hs-nav-line", d: d + tail, stroke: sd.col }, gNav);
+      });
+      svg("line", { x1: XN(now), x2: XN(now), y1: NAV_TOP, y2: NAV_TOP + NAV_H, stroke: "var(--ink-3)", "stroke-dasharray": "2 2" }, root);
+      var bx0 = XN(t0), bx1 = XN(t1);
+      svg("rect", { "class": "hs-nav-dim", x: m.l, y: NAV_TOP, width: Math.max(0, bx0 - m.l), height: NAV_H }, root);
+      svg("rect", { "class": "hs-nav-dim", x: bx1, y: NAV_TOP, width: Math.max(0, m.l + pw - bx1), height: NAV_H }, root);
+      svg("rect", { "class": "hs-brush", x: bx0, y: NAV_TOP + 0.5, width: Math.max(2, bx1 - bx0), height: NAV_H - 1, rx: 3 }, root);
+      [bx0, bx1].forEach(function (bx) {
+        svg("rect", { "class": "hs-handle", x: bx - 3, y: NAV_TOP + NAV_H / 2 - 9, width: 6, height: 18, rx: 2 }, root);
+      });
+      timeAxis(root, tMin, tMax, XN, pw, NAV_TOP, NAV_TOP + NAV_H, NAV_TOP + NAV_H + 15, false);
+
+      histGeo = {
+        t0: t0, t1: t1, liveEnd: liveEnd, minSpan: minSpan, set: set, root: root,
+        main: { l: m.l, r: m.l + pw, top: m.t, bottom: Y(0), pw: pw, T: function (x) { return t0 + (x - m.l) * pxPer; } },
+        nav: { top: NAV_TOP, h: NAV_H, X: XN, per: (tMax - tMin) / pw, T: function (x) { return tMin + (x - m.l) / pw * (tMax - tMin); } }
+      };
+
+      presetButtons.forEach(function (p) {
+        var full = p.span === Infinity ? rg.span === Infinity : rg.span !== Infinity && Math.abs(p.span - span) < 1;
+        p.b.setAttribute("aria-pressed", full ? "true" : "false");
+      });
+      live.hidden = rg.end === null;
+      var fmt = span < 2 * H_DAY
+        ? function (t) { return new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+        : function (t) { return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
+      $("hist-range").textContent = fmt(t0) + " – " + fmt(t1);
+
+      if (hadFocus) root.focus({ preventScroll: true });
+    }
+
+    /* The list: where each seat is now, which no range changes. */
+    var ul = h("ul", "rank-list", "");
+    data.forEach(function (sd) {
+      var li = h("li", "rank-row hist-row");
+      li.setAttribute("data-seat", sd.a.auth_id);
+      li.appendChild(seatMark(sd.a));
+      li.appendChild(h("span", "rank-cost", sd.cur !== null ? pct(sd.cur, 0) : "—"));
+      var sub = h("span", "hist-row-sub", "");
+      if (sd.resets) {
+        var tNow = targetAt(pace, clamp((now - (sd.resets.getTime() - sd.dur)) / sd.dur, 0, 1));
+        sub.appendChild(h("span", "", "pace " + pct(tNow, 0) + (sd.cur !== null ? " · " + signed(sd.cur - tNow) : "")));
+      }
+      var last = sd.done[sd.done.length - 1];
+      if (last && !last.est && view.weekly) {
+        sub.appendChild(h("span", "", "last reset " + pct(Math.max(0, 1 - last.u), 0) + " unused"));
+      }
+      li.appendChild(sub);
+      ul.appendChild(li);
+      li.addEventListener("pointerenter", function () { focus(sd.a.auth_id); });
+      li.addEventListener("pointerleave", function () { focus(null); });
+    });
+    var fam = h("div", "rank-fam", ""), head = h("p", "rank-fam-head", "");
+    head.appendChild(h("span", "rank-fam-name", view.label));
+    head.appendChild(h("span", "rank-fam-note", "used now, its pace target and the gap to it"));
+    fam.appendChild(head);
+    fam.appendChild(ul);
+    list.appendChild(fam);
+
+    [
+      ["━", "recorded"],
+      ["╌", "pace target to the reset (finished cycles fainter)"],
+      ["○", "a cycle's reset and its faint fall" + (view.weekly ? ", with the budget it left unused" : "")],
+      ["│", "midnight"],
+      ["▒", "weekend"],
+      ["●", "now"]
+    ].forEach(function (it) {
+      var li = h("li", "", "");
+      li.appendChild(h("span", "gl", it[0]));
+      li.appendChild(document.createTextNode(" " + it[1]));
+      legend.appendChild(li);
+    });
+    if (anyEst) legendRow(legend, SW_EST, "estimated from token spend");
+    if (anyGap) legendRow(legend, SW_GAP, UNRECORDED_KEY);
+
+    bindHistPointer(host);
+    draw();
+  }
+
+  /* The plot's pointer, wheel and key handling, bound once to the chart's
+     container, which outlives every redraw. Dragging the plot pans it;
+     dragging the strip's window moves it, its edges resize it, and a press
+     beside it centres it there. A horizontal or Shift scroll pans; a trackpad
+     pinch or a Ctrl or Cmd scroll zooms, about the pointer over the plot and
+     about the range's middle over the strip. A plain vertical scroll, a touch
+     pinch and a key held with Ctrl, Cmd or Alt are left to the page. */
+  function bindHistPointer(host) {
+    if (host.hasAttribute("data-bound")) return;
+    host.setAttribute("data-bound", "");
+    var drag = null;
+    function at(ev) {
+      var r = host.getBoundingClientRect();
+      return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+    }
+    function region(p) {
+      var g = histGeo;
+      if (!g) return null;
+      if (p.y >= g.nav.top && p.y <= g.nav.top + g.nav.h && p.x >= g.main.l - 6 && p.x <= g.main.r + 6) {
+        var bx0 = g.nav.X(g.t0), bx1 = g.nav.X(g.t1);
+        /* A window too narrow for two handles and a middle is moved whole. */
+        if (bx1 - bx0 < 16) return p.x >= bx0 - 6 && p.x <= bx1 + 6 ? "move" : "jump";
+        if (Math.abs(p.x - bx0) <= 6) return "left";
+        if (Math.abs(p.x - bx1) <= 6) return "right";
+        return p.x > bx0 && p.x < bx1 ? "move" : "jump";
+      }
+      if (p.y >= g.main.top && p.y <= g.main.bottom && p.x >= g.main.l && p.x <= g.main.r) return "pan";
+      return null;
+    }
+    var CURSOR = { left: "ew-resize", right: "ew-resize", move: "grab", jump: "pointer", pan: "grab" };
+    host.addEventListener("pointerdown", function (ev) {
+      var p = at(ev), kind = region(p), g = histGeo;
+      if (!kind || ev.button !== 0) return;
+      if (kind === "jump") {
+        var c = g.nav.T(p.x), half = (g.t1 - g.t0) / 2;
+        g.set(c - half, c + half, true);
+        g = histGeo;
+        kind = "move";
+      }
+      drag = { kind: kind, x: p.x, t0: g.t0, t1: g.t1 };
+      try { host.setPointerCapture(ev.pointerId); } catch (e) { /* a pointer no longer down */ }
+      host.style.cursor = kind === "left" || kind === "right" ? "ew-resize" : "grabbing";
+      ev.preventDefault();
+    });
+    host.addEventListener("pointermove", function (ev) {
+      var p = at(ev), g = histGeo;
+      if (!g) return;
+      if (!drag) { host.style.cursor = CURSOR[region(p)] || ""; return; }
+      var dx = p.x - drag.x;
+      if (drag.kind === "pan") {
+        var dt = -dx / g.main.pw * (drag.t1 - drag.t0);
+        g.set(drag.t0 + dt, drag.t1 + dt, true);
+        return;
+      }
+      var dn = dx * g.nav.per;
+      if (drag.kind === "move") g.set(drag.t0 + dn, drag.t1 + dn, true);
+      else if (drag.kind === "left") g.set(Math.min(drag.t0 + dn, drag.t1 - g.minSpan), drag.t1, false);
+      else g.set(drag.t0, Math.max(drag.t1 + dn, drag.t0 + g.minSpan), false);
+    });
+    function end() {
+      if (!drag) return;
+      drag = null;
+      host.style.cursor = "";
+    }
+    host.addEventListener("pointerup", end);
+    host.addEventListener("pointercancel", end);
+    host.addEventListener("wheel", function (ev) {
+      var g = histGeo, p = at(ev), kind = region(p);
+      if (!g || !kind) return;
+      var span = g.t1 - g.t0;
+      if (ev.ctrlKey || ev.metaKey) {
+        var c = kind === "pan" ? g.main.T(p.x) : (g.t0 + g.t1) / 2;
+        var f = Math.exp(clamp(ev.deltaY, -50, 50) * 0.01);
+        g.set(c - (c - g.t0) * f, c + (g.t1 - c) * f, false);
+      } else if (ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+        var dt = (ev.shiftKey ? ev.deltaY : ev.deltaX) / g.main.pw * span;
+        g.set(g.t0 + dt, g.t1 + dt, true);
+      } else {
+        return;
+      }
+      ev.preventDefault();
+    }, { passive: false });
+    host.addEventListener("keydown", function (ev) {
+      var g = histGeo;
+      if (!g || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      var span = g.t1 - g.t0, c = (g.t0 + g.t1) / 2;
+      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+        var dt = (ev.key === "ArrowLeft" ? -1 : 1) * span * 0.2;
+        g.set(g.t0 + dt, g.t1 + dt, true);
+      } else if (ev.key === "+" || ev.key === "=" || ev.key === "-") {
+        var f = ev.key === "-" ? 1.5 : 1 / 1.5;
+        g.set(c - span * f / 2, c + span * f / 2, false);
+      } else if (ev.key === "End") {
+        g.set(g.liveEnd(span) - span, g.liveEnd(span), true);
+      } else {
+        return;
+      }
+      ev.preventDefault();
+    });
   }
 
   /* -------------------------------------------------------------- ranking */
@@ -4826,9 +5431,9 @@ th[aria-sort] button { color: var(--ink-1); }
     }
   }
 
-  /* Each section keeps one number whatever is on screen, so 04 is Bindings on
+  /* Each section keeps one number whatever is on screen, so 05 is Bindings on
      every visit and in every conversation about the page; with no seat the
-     empty card above says why 01 to 03 are absent. */
+     empty card above says why 01 to 04 are absent. */
   function renumberSections() {
     var secs = $("app").querySelectorAll("section");
     var n = 0;
@@ -4880,6 +5485,7 @@ th[aria-sort] button { color: var(--ink-1); }
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
     $("sec-session").hidden = empty;
+    $("sec-hist").hidden = empty;
     $("sec-decisions").hidden = false;
     $("sec-bindings").hidden = false;
 
@@ -4887,6 +5493,7 @@ th[aria-sort] button { color: var(--ink-1); }
       renderTimeline(st, seats, ranks);
       renderPace(st, seats, ranks);
       renderSession(st, seats);
+      renderHistory(st, seats);
     }
     renderDecisions(st);
     renderBindings(st);
@@ -5290,6 +5897,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   loadHidden();
   loadPaceView();
+  loadHistView();
 
   var themeBtn = $("theme-toggle");
   var THEMES = ["auto", "light", "dark"];
