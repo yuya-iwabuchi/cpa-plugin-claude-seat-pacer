@@ -556,7 +556,7 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    that column takes the plot below 600px, so there the list drops under the
    plot and its families sit side by side where two fit. */
 .pace-body { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 14px; align-items: start; }
-.pace-body > #pace-curve { min-width: 0; }
+.pace-body > #pace-curve, .pace-body > #session-chart { min-width: 0; }
 .pace-rank { display: grid; gap: 14px; align-content: start; min-width: 0; }
 @media (max-width: 1000px) {
   .pace-body { grid-template-columns: minmax(0, 1fr); }
@@ -648,12 +648,15 @@ svg.hist-tl path.hs-nav-line { fill: none; stroke-width: 1; opacity: .85; }
 svg.hist-tl rect.hs-nav-dim { fill: var(--surface-1); opacity: .62; }
 svg.hist-tl rect.hs-brush { fill: none; stroke: var(--ink-2); stroke-width: 1; }
 svg.hist-tl rect.hs-handle { fill: var(--ink-2); }
-.hist-card .pace-body { grid-template-columns: minmax(0, 1fr) 14rem; }
-@media (max-width: 1000px) { .hist-card .pace-body { grid-template-columns: minmax(0, 1fr); } }
+/* A seat-outlook column is narrower than the ranking's, so the plot beside
+   it keeps the width. */
+.outlook-card .pace-body { grid-template-columns: minmax(0, 1fr) 14rem; }
+@media (max-width: 1000px) { .outlook-card .pace-body { grid-template-columns: minmax(0, 1fr); } }
 svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .7; }
-.rank-row.hist-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 1px; align-items: start; }
-.hist-row .hist-row-sub { grid-column: 1 / -1; padding-left: 15px; font: 500 10.5px/1.4 var(--mono); color: var(--ink-3); }
-.hist-row .hist-row-sub span { display: block; }
+.rank-row.outlook-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 1px; align-items: start; }
+.outlook-row .outlook-sub { grid-column: 1 / -1; padding-left: 15px; font: 500 10.5px/1.4 var(--mono); color: var(--ink-3); }
+.outlook-row .outlook-sub span { display: block; }
+.outlook-row .outlook-sub .outlook-alert { color: var(--critical); }
 svg.hist-tl path.hs-target { fill: none; stroke-width: 1; stroke-dasharray: 5 4; opacity: .7; }
 svg.hist-tl path.hs-reset { fill: none; stroke-width: 1; stroke-dasharray: 1 3; opacity: .3; }
 svg.hist-tl rect.hs-weekend { fill: var(--ink-3); opacity: .09; }
@@ -1051,8 +1054,13 @@ th[aria-sort] button { color: var(--ink-1); }
         <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour use against the same curve &middot; three provider readings hold a seat back from new conversations</span>
         <span class="sec-line"></span>
       </div>
-      <div class="card pace-card">
-        <div id="session-chart"></div>
+      <div class="card pace-card outlook-card">
+        <div class="pace-body">
+          <div id="session-chart"></div>
+          <div class="pace-rank">
+            <div id="session-rank"></div>
+          </div>
+        </div>
         <ul class="legend" id="session-legend" aria-label="Seats plotted"></ul>
         <p class="pace-missing" id="session-missing" hidden></p>
         <p class="sess-focus" id="session-focus" role="status" aria-live="polite"></p>
@@ -1071,7 +1079,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <span class="sec-sub" id="hist-sub">each seat's use of one window across its recorded cycles, against its pace target up to each reset</span>
         <span class="sec-line"></span>
       </div>
-      <div class="card pace-card hist-card">
+      <div class="card pace-card outlook-card">
         <div class="hist-tools">
           <div class="pace-view" id="hist-view" role="group" aria-label="Window shown"></div>
           <div class="pace-view" id="hist-span" role="group" aria-label="Span shown"></div>
@@ -4457,6 +4465,13 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
+    outlookList($("session-rank"), SESSION_SHORT, series.map(function (s) {
+      return {
+        a: s.auth, cur: s.w ? s.w.utilization : null, target: s.ws ? s.ws.target : null,
+        resets: s.gap ? null : s.resets, now: now, kind: "five_hour", scope: "", samples: s.cur, weekly: false,
+        live: s.gap ? [] : lockSpans(s.auth, { kind: "five_hour" }, s.start, s.resets.getTime(), now).live, left: null
+      };
+    }), function () { return root; });
     renderSessionNote(st);
   }
 
@@ -4529,6 +4544,79 @@ th[aria-sort] button { color: var(--ink-1); }
       "conversation. Point at or focus a usage stretch of a line to list the conversations the routing log placed " +
       "on that seat during it, by request count. A steep stretch with one conversation on it is that conversation; " +
       "a steep stretch with several is a set to look at. The log is bounded, so an older stretch may fall outside it."));
+  }
+
+  /* ---------------------------------------------------------- seat outlook */
+
+  /* How far back a seat's recent rate is read: a day on a weekly window,
+     whose use follows the working day, and an hour on the 5-hour one. */
+  var OUTLOOK_WEEKLY_MS = 24 * 3600000, OUTLOOK_SESSION_MS = 3600000;
+
+  /* Where a seat's window is headed by its reset, as one line: refused now,
+     spent, full before the reset at its recent rate, or the level that rate
+     reaches at the reset with what it would leave unused. A seat with no
+     recent rise says so. A refusal by another window names that window, and
+     a refusal names when it lifts where that is not this window's reset. alert
+     marks a line read as a warning. */
+  function outlookLine(o) {
+    if (o.live.length) {
+      var sp = o.live.reduce(function (x, y) { return y.to > x.to ? y : x; });
+      var own = sp.kind === o.kind && (sp.scope || "") === (o.scope || "");
+      var atReset = Math.abs(sp.to - o.resets.getTime()) <= RESET_TOLERANCE_MS;
+      var name = own ? "limit reached" : (sp.kind === "five_hour" ? "5h" : sp.kind === "seven_day" ? "7d" : sp.scope) + " limit";
+      return { t: name + (atReset ? "" : " · until " + spanClock(sp.to, o.now)), alert: true };
+    }
+    if (o.cur >= 1) return { t: "spent", alert: true };
+    var span = o.weekly ? OUTLOOK_WEEKLY_MS : OUTLOOK_SESSION_MS;
+    var rate = recentSlope(o.samples, span);
+    if (!num(rate) || rate <= 0) return { t: "no use in the last " + (o.weekly ? "24h" : "hour") };
+    var hoursLeft = (o.resets.getTime() - o.now) / 3600000;
+    var at = o.cur + rate * hoursLeft / 100;
+    if (at >= 1) {
+      var full = o.now + (1 - o.cur) * 100 / rate * 3600000;
+      return { t: "full by " + spanClock(full, o.now), alert: false };
+    }
+    return { t: "on course for " + pct(at, 0) + " · " + pct(1 - at, 0) + " unused" };
+  }
+
+  /* The seat list beside a chart of one window: each seat's use now, its
+     pace target and gap, when the window resets and where it is headed by
+     then, and, where it is at least a point, what the last finished cycle
+     left unused. Each row is one entry of rows: {a, cur, target, resets, now,
+     kind, scope, samples, weekly, live, left}. Pointing at a row lifts its seat on the
+     chart rootOf returns. */
+  function outlookList(host, label, rows, rootOf) {
+    host.textContent = "";
+    var ul = h("ul", "rank-list", "");
+    rows.forEach(function (o) {
+      var li = h("li", "rank-row outlook-row");
+      li.setAttribute("data-seat", o.a.auth_id);
+      li.appendChild(seatMark(o.a));
+      li.appendChild(h("span", "rank-cost", num(o.cur) ? pct(o.cur, 0) : "\u2014"));
+      var sub = h("span", "outlook-sub", "");
+      if (num(o.target)) {
+        sub.appendChild(h("span", "", "pace " + pct(o.target, 0) + (num(o.cur) ? " \u00B7 " + signed(o.cur - o.target) : "")));
+      }
+      if (o.resets && num(o.cur)) {
+        sub.appendChild(h("span", "", resetText(o.resets, o.now)));
+        var line = outlookLine(o);
+        sub.appendChild(h("span", line.alert ? "outlook-alert" : "", line.t));
+      }
+      if (num(o.left) && o.left >= 0.01) sub.appendChild(h("span", "", "last cycle left " + pct(o.left, 0) + " unused"));
+      li.appendChild(sub);
+      ul.appendChild(li);
+      li.addEventListener("pointerenter", function () { var r = rootOf(); if (r) focusSeat(r, o.a.auth_id); });
+      li.addEventListener("pointerleave", function () {
+        var r = rootOf();
+        if (r) focusSeat(r, seatOn(r, document.activeElement));
+      });
+    });
+    var fam = h("div", "rank-fam", ""), head = h("p", "rank-fam-head", "");
+    head.appendChild(h("span", "rank-fam-name", label));
+    head.appendChild(h("span", "rank-fam-note", "used now, its pace target, and where it is headed by its reset"));
+    fam.appendChild(head);
+    fam.appendChild(ul);
+    host.appendChild(fam);
   }
 
   /* ----------------------------------------------------------- over time */
@@ -4941,35 +5029,16 @@ th[aria-sort] button { color: var(--ink-1); }
       if (hadFocus) root.focus({ preventScroll: true });
     }
 
-    /* The list: where each seat is now, which no range changes. */
-    var ul = h("ul", "rank-list", "");
-    data.forEach(function (sd) {
-      var li = h("li", "rank-row hist-row");
-      li.setAttribute("data-seat", sd.a.auth_id);
-      li.appendChild(seatMark(sd.a));
-      li.appendChild(h("span", "rank-cost", sd.cur !== null ? pct(sd.cur, 0) : "—"));
-      var sub = h("span", "hist-row-sub", "");
-      if (sd.resets) {
-        var tNow = targetAt(pace, clamp((now - (sd.resets.getTime() - sd.dur)) / sd.dur, 0, 1));
-        sub.appendChild(h("span", "", "pace " + pct(tNow, 0) + (sd.cur !== null ? " · " + signed(sd.cur - tNow) : "")));
-      }
-      var last = sd.done[sd.done.length - 1];
-      if (last && !last.est && view.weekly) {
-        sub.appendChild(h("span", "", "last reset " + pct(Math.max(0, 1 - last.u), 0) + " unused"));
-      }
-      li.appendChild(sub);
-      ul.appendChild(li);
-      li.addEventListener("pointerenter", function () { if (histGeo) focusSeat(histGeo.root, sd.a.auth_id); });
-      li.addEventListener("pointerleave", function () {
-        if (histGeo) focusSeat(histGeo.root, seatOn(histGeo.root, document.activeElement));
-      });
-    });
-    var fam = h("div", "rank-fam", ""), head = h("p", "rank-fam-head", "");
-    head.appendChild(h("span", "rank-fam-name", view.label));
-    head.appendChild(h("span", "rank-fam-note", "used now, its pace target and the gap to it"));
-    fam.appendChild(head);
-    fam.appendChild(ul);
-    list.appendChild(fam);
+    outlookList(list, view.label, data.map(function (sd) {
+      var win = sd.wins[sd.wins.length - 1], last = sd.done[sd.done.length - 1];
+      return {
+        a: sd.a, cur: sd.cur, resets: sd.resets, now: now, kind: view.kind, scope: view.scope,
+        target: sd.resets ? targetAt(pace, clamp((now - (sd.resets.getTime() - sd.dur)) / sd.dur, 0, 1)) : null,
+        samples: win ? win.samples : [],
+        weekly: view.weekly, live: win ? win.locks.live : [],
+        left: view.weekly && last && !last.est ? Math.max(0, 1 - last.u) : null
+      };
+    }), function () { return histGeo && histGeo.root; });
 
     [
       ["━", "recorded"],
