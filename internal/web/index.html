@@ -616,6 +616,12 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    the two figures can come out in the wrong order. The rank compares the
    unrounded figures, and the mark says where to read that. */
 .rank-cost[data-tip] { border-bottom: 1px dotted var(--ink-3); cursor: help; }
+/* Under a ranked seat, its outlook on the window the ranking weighs, in the
+   seat lists' own form, set under the name; the Seats section carries when
+   the window resets. */
+.rank-detail { grid-column: 3 / -1; font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
+.rank-detail .ol-meter { margin: 1px 0 3px; }
+.rank-row[data-out] .rank-detail { color: var(--ink-3); }
 .pace-missing { margin: 8px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-3); }
 .pace-missing b { font-weight: 600; color: var(--ink-2); }
 /* The explainer folds so prose never sets the card's height; the chart does. */
@@ -4480,13 +4486,11 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
-    outlookList($("session-rank"), SESSION_SHORT, outlookNote(false), series.map(function (s) {
-      return {
-        a: s.auth, cur: s.w ? s.w.utilization : null, target: s.ws ? s.ws.target : null,
-        resets: s.gap ? null : s.resets, now: now, kind: "five_hour", scope: "", samples: s.cur, weekly: false,
-        live: s.gap ? [] : lockSpans(s.auth, { kind: "five_hour" }, s.start, s.resets.getTime(), now).live, left: null
-      };
-    }), function () { return root; });
+    seatList($("session-rank"), SESSION_SHORT, "used now; whether the last hour's rate reaches the limit before the reset",
+      series.map(function (s) {
+        var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
+        return Object.assign({ a: s.auth }, o ? outlookDetail(o) : { figure: "\u2014", meter: null, lines: [] });
+      }), function () { return root; });
     renderSessionNote(st);
   }
 
@@ -4601,49 +4605,83 @@ th[aria-sort] button { color: var(--ink-1); }
       : "on course for " + pct(at, 0) + ", under the limit" };
   }
 
-  /* The seat list beside a chart of one window, one row per entry of rows:
-     {a, cur, target, resets, now, kind, scope, samples, weekly, live, left}.
-     A row gives the seat and its use now, a hairline meter of that use with
-     its projection to the reset and, on a weekly window, a tick at the pace
-     target, where the seat is headed, and when the window resets, with what
-     the last finished cycle left unused where that is at least a point.
-     Pointing at a row lifts its seat on the chart rootOf returns. */
-  function outlookList(host, label, note, rows, rootOf) {
+  /* A seat's outlook on the window it is in now, for a list row: {figure,
+     meter, lines}. The figure is its use now; the meter runs solid to that
+     and faint to where its recent rate takes it by the reset, with a tick at
+     the pace target on a weekly window; the lines say where it is headed and
+     when the window resets, with what the last finished cycle left unused
+     where that is at least a point, unless brief is set. o is {a, cur,
+     target, resets, now, kind, scope, samples, weekly, live, left}. */
+  function outlookDetail(o, brief) {
+    if (!num(o.cur)) return { figure: "\u2014", meter: null, lines: [] };
+    var out = o.resets ? outlookOf(o) : null, lines = [];
+    if (out) lines.push({ t: out.line, tone: out.tone });
+    if (o.resets && !brief) {
+      var when = resetText(o.resets, o.now);
+      if (num(o.left) && o.left >= 0.01) when += " \u00B7 last cycle left " + pct(o.left, 0);
+      lines.push({ t: when, tone: "muted" });
+    }
+    return {
+      figure: pct(o.cur, 0), lines: lines,
+      meter: { from: o.cur, to: out ? out.at : o.cur, tick: o.weekly && num(o.target) ? o.target : null }
+    };
+  }
+
+  /* The outlook of seat a on the window of kind and scope it is in now, from
+     its snapshot and recorded history, or null where it has no reading. */
+  function currentOutlook(a, kind, scope, pace, now) {
+    var w = windowOf(a, kind, scope), resets = w ? parseT(w.resets_at) : null;
+    if (!w || !num(w.utilization) || !resets) return null;
+    var dur = num(w.duration) && w.duration > 0 ? w.duration / 1e6 : kind === "five_hour" ? SESSION_MS : PACE_MS;
+    var start = resets.getTime() - dur;
+    return {
+      a: a, cur: w.utilization, resets: resets, now: now, kind: kind, scope: scope, weekly: kind !== "five_hour",
+      target: targetAt(pace, clamp((now - start) / dur, 0, 1)),
+      samples: drawnSamples(samplesOf(currentCycles(historyFor(a, kind, scope), resets))),
+      live: lockSpans(a, { kind: kind, scope: scope }, start, resets.getTime(), now).live, left: null
+    };
+  }
+
+  /* Appends a row's meter and lines to parent: the meter in the seat's
+     colour, solid from zero to meter.from and faint on to meter.to, with a
+     tick at meter.tick where it is set; each line in its tone. */
+  function seatDetail(parent, a, d) {
+    if (d.meter) {
+      var meter = parent.appendChild(h("div", "ol-meter", ""));
+      meter.setAttribute("aria-hidden", "true");
+      var col = seatColor(a), from = clamp(d.meter.from, 0, 1), to = clamp(d.meter.to, 0, 1);
+      var fill = meter.appendChild(h("span", "ol-fill", ""));
+      fill.style.width = pct(from, 1);
+      fill.style.background = col;
+      if (to > from) {
+        var proj = meter.appendChild(h("span", "ol-proj", ""));
+        proj.style.left = pct(from, 1);
+        proj.style.width = pct(to - from, 1);
+        proj.style.background = col;
+      }
+      if (num(d.meter.tick)) meter.appendChild(h("span", "ol-pace", "")).style.left = pct(clamp(d.meter.tick, 0, 1), 1);
+    }
+    d.lines.forEach(function (l) { parent.appendChild(h("div", "ol-line" + (l.tone ? " ol-" + l.tone : ""), l.t)); });
+  }
+
+  /* A seat list beside a chart, one row per entry of rows: {a, figure,
+     meter, lines}, the seat and its figure on one line and seatDetail under
+     them. Pointing at a row lifts its seat on the chart rootOf returns. */
+  function seatList(host, label, note, rows, rootOf) {
     host.textContent = "";
     var ul = h("ul", "ol-list", "");
-    rows.forEach(function (o) {
+    rows.forEach(function (r) {
       var li = h("li", "ol-row");
-      li.setAttribute("data-seat", o.a.auth_id);
+      li.setAttribute("data-seat", r.a.auth_id);
       var head = li.appendChild(h("div", "ol-head", ""));
-      head.appendChild(seatMark(o.a));
-      head.appendChild(h("span", "ol-now", num(o.cur) ? pct(o.cur, 0) : "\u2014"));
-      var out = num(o.cur) && o.resets ? outlookOf(o) : null;
-      if (num(o.cur)) {
-        var meter = li.appendChild(h("div", "ol-meter", ""));
-        meter.setAttribute("aria-hidden", "true");
-        var col = seatColor(o.a), from = clamp(o.cur, 0, 1);
-        var fill = meter.appendChild(h("span", "ol-fill", ""));
-        fill.style.width = pct(from, 1);
-        fill.style.background = col;
-        if (out && out.at > o.cur) {
-          var proj = meter.appendChild(h("span", "ol-proj", ""));
-          proj.style.left = pct(from, 1);
-          proj.style.width = pct(clamp(out.at, 0, 1) - from, 1);
-          proj.style.background = col;
-        }
-        if (o.weekly && num(o.target)) meter.appendChild(h("span", "ol-pace", "")).style.left = pct(clamp(o.target, 0, 1), 1);
-      }
-      if (out) li.appendChild(h("div", "ol-line" + (out.tone ? " ol-" + out.tone : ""), out.line));
-      if (o.resets) {
-        var when = resetText(o.resets, o.now);
-        if (num(o.left) && o.left >= 0.01) when += " \u00B7 last cycle left " + pct(o.left, 0);
-        li.appendChild(h("div", "ol-line ol-muted", when));
-      }
+      head.appendChild(seatMark(r.a));
+      head.appendChild(h("span", "ol-now", r.figure));
+      seatDetail(li, r.a, r);
       ul.appendChild(li);
-      li.addEventListener("pointerenter", function () { var r = rootOf(); if (r) focusSeat(r, o.a.auth_id); });
+      li.addEventListener("pointerenter", function () { var root = rootOf(); if (root) focusSeat(root, r.a.auth_id); });
       li.addEventListener("pointerleave", function () {
-        var r = rootOf();
-        if (r) focusSeat(r, seatOn(r, document.activeElement));
+        var root = rootOf();
+        if (root) focusSeat(root, seatOn(root, document.activeElement));
       });
     });
     var fam = h("div", "rank-fam", ""), head = h("p", "rank-fam-head", "");
@@ -4654,11 +4692,6 @@ th[aria-sort] button { color: var(--ink-1); }
     host.appendChild(fam);
   }
 
-  /* The note over a list of seats on one window. */
-  function outlookNote(weekly) {
-    return weekly ? "used now; where the last 24h's rate leaves it at the reset; the tick is the pace target"
-      : "used now; whether the last hour's rate reaches the limit before the reset";
-  }
 
   /* ----------------------------------------------------------- over time */
 
@@ -4917,6 +4950,54 @@ th[aria-sort] button { color: var(--ink-1); }
       draw();
     }
 
+    /* What a seat did between t0 and t1, as a list row: the budget it used,
+       every rise counted once and summed across resets, with "~" where an
+       estimate is in it; then, on a weekly window, the resets in the range
+       and what they left unused, or on the 5-hour one how often it reached
+       the limit; and how long the provider refused it there, on this window
+       or any other that bears on it, as the underlay draws. The first
+       reading on record starts the count and adds nothing to it. */
+    function rangeRow(sd, t0, t1) {
+      var used = 0, est = false, hits = 0, resets = 0, lost = 0, lostKnown = true;
+      var rise = function (t, from, to, isEst) {
+        if (t < t0 || t > t1 || to <= from) return;
+        used += to - from;
+        if (isEst) est = true;
+        if (to >= 0.995 && from < 0.995) hits++;
+      };
+      sd.wins.forEach(function (win, i) {
+        win.samples.forEach(function (s, j) {
+          if (!i && !j) return;
+          rise(s.t, !j || s.fresh ? 0 : win.samples[j - 1].u, s.u, s.est);
+        });
+      });
+      var lw = sd.wins[sd.wins.length - 1];
+      if (lw && sd.cur !== null) rise(now, lw.samples[lw.samples.length - 1].u, sd.cur, false);
+      sd.done.forEach(function (c) {
+        if (c.at < t0 || c.at > t1) return;
+        resets++;
+        if (c.est) lostKnown = false;
+        else lost += Math.max(0, 1 - c.u);
+      });
+      var spans = lockSpans(sd.a, view, t0, t1, now).drawn.map(function (sp) { return [sp.t0, sp.t1]; });
+      spans.sort(function (x, y) { return x[0] - y[0]; });
+      var refused = 0, end = -Infinity;
+      spans.forEach(function (sp) {
+        if (sp[1] <= end) return;
+        refused += sp[1] - Math.max(sp[0], end);
+        end = sp[1];
+      });
+      var lines = [];
+      if (view.weekly) {
+        lines.push({ t: !resets ? "no reset in range" : (resets === 1 ? "1 reset" : resets + " resets") +
+          (lostKnown ? ", " + pct(lost, 0) + " left unused" : "") });
+      } else {
+        lines.push({ t: hits ? "at the limit " + hits + "\u00D7" : "never at the limit" });
+      }
+      if (refused >= 60000) lines.push({ t: "refused for " + durText(Math.round(refused / 1000)) });
+      return { a: sd.a, figure: (est ? "~" : "") + pct(used, 0), meter: null, lines: lines };
+    }
+
     function draw() {
       var hadFocus = host.contains(document.activeElement);
       host.textContent = "";
@@ -5051,6 +5132,9 @@ th[aria-sort] button { color: var(--ink-1); }
       });
       timeAxis(root, tMin, tMax, XN, pw, NAV_TOP, NAV_TOP + NAV_H, NAV_TOP + NAV_H + 15, false);
 
+      seatList(list, view.label, "use in the range shown, summed across resets",
+        data.map(function (sd) { return rangeRow(sd, t0, t1); }), function () { return histGeo && histGeo.root; });
+
       histGeo = {
         t0: t0, t1: t1, liveEnd: liveEnd, minSpan: minSpan, set: set, root: root,
         main: { l: m.l, r: m.l + pw, top: m.t, bottom: Y(0), pw: pw, T: function (x) { return t0 + (x - m.l) * pxPer; } },
@@ -5070,16 +5154,6 @@ th[aria-sort] button { color: var(--ink-1); }
       if (hadFocus) root.focus({ preventScroll: true });
     }
 
-    outlookList(list, view.label, outlookNote(view.weekly), data.map(function (sd) {
-      var win = sd.wins[sd.wins.length - 1], last = sd.done[sd.done.length - 1];
-      return {
-        a: sd.a, cur: sd.cur, resets: sd.resets, now: now, kind: view.kind, scope: view.scope,
-        target: sd.resets ? targetAt(pace, clamp((now - (sd.resets.getTime() - sd.dur)) / sd.dur, 0, 1)) : null,
-        samples: win ? win.samples : [],
-        weekly: view.weekly, live: win ? win.locks.live : [],
-        left: view.weekly && last && !last.est ? Math.max(0, 1 - last.u) : null
-      };
-    }), function () { return histGeo && histGeo.root; });
 
     [
       ["━", "recorded"],
@@ -5333,7 +5407,7 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   function rankList(st, seats, ranks, fam) {
-    var now = nowMs();
+    var now = nowMs(), pace = (st.config && st.config.pace) || {};
     var known = seats.some(function (a) { return famScore(a, fam) !== null; });
     var block = h("div", "rank-fam");
     var head = h("p", "rank-fam-head");
@@ -5450,6 +5524,8 @@ th[aria-sort] button { color: var(--ink-1); }
         tipOnly(li, verdict.text);
       }
       li.appendChild(cost);
+      var o = currentOutlook(a, fam === STANDARD ? "seven_day" : "weekly_scoped", fam, pace, now);
+      if (o) seatDetail(li.appendChild(h("div", "rank-detail", "")), a, outlookDetail(o, true));
       ul.appendChild(li);
     });
     block.appendChild(ul);
