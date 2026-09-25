@@ -8,17 +8,24 @@ import (
 )
 
 // TestSeatHuesHoldTheirBounds covers every theme the page declares seat hues
-// in: each hue clears 3:1 against that theme's card, and the first four, which
-// a small pool draws, stay at least ΔE 15 apart in OKLab (×100), the distance
-// at which two thin lines read as two series.
+// in: each block declares as many hues as the script assigns, the two dark
+// blocks agree, each hue clears 3:1 against that theme's card, and the first
+// four, which a small pool draws, stay at least ΔE 15 apart in OKLab (×100),
+// the distance at which two thin lines read as two series.
 func TestSeatHuesHoldTheirBounds(t *testing.T) {
 	t.Parallel()
 	page := string(indexHTML)
+	m := regexp.MustCompile(`var SEAT_HUES = (\d+);`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("page declares no SEAT_HUES")
+	}
+	hues, _ := strconv.Atoi(m[1])
 	blocks := regexp.MustCompile(`\{[^{}]*--seat-1:[^{}]*\}`).FindAllString(page, -1)
 	if len(blocks) != 3 {
 		t.Fatalf("found %d token blocks declaring seat hues, want the light one and the two dark ones", len(blocks))
 	}
 	decl := regexp.MustCompile(`--(surface-1|seat-(\d+)):\s*(#[0-9a-f]{6});`)
+	declared := make([]map[int]string, len(blocks))
 	for bi, b := range blocks {
 		var card string
 		seats := map[int]string{}
@@ -30,10 +37,16 @@ func TestSeatHuesHoldTheirBounds(t *testing.T) {
 			n, _ := strconv.Atoi(m[2])
 			seats[n] = m[3]
 		}
-		if card == "" || len(seats) != 12 {
-			t.Fatalf("block %d: card %q and %d seat hues, want a card and 12 hues", bi, card, len(seats))
+		declared[bi] = seats
+		if card == "" || len(seats) != hues {
+			t.Fatalf("block %d: card %q and %d seat hues, want a card and SEAT_HUES = %d", bi, card, len(seats), hues)
 		}
-		for n := 1; n <= 12; n++ {
+		for n := 1; n <= hues; n++ {
+			if seats[n] == "" {
+				t.Fatalf("block %d declares no --seat-%d, want --seat-1 through --seat-%d", bi, n, hues)
+			}
+		}
+		for n := 1; n <= hues; n++ {
 			if r := contrastRatio(seats[n], card); r < 3 {
 				t.Errorf("block %d: --seat-%d %s is %.2f:1 on the card %s, want at least 3:1", bi, n, seats[n], r, card)
 			}
@@ -44,6 +57,11 @@ func TestSeatHuesHoldTheirBounds(t *testing.T) {
 					t.Errorf("block %d: --seat-%d and --seat-%d are ΔE %.1f apart, want at least 15", bi, i, j, d)
 				}
 			}
+		}
+	}
+	for n := 1; n <= hues; n++ {
+		if declared[1][n] != declared[2][n] {
+			t.Errorf("--seat-%d is %s under the dark media query and %s under data-theme=dark", n, declared[1][n], declared[2][n])
 		}
 	}
 }
