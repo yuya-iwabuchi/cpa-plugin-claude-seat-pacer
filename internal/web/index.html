@@ -38,17 +38,24 @@
   --critical:     #d03b3b;
   --warning:      #fab219;
 
-  /* Six identity hues, none of them a state hue: the states above are green,
-     blue, orange and red, so a seat is violet, teal, gold, magenta, slate or
-     plum, and a seat's dot can never be read as a verdict on it. The order
-     keeps adjacent pairs apart under colour-vision deficiency; a seventh seat
-     is neutral and its name carries the identity. */
-  --seat-1:       #6b4ed6;
-  --seat-2:       #0d8c86;
-  --seat-3:       #a87c00;
-  --seat-4:       #c93a86;
-  --seat-5:       #56688d;
-  --seat-6:       #8e3b7a;
+  /* Twelve identity hues: IBM Carbon's categorical sequence in its published
+     order, with its two reds left out because red is the spent and refused
+     states' hue. Carbon ships a light and a dark step for each, and every step
+     clears 3:1 on its card. The first four keep apart for every reader; past
+     them some pairs sit close, and the seat's name carries the identity. A
+     thirteenth seat is neutral. */
+  --seat-1:       #6929c4;
+  --seat-2:       #1192e8;
+  --seat-3:       #005d5d;
+  --seat-4:       #9f1853;
+  --seat-5:       #198038;
+  --seat-6:       #002d9c;
+  --seat-7:       #ee538b;
+  --seat-8:       #b28600;
+  --seat-9:       #009d9a;
+  --seat-10:      #012749;
+  --seat-11:      #8a3800;
+  --seat-12:      #a56eff;
   --seat-x:       #898781;
   /* The same hues darkened to 4.5:1 on the card, for text set in a seat's colour. */
 
@@ -76,12 +83,18 @@
     --good:       #0ca30c;
     --serious:    #ec835a;
     --info:       #3987e5;
-    --seat-1:     #a08cf0;
-    --seat-2:     #1fb3ab;
-    --seat-3:     #d3a11c;
-    --seat-4:     #e26aa9;
-    --seat-5:     #8ea0c9;
-    --seat-6:     #c56aae;
+    --seat-1:     #8a3ffc;
+    --seat-2:     #33b1ff;
+    --seat-3:     #007d79;
+    --seat-4:     #ff7eb6;
+    --seat-5:     #6fdc8c;
+    --seat-6:     #4589ff;
+    --seat-7:     #d12771;
+    --seat-8:     #d2a106;
+    --seat-9:     #08bdba;
+    --seat-10:    #bae6ff;
+    --seat-11:    #ba4e00;
+    --seat-12:    #d4bbff;
     --pos-text:   #0ca30c;
     --neg-text:   #e66767;
     --focus:      #3987e5;
@@ -106,12 +119,18 @@
   --good:       #0ca30c;
   --serious:    #ec835a;
   --info:       #3987e5;
-  --seat-1:     #a08cf0;
-  --seat-2:     #1fb3ab;
-  --seat-3:     #d3a11c;
-  --seat-4:     #e26aa9;
-  --seat-5:     #8ea0c9;
-  --seat-6:     #c56aae;
+  --seat-1:     #8a3ffc;
+  --seat-2:     #33b1ff;
+  --seat-3:     #007d79;
+  --seat-4:     #ff7eb6;
+  --seat-5:     #6fdc8c;
+  --seat-6:     #4589ff;
+  --seat-7:     #d12771;
+  --seat-8:     #d2a106;
+  --seat-9:     #08bdba;
+  --seat-10:    #bae6ff;
+  --seat-11:    #ba4e00;
+  --seat-12:    #d4bbff;
   --pos-text:   #0ca30c;
   --neg-text:   #e66767;
   --focus:      #3987e5;
@@ -358,23 +377,43 @@ section { margin-top: 24px; border-radius: 12px; }
    an inset shade marks the cut. An inset shadow paints on the box, not the
    content, so it holds its place as the content scrolls under it. The value
    is a token list, so a region cut on both axes carries both shades. */
-:root { --scroll-cut: rgba(11,11,11,.34); }
-:root[data-theme="dark"] { --scroll-cut: rgba(255,255,255,.26); }
-@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --scroll-cut: rgba(255,255,255,.26); } }
-/* Each axis keeps its own slot, transparent until its token is present, so
-   one rule composes every combination. */
-[data-more] {
-  --cut-right: 0 0 transparent; --cut-down: 0 0 transparent;
-  box-shadow: var(--cut-right), var(--cut-down);
+:root { --scroll-cut: rgba(11,11,11,.16); }
+:root[data-theme="dark"] { --scroll-cut: rgba(255,255,255,.12); }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --scroll-cut: rgba(255,255,255,.12); } }
+/* Each edge keeps its own slot, an empty inset until its token is present, so
+   one rule composes every combination and a shade fades in and out rather
+   than switching. */
+#timeline, .pace-card, .tbl-card, .dec-body, .log {
+  --cut-up: inset 0 0 0 0 transparent; --cut-down: inset 0 0 0 0 transparent;
+  --cut-left: inset 0 0 0 0 transparent; --cut-right: inset 0 0 0 0 transparent;
+  box-shadow: var(--cut-up), var(--cut-down), var(--cut-left), var(--cut-right);
 }
-[data-more~="right"] { --cut-right: inset -44px 0 30px -30px var(--scroll-cut); }
-[data-more~="down"] { --cut-down: inset 0 -44px 30px -30px var(--scroll-cut); }
-.card[data-more] { box-shadow: var(--shadow), var(--cut-right), var(--cut-down); }
+.card:is(.pace-card, .tbl-card) {
+  box-shadow: var(--shadow), var(--cut-up), var(--cut-down), var(--cut-left), var(--cut-right);
+}
+[data-more~="up"] { --cut-up: inset 0 32px 24px -24px var(--scroll-cut); }
+[data-more~="down"] { --cut-down: inset 0 -32px 24px -24px var(--scroll-cut); }
+[data-more~="left"] { --cut-left: inset 32px 0 24px -24px var(--scroll-cut); }
+[data-more~="right"] { --cut-right: inset -32px 0 24px -24px var(--scroll-cut); }
+/* A head pinned over a scroller's top edge is opaque, so it would cover the
+   box's shade there; while one is pinned, it carries that edge's shade
+   itself, hanging below it, and the box draws none. The script marks the
+   pinned head, so every head that sticks opts in with the pin class alone. */
+.pin::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 24px;
+  background: linear-gradient(var(--scroll-cut), transparent); opacity: 0; pointer-events: none;
+}
+.pin[data-stuck]::after { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  #timeline, .pace-card, .tbl-card, .dec-body, .log, .pace-rank::after { transition: box-shadow .2s ease-out; }
+  .pin::after { transition: opacity .2s ease-out; }
+}
 
 /* ----------------------------------------------------------------- seats */
 .seat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--seat-color); flex: none; }
 .seat-mark { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
 .seat-mark .seat-dot { width: 8px; height: 8px; }
+.seat-mark .seat-dot.cap { width: 7px; height: 7px; border-radius: 1px; transform: rotate(45deg); }
 /* A table names a seat in a bounded column, so a long name clips there rather
    than widening the row; the clip is measured and hover recovers the rest. */
 td .seat-mark { max-width: 22ch; }
@@ -546,10 +585,29 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
    plot and its families sit side by side where two fit. */
 .pace-body { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 14px; align-items: start; }
 .pace-body > #pace-curve { min-width: 0; }
-.pace-rank { display: grid; gap: 14px; align-content: start; min-width: 0; }
+/* Beside the plot the list is out of flow, so the plot alone sets the row's
+   height and a long pool scrolls inside the list's column; each family's head
+   stays on screen above its rows, pinned over the scroller's inset so no row
+   shows above it. Under the plot the list scrolls inside the
+   height the binding table keeps. The inset leaves a focused row's ring
+   inside the scroller's clip. */
+.pace-rank { position: relative; align-self: stretch; min-width: 0; }
+.pace-rank > #pace-rank { position: absolute; inset: 0; overflow-y: auto; padding: 2px; }
+/* A family head scrolling in at the bottom is opaque and would cover the
+   box's shade there, so the list's bottom shade is an overlay above its
+   rows. */
+.pace-rank > #pace-rank[data-more~="down"] { --cut-down: inset 0 0 0 0 transparent; }
+.pace-rank::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; z-index: 2;
+  pointer-events: none; border-radius: 0 0 6px 6px; box-shadow: inset 0 0 0 0 transparent;
+}
+.pace-rank:has(> #pace-rank[data-more~="down"])::after { box-shadow: inset 0 -32px 24px -24px var(--scroll-cut); }
 @media (max-width: 1000px) {
   .pace-body { grid-template-columns: minmax(0, 1fr); }
-  .pace-rank > #pace-rank { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px; }
+  .pace-rank > #pace-rank {
+    position: static; max-height: 380px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px;
+  }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
    can check a figure against the marks' labels by. It runs the width of the
@@ -565,7 +623,10 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 /* One list per request family, every seat ordered by cost, lowest first: the
    top row is the seat that family's next new conversation lands on. */
 .rank-fam + .rank-fam { margin-top: 14px; }
-.rank-fam-head { margin: 0 0 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.rank-fam-head {
+  margin: 0 0 4px; padding: 4px 0 2px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
+  position: sticky; top: -2px; z-index: 1; background: var(--surface-1);
+}
 .rank-fam-name { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); flex: none; }
 /* The note is a sentence in a column sized for the rows, so it wraps to as
    many lines as it needs rather than widening anything. */
@@ -581,20 +642,17 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
 }
 .rank-row[data-lead] { background: var(--emph); }
 .rank-row[data-out] { color: var(--ink-3); }
-/* A seat held off a family recedes in its swatches: the row is already set in
+/* A seat held off a family recedes in its dot: the row is already set in
    the dimmest ink, and an opacity over that takes the name and the state's
    glyph under the ratio this page holds text to. */
-.rank-row[data-out] .seat-dot, .rank-row[data-out] .rank-state .sw { opacity: .62; }
+.rank-row[data-out] .seat-dot { opacity: .62; }
 .rank-row[data-tip] { cursor: help; }
 .rank-row:focus-visible { outline-offset: 0; }
 .rank-no { font: 600 11px/1 var(--mono); color: var(--ink-2); }
 .rank-row[data-out] .rank-no { color: var(--ink-3); }
-/* The state's swatch and glyph, as the timeline legend draws them; in a row
-   the swatch is square and the pair sits tight, so the column stays narrow. */
+/* The state's swatch and glyph, as the timeline legend draws them. */
 .rank-state { display: inline-flex; align-items: center; gap: 7px; }
-.rank-row .rank-state { gap: 4px; }
-.rank-row .rank-state .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
-.rank-row .rank-state .gl { font: 600 10px/1 var(--mono); flex: none; }
+.rank-row .rank-state { font: 700 13px/1 var(--mono); justify-content: center; }
 .rank-row .seat-mark { max-width: 100%; }
 /* The cost column is as wide as the widest figure it can print, so the two
    families' lists cut one seat's name at one point rather than two. */
@@ -632,13 +690,26 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
    the reader's place in it is kept across a refresh. Its rows run edge to
    edge, because each is a hover target with its own inset, so the card keeps
    no side padding of its own. */
-.log-card { padding: 4px 0; }
-.log { max-height: 380px; overflow-y: auto; }
+.log-card { padding: 0; }
+.log { max-height: 388px; overflow-y: auto; padding: 4px 0; border-radius: inherit; }
+/* The count and the column head read as the binding table's do: the count
+   scrolls away, the head stays over the rows. The head is laid out on the
+   rows' own grid, and a narrow card, where the rows wrap, has no columns to
+   name. */
+.log-count { margin: 0; padding: 8px 16px 9px; font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.log-head {
+  display: grid; gap: 12px; grid-template-columns: var(--dec-cols); padding: 4px 16px;
+  position: sticky; top: -4px; z-index: 1; background: var(--surface-1); border-bottom: 1px solid var(--axis);
+  font: 600 9.5px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+}
+.log-head > :first-child { padding-left: 13px; }
+@media (max-width: 1000px) { .log-head { display: none; } }
 .dec { border-bottom: 1px solid var(--rule); }
 .dec:last-child { border-bottom: 0; }
+.log { --dec-cols: 78px 106px 92px 216px 190px minmax(140px, 1fr); }
 .dec > summary {
   display: grid; align-items: center; gap: 12px; cursor: pointer;
-  grid-template-columns: 78px 106px 92px 216px 190px minmax(140px, 1fr);
+  grid-template-columns: var(--dec-cols);
   padding: 8px 16px; min-height: 38px; list-style: none;
 }
 .dec > summary > .chip { justify-self: start; }
@@ -673,12 +744,6 @@ svg.pace g.seg:hover path.hit { stroke: var(--emph); opacity: 1; }
    way the binding table does, rather than widening the page under the sticky
    bar. */
 .dec-body { padding: 4px 16px 18px; overflow-x: auto; }
-/* Outside the scrolling list, so it never meets the shade that marks the cut
-   and never scrolls away from the rows it counts. */
-.log-note {
-  margin: 0; padding: 11px 16px 7px; border-top: 1px solid var(--rule);
-  font: 500 11px/1.4 var(--mono); color: var(--ink-3);
-}
 .caret { display: inline-block; width: 9px; color: var(--ink-3); font-family: var(--mono); }
 .dec[open] .caret { transform: rotate(90deg); }
 
@@ -717,7 +782,7 @@ th[aria-sort] button { color: var(--ink-1); }
 /* The header stays on screen while the body scrolls under it, so a row is
    readable at any depth and the sort controls are always in reach. It carries
    the card's own background, because the rows pass beneath it. */
-.tbl-card thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-1); }
+.tbl-card thead th { position: sticky; top: -4px; z-index: 1; background: var(--surface-1); }
 .scores { margin-top: 4px; }
 .scores caption { padding-bottom: 8px; }
 .scores th, .scores td { padding: 6px 10px; font-size: 12px; }
@@ -1027,7 +1092,6 @@ th[aria-sort] button { color: var(--ink-1); }
            cut. -->
       <div class="card log-card">
         <div class="log" id="decisions"></div>
-        <p class="log-note" id="log-note" hidden></p>
       </div>
     </section>
 
@@ -1057,9 +1121,9 @@ th[aria-sort] button { color: var(--ink-1); }
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
   var DENSE_AT = 4;          /* more seats than this and the rows draw compact */
-  /* --seat-1 … --seat-6, the slots a seat's id picks from; a seat that finds
-     none free is neutral. */
-  var SEAT_HUES = 6;
+  /* --seat-1 … --seat-12, taken in the pool's id order; a seat past them is
+     neutral. */
+  var SEAT_HUES = 12;
 
   /* The page is a resource route, which the host serves with no key; its data
      is the plugin's page-status management route, which needs the management
@@ -1443,11 +1507,9 @@ th[aria-sort] button { color: var(--ink-1); }
     return !!parseT(w.resets_at) && num(w.duration) && w.duration > 0;
   }
 
-  /* The lane states, in the order the legend lists them. The pace states and
-     the gated one are told apart by hue alone, which sits far enough apart to
-     carry them; two states share the critical hue and are told apart by their
-     glyph and by the pattern their bar and swatch carry, so neither rests on
-     it. Spent is a window the provider reports full: nothing is left to spend
+  /* The lane states, in the order the legend lists them. Every state carries
+     a glyph, so no state rests on its hue; two states share the critical hue
+     and are also told apart by the pattern their bar and swatch carry. Spent is a window the provider reports full: nothing is left to spend
      on it, so no new conversation lands on the seat for the requests the
      window applies to until it resets, which is a gate on a reading and not
      on the pace forecast. Spent is the page's one word for that state, and
@@ -1457,11 +1519,11 @@ th[aria-sort] button { color: var(--ink-1); }
      own: a window it is raised on keeps its pace verdict, and the advisory is
      on the window's tooltip. */
   var STATE_META = {
-    under:   { color: "var(--good)",     label: "under target" },
-    on:      { color: "var(--info)",     label: "on pace" },
-    over:    { color: "var(--serious)",  label: "over target" },
+    under:   { color: "var(--good)",     glyph: "\u2212", label: "under target" },
+    on:      { color: "var(--info)",     glyph: "\u2248", label: "on pace" },
+    over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
     spent:   { color: "var(--critical)", glyph: "◼", label: "spent", pattern: "bars" },
-    limit:   { color: "var(--ink-1)",    label: "gated, weighs nothing in the cost" },
+    limit:   { color: "var(--ink-1)",    glyph: "\u25c7", label: "gated, weighs nothing in the cost" },
     blocked: { color: "var(--critical)", glyph: "✕", label: "provider refused", pattern: "hatch" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not evaluated" }
   };
@@ -1556,10 +1618,10 @@ th[aria-sort] button { color: var(--ink-1); }
      A source that does not is disambiguated here with a tag of the id, which
      is derived from nothing but the credential and so survives a restart.
 
-     Colours: derived from the id, not from rank or position, so a seat keeps
-     its hue when the ranking moves under it and the same pool draws the same
-     colours in any order and on any install. Past the six hues a seat is
-     neutral and its name carries the identity. */
+     Colours: assigned in id order across the pool, not by rank or position,
+     so a seat keeps its hue when the ranking moves under it and the same pool
+     draws the same colours on any install. A seat joining or leaving the pool
+     can move the seats after it in id order to another slot. */
   var seatNameByID = Object.create(null);
   var seatColorByID = Object.create(null);
 
@@ -1575,39 +1637,12 @@ th[aria-sort] button { color: var(--ink-1); }
       else if (count[l] > 1) l += " #" + String(a.auth_id || "").slice(0, 4);
       seatNameByID[a.auth_id] = l;
     });
-    /* Every seat asks for the slot its own id names, and a slot goes to the
-       lowest id that asked for it. Only the seats left over walk, and they
-       walk over what no seat asked for, so a seat loses its hue to another
-       seat that wanted the same slot and to nothing else. Id order is the one
-       order every install agrees on, so both passes read the same everywhere.
-       A seat that finds no slot is neutral and its name carries the identity. */
+    /* Id order is the one order every install agrees on. The first slots
+       hold the most distinct hues, so a small pool draws only those. */
     auths.sort(function (x, y) { return String(x.auth_id).localeCompare(String(y.auth_id)); });
-    var holder = Object.create(null), spill = [];
-    auths.forEach(function (a) {
-      var want = hueSlot(a.auth_id);
-      if (holder[want]) { spill.push(a); return; }
-      holder[want] = true;
-      seatColorByID[a.auth_id] = "var(--seat-" + (want + 1) + ")";
+    auths.forEach(function (a, i) {
+      seatColorByID[a.auth_id] = i < SEAT_HUES ? "var(--seat-" + (i + 1) + ")" : "var(--seat-x)";
     });
-    spill.forEach(function (a) {
-      var want = hueSlot(a.auth_id);
-      seatColorByID[a.auth_id] = "var(--seat-x)";
-      for (var i = 1; i < SEAT_HUES; i++) {
-        var slot = (want + i) % SEAT_HUES;
-        if (holder[slot]) continue;
-        holder[slot] = true;
-        seatColorByID[a.auth_id] = "var(--seat-" + (slot + 1) + ")";
-        return;
-      }
-    });
-  }
-
-  /* The slot an id asks for: the first 32 bits of the hashed credential id,
-     which are uniform over the hues. An id too short to read asks for the
-     first slot and takes its chances in the walk. */
-  function hueSlot(id) {
-    var n = parseInt(String(id || "").slice(0, 8), 16);
-    return isFinite(n) ? n % SEAT_HUES : 0;
   }
 
   /* Whether a seat's name is its account address as the server masks it, so
@@ -2134,8 +2169,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* The lane states are one list: the legend, the glyph, the tooltip, the
      aria-label and the ranked list's icons all read STATE_META, so they
-     cannot drift apart. A state told apart by hue alone has no glyph and
-     shows its swatch only. The sign key
+     cannot drift apart. The sign key
      closes the marks list, from the one constant every legend prints, and
      is written once because the markup around it is static. */
   function renderStateLegend() {
@@ -4040,9 +4074,8 @@ th[aria-sort] button { color: var(--ink-1); }
       (anyLead ? "the lowest eligible cost wins" : "no seat is eligible, so no cost wins until one is")));
   }
 
-  /* The state swatch the legend draws, for a seat's row: the state's colour,
-     its pattern, and its glyph where it has one, so a row and the legend name
-     the state alike and neither rests on colour. */
+  /* The state swatch the legend draws: the state's colour, its pattern, and
+     its glyph, so the legend names the state without resting on colour. */
   function stateSwatch(meta) {
     var box = h("span", "rank-state");
     var sw = h("span", "sw");
@@ -4057,11 +4090,22 @@ th[aria-sort] button { color: var(--ink-1); }
     return box;
   }
 
+  /* A seat's row names its state by the glyph alone, in the state's colour:
+     a swatch there would sit beside the seat's own dot and read as one mark. */
+  function stateGlyph(meta) {
+    var gl = h("span", "rank-state", meta.glyph);
+    gl.style.color = meta.color;
+    return gl;
+  }
+
   function rankList(st, seats, ranks, fam) {
+    /* A family's cost weighs its cap only where the plot draws the cap's
+       diamond, and there the list marks the seat with that diamond. */
+    var capMark = fam !== STANDARD && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     var now = nowMs();
     var known = seats.some(function (a) { return famScore(a, fam) !== null; });
     var block = h("div", "rank-fam");
-    var head = h("p", "rank-fam-head");
+    var head = h("p", "rank-fam-head pin");
     head.appendChild(h("span", "rank-fam-name", rankLabel(fam)));
     /* With no seat left to take the family the head says where the work
        goes, in the live bar's own words: the overflow tier where the log
@@ -4132,11 +4176,13 @@ th[aria-sort] button { color: var(--ink-1); }
       li.setAttribute("data-fk", "rank:" + fam + ":" + a.auth_id);
       if (ranks.lead[fam] === a.auth_id) li.setAttribute("data-lead", "true");
       li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : "—"));
-      var sw = stateSwatch(meta);
+      var sw = stateGlyph(meta);
       sw.setAttribute("role", "img");
       sw.setAttribute("aria-label", meta.label);
       li.appendChild(sw);
-      li.appendChild(seatMark(a));
+      var mark = seatMark(a);
+      if (capMark) mark.querySelector(".seat-dot").classList.add("cap");
+      li.appendChild(mark);
       var cost = h("span", "rank-cost", costText(sc));
       if (elig) {
         var same = (printing[costText(sc)] || []).filter(function (o) { return o !== a; });
@@ -4184,8 +4230,10 @@ th[aria-sort] button { color: var(--ink-1); }
   function renderRank(st, seats, ranks, view) {
     renderFormula(st, ranks, view);
     var host = $("pace-rank");
+    var scrollTop = host.scrollTop;
     host.textContent = "";
     ranks.fams.forEach(function (fam) { if (shows(view, fam)) host.appendChild(rankList(st, seats, ranks, fam)); });
+    host.scrollTop = scrollTop;
   }
 
   /* ------------------------------------------------------------ decisions */
@@ -4206,9 +4254,6 @@ th[aria-sort] button { color: var(--ink-1); }
   function renderDecisions(st) {
     if (!regionChanged("decisions", [visibleDecisions(st), seatNames(st), scopedFamilies(st)])) return;
     var host = $("decisions");
-    var note = $("log-note");
-    note.textContent = "";
-    note.hidden = true;
     /* The list scrolls inside its card; a rebuild puts the reader back where
        they were. */
     var scrollTop = host.scrollTop;
@@ -4226,6 +4271,14 @@ th[aria-sort] button { color: var(--ink-1); }
       host.appendChild(e);
       return;
     }
+
+    host.appendChild(h("p", "log-count", list.length < all.length
+      ? "showing " + list.length + " of " + all.length + " retained decisions"
+      : all.length + " routing decision" + (all.length === 1 ? "" : "s")));
+    var head = h("div", "log-head pin");
+    head.setAttribute("aria-hidden", "true");
+    ["time", "decision", "session", "model", "seat", ""].forEach(function (c) { head.appendChild(h("span", "", c)); });
+    host.appendChild(head);
 
     var byID = {};
     stableAuths(st.auths).forEach(function (a) { byID[a.auth_id] = a; });
@@ -4307,11 +4360,6 @@ th[aria-sort] button { color: var(--ink-1); }
       host.appendChild(det);
     });
     state.openDecisions = open;
-
-    if (all.length > list.length) {
-      note.textContent = "showing " + list.length + " of " + all.length + " retained decisions";
-      note.hidden = false;
-    }
     host.scrollTop = scrollTop;
   }
 
@@ -4448,7 +4496,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var thead = h("thead", "");
     var hr = h("tr", "");
     BIND_COLS.forEach(function (c) {
-      var th = h("th", c.n ? "n" : "");
+      var th = h("th", c.n ? "n pin" : "pin");
       if (key === c.key) th.setAttribute("aria-sort", dir > 0 ? "ascending" : "descending");
       var btn = h("button", "", "");
       btn.type = "button";
@@ -4840,13 +4888,23 @@ th[aria-sort] button { color: var(--ink-1); }
     }
   }
 
-  /* Marks every region that scrolls with whether more of it lies past the
-     right or the bottom edge, read on render and on its own scroll. */
-  var SCROLLERS = "#timeline, .pace-card, .tbl-card, .dec-body, .log";
+  /* Marks every region that scrolls with the edges more of it lies past, and
+     the head pinned over its top edge, read on render and on its own scroll. */
+  var SCROLLERS = "#timeline, .pace-card, #pace-rank, .tbl-card, .dec-body, .log";
   function markMore(el) {
     var more = [];
-    if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) more.push("right");
+    var top = el.getBoundingClientRect().top + el.clientTop, pinned = false;
+    var pins = el.querySelectorAll(".pin");
+    for (var i = 0; i < pins.length; i++) {
+      var r = pins[i].getBoundingClientRect();
+      var stuck = el.scrollTop > 1 && r.top <= top + 1 && r.bottom > top + 1;
+      pins[i].toggleAttribute("data-stuck", stuck);
+      pinned = pinned || stuck;
+    }
+    if (el.scrollTop > 1 && !pinned) more.push("up");
     if (el.scrollTop + el.clientHeight < el.scrollHeight - 1) more.push("down");
+    if (el.scrollLeft > 1) more.push("left");
+    if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) more.push("right");
     if (more.length) el.setAttribute("data-more", more.join(" "));
     else el.removeAttribute("data-more");
   }
