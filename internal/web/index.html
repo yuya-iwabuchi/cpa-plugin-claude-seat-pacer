@@ -840,6 +840,8 @@ th[aria-sort] button { color: var(--ink-1); }
    rows keep the card's inset rather than the card, because each is a hover
    target that runs edge to edge, as a log row does. */
 .tbl-card caption, .log-count { padding: 8px 16px 9px; }
+/* A table or log with nothing to list says so where its caption would sit. */
+.card-none { margin: 0; padding: 8px 16px 9px; color: var(--ink-2); }
 .tbl-card th, .tbl-card td { padding: 4px 16px; }
 .tbl-card tbody td { height: 38px; font: 500 11.5px/1.35 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-2); }
 .tbl-card tbody .bind-key { color: var(--ink-3); }
@@ -4777,7 +4779,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function histPresets(weekly) {
     return weekly
-      ? [["1d", H_DAY], ["3d", 3 * H_DAY], ["9d", 9 * H_DAY], ["14d", 14 * H_DAY], ["All", Infinity]]
+      ? [["3d", 3 * H_DAY], ["7d", 7 * H_DAY], ["14d", 14 * H_DAY], ["30d", 30 * H_DAY], ["All", Infinity]]
       : [["6h", 6 * H_HOUR], ["12h", 12 * H_HOUR], ["1d", H_DAY], ["3d", 3 * H_DAY], ["All", Infinity]];
   }
 
@@ -4848,7 +4850,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
       .concat(fams.map(function (f) { return { id: "scoped:" + f, kind: "weekly_scoped", scope: f, weekly: true }; }))
       .concat([{ id: "five_hour", kind: "five_hour", scope: "", weekly: false }]);
-    views.forEach(function (v) { v.label = windowShort(v); });
+    /* Both weekly windows are named by their length, as the 7-day one is. */
+    views.forEach(function (v) { v.label = (v.kind === "weekly_scoped" ? "7d " : "") + windowShort(v); });
     var view = views.filter(function (v) { return v.id === histView; })[0] || views[0];
     $("hist-sub").textContent = "each seat's use of one window across its recorded cycles, against its pace target up to each reset" +
       (view.weekly ? " \u00B7 each finished cycle's reset marks what it left unused" : "");
@@ -4944,7 +4947,7 @@ th[aria-sort] button { color: var(--ink-1); }
        sample and one default span back, to a day ahead of now for a weekly
        window and three hours for the 5-hour one. */
     var ahead = view.weekly ? H_DAY : 3 * H_HOUR;
-    var defSpan = view.weekly ? 9 * H_DAY : 6 * H_HOUR;
+    var defSpan = view.weekly ? 7 * H_DAY : 6 * H_HOUR;
     var minSpan = view.weekly ? 6 * H_HOUR : H_HOUR;
     var tMax = now + ahead, tMin = tMax - defSpan;
     data.forEach(function (sd) { if (sd.wins.length) tMin = Math.min(tMin, sd.wins[0].samples[0].t); });
@@ -5663,11 +5666,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var list = all.slice(0, MAX_DECISIONS);
 
     if (!list.length) {
-      var e = h("p", "");
-      e.style.padding = "20px 16px";
-      e.style.color = "var(--ink-2)";
-      e.textContent = "No routing decisions yet.";
-      host.appendChild(e);
+      host.appendChild(h("p", "card-none", "No routing decisions yet."));
       return;
     }
 
@@ -5856,11 +5855,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var rows = visibleBindings(st);
 
     if (!rows.length) {
-      var p = h("p", "");
-      p.style.color = "var(--ink-2)";
-      p.style.margin = "4px 0";
-      p.textContent = "No conversation is pinned to a seat.";
-      host.appendChild(p);
+      host.appendChild(h("p", "card-none", "No conversation is pinned to a seat."));
       return;
     }
 
