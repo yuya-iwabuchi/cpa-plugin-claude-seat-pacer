@@ -36,8 +36,9 @@ func (e *CorruptHistoryError) Error() string {
 func (e *CorruptHistoryError) Unwrap() error { return e.Err }
 
 // historyFile is the on-disk form of every credential's recorded utilization.
-// It carries credential ids, which are file names or account addresses, and
-// utilization fractions: nothing else, and no token.
+// It carries credential ids, which are file names or account addresses,
+// utilization fractions, and the spans in which the provider refused each
+// window with what ended each: nothing else, and no token.
 type historyFile struct {
 	Version int `json:"version"`
 	// Auths is keyed by credential id. The JSON key is "seats", the name the
@@ -45,16 +46,16 @@ type historyFile struct {
 	Auths map[string][]model.WindowHistory `json:"seats"`
 }
 
-// SaveHistory writes the store's whole history to path, by writing and syncing
-// a temporary file of its own in the same directory and renaming it into
-// place, so a reader never sees a partial file and two writers never share a
-// temporary one. The directory is created as needed.
-func (s *Store) SaveHistory(path string) error {
+// SaveHistory writes the store's whole history as of now to path, by writing
+// and syncing a temporary file of its own in the same directory and renaming
+// it into place, so a reader never sees a partial file and two writers never
+// share a temporary one. The directory is created as needed.
+func (s *Store) SaveHistory(path string, now time.Time) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory()})
+	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now)})
 	if err != nil {
 		return err
 	}
@@ -78,11 +79,11 @@ func (s *Store) SaveHistory(path string) error {
 	return err
 }
 
-// LoadHistory reads a file SaveHistory wrote and imports it. A missing file is
-// not an error. A file of a newer version is left in place and reported as
-// ErrHistoryVersion. A file that does not parse, or names a version no build
-// writes, is renamed to path.corrupt-<unix seconds at now> and reported as a
-// CorruptHistoryError; the store is left alone either way.
+// LoadHistory reads a file SaveHistory wrote and imports it as loaded at now.
+// A missing file is not an error. A file of a newer version is left in place
+// and reported as ErrHistoryVersion. A file that does not parse, or names a
+// version no build writes, is renamed to path.corrupt-<unix seconds at now>
+// and reported as a CorruptHistoryError; the store is left alone either way.
 func (s *Store) LoadHistory(path string, now time.Time) error {
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -95,7 +96,7 @@ func (s *Store) LoadHistory(path string, now time.Time) error {
 	parseErr := json.Unmarshal(body, &f)
 	switch {
 	case parseErr == nil && f.Version == historyFileVersion:
-		s.ImportHistory(f.Auths)
+		s.ImportHistory(f.Auths, now)
 		return nil
 	case parseErr == nil && f.Version > historyFileVersion:
 		return ErrHistoryVersion

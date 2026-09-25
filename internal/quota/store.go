@@ -15,10 +15,12 @@ import (
 type Store struct {
 	mu      sync.RWMutex
 	entries map[string]*entry
-	// pending holds imported histories for credentials without an entry yet;
-	// the entry adopts them when its first reading arrives, so an import never
-	// opens a row the host has not listed.
-	pending map[string][]model.WindowHistory
+	// pending holds the recorded histories of credentials without an entry:
+	// ones imported before the credential's first reading and ones a prune
+	// dropped. Only their history and order are read. The entry adopts them
+	// when its first reading arrives, so an import never opens a row the host
+	// has not listed.
+	pending map[string]*entry
 	// history counts every change to the recorded histories, so a writer can
 	// tell an unchanged store from one worth flushing.
 	history uint64
@@ -35,8 +37,8 @@ type Store struct {
 type entry struct {
 	snap   model.AuthSnapshot
 	seenAt map[windowKey]time.Time
-	// history holds every window's recorded utilization, in the order the
-	// windows were first seen so exports are stable.
+	// history holds every window's recorded utilization and refusal spans, in
+	// the order the windows were first seen so exports are stable.
 	history map[windowKey]*ring
 	order   []windowKey
 }
@@ -57,12 +59,12 @@ func newEntry(snap model.AuthSnapshot, n int) *entry {
 	return &entry{snap: snap, seenAt: make(map[windowKey]time.Time, n), history: make(map[windowKey]*ring, n)}
 }
 
-// exportAll copies every window's whole recorded history, in the order the
-// windows were first seen.
-func (e *entry) exportAll() []model.WindowHistory {
+// exportAll copies every window's whole recorded history as of now, in the
+// order the windows were first seen.
+func (e *entry) exportAll(now time.Time) []model.WindowHistory {
 	out := make([]model.WindowHistory, 0, len(e.order))
 	for _, key := range e.order {
-		out = append(out, e.history[key].export(key.kind, key.scope, 0))
+		out = append(out, e.history[key].export(key.kind, key.scope, 0, now))
 	}
 	return out
 }
@@ -98,23 +100,17 @@ func mergeHeaderReading(dst *model.Window, src model.Window) {
 
 // NewStore returns an empty store.
 func NewStore() *Store {
-	return &Store{entries: make(map[string]*entry), pending: make(map[string][]model.WindowHistory)}
+	return &Store{entries: make(map[string]*entry), pending: make(map[string]*entry)}
 }
 
-// adopt seeds a new entry's history from a pending import.
+// adopt seeds a new entry's history from a pending one.
 func (s *Store) adopt(id string, e *entry) {
-	hs, ok := s.pending[id]
+	p, ok := s.pending[id]
 	if !ok {
 		return
 	}
 	delete(s.pending, id)
-	for _, h := range hs {
-		key := windowKey{kind: h.Kind, scope: h.Scope}
-		r := &ring{}
-		r.replay(h)
-		e.history[key] = r
-		e.order = append(e.order, key)
-	}
+	e.history, e.order = p.history, p.order
 }
 
 // Put records a usage-endpoint snapshot, replacing the credential's window set
@@ -213,7 +209,9 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 // names stays unambiguous.
 //
 // A reading older than what the store already holds for a window is dropped,
-// so responses that land out of order cannot walk a window backwards.
+// so responses that land out of order cannot walk a window backwards. A
+// reading that rolls or clears a window's history ends its ongoing refusal
+// span, as reset or as cleared; it opens none, which is RecordRefusals' part.
 //
 // Source keeps naming the endpoint read when one exists, because the snapshot
 // still carries endpoint data for windows traffic has not touched. Err is left
@@ -268,6 +266,101 @@ func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt t
 	}
 }
 
+// RecordRefusals records the provider refusing a credential's windows: every
+// window in windows that its reading reports as rejected, derived family caps
+// included, gains a refusal at `at` of the request admitted at `admitted`,
+// which is `at` when zero. A refusal is expected to last until the reset its
+// reading names, else the stored window's reset, else `at` plus the window's
+// length. A status kept from an endpoint read records none, since only the
+// readings given count. Refusals are recorded whatever MergeHeaders made of
+// the same readings, so a refusal that lands behind a fresher reading still
+// counts, while one admitted at or before a served request the window caps
+// changes nothing. The history version advances only when a span changed.
+func (s *Store) RecordRefusals(authID string, windows []model.Window, admitted, at time.Time) {
+	if authID == "" || at.IsZero() {
+		return
+	}
+	if admitted.IsZero() {
+		admitted = at
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	e, ok := s.entries[authID]
+	if !ok {
+		return
+	}
+	for _, w := range windows {
+		if !w.Blocking() {
+			continue
+		}
+		key := keyOf(w)
+		r, has := e.history[key]
+		if !has {
+			r = &ring{}
+		}
+		if !r.refuse(admitted, at, refusedUntil(w, e.snap.Windows, at)) {
+			continue
+		}
+		if !has {
+			e.history[key] = r
+			e.order = append(e.order, key)
+		}
+		s.history++
+	}
+}
+
+// refusedUntil reports when a refusal of w observed at `at` is expected to
+// end: the reset w names, else the reset of the stored window with w's
+// identity, else `at` plus the window's length. It is zero when none is known.
+func refusedUntil(w model.Window, stored []model.Window, at time.Time) time.Time {
+	reset, length := w.ResetsAt, w.Duration
+	if i := slices.IndexFunc(stored, hasKey(keyOf(w))); i >= 0 {
+		if reset.IsZero() {
+			reset = stored[i].ResetsAt
+		}
+		if length <= 0 {
+			length = stored[i].Duration
+		}
+	}
+	if reset.IsZero() && length > 0 {
+		return at.Add(length)
+	}
+	return reset
+}
+
+// MarkServed records a request for a model of family that a credential's
+// windows admitted at `admitted` and began answering at `at`. Every window
+// bearing on that family keeps the admission, so a refusal admitted at or
+// before it and delivered later changes nothing, and ends its ongoing
+// refusal span at `at` as served when the request was admitted after the
+// span's latest refusal; a request admitted at or before it was in flight
+// while the window refused and ends nothing. A span on any other family's
+// cap keeps running. The history version advances only when a span changed.
+func (s *Store) MarkServed(authID, family string, admitted, at time.Time) {
+	if authID == "" || at.IsZero() {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	e, ok := s.entries[authID]
+	if !ok {
+		return
+	}
+	changed := false
+	for _, key := range e.order {
+		if (model.Window{Kind: key.kind, Scope: key.scope}).BearsOn(family) && e.history[key].serve(admitted, at) {
+			changed = true
+		}
+	}
+	if changed {
+		s.history++
+	}
+}
+
 // Get reports a credential's newest snapshot.
 func (s *Store) Get(authID string) (model.AuthSnapshot, bool) {
 	s.mu.RLock()
@@ -302,9 +395,10 @@ func (s *Store) All() []model.AuthSnapshot {
 //
 // A dropped credential's recorded history moves to pending rather than going
 // with its entry, so a credential absent from one listing and back in the next
-// adopts the samples it already had instead of restarting from empty. A
-// pending history no entry has claimed by the following prune is forgotten,
-// which bounds what a departed credential holds.
+// adopts the history it already had, refusal and served admissions included,
+// instead of restarting from empty. A pending history whose credential the
+// following prune does not keep is forgotten, which bounds what a departed
+// credential holds.
 func (s *Store) Prune(keep map[string]struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -318,18 +412,20 @@ func (s *Store) Prune(keep map[string]struct{}) {
 		if _, ok := keep[id]; ok {
 			continue
 		}
-		if hs := e.exportAll(); len(hs) > 0 {
-			s.pending[id] = hs
+		if len(e.order) > 0 {
+			s.pending[id] = e
 		}
 		delete(s.entries, id)
 		s.history++
 	}
 }
 
-// History reports a credential's recorded utilization, one entry per window
-// in the order the windows were first seen, thinned to at most max samples
-// per window. Nil for an unknown credential.
-func (s *Store) History(authID string, max int) []model.WindowHistory {
+// History reports a credential's recorded utilization as of now, one entry
+// per window in the order the windows were first seen, thinned to at most max
+// samples per window. Every refusal span is kept whatever max is, and an
+// ongoing one whose expected reset is not after now reads as ended by it.
+// Nil for an unknown credential.
+func (s *Store) History(authID string, max int, now time.Time) []model.WindowHistory {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -339,7 +435,7 @@ func (s *Store) History(authID string, max int) []model.WindowHistory {
 	}
 	out := make([]model.WindowHistory, 0, len(e.order))
 	for _, key := range e.order {
-		out = append(out, e.history[key].export(key.kind, key.scope, max))
+		out = append(out, e.history[key].export(key.kind, key.scope, max, now))
 	}
 	return out
 }
@@ -351,32 +447,36 @@ func (s *Store) HistoryVersion() uint64 {
 	return s.history
 }
 
-// ExportHistory copies every credential's whole recorded history, keyed by
-// credential id, which is the form the history file holds. A history held
-// in pending is a credential's too: it is what a seat the listing dropped
-// adopts on its return, and a save between the drop and the return must not
-// lose it.
-func (s *Store) ExportHistory() map[string][]model.WindowHistory {
+// ExportHistory copies every credential's whole recorded history as of now,
+// keyed by credential id, which is the form the history file holds. An
+// ongoing refusal span whose expected reset is not after now reads as ended
+// by it, as History reads it. A pending history, imported ahead of the
+// credential's first reading or held since a prune dropped it, is a
+// credential's too: it is what the credential adopts on its return, and a
+// save before the return must not lose it.
+func (s *Store) ExportHistory(now time.Time) map[string][]model.WindowHistory {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	out := make(map[string][]model.WindowHistory, len(s.entries)+len(s.pending))
-	for id, hs := range s.pending {
-		out[id] = hs
+	for id, p := range s.pending {
+		out[id] = p.exportAll(now)
 	}
 	for id, e := range s.entries {
-		out[id] = e.exportAll()
+		out[id] = e.exportAll(now)
 	}
 	return out
 }
 
-// ImportHistory holds stored histories for the readings still to come. A
-// credential the store already holds keeps its live samples and gains the
-// stored ones behind them; one it does not hold yet adopts its history when
-// its first reading arrives, so an import never opens a row the host has not
-// listed. Every replayed sample passes through the same spacing, tiering and
-// cap a live reading does.
-func (s *Store) ImportHistory(saved map[string][]model.WindowHistory) {
+// ImportHistory holds stored histories, loaded at `loaded`, for the readings
+// still to come. A credential whose history the store already holds, listed
+// or pending, keeps its samples and gains the stored ones behind them; one
+// the store holds nothing for adopts its history when its first reading
+// arrives, so an import never opens a row the host has not listed. Every
+// replayed sample passes through the same spacing, tiering and cap a live
+// reading does, and live refusal spans merge into the stored ones. A request admitted after `loaded` is after every stored
+// refusal, so it ends a stored span still ongoing.
+func (s *Store) ImportHistory(saved map[string][]model.WindowHistory, loaded time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -384,20 +484,30 @@ func (s *Store) ImportHistory(saved map[string][]model.WindowHistory) {
 		if id == "" {
 			continue
 		}
-		e, exists := s.entries[id]
-		if !exists {
-			s.pending[id] = hs
-			continue
+		e := s.entries[id]
+		if e == nil {
+			e = s.pending[id]
+		}
+		if e == nil {
+			e = &entry{history: make(map[windowKey]*ring, len(hs))}
+			s.pending[id] = e
 		}
 		for _, h := range hs {
 			key := windowKey{kind: h.Kind, scope: h.Scope}
 			r := &ring{}
-			r.replay(h)
+			r.replay(h, loaded)
 			if live, has := e.history[key]; has {
 				r.addCycles(h.Kind, h.Scope, live.cycles)
 				if r.fall == nil {
 					r.fall = live.fall.after(r)
 				}
+				for _, l := range live.locks {
+					r.mergeLock(l)
+				}
+				if len(live.locks) > 0 {
+					r.refused = live.refused
+				}
+				r.served = live.served
 				r.compact()
 			} else {
 				e.order = append(e.order, key)
