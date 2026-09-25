@@ -558,8 +558,17 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 .pace-body { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 14px; align-items: start; }
 .pace-body > #pace-curve, .pace-body > #session-chart { min-width: 0; }
 .pace-rank { display: grid; gap: 14px; align-content: start; min-width: 0; }
+/* Beside the plot, the list takes the plot's height and scrolls within it,
+   so a long list never sets the card's height: the list is laid out of the
+   grid's flow, and the row is as tall as the plot alone. */
+.pace-body > .pace-rank { position: relative; align-self: stretch; }
+.pace-rank > .rank-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }
+/* A family's head stays in view while its seats scroll under it. */
+.rank-scroll .rank-fam-head { position: sticky; top: 0; z-index: 1; padding: 2px 0 4px; background: var(--surface-1); }
 @media (max-width: 1000px) {
   .pace-body { grid-template-columns: minmax(0, 1fr); }
+  .pace-rank > .rank-scroll { position: static; overflow: visible; }
+  .rank-scroll .rank-fam-head { position: static; }
   .pace-rank > #pace-rank { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
@@ -1051,7 +1060,7 @@ th[aria-sort] button { color: var(--ink-1); }
           <!-- The ranking the plot's gaps produce, beside the plot: one list
                per request family with every seat in cost order. -->
           <div class="pace-rank">
-            <div id="pace-rank"></div>
+            <div id="pace-rank" class="rank-scroll"></div>
           </div>
         </div>
         <ul class="legend" id="pace-legend" aria-label="Seats plotted"></ul>
@@ -1077,7 +1086,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <div class="pace-body">
           <div id="session-chart"></div>
           <div class="pace-rank">
-            <div id="session-rank"></div>
+            <div id="session-rank" class="rank-scroll"></div>
           </div>
         </div>
         <ul class="legend" id="session-legend" aria-label="Seats plotted"></ul>
@@ -1108,7 +1117,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <div class="pace-body">
           <div id="hist-chart"></div>
           <div class="pace-rank">
-            <div id="hist-rank"></div>
+            <div id="hist-rank" class="rank-scroll"></div>
           </div>
         </div>
         <ul class="legend" id="hist-legend" aria-label="Marks on the plot"></ul>
@@ -4668,6 +4677,7 @@ th[aria-sort] button { color: var(--ink-1); }
      meter, lines}, the seat and its figure on one line and seatDetail under
      them. Pointing at a row lifts its seat on the chart rootOf returns. */
   function seatList(host, label, note, rows, rootOf) {
+    var top = host.scrollTop;
     host.textContent = "";
     var ul = h("ul", "ol-list", "");
     rows.forEach(function (r) {
@@ -4690,6 +4700,8 @@ th[aria-sort] button { color: var(--ink-1); }
     fam.appendChild(head);
     fam.appendChild(ul);
     host.appendChild(fam);
+    host.scrollTop = top;
+    markMore(host);
   }
 
 
@@ -5534,9 +5546,10 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function renderRank(st, seats, ranks, view) {
     renderFormula(st, ranks, view);
-    var host = $("pace-rank");
+    var host = $("pace-rank"), top = host.scrollTop;
     host.textContent = "";
     ranks.fams.forEach(function (fam) { if (shows(view, fam)) host.appendChild(rankList(st, seats, ranks, fam)); });
+    host.scrollTop = top;
   }
 
   /* ------------------------------------------------------------ decisions */
@@ -6193,7 +6206,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Marks every region that scrolls with whether more of it lies past the
      right or the bottom edge, read on render and on its own scroll. */
-  var SCROLLERS = "#timeline, .pace-card, .tbl-card, .dec-body, .log";
+  var SCROLLERS = "#timeline, .pace-card, .tbl-card, .dec-body, .log, .rank-scroll";
   function markMore(el) {
     var more = [];
     if (el.scrollLeft + el.clientWidth < el.scrollWidth - 1) more.push("right");
