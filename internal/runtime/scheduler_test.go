@@ -143,8 +143,8 @@ func TestColdPickWithoutKeyRoutesButDoesNotBind(t *testing.T) {
 	if tp.bindings.Len() != 0 {
 		t.Error("a keyless pick created a binding")
 	}
-	if d := tp.lastDecision(t); !strings.Contains(d.Note, "not pinned") {
-		t.Errorf("note = %q, want it to say the session is not pinned", d.Note)
+	if d := tp.lastDecision(t); !strings.Contains(d.Note, "not bound") {
+		t.Errorf("note = %q, want it to say the session is not bound", d.Note)
 	}
 }
 
@@ -259,7 +259,7 @@ func TestBoundCredentialBlockedForModelFailsOver(t *testing.T) {
 	if resp.AuthID != "seat-b" {
 		t.Fatalf("response = %+v, want failover away from the rejected seat-a", resp)
 	}
-	if d := tp.lastDecision(t); d.Kind != model.DecisionFailover || !strings.Contains(d.Note, "rate-limited") {
+	if d := tp.lastDecision(t); d.Kind != model.DecisionFailover || !strings.Contains(d.Note, "refused") {
 		t.Errorf("decision = %+v", d)
 	}
 }
@@ -808,8 +808,8 @@ func TestOnlyASpentBindingRecordsWhyItWasKept(t *testing.T) {
 		if d.Kind != model.DecisionAffinityHit {
 			t.Fatalf("kind = %q, want %q", d.Kind, model.DecisionAffinityHit)
 		}
-		if !strings.Contains(d.Note, "spent") {
-			t.Errorf("note = %q, want the spent seat named", d.Note)
+		if !strings.Contains(d.Note, "full") {
+			t.Errorf("note = %q, want the full seat named", d.Note)
 		}
 	})
 

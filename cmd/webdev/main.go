@@ -544,7 +544,7 @@ func (f *fixture) buildDecisions() []model.Decision {
 		{ago: 9 * time.Minute, kind: model.DecisionColdPick, key: "e30c95814bf7a2d6", modelID: modelOpus, chosen: seatAID, scored: true},
 		{ago: 11 * time.Minute, kind: model.DecisionAffinityHit, key: "a91d33e0c7b45f28", modelID: modelFable, chosen: seatAID},
 		{ago: 12 * time.Minute, kind: model.DecisionDeclined, key: "0a5f7ce2b4318d9f", modelID: modelFable,
-			note: "every snapshot was older than max-staleness"},
+			note: "every reading was older than max-staleness"},
 		{ago: 13 * time.Minute, kind: model.DecisionAffinityHit, key: "77b0fe4c1a8d6392", modelID: modelFable, chosen: seatBID},
 		{ago: 14 * time.Minute, kind: model.DecisionColdPick, key: "1de77a2b98c30541", modelID: modelSonnet, chosen: seatAID, scored: true},
 		{ago: 16 * time.Minute, kind: model.DecisionAffinityHit, key: "c4408b1ef6d92a70", modelID: modelOpus, chosen: seatBID, subagent: true},
@@ -651,7 +651,7 @@ func (f *fixture) exhaustedDecisions() []model.Decision {
 		out = append(out, model.Decision{
 			At: at, SessionKey: keys[i], Model: modelFable, Provider: "claude",
 			ChosenAuthID: seat, Kind: model.DecisionAffinityHit,
-			Note:   "binding kept; every seat is rate-limited for this model",
+			Note:   "binding kept; every seat is refused for this model",
 			Scores: f.rankAt(f.snapshots, ids, modelFable, at),
 		})
 	}
@@ -895,7 +895,7 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 		switch kind {
 		case model.DecisionDeclined:
 			d.Model = requested
-			d.Note = "every snapshot was older than max-staleness"
+			d.Note = "every reading was older than max-staleness"
 		case model.DecisionColdPick:
 			d.Model = requested
 			d.Scores = f.rankAt(f.snapshots, ids, d.Model, at)

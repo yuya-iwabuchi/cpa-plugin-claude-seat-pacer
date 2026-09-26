@@ -888,6 +888,7 @@ th[aria-sort] button { color: var(--ink-1); }
 .empty { padding: 16px; }
 .empty p { margin: 0; max-width: 72ch; color: var(--ink-2); }
 .empty p + p { margin-top: 8px; }
+.empty p + button { margin-top: 12px; }
 .empty strong { display: block; font: 600 17px/1.3 var(--sans); color: var(--ink-1); margin-bottom: 8px; }
 [hidden] { display: none !important; }
 /* A read still out past STALE_CUE_MS rules the sticky bar, which is on screen
@@ -1051,35 +1052,30 @@ th[aria-sort] button { color: var(--ink-1); }
     <div id="fail-state" class="card empty" hidden style="margin-top:24px">
       <p><strong>No answer from the status endpoint.</strong>
       <span id="fail-detail"></span>
-      Retrying. No data has arrived yet, so there is nothing stale to show.</p>
+      Retrying.</p>
     </div>
 
-    <!-- What a fresh install sees: what the page is waiting on, what the host
-         does meanwhile, and the three things to check when it does not
-         change. The seat sections stay out until a seat exists; the two
-         below keep their numbers, so 05 and 06 read as their place in the
-         page rather than as four sections that failed. -->
+    <!-- What a fresh install sees: what the page is waiting on, that requests
+         still flow, and the three things to check when it does not change.
+         The seat sections stay out until a seat exists; the two below keep
+         their numbers, so 05 and 06 read as their place in the page rather
+         than as four sections that failed. -->
     <div id="empty-state" class="card empty" hidden style="margin-top:24px">
       <p><strong>No seats yet.</strong>
-      Each Claude OAuth credential the host has loaded is one seat here, and none
-      has been read so far: either the host holds no Claude credential yet, or
-      the plugin&rsquo;s first usage poll has not returned. Until a seat is read
-      the plugin declines every pick and the host routes with its own selector,
-      so requests still flow.</p>
-      <p>If this stays past one poll interval, check that the host&rsquo;s auth
-      directory holds at least one Claude OAuth credential, that the plugin is
-      enabled in the host config, and the host log for a
-      <code>quota poll failing</code> line.</p>
+      The host has no Claude OAuth credential loaded, or the first usage poll
+      has not returned. Requests still flow meanwhile.</p>
+      <p>Still empty after one poll interval? Check that the host&rsquo;s auth
+      directory has a Claude OAuth credential, that the plugin is enabled, and
+      the host log for <code>claude-seat-pacer</code> warnings.</p>
     </div>
 
     <!-- Every seat hidden is not an empty pool, and the card above would say
          it was. The seats are still routed to; only this browser is drawing
          none of them. -->
     <div id="hidden-state" class="card empty" hidden style="margin-top:24px">
-      <p><strong>Every seat is hidden on this page.</strong>
-      The pool is unchanged and the plugin still routes to each seat; this
-      browser is set to draw none of them, so the four seat sections have
-      nothing to show. <em>Show</em> in the bar above brings them back.</p>
+      <p><strong>Every seat is hidden in this browser.</strong>
+      Routing is unchanged.</p>
+      <button type="button" id="show-all-seats">Show all</button>
     </div>
 
     <section id="sec-seats" hidden tabindex="-1">
@@ -1087,7 +1083,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-pace">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Seats</h2>
-        <span class="sec-sub" id="seats-sub">one row per seat, in name order; the #1 eligible seat takes the next new conversation</span>
+        <span class="sec-sub" id="seats-sub">seats by name &middot; #1 takes the next new conversation</span>
         <span class="sec-line"></span>
       </div>
       <div class="card tl-card">
@@ -1098,10 +1094,10 @@ th[aria-sort] button { color: var(--ink-1); }
              script draws, are markup. -->
         <div class="tl-legend" id="timeline-legend">
           <ul class="legend" id="timeline-states" aria-label="Window states"></ul>
-          <ul class="legend" id="timeline-marks" aria-label="Marks on the axis">
-            <li><span class="gl">&#9662;&#8202;&#9474;</span> pace target</li>
-            <li><span class="gl">&#8942;</span> curve position of a window that weighs nothing in the cost</li>
-            <li><span class="gl">&#8943;</span> gap to the pace target</li>
+          <ul class="legend" id="timeline-marks" aria-label="Axis marks">
+            <li><span class="gl">&#9662;&#8202;&#9474;</span> target</li>
+            <li><span class="gl">&#8942;</span> curve (window weighs nothing)</li>
+            <li><span class="gl">&#8943;</span> gap to target</li>
             <li><span class="gl">&#9474;</span> now</li>
             <li><span class="sw sw-cut"></span> runs past the axis</li>
           </ul>
@@ -1114,13 +1110,13 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-session">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Weekly window</h2>
-        <span class="sec-sub" id="pace-sub">the budget the plugin paces against: each seat's 7-day utilization against the target curve, by days into its own week &middot; the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it</span>
+        <span class="sec-sub" id="pace-sub">each seat's use against the target curve, ranked by cost</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
         <!-- Which rankings the card draws. The script fills it, and hides it
              where the plot has only one kind of mark to draw. -->
-        <div class="pace-view" id="pace-view" role="group" aria-label="Rankings shown" hidden></div>
+        <div class="pace-view" id="pace-view" role="group" aria-label="Ranking view" hidden></div>
         <!-- The sum a cost is, from the running weights, across the card: it
              reads over the plot and the list it explains, and the list's
              column keeps its height for the ranking alone. -->
@@ -1133,12 +1129,12 @@ th[aria-sort] button { color: var(--ink-1); }
             <div id="pace-rank"></div>
           </div>
         </div>
-        <ul class="legend" id="pace-legend" aria-label="Seats plotted"></ul>
+        <ul class="legend" id="pace-legend" aria-label="Legend"></ul>
         <p class="pace-missing" id="pace-missing" hidden></p>
         <!-- Static, so the fold's open state and a focused summary outlive the
              refresh; only the note inside is rebuilt. -->
         <details class="pace-more">
-          <summary>How the marks, the curve and the cost are read</summary>
+          <summary>How to read this chart</summary>
           <div class="pace-note" id="pace-note"></div>
         </details>
       </div>
@@ -1149,7 +1145,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-hist">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>5-hour window</h2>
-        <span class="sec-sub" id="session-sub">a rate limit, not a budget: each seat's 5-hour use against the same curve &middot; three provider readings hold a seat back from new conversations</span>
+        <span class="sec-sub" id="session-sub">a rate limit, not a budget &middot; a refusal, a full reading or a bad reading makes a seat ineligible</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card outlook-card">
@@ -1159,11 +1155,11 @@ th[aria-sort] button { color: var(--ink-1); }
             <div id="session-rank"></div>
           </div>
         </div>
-        <ul class="legend" id="session-legend" aria-label="Seats plotted"></ul>
+        <ul class="legend" id="session-legend" aria-label="Legend"></ul>
         <p class="pace-missing" id="session-missing" hidden></p>
         <p class="sess-focus" id="session-focus" role="status" aria-live="polite"></p>
         <details class="pace-more">
-          <summary>How a rate limit reads here, and what a stretch of line shows</summary>
+          <summary>How to read this chart</summary>
           <div class="pace-note" id="session-note"></div>
         </details>
       </div>
@@ -1174,7 +1170,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-bindings">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Over time</h2>
-        <span class="sec-sub" id="hist-sub">each seat's use of one window across its recorded cycles, against its pace target up to each reset</span>
+        <span class="sec-sub" id="hist-sub">each seat's use of one window, across recorded cycles</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card outlook-card">
@@ -1190,7 +1186,7 @@ th[aria-sort] button { color: var(--ink-1); }
             <div id="hist-rank"></div>
           </div>
         </div>
-        <ul class="legend" id="hist-legend" aria-label="Marks on the plot"></ul>
+        <ul class="legend" id="hist-legend" aria-label="Plot marks"></ul>
       </div>
     </section>
 
@@ -1199,7 +1195,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-decisions">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Bindings</h2>
-        <span class="sec-sub">live conversations pinned to a seat</span>
+        <span class="sec-sub">conversations bound to a seat</span>
         <span class="sec-line"></span>
       </div>
       <div class="card tbl-card" id="bindings"></div>
@@ -1210,7 +1206,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#page-foot">skip to end of page</a>
         <span class="sec-idx"></span>
         <h2>Routing log</h2>
-        <span class="sec-sub">newest first; open a decision to see how every seat scored</span>
+        <span class="sec-sub">newest first &middot; open one to see each seat's cost</span>
         <span class="sec-line"></span>
       </div>
       <div class="card log-card">
@@ -1259,11 +1255,11 @@ th[aria-sort] button { color: var(--ink-1); }
     ? HOST_MOUNT[1] + "/v0/management/plugins/" + HOST_MOUNT[2] + "/page-status"
     : "api/status";
   var KEY_STORE = "claude-seat-pacer.management-key";
-  var KEY_PROMPT = "This page reads its data through CLIProxyAPI's management API. Enter the " +
-    "management key (remote-management.secret-key) to continue. It is kept for this browser tab only.";
-  var KEY_BAN_NOTE = " The host locks this address out for 30 minutes after five failed tries.";
-  var KEY_NO_API = "The host's management API is off (HTTP 404). CLIProxyAPI serves it only once " +
-    "remote-management.secret-key is set; set it, restart the host, and enter that key here.";
+  var KEY_PROMPT = "Enter the CLIProxyAPI management key (remote-management.secret-key). " +
+    "It is kept in this browser tab only.";
+  var KEY_BAN_NOTE = " Five failed tries lock this address out for 30 minutes.";
+  var KEY_NO_API = "The host's management API is off (HTTP 404). Set remote-management.secret-key, " +
+    "restart the host, and enter that key here.";
 
   var state = {
     paused: false,
@@ -1373,23 +1369,10 @@ th[aria-sort] button { color: var(--ink-1); }
     return (n % 1 === 0 ? String(n) : n.toFixed(1)) + " pts";
   }
 
-  /* A weight is a ratio, not a distance: "half" reads where "0.50" would ask
-     for arithmetic. */
-  function share(v) {
-    if (!num(v)) return "—";
-    if (v === 1) return "all";
-    if (v === 0.5) return "half";
-    if (v === 0.25) return "a quarter";
-    return v.toFixed(2) + "×";
-  }
-
-  /* A weight where prose makes the ratio its subject. "all" is the ratio's
-     own word and reads as its opposite in "at all weight", so a full weight is
-     named instead. */
-  function weightWord(v) {
-    if (!num(v)) return "—";
-    return v === 1 ? "full" : share(v);
-  }
+  /* A weight as every clause writes it, after the term it scales: " ×0.50",
+     and nothing at 1, where the term counts as it stands. A weight of zero
+     is said in words by the caller, as "weighs nothing". */
+  function weightTag(v) { return num(v) && v !== 1 ? " ×" + v.toFixed(2) : ""; }
 
   /* One signed figure, in points of a window's budget. The page signs
      everything one way: + counts against the seat, − counts for it. A figure
@@ -1416,7 +1399,7 @@ th[aria-sort] button { color: var(--ink-1); }
      headroom, and that is the only direction the word names. */
   function headroomText(gap) {
     if (!num(gap)) return "—";
-    return pts(gap) + (gap >= 0 ? " headroom under the curve" : " over the curve");
+    return pts(gap) + (gap >= 0 ? " under the curve (headroom)" : " over the curve");
   }
 
   /* The one sentence on the page that says what the sign means. Every legend
@@ -1583,25 +1566,27 @@ th[aria-sort] button { color: var(--ink-1); }
     return fams.map(function (f, i) { return rankLabel(f) + " " + texts[i]; }).join(" · ");
   }
 
-  /* The scorer's reasons, in prose where the raw token would point at the
-     wrong thing. A credential whose usage read has never succeeded carries
+  /* The scorer's reasons in the page's words, so no raw token reaches a chip
+     or a hold. A credential whose usage read has never succeeded carries
      fetch-failed: nothing is known about its caps, which is a failing read
      rather than a model without one. */
   var REASON_TEXT = {
     "fetch-failed": "usage read failing",
     "no-snapshot": "not read yet",
     "stale-snapshot": "reading too old",
-    "no-bearing-window": "no window applies"
+    "no-bearing-window": "no window applies",
+    "provider-rejected": "refused",
+    "spent": "full",
+    "bad-reading": "bad reading"
   };
 
   /* Where the traffic goes with no seat left to take it, and what that
-     credential is. The live bar, the ranking's head and the formula line all
-     print these, so the page has one voice for the state and defines the
-     term in every place it uses it. */
-  var OVERFLOW_TEXT = "none eligible · traffic on overflow key";
-  var OVERFLOW_TIP = "overflow key · a credential outside this plugin, usually an API key in the " +
-    "host's next priority tier: the host falls through to it when no seat can take a request. " +
-    "It has no seat row, no usage reading and no cost, so nothing here ranks it.";
+     fallback credential is. The live bar, the ranking's head and the routing
+     log all print these, so the page has one voice for the state and defines
+     the term in every place it uses it. */
+  var OVERFLOW_TEXT = "no seat eligible · using fallback credential";
+  var OVERFLOW_TIP = "A credential outside this plugin, usually an API key in the host's next " +
+    "priority tier. The host sends requests to it when no seat can take them. It is not ranked here.";
 
   function reasonText(reason) {
     return REASON_TEXT[reason] || reason || "ineligible";
@@ -1634,12 +1619,11 @@ th[aria-sort] button { color: var(--ink-1); }
   /* The lane states, in the order the legend lists them. Every state carries
      a glyph, so no state rests on its hue; two states share the critical hue
      and are also told apart by the pattern their bar and swatch carry. Spent
-     is a window the provider reports full: nothing is left to spend on it, so
-     no new conversation lands on the seat for the requests the window
-     applies to until it resets, which is a gate on a reading and not
-     on the pace forecast. Spent is the page's one word for that state, and
-     the level a window has reached is used rather than spent. Blocked is the
-     provider's own refusal of the window, and it holds the seat back the same
+     is a window the provider reports full: no new conversation lands on the
+     seat for the requests the window applies to until it resets, which is a
+     gate on a reading and not on the pace forecast. Full is the page's one
+     word for that state. Blocked is the provider's own refusal of the window,
+     which the page calls refused, and it makes the seat ineligible the same
      way. The usage endpoint's critical-headroom advisory is no state of its
      own: a window it is raised on keeps its pace verdict, and the advisory is
      on the window's tooltip. */
@@ -1647,17 +1631,17 @@ th[aria-sort] button { color: var(--ink-1); }
     under:   { color: "var(--good)",     glyph: "−", label: "under target" },
     on:      { color: "var(--info)",     glyph: "≈", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
-    spent:   { color: "var(--critical)", glyph: "◼", label: "spent", pattern: "bars" },
-    limit:   { color: "var(--ink-1)",    glyph: "◇", label: "gated, weighs nothing in the cost" },
-    blocked: { color: "var(--critical)", glyph: "✕", label: "provider refused", pattern: "hatch" },
-    unknown: { color: "var(--ink-3)",    glyph: "?", label: "not evaluated" }
+    spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "bars" },
+    limit:   { color: "var(--ink-1)",    glyph: "◇", label: "weighs nothing in the cost" },
+    blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "hatch" },
+    unknown: { color: "var(--ink-3)",    glyph: "?", label: "not scored" }
   };
 
   function laneState(w, ws) {
     /* A provider rejection is a reading rather than an evaluation, so it
        stands even where the scorer produced nothing. A window the provider
-       reports full reads as spent ahead of its pace verdict, because full is
-       the harder fact: it holds the seat back. */
+       reports full reads as full ahead of its pace verdict, because full is
+       the harder fact: it makes the seat ineligible. */
     if (w.status === "rejected") return "blocked";
     var paced = counted(ws), gated = gatedOnly(w, ws);
     if (!paced && !gated) return "unknown";
@@ -1732,8 +1716,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var weekly = pacedWindow(score, PACE_KIND), cap = pacedWindow(score, "weekly_scoped");
     var parts = [];
     if (weekly) parts.push(WEEKLY_SHORT + " " + overPts(weekly.slack) +
-      (weekly.weight !== 1 ? " ×" + weekly.weight.toFixed(2) : ""));
-    if (cap) parts.push(windowShort(cap) + " " + overPts(cap.slack) + " ×" + cap.weight.toFixed(2));
+      weightTag(weekly.weight));
+    if (cap) parts.push(windowShort(cap) + " " + overPts(cap.slack) + weightTag(cap.weight));
     return "cost " + [costText(score)].concat(parts).join(" · ");
   }
 
@@ -1799,11 +1783,12 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* A credential the host routed to that this plugin does not govern: the
-     poller reads only credentials with a backing file, so an overflow key has
-     no seat row, no snapshot and no score, and there is nothing to rank. Its
-     published id is the tooltip; the row says what it is. */
+     poller reads only credentials with a backing file, so a fallback
+     credential has no seat row, no snapshot and no score, and there is
+     nothing to rank. Its published id is the tooltip; the row says what it
+     is. */
   function overflowMark(id) {
-    var m = h("span", "ungoverned", "overflow key · not governed by this plugin");
+    var m = h("span", "ungoverned", "fallback credential");
     return tipOnly(m, OVERFLOW_TIP + (id ? "\n" + id : ""));
   }
 
@@ -2164,7 +2149,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var fams = ranks.fams;
     var rank = rankText(a, ranks), lead = leadText(leadsOf(a, ranks), fams);
     var out = fams.filter(function (fam) { var sc = famScore(a, fam); return sc && !sc.eligible; });
-    var verdict = seatLabel(a) + (maskedName(a) ? " (address masked on this page; a note on the credential names the seat)" : "") + " · ";
+    var verdict = seatLabel(a) + (maskedName(a) ? " (address masked; set a note on the credential to name it)" : "") + " · ";
     if (rank) {
       verdict += rank + (lead ? " · " + lead : "");
       if (out.length) verdict += " · " + out.map(function (fam) { return rankLabel(fam) + " " + famVerdict(a, fam, now).word; }).join(" · ");
@@ -2185,14 +2170,14 @@ th[aria-sort] button { color: var(--ink-1); }
     var lines = [verdict].concat(scores, [
       intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
         " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits"),
-      snap.err || snap.err_category ? "fetch error " + (snap.err_category || "") + (snap.err ? ": " + snap.err : "") : null,
+      snap.err || snap.err_category ? "read failing" + (snap.err_category ? " · " + snap.err_category : "") +
+        (snap.err ? ": " + snap.err : "") : null,
       hs !== "active" ? "host " + hs : null,
-      hs === "disabled" && !obs ? "host disabled · the poller never reads a disabled credential, so it has no usage " +
-        "reading and takes no new conversation; re-enable it in the host's auth files to bring it back"
-        : !obs ? "not read yet · the poller has returned no usage reading for this credential, which " +
-        "usually lands within one poll interval; until it does the seat takes no new conversation · " +
-        "if it stays, check the host log for a quota poll failing line"
-        : (a.score && a.score.reason === "stale-snapshot" ? "snapshot stale, " + relText(obs, now) : null)
+      hs === "disabled" && !obs ? "Disabled in the host, so it is not read and takes no new conversations. " +
+        "Re-enable it in the host's auth files."
+        : !obs ? "not read yet · it takes no new conversation until its first reading, usually within one " +
+        "poll interval. If it stays, check the host log for \u201Cusage fetch failed\u201D."
+        : (a.score && a.score.reason === "stale-snapshot" ? "reading too old (" + relText(obs, now) + ")" : null)
     ]);
     return lines.filter(Boolean).join("\n");
   }
@@ -2205,9 +2190,9 @@ th[aria-sort] button { color: var(--ink-1); }
       ", " + pairText(ranks.fams, function (fam) { return famVerdict(a, fam, now).text; }) +
       ", weekly " + weeklyGapText(sc) +
       ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
-      ", " + intFmt(a.bindings) + " live bindings" +
+      ", " + intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       (hs !== "active" ? ", host " + hs : "") +
-      (snap.err || snap.err_category ? ", fetch error " + (snap.err_category || "") : "");
+      (snap.err || snap.err_category ? ", read failing" + (snap.err_category ? " " + snap.err_category : "") : "");
   }
 
   /* Whether a window carries the usage endpoint's critical-headroom advisory
@@ -2241,12 +2226,11 @@ th[aria-sort] button { color: var(--ink-1); }
     var lines = [
       fill,
       resets ? resetText(resets, now) : "no open window",
-      stt === "blocked" ? STATE_META.blocked.label + " · the seat takes no new conversation on " +
-        "the requests this window applies to, and a bound one moves wherever another seat can " +
-        "take the model" : null,
-      stt === "spent" ? STATE_META.spent.label + " · the seat takes no new conversation on the " +
-        "requests this window applies to until it resets" : null,
-      advisory(w, stt) ? "headroom critical · the provider has refused nothing on it" : null,
+      stt === "blocked" ? STATE_META.blocked.label + " · the seat takes no new conversations on " +
+        "this window's requests, and bound ones move where another seat can take the model" : null,
+      stt === "spent" ? STATE_META.spent.label + " · the seat takes no new conversations on " +
+        "this window's requests until it resets" : null,
+      advisory(w, stt) ? "headroom critical · the provider rates it nearly full, and requests still succeed" : null,
       cutL || cutR ? (cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
         "resets after the axis ends") : null
     ];
@@ -2264,7 +2248,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function laneAria(a, w, ws, stt) {
     return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
       (advisory(w, stt) ? ", headroom critical" : "") +
-      ", utilization " + pct(w.utilization) +
+      ", " + pct(w.utilization) + " used" +
       (counted(ws) ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") +
       (gatedOnly(w, ws) && openWindow(w) && num(ws.target) ? ", curve " + pct(ws.target) : "");
   }
@@ -2439,7 +2423,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var g = svg("g", { "class": "show-hidden", tabindex: 0, role: "button" }, parent);
     g.setAttribute("data-fk", "show-hidden");
     g.setAttribute("aria-label", "show the " + gone.length + " hidden " + (gone.length === 1 ? "seat" : "seats"));
-    g.setAttribute("data-tip", "draw every seat again \u00b7 hidden: " + gone.map(seatLabel).join(", "));
+    g.setAttribute("data-tip", "hidden: " + gone.map(seatLabel).join(", "));
     var t = svgText(g, 34, y, gone.length + " hidden \u00b7 ", "t-mono", { "font-size": 10.5 });
     var act = svg("tspan", { "class": "show-act" }, t);
     act.textContent = "show";
@@ -2456,14 +2440,16 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* The row the reader acted on is about to leave the document, so focus goes
-     to the control that undoes it rather than to the top of the page. */
+     to the control that undoes it rather than to the top of the page: the
+     timeline's show control, or the card's Show all once no seat is left. */
   function hideSeat(id) {
     hiddenSeats[id] = true;
     saveHidden();
     hideTip();
     render();
     var back = document.querySelector("[data-fk=\"show-hidden\"]");
-    if (back) back.focus();
+    if (back && back.getClientRects().length) back.focus();
+    else $("show-all-seats").focus();
   }
 
   function showAllSeats() {
@@ -2574,10 +2560,10 @@ th[aria-sort] button { color: var(--ink-1); }
     day.setHours(0, 0, 0, 0);
     if (day.getTime() < t0) day.setDate(day.getDate() + 1);
     var perLabel = Math.max(1, Math.ceil(DAY_LABEL_PX / (86400000 / (t1 - t0) * plotW)));
-    root.setAttribute("aria-label", "Every seat, in name order with its rank, with its quota windows on one time axis, " +
+    root.setAttribute("aria-label", "Every seat's quota windows on one time axis, " +
       new Date(t0).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " to " +
       new Date(t1).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
-      ", one day per gridline, dated every " + (perLabel === 1 ? "day" : perLabel + " days"));
+      ", one gridline per day, dated every " + (perLabel === 1 ? "day" : perLabel + " days"));
     for (var d = day.getTime(), di = 0; d <= t1; d += 86400000, di++) {
       var gx = X(d);
       svg("line", { x1: gx, x2: gx, y1: 0, y2: plotH, stroke: "var(--rule)", "stroke-width": 1 }, gGrid);
@@ -2777,7 +2763,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* The second line of a roomy seat row, least important figure last, so a
      line that overruns the gutter loses figures from the end; the tooltip
-     keeps every one. The snapshot age is a ticking stamp. */
+     keeps every one. The reading's age is a ticking stamp. */
   function seatSubLine(parent, x, y, a, maxW) {
     var snap = a.snapshot || {};
     var hs = a.host_status || "unknown";
@@ -2785,7 +2771,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var hr = hitRate(a.cache);
     var parts = [];
     if (hs !== "active") parts.push({ t: "host " + hs });
-    if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "fetch error") });
+    if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "read failing") });
     parts.push(obs ? { age: obs } : { t: hs === "disabled" ? "not polled" : "not read yet" });
     parts.push({ t: intFmt(a.bindings) + " live" });
     if (hr !== null) parts.push({ t: pct(hr, 0) + " cache hits" });
@@ -2795,6 +2781,7 @@ th[aria-sort] button { color: var(--ink-1); }
       parts.slice(0, n).forEach(function (p, i) {
         if (i) el.appendChild(document.createTextNode("  ·  "));
         if (p.age) {
+          el.appendChild(document.createTextNode("read "));
           var ts = svg("tspan", { "data-ts": p.age.getTime() }, el);
           ts.textContent = relText(p.age, nowMs());
         } else {
@@ -3116,9 +3103,6 @@ th[aria-sort] button { color: var(--ink-1); }
      further waits for its seat to be pointed at or focused. */
   var LABEL_H = 12, LABEL_GAP = 9;
 
-  /* A family cap's weight, as every label that carries one writes it. */
-  function weightMark(ws) { return "×" + ws.weight.toFixed(2); }
-
   /* Whether a sample of a cycle is an estimate reconstructed from token
      spend: every sample of a cycle flagged estimated, or every sample at or
      before the cycle's estimated_until instant. */
@@ -3317,24 +3301,24 @@ th[aria-sort] button { color: var(--ink-1); }
   }
   var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
   var SW_GAP = "height:0;border-top:2px dotted var(--ink-3);opacity:.55";
-  var UNRECORDED_KEY = "not recorded after an early clearing";
+  var UNRECORDED_KEY = "not recorded after an early reset";
   var SW_LOCK = "height:4px;border-radius:2px;opacity:.8;" +
     "background:repeating-linear-gradient(133deg, var(--critical) 0 3.28px, #161616 3.28px 4.38px)";
-  var LOCK_KEY = "limit reached (provider refused)";
+  var LOCK_KEY = "refused";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
   function dayText(elapsed) {
-    return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS + " days";
+    return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS;
   }
 
   /* Why a seat has no point: the scorer's own reason where it never evaluated
      the seat, otherwise what the weekly entry lacks. Null means plottable. */
   function paceGap(a, ws) {
     var sc = a.score;
-    if (!sc || !sc.windows || !sc.windows.length) return sc && sc.reason ? reasonText(sc.reason) : "not evaluated";
+    if (!sc || !sc.windows || !sc.windows.length) return sc && sc.reason ? reasonText(sc.reason) : "not scored";
     if (!ws) return "no weekly reading";
     if (!num(ws.utilization) || !num(ws.elapsed)) return "bad reading";
-    if (!(ws.weight > 0)) return "weekly window weighs nothing in the cost";
+    if (!(ws.weight > 0)) return WEEKLY_SHORT + " weighs nothing";
     return null;
   }
 
@@ -3342,9 +3326,9 @@ th[aria-sort] button { color: var(--ink-1); }
      its entry for that window lacks. Null means plottable. */
   function scopedGap(fam, sc, ws) {
     if (sc === null) return fam + " ranking unknown";
-    if (!ws) return "no " + fam + " weekly reading";
-    if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + fam + " reading";
-    if (!(ws.weight > 0)) return fam + " cap weighs nothing in the cost";
+    if (!ws) return "no " + fam + " cap reading";
+    if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + fam + " cap reading";
+    if (!(ws.weight > 0)) return fam + " cap weighs nothing";
     return null;
   }
 
@@ -3632,27 +3616,27 @@ th[aria-sort] button { color: var(--ink-1); }
   /* What ended a span, as a limit's line reads it. */
   var LOCK_ENDED = {
     reset: "until the window reset",
-    served: "until it served a request again",
-    cleared: "until it cleared the window early"
+    served: "until the seat served a request again",
+    cleared: "until an early reset"
   };
 
-  /* A limit as a tooltip line reads it: its window, what the provider did
-     and what ended it, with the span's own ends where ranged is set. */
+  /* A limit as a tooltip line reads it: its window, whether the provider is
+     refusing it still and what ended it, with the span's own ends where
+     ranged is set. */
   function lockLine(sp, now, ranged) {
     var w = windowShort(sp);
     if (!sp.ended) {
-      return { b: w, t: "the provider is refusing requests" + (ranged ? " since " + spanClock(sp.from) : ""), alert: resetText(new Date(sp.to), now) };
+      return { b: w, t: "refusing" + (ranged ? " since " + spanClock(sp.from) : ""), alert: resetText(new Date(sp.to), now) };
     }
     return { b: w, t: (ranged ? spanClock(sp.from) + " – " + spanClock(sp.to, sp.from) + ": " : "") +
-      "the provider refused requests " + LOCK_ENDED[sp.ended] };
+      "refused " + LOCK_ENDED[sp.ended] };
   }
 
   /* A limit section's badge: the windows that refused, each once. */
   function limitLabel(spans) {
     var names = [];
     spans.forEach(function (sp) { var n = windowShort(sp); if (names.indexOf(n) < 0) names.push(n); });
-    var caps = spans.every(function (sp) { return sp.kind === "weekly_scoped"; });
-    return names.join(" + ") + (caps ? " reached" : " limit reached");
+    return names.join(" + ") + " refused";
   }
 
   /* A section's tooltip: the line, what the section is and when, then what
@@ -3686,14 +3670,13 @@ th[aria-sort] button { color: var(--ink-1); }
       u0 = Math.min(u0, u1);
       spec.big = [pct(u0, 0), pct(u1, 0)];
       spec.delta = rise();
-      if (sec.clear) spec.lines.push({ t: "the climb after the provider cleared the window early" });
+      if (sec.clear) spec.lines.push({ t: "the climb after an early reset" });
       if (samples.some(function (s) { return s.est && s.t >= sec.a && s.t <= sec.b; })) spec.lines.push({ t: "estimated from token spend" });
     } else if (sec.type === "idle") {
       spec.big = [pct(u0, 0)];
-      spec.delta = "held";
-      spec.lines.push({ t: head.cap ? "no new use counted against this cap" : "no new usage on this seat" });
+      spec.delta = "flat";
     } else if (sec.type === "unrec") {
-      spec.lines.push({ t: "no readings after an early clearing; the climb is drawn straight" });
+      spec.lines.push({ t: "no readings after the early reset, so the line is drawn straight" });
     } else {
       spec.big = u1 > u0 ? [pct(u0, 0), pct(u1, 0)] : [pct(u0, 0)];
       spec.delta = u1 > u0 ? rise() : "";
@@ -3702,7 +3685,7 @@ th[aria-sort] button { color: var(--ink-1); }
       spec.lines.push(lockLine(sp, now, sec.type !== "limit" || sec.spans.length > 1));
     });
     if (sec.type === "limit" && u1 <= u0 && sec.spans.every(function (sp) { return sp.kind !== head.kind || (sp.scope || "") !== (head.scope || ""); })) {
-      spec.lines.push({ t: "a refused seat takes no requests, so this line holds where it was" });
+      spec.lines.push({ t: "flat because a refused seat takes no requests" });
     }
     return spec;
   }
@@ -3800,7 +3783,7 @@ th[aria-sort] button { color: var(--ink-1); }
     resets.forEach(function (r) {
       var spec = Object.assign({}, head, { type: "reset", label: "reset",
         when: spanClock(r.t), dur: "", big: [pct(r.u, 0), "0%"], delta: "",
-        lines: [{ t: "the provider cleared the window early and kept its reset time" }] });
+        lines: [{ t: "Early reset by the provider; the scheduled reset time is unchanged." }] });
       setTip(r.el, spec);
       tipStop(r.el, spec, "reset:" + key + ":" + r.t);
     });
@@ -3819,7 +3802,7 @@ th[aria-sort] button { color: var(--ink-1); }
   /* The limits in force now, as a mark's name reads them. */
   function liveAria(live, now) {
     return live.map(function (sp) {
-      return ", " + windowShort(sp) + " limit reached, " + resetText(new Date(sp.to), now);
+      return ", " + windowShort(sp) + " refused, " + resetText(new Date(sp.to), now);
     }).join("");
   }
 
@@ -3843,20 +3826,14 @@ th[aria-sort] button { color: var(--ink-1); }
     var host = $("pace-curve");
     host.textContent = "";
     var fams = scopedFamilies(st);
-    var paced = "the budget the plugin paces against: each seat's 7-day utilization";
-    var ranked = " \u00B7 the gap to that curve is the seat's cost, and the list beside the plot ranks every seat by it";
     /* The cap is named only where a diamond is drawn for it: a weight of zero
        retires the cap from the cost, and the plot draws no mark for a window
        the cost does not weigh. */
     var capDrawn = fams.length && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     var view = paceViewOf(fams, capDrawn);
     renderPaceView(fams, view, capDrawn);
-    $("pace-sub").textContent = !shows(view, STANDARD)
-      ? "each seat's " + view + " cap (diamond) against the target curve, by days into its own week" + ranked
-      : capDrawn && view === PACE_ALL
-        ? paced + " (circle) and its " + fams.join(", ") + " cap (diamond) against the target curve, " +
-          "by days into its own week" + ranked
-        : paced + " against the target curve, by days into its own week" + ranked;
+    $("pace-sub").textContent = "each seat's " + (shows(view, STANDARD) ? "" : view + " cap ") +
+      "use against the target curve, ranked by cost";
     var pace = (st.config && st.config.pace) || {};
 
     /* The plot takes the card's width and a height that follows it, bounded so
@@ -3899,10 +3876,9 @@ th[aria-sort] button { color: var(--ink-1); }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": shows(view, STANDARD)
-        ? "Share of the weekly budget used by days into each seat's own week, against the pace target, one point per seat with the recorded path behind it" +
-          (view === PACE_ALL && fams.length ? ", and one more per seat for its " + fams.join(" and ") + " cap" : "")
-        : "Share of each seat's " + view + " cap used by days into its own week, against the pace target, one point per seat with the recorded path behind it"
+      "aria-label": (shows(view, STANDARD) ? "Weekly" : view + " cap") +
+        " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it" +
+        (view === PACE_ALL && capDrawn ? ", plus one per seat for its " + fams.join(" and ") + " cap when the cost weighs it" : "")
     }, host);
 
     yGrid(root, m, pw, Y);
@@ -3918,7 +3894,7 @@ th[aria-sort] button { color: var(--ink-1); }
     svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
     svgText(root, m.l + pw / 2, H - 8, "days into each seat's own week", "t-muted",
       { "font-size": 10.5, "text-anchor": "middle" });
-    svgText(root, m.l - 38, m.t - 6, "% of weekly budget used", "t-muted", { "font-size": 10.5 });
+    svgText(root, m.l - 38, m.t - 6, "% used", "t-muted", { "font-size": 10.5 });
 
     svg("path", {
       d: curvePath(pace, X, Y), fill: "none", stroke: "var(--ink-1)",
@@ -3962,7 +3938,7 @@ th[aria-sort] button { color: var(--ink-1); }
          tooltip, and a limit or a reset on it is a stop of its own. */
       var gl = svg("g", { "class": "pt-line" }, gLines);
       gl.setAttribute("data-seat", a.auth_id);
-      var tipHead = { seat: seatLabel(a), col: col, win: windowShort(ws), kind: ws.kind, scope: ws.scope, cap: ws.kind === "weekly_scoped" };
+      var tipHead = { seat: seatLabel(a), col: col, win: windowShort(ws), kind: ws.kind, scope: ws.scope };
       var key = a.auth_id + ":" + ws.kind + ":" + (ws.scope || "");
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
@@ -4000,11 +3976,10 @@ th[aria-sort] button { color: var(--ink-1); }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + key);
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
-        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " of the " + windowName(ws) + " budget used" +
-        ", " + overText(ws.slack) + (weighted ? ", " + weightMark(ws) + " in the cost" : ", cost " + costText(a.score)) +
+        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " used" +
+        ", " + overText(ws.slack) + (weighted ? ", counted" + weightTag(ws.weight) + " in the cost" : ", cost " + costText(a.score)) +
         liveAria(locks.live, now));
-      setTip(g, markTip(tipHead, "day " + (clamp(ws.elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS,
-        ws.utilization, ws.target, "target", locks.live, now));
+      setTip(g, markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       var diamond = function (r) {
         return "M" + cx + " " + (cy - r) + "L" + (cx + r) + " " + cy + "L" + cx + " " + (cy + r) + "L" + (cx - r) + " " + cy + "Z";
@@ -4041,7 +4016,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2,
-        shows(view, STANDARD) ? "no seat has a paced weekly window" : "no seat has a paced " + view + " cap",
+        shows(view, STANDARD) ? "no weekly window to plot" : "no " + view + " cap to plot",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
@@ -4122,7 +4097,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var capsShown = fams.filter(function (f) { return shows(view, f); });
     if (fams.length) {
       if (shows(view, STANDARD)) {
-        legendRow(leg, "background:var(--ink-2);border-radius:50%;width:10px;height:10px", WEEKLY_SHORT + " (Standard)");
+        legendRow(leg, "background:var(--ink-2);border-radius:50%;width:10px;height:10px", WEEKLY_SHORT);
       }
       if (capsShown.length) {
         legendRow(leg, "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px",
@@ -4173,14 +4148,10 @@ th[aria-sort] button { color: var(--ink-1); }
   /* What both charts' notes say about a line's stretches, given the pause,
      in words, that ends a usage stretch. */
   function sectionsText(pause) {
-    return "Point at a stretch of a line to see what happened in it. A usage stretch is a run of rises less " +
-      "than " + pause + " apart, an idle stretch holds its level, and a not-recorded stretch is a climb after " +
-      "an early clearing that no reading covers. A limit stretch is where the provider refused the seat, under " +
-      "red and black tape, and its badge names the window that refused: a 7-day limit holds the 5-hour line " +
-      "flat too, since a refused seat takes no requests. Its tooltip gives each refusal's own start and end and " +
-      "what ended it, and a stretch a refusal overlaps names that refusal too. A thin red ring inside a mark " +
-      "means the provider is refusing the seat now. A dotted fall to zero under a hollow dot named " +
-      "\u201Creset\u201D is the provider clearing the window early, before its reset time.";
+    return "Point at a stretch of a line to see what happened in it: usage (rises less than " + pause +
+      " apart), idle, not recorded (a climb after an early reset that no reading covers), or refused (red " +
+      "and black tape, badged with the window that refused). A thin red ring inside a mark means the provider " +
+      "is refusing the seat now, and a hollow dot labelled \u201Creset\u201D is an early reset.";
   }
 
   /* One entry of a note: the term that names the topic, and the definition
@@ -4205,97 +4176,73 @@ th[aria-sort] button { color: var(--ink-1); }
     /* A cap draws a diamond only where its weight puts it in a cost, which is
        the same test the formula line gives it a clause on, so the note claims
        a mark the chart drew and a term the list carries. */
-    p.appendChild(document.createTextNode("Each circle is one seat's 7-day all-models window. It shows how many " +
-      "days into that seat's own week it is, and how much of the weekly budget it has used." +
+    p.appendChild(document.createTextNode("Each circle is a seat's " + WEEKLY_SHORT + " window." +
       (!fams.length ? ""
         : termShown(wts.scoped_weight)
-          ? " Each diamond is the same seat's " + fams.join(" or ") + " cap. That cap is a 7-day " +
-            "window with the same target, and it counts at " + weightWord(wts.scoped_weight) +
-            " weight in the cost of a request of that family. It counts nothing for a Standard request."
-          : " The " + fams.join(" and ") + " cap weighs nothing in the cost, so no diamond is drawn for it. " +
-            "The provider's readings of that cap still hold a seat back from its family's requests.") +
-      " Every seat's week starts at its own time, so the axis is elapsed time, not the calendar. The target curve is "));
-    p.appendChild(h("code", "", curveText(wts)));
-    p.appendChild(document.createTextNode(". A point below the curve is under target, with budget still to " +
-      "spend. The dotted tick between a mark and the curve is the gap, in points of the weekly budget. The label " +
-      "beside the mark gives that gap: " + SIGN_KEY +
-      ". Where marks crowd, a label that would sit off its mark waits until that mark is pointed at or " +
-      "focused. The seat's cost, the number that ranks it, is in the list beside the plot, which orders " +
-      "every seat by it, lowest first."));
+          ? " Each diamond is the seat's " + fams.join(" or ") + " cap, a 7-day window on the same target " +
+            "curve, counted" + weightTag(wts.scoped_weight) + " in its own family's cost and not in Standard's."
+          : " The " + fams.join(" or ") + " cap weighs nothing, so it has no diamond; a refused or full cap " +
+            "still makes a seat ineligible for that family's requests.") +
+      " The dotted tick from a mark to the curve is its gap in points, and the label beside the mark gives " +
+      "it. Where marks crowd, a label shows when you point at or focus its mark."));
 
     var t = def(dl, "the target curve");
     var land = landingOf(wts);
-    t.appendChild(document.createTextNode(full === null
-      ? "The curve aims at " + pct(land, 0) + " of the budget by the reset and no further, so it holds a margin " +
-        "back at every point inside the window" +
-        (land < 1
-          ? ", " + pct(1 - land, 0) + " of it even at the close."
-          : ", and the target reaches full only as the window closes.")
-      : "The curve aims at " + pct(land, 0) + ", which is more than a week holds, so it reaches 100% " +
-        "on day " + (full * PACE_DAYS).toFixed(1) + " and runs flat to the reset. The flat top is the point of " +
-        "it: weekly budget expires at the reset, so budget with hours left is worth spending ahead of budget " +
-        "with days left, and aiming past full tilts the pick toward the seat nearest its own reset. The 100% cap " +
-        "bounds that tilt without making it safe: a full window's gap to target clamps to zero, and zero still " +
-        "beats a seat running over its own curve however much budget that seat holds. That is why a window the " +
-        "provider reports full holds the seat back instead of only costing it more."));
+    t.appendChild(document.createTextNode("The curve is "));
+    t.appendChild(h("code", "", curveText(wts)));
+    t.appendChild(document.createTextNode("." + (full !== null
+      ? " It aims at " + pct(land, 0) + " by the reset, more than a week holds, so it reaches 100% on day " +
+        (full * PACE_DAYS).toFixed(1) + " and stays flat. Budget left at the reset is lost, so aiming past " +
+        "full tilts the pick toward the seat nearest its reset."
+      : land < 1
+        ? " It aims at " + pct(land, 0) + " by the reset, so it leaves " + pct(1 - land, 0) +
+          " in reserve even at the close."
+        : " It reaches 100% exactly at the reset.")));
 
     var r = def(dl, "the recorded line");
-    r.appendChild(document.createTextNode("The thin line behind a mark is the seat's recorded path from the " +
-      "start of its window. Steeper than the curve is spending faster than pace, flatter is slower. A dashed, " +
-      "paler stretch is an estimate rebuilt from token spend. The mark itself is always a reading. This is the " +
-      "window the plugin paces against, and the one whose unused capacity is lost at reset."));
+    r.appendChild(document.createTextNode("The thin line behind each mark is the seat's use this week; steeper " +
+      "than the curve means spending faster than pace. Dashed stretches are estimated, and the mark is always " +
+      "a reading."));
 
-    var sec = def(dl, "stretches, limits and resets");
+    var sec = def(dl, "stretches, refusals and resets");
     sec.appendChild(document.createTextNode(sectionsText(PACE_IDLE_MS / 3600000 + " hours") +
-      " A reset dot also takes keyboard focus, and so does a stretch that holds a limit: a 5-hour or 7-day " +
-      "limit on the seat's 7-day line, and a cap's own limit on the cap's line. Where the 7-day line is not " +
-      "drawn, which takes two readings in the window, the cap's line takes every limit on it."));
+      " Reset dots and refused stretches take keyboard focus."));
 
-    var q = def(dl, "cost, ranking and the challenger margin");
+    var q = def(dl, "cost and ranking");
     /* The sum the formula line states, in words: one clause per term the
        running weights actually put in the cost, on the same test that gives
        the window its clause there. A window a zero weight retires is named
        where it is retired and claimed as a term nowhere. */
     var terms = [];
-    if (termShown(wts.weekly_weight)) {
-      terms.push(wts.weekly_weight === 1 ? "the weekly gap"
-        : weightWord(wts.weekly_weight) + " of the weekly gap");
-    }
+    if (termShown(wts.weekly_weight)) terms.push("the " + WEEKLY_SHORT + " gap" + weightTag(wts.weekly_weight));
     if (fams.length && termShown(wts.scoped_weight)) {
-      terms.push(weightWord(wts.scoped_weight) + " of the gap on the " + fams.join(" or ") +
-        " cap (the diamonds) when the request is of that family");
+      terms.push("the " + fams.join(" or ") + " cap gap" + weightTag(wts.scoped_weight) + " for that family's requests");
     }
-    if (termShown(wts.session_weight)) {
-      terms.push(weightWord(wts.session_weight) + " of the gap on the 5-hour window");
-    }
-    q.appendChild(document.createTextNode("Seats rank by cost, in the same points. " +
+    if (termShown(wts.session_weight)) terms.push("the " + SESSION_SHORT + " gap" + weightTag(wts.session_weight));
+    q.appendChild(document.createTextNode(
       (terms.length
-        ? "A seat's cost is " + terms.join(", plus ") + ", and nothing else. Running over target counts " +
-          "against the seat and running under counts for it, so the lowest cost wins."
-        : "No window carries weight, so every seat's cost is 0 and the ranking falls back to the seat id.") +
+        ? "A seat's cost is " + terms.join(", plus ") + ", in points: over target raises it and under target " +
+          "lowers it."
+        : "No window carries weight, so every cost is 0 and seats rank by seat id.") +
       (termShown(wts.session_weight)
-        ? " The 5-hour window is a rate limit that resets several times a day, so its headroom is not budget " +
-          "to pace; at " + weightWord(wts.session_weight) + " weight it is a short-horizon term, which separates " +
-          "seats whose weekly slack ties."
-        : " The 5-hour window weighs nothing in the cost. It is a rate limit that resets several times a day, " +
-          "so its headroom is not budget to pace and stays out of the cost.") +
+        ? " The " + SESSION_SHORT + " gap is a short-horizon term that separates seats whose weekly gaps tie."
+        : " The " + SESSION_SHORT + " weighs nothing: it resets several times a day, so its headroom is not " +
+          "budget to pace.") +
       " The eligible seat with the lowest cost takes the next new conversation" +
-      (fams.length ? " of its family, so the list ranks every seat once per family" : "") +
-      ". Every figure is written to a tenth of a point, and a cost is the sum of its terms as each was rounded; " +
-      "a listed cost that cannot be read against its neighbour's carries a dotted rule and says why" +
+      (fams.length ? " of its family, so each family has its own ranking: " + fams.join(" and ") +
+        " for models with their own weekly cap, Standard for the rest" : "") +
+      "." +
       (num(wts.hysteresis_margin)
-        ? ". A challenger must undercut by " + ptsRound(wts.hysteresis_margin) +
-          " to take a session already bound to another seat."
-        : ".")));
+        ? " With affinity.override-threshold off, a challenger must undercut a bound seat's cost by " +
+          ptsRound(wts.hysteresis_margin) + " to take its conversation."
+        : "")));
 
-    var g = def(dl, "what holds a seat back");
-    g.appendChild(document.createTextNode("Whatever the weights, " + SESSION_GATES + ", because those are readings " +
-      "and not forecasts. Only an observed fact holds a seat back: a window the provider has refused, a window " +
-      "the provider reports full, a reading that is not a number, no window that applies to the request, a usage " +
-      "read that has never succeeded, no reading of the credential at all, or a snapshot too old to trust. Full " +
-      "means exactly full, and it is a reading rather than a forecast: a window at 99.9% still takes the work and " +
-      "is merely expensive, and a window at 100% holds the seat back until it resets." +
-      (fams.length ? " A seat out of its " + fams.join(" or ") + " cap can still take a Standard request." : "")));
+    var g = def(dl, "what makes a seat ineligible");
+    g.appendChild(document.createTextNode("A seat takes no new conversation while a window that applies to the " +
+      "request is refused, reads full or gives a reading that is not a number; when no window applies; or when " +
+      "its usage has never been read or its reading is too old. These are readings, not forecasts: full means " +
+      "100% or more, and a window at 99.9% still takes work." +
+      (fams.length ? " A seat ineligible on its " + fams.join(" or ") + " cap can still take Standard requests." : "")));
   }
 
   /* ---------------------------------------------------------- 5-hour chart */
@@ -4319,28 +4266,23 @@ th[aria-sort] button { color: var(--ink-1); }
   /* The sections of a 5-hour line that are keyboard stops besides any
      holding a limit: a usage section carries its conversations. */
   var SESSION_STOPS = ["usage"];
-  var SESSION_IDLE = "point at or focus a usage stretch of a line, a run of rises under " + (SESSION_IDLE_MS / 60000) +
-    " minutes apart, to list the conversations the routing log shows on that seat then";
+  var SESSION_IDLE = "point at or focus a usage stretch to list its conversations";
   /* Everything that gates on this window, in the order internal/pace tests
      them. All three are readings the provider hands over. A reading at full
      and a reading that is not a number leave a conversation already bound to
-     the seat where it is; a refusal moves it, because runtime.pickByAffinity
-     fails a refused binding over wherever another seat can take the model.
+     the seat where it is; a refusal moves it where runtime.pickByAffinity
+     finds another seat that can take the model.
 
-     This is the page's one list of them: every visible sentence that
-     enumerates the gates prints this constant. SESSION_GATED names the same
-     fact without listing it, for the subhead, which has one line to spend and
-     sits directly above the note that lists them. */
-  var SESSION_GATES = "a refusal recorded against it, a reading of it that is not a number, or a reading of " +
-    "it at full holds a seat back from new conversations";
-  var SESSION_GATED = "three provider readings hold a seat back from new conversations";
+     The subhead and the chart's name print this constant, so the two list
+     the gates alike. */
+  var SESSION_GATES = "a refusal, a full reading or a bad reading makes a seat ineligible";
 
   /* Why a seat draws no 5-hour line. Null means plottable. */
   function sessionGap(a, w, resets) {
-    if (!a.snapshot || !a.snapshot.windows) return "no snapshot";
-    if (!w) return "no 5-hour reading";
+    if (!a.snapshot || !a.snapshot.windows) return "not read yet";
+    if (!w) return "no " + SESSION_SHORT + " reading";
     if (!num(w.utilization)) return "bad reading";
-    if (!resets) return "no window open";
+    if (!resets) return "no open window";
     return null;
   }
 
@@ -4367,8 +4309,8 @@ th[aria-sort] button { color: var(--ink-1); }
   /* A usage section's conversations as tooltip lines: the key bold, then
      its requests and model. */
   function conversationRows(act) {
-    if (!act.covered && !act.list.length) return [{ t: "no routing log for this stretch" }];
-    if (!act.list.length) return [{ t: "no request routed to this seat in this stretch" }];
+    if (!act.covered && !act.list.length) return [{ t: "the routing log does not reach back this far" }];
+    if (!act.list.length) return [{ t: "no requests routed to this seat" }];
     var rows = act.list.slice(0, 4).map(function (c) {
       return { b: c.key.slice(0, 8), t: c.n + (c.n === 1 ? " request" : " requests") + (c.model ? " \u00B7 " + c.model : "") };
     });
@@ -4386,19 +4328,11 @@ th[aria-sort] button { color: var(--ink-1); }
        window's headroom is worth in the cost, which the running weight
        decides, and that the window gates whatever that weight is. Written
        here rather than left standing in the markup, so it follows the config
-       the way the seats and weekly subheads do. The gates are named rather
-       than listed, because the note under the chart lists them and a subhead
-       is one line. The axis label already says the x is hours into each
-       seat's own window, so this does not. */
+       the way the seats and weekly subheads do. */
     var wt = paceCfg.session_weight;
-    var sessFacts = ["each seat's 5-hour use against the same curve"];
-    if (num(wt)) {
-      sessFacts.push(wt === 0
-        ? "its headroom weighs nothing in the cost"
-        : "its gap counts at " + weightWord(wt) + " weight in the cost");
-    }
-    sessFacts.push(SESSION_GATED);
-    $("session-sub").textContent = "a rate limit, not a budget: " + sessFacts.join(" · ");
+    var weightClause = !num(wt) ? "" : wt === 0 ? "weighs nothing in the cost" : "counts" + weightTag(wt) + " in the cost";
+    $("session-sub").textContent = ["a rate limit, not a budget", weightClause, SESSION_GATES]
+      .filter(Boolean).join(" · ");
 
     /* As tall for its width as the Over time plot, so the seat list beside
        it has the plot's height to sit in. */
@@ -4437,8 +4371,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Each seat's 5-hour window utilization by hours into its own window against the target curve, one mark per seat with the recorded line behind it, labelled with its gap to the curve" +
-        (num(wt) ? (wt === 0 ? "; its headroom weighs nothing in the cost" : "; its gap counts at " + weightWord(wt) + " weight in the cost") : "") +
+      "aria-label": "Each seat's 5-hour use by hours into its own window, against the target curve: one mark per seat, with its recorded line and its gap label" +
+        (num(wt) ? (wt === 0 ? "; it weighs nothing in the cost" : "; its gap counts" + weightTag(wt) + " in the cost") : "") +
         "; " + SESSION_GATES
     }, host);
 
@@ -4450,9 +4384,9 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0), y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
     svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
-    svgText(root, m.l + pw / 2, H - 8, "hours into each seat's own 5-hour window", "t-muted",
+    svgText(root, m.l + pw / 2, H - 8, "hours into each seat's own window", "t-muted",
       { "font-size": 10.5, "text-anchor": "middle" });
-    svgText(root, m.l - 38, m.t - 6, "% of the 5-hour window used", "t-muted", { "font-size": 10.5 });
+    svgText(root, m.l - 38, m.t - 6, "% used", "t-muted", { "font-size": 10.5 });
     /* The same curve as the weekly chart, over the 5-hour window. */
     svg("path", {
       d: curvePath(paceCfg, function (e) { return X(e * SESSION_HOURS); }, Y),
@@ -4488,10 +4422,7 @@ th[aria-sort] button { color: var(--ink-1); }
         ", " + pct(s.w.utilization) + " used" +
         (ws ? ", curve " + pct(ws.target) + ", " + headroomText(ws.slack) : "") +
         ", resets " + relText(s.resets, now) +
-        ", last hour " + lastHour + liveAria(locks5.live, now) +
-        ", a rate limit: " +
-        (num(wt) ? (wt === 0 ? "this headroom weighs nothing in the cost, and " : "this gap counts at " + weightWord(wt) + " weight in the cost, and ") : "") +
-        SESSION_GATES;
+        ", last hour " + lastHour + liveAria(locks5.live, now);
       if (s.cur.length >= 2) {
         var gSeat = svg("g", { "class": "pt-line" }, gLines);
         gSeat.setAttribute("data-seat", a.auth_id);
@@ -4522,11 +4453,11 @@ th[aria-sort] button { color: var(--ink-1); }
             if (sec.type !== "usage") { focusEl.textContent = SESSION_IDLE; return; }
             var act = activeOn(st, a.auth_id, sec.a, sec.b);
             focusEl.textContent = "";
-            focusEl.appendChild(h("b", "", seatLabel(a) + " " + clockText(sec.a) + "–" + clockText(Math.min(sec.b, now)) + ": "));
-            focusEl.appendChild(document.createTextNode(
-              act.list.length
-                ? act.list.map(function (c) { return c.key.slice(0, 8) + " ×" + c.n; }).join(" · ") + " — shown by activity on the seat, not by tokens"
-                : (act.covered ? "no request routed to this seat in this stretch" : "routing log does not reach back this far")));
+            focusEl.appendChild(h("b", "", seatLabel(a) + " " + clockText(sec.a) + "–" + clockText(Math.min(sec.b, now))));
+            focusEl.appendChild(document.createTextNode(" · " +
+              (act.list.length
+                ? "requests: " + act.list.map(function (c) { return c.key.slice(0, 8) + " ×" + c.n; }).join(" · ")
+                : (act.covered ? "no requests routed to this seat" : "the routing log does not reach back this far"))));
           };
           var idle = function () { focusEl.textContent = SESSION_IDLE; };
           hit.el.addEventListener("pointerenter", summary);
@@ -4539,7 +4470,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gMarks);
       hg.setAttribute("data-seat", a.auth_id);
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
-      var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated from token spend" : "";
+      var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated" : "";
       setTip(hg, markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, ws ? ws.target : null, "curve", locks5.live, now));
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
       /* The tick is the gap to the curve at this seat's own elapsed, as on
@@ -4557,12 +4488,12 @@ th[aria-sort] button { color: var(--ink-1); }
     clearResetLabels(root, labels);
 
     if (!plotted) {
-      svgText(root, m.l + pw / 2, m.t + ph / 2, "no seat has an open 5-hour window",
+      svgText(root, m.l + pw / 2, m.t + ph / 2, "no open 5-hour window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
         renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
-    seatList($("session-rank"), SESSION_SHORT, "used now; whether the last hour's rate reaches the limit before the reset",
+    seatList($("session-rank"), SESSION_SHORT, "used now · outlook at the last hour's rate",
       series.map(function (s) {
         var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
         return Object.assign({ a: s.auth }, o ? outlookDetail(o) : { figure: "\u2014", meter: null, lines: [] });
@@ -4610,35 +4541,27 @@ th[aria-sort] button { color: var(--ink-1); }
     var dl = h("dl", "");
     note.appendChild(dl);
     var p = def(dl, "the marks and the curve");
-    p.appendChild(document.createTextNode("Each mark is one seat's rolling 5-hour window. It shows how far into " +
-      "the window the seat is, and how much of the window it has used. The line behind the mark is the seat's " +
-      "recorded path from the start of the window. The curve is the weekly chart's, "));
+    p.appendChild(document.createTextNode("Each mark is a seat's " + SESSION_SHORT + ", with its recorded line " +
+      "behind it. The curve is the weekly one, "));
     p.appendChild(h("code", "", curveText(wts)));
-    p.appendChild(document.createTextNode(", drawn over five hours. The dotted tick between a mark and the curve " +
-      "is the gap. The label beside the mark gives it: " + SIGN_KEY + "; under the curve here is headroom."));
+    p.appendChild(document.createTextNode(", over five hours. The dotted tick to the curve is the gap; under the " +
+      "curve here means headroom."));
     var r = def(dl, "a rate limit, not a budget");
-    r.appendChild(document.createTextNode("The 5-hour " +
-      "window is a rate limit rather than a budget: it resets several times a day and unused capacity vanishes at " +
-      "each reset. " +
+    r.appendChild(document.createTextNode("The " + SESSION_SHORT + " resets several times a day, so unused " +
+      "capacity is gone at each reset and there is no budget to pace." +
       (termShown(wts.session_weight)
-        ? "It counts at " + weightWord(wts.session_weight) + " weight, so its gap is a term of every seat's " +
-          "cost and separates seats whose weekly slack ties."
-        : "There is nothing here to pace against, so it weighs nothing in the cost: no term of any seat's cost " +
-          "comes from it, and how much headroom a seat has here changes no ranking.") +
-      " Whatever its weight, this window gates: " + SESSION_GATES + ", the same as on any other window. Each " +
-      "of those is something the provider reports rather than something the " +
-      "curve predicts. A pick that went elsewhere for no reason the weekly " +
-      "chart shows is read here. A dashed, paler stretch of a line is an estimate " +
-      "rebuilt from token spend. The mark is always a reading."));
-    var sec = def(dl, "stretches, limits and resets");
+        ? " Its gap counts" + weightTag(wts.session_weight) + " in every seat's cost and separates seats whose " +
+          "weekly gaps tie."
+        : " It weighs nothing in the cost.") +
+      " It still makes a seat ineligible while the provider refuses it, reports it full or sends a reading that " +
+      "is not a number. When a pick went elsewhere for no reason the weekly chart shows, look here."));
+    var sec = def(dl, "stretches, refusals and resets");
     sec.appendChild(document.createTextNode(sectionsText(SESSION_IDLE_MS / 60000 + " minutes") +
-      " A usage stretch, a reset dot and a stretch that holds a limit also take keyboard focus."));
-    var q = def(dl, "a stretch of a line");
-    q.appendChild(document.createTextNode("Spend is measured per seat. The host reports each request's tokens " +
-      "against the credential that served it, not against the conversation, so no line here belongs to one " +
-      "conversation. Point at or focus a usage stretch of a line to list the conversations the routing log placed " +
-      "on that seat during it, by request count. A steep stretch with one conversation on it is that conversation; " +
-      "a steep stretch with several is a set to look at. The log is bounded, so an older stretch may fall outside it."));
+      " Usage stretches, reset dots and refused stretches take keyboard focus."));
+    var q = def(dl, "which conversation used it");
+    q.appendChild(document.createTextNode("Use is counted per seat, not per conversation, so no line belongs to " +
+      "one conversation. A steep stretch with one conversation on it is that conversation; with several, any of " +
+      "them could be. The routing log is bounded, so an older stretch may fall outside it."));
   }
 
   /* ---------------------------------------------------------- seat outlook */
@@ -4650,8 +4573,8 @@ th[aria-sort] button { color: var(--ink-1); }
   /* Where a seat's window is headed by its reset, at its recent rate:
      {at, line, tone}, at the level it reaches at the reset. A weekly window
      is a budget, so the line says what the seat will leave unused or when it
-     will be spent; the 5-hour window is a rate limit, so it says whether the
-     seat will reach the limit and hold back new conversations. A refusal
+     will be full; the 5-hour window is a rate limit, so it says whether the
+     seat will reach full and turn ineligible. A refusal
      comes first, naming the refusing window where it is not this one, and
      when it lifts where that is not this window's reset. tone is "critical"
      for a refusal, "serious" for a 5-hour limit ahead, and "" otherwise. */
@@ -4665,7 +4588,7 @@ th[aria-sort] button { color: var(--ink-1); }
         line: (own ? "refused " : windowShort(sp) + " refusing ") + until };
     }
     if (o.cur >= 1) {
-      return { at: 1, tone: budget ? "" : "critical", line: budget ? "used in full" : "at the limit until the reset" };
+      return { at: 1, tone: budget ? "" : "critical", line: budget ? "full" : "full until the reset" };
     }
     var rate = recentSlope(o.samples, budget ? OUTLOOK_WEEKLY_MS : OUTLOOK_SESSION_MS);
     if (!num(rate) || rate <= 0) {
@@ -4674,29 +4597,23 @@ th[aria-sort] button { color: var(--ink-1); }
     var at = o.cur + rate * (reset - o.now) / 3600000 / 100;
     if (at >= 1) {
       var full = spanClock(o.now + (1 - o.cur) * 100 / rate * 3600000, o.now);
-      return budget ? { at: 1, tone: "", line: "spent by " + full }
-        : { at: 1, tone: "serious", line: "reaches the limit by " + full };
+      return { at: 1, tone: budget ? "" : "serious", line: "full by " + full };
     }
-    return { at: at, tone: "", line: budget ? "on course for " + pct(at, 0) + ", " + pct(1 - at, 0) + " unused"
-      : "on course for " + pct(at, 0) + ", under the limit" };
+    return { at: at, tone: "", line: budget ? "on course to leave " + pct(1 - at, 0) + " unused"
+      : "on course for " + pct(at, 0) };
   }
 
   /* A seat's outlook on the window it is in now, for a list row: {figure,
      meter, lines}. The figure is its use now; the meter runs solid to that
      and faint to where its recent rate takes it by the reset, with a tick at
      the pace target on a weekly window; the lines say where it is headed and
-     when the window resets, with what the last finished cycle left unused
-     where that is at least a point, unless brief is set. o is {a, cur,
-     target, resets, now, kind, scope, samples, weekly, live, left}. */
+     when the window resets, unless brief is set. o is {a, cur, target,
+     resets, now, kind, scope, samples, weekly, live}. */
   function outlookDetail(o, brief) {
     if (!num(o.cur)) return { figure: "\u2014", meter: null, lines: [] };
     var out = o.resets ? outlookOf(o) : null, lines = [];
     if (out) lines.push({ t: out.line, tone: out.tone });
-    if (o.resets && !brief) {
-      var when = resetText(o.resets, o.now);
-      if (num(o.left) && o.left >= 0.01) when += " \u00B7 last cycle left " + pct(o.left, 0);
-      lines.push({ t: when, tone: "muted" });
-    }
+    if (o.resets && !brief) lines.push({ t: resetText(o.resets, o.now), tone: "muted" });
     return {
       figure: pct(o.cur, 0), lines: lines,
       meter: { from: o.cur, to: out ? out.at : o.cur, tick: o.weekly && num(o.target) ? o.target : null }
@@ -4714,7 +4631,7 @@ th[aria-sort] button { color: var(--ink-1); }
       a: a, cur: w.utilization, resets: resets, now: now, kind: kind, scope: scope, weekly: kind !== "five_hour",
       target: targetAt(pace, clamp((now - start) / dur, 0, 1)),
       samples: drawnSamples(samplesOf(currentCycles(historyFor(a, kind, scope), resets))),
-      live: lockSpans(a, { kind: kind, scope: scope }, start, resets.getTime(), now).live, left: null
+      live: lockSpans(a, { kind: kind, scope: scope }, start, resets.getTime(), now).live
     };
   }
 
@@ -4879,11 +4796,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
       .concat(fams.map(function (f) { return { id: "scoped:" + f, kind: "weekly_scoped", scope: f, weekly: true }; }))
       .concat([{ id: "five_hour", kind: "five_hour", scope: "", weekly: false }]);
-    /* Both weekly windows are named by their length, as the 7-day one is. */
     views.forEach(function (v) { v.label = (v.kind === "weekly_scoped" ? "7d " : "") + windowShort(v); });
     var view = views.filter(function (v) { return v.id === histView; })[0] || views[0];
-    $("hist-sub").textContent = "each seat's use of one window across its recorded cycles, against its pace target up to each reset" +
-      (view.weekly ? " \u00B7 each finished cycle's reset marks what it left unused" : "");
 
     var bar = $("hist-view");
     bar.textContent = "";
@@ -4967,7 +4881,7 @@ th[aria-sort] button { color: var(--ink-1); }
       });
       return {
         a: a, col: seatColor(a), dur: dur, done: done, wins: wins, resets: resets, cur: cur,
-        head: { seat: seatLabel(a), col: seatColor(a), win: view.label, kind: view.kind, scope: view.scope, cap: view.kind === "weekly_scoped" },
+        head: { seat: seatLabel(a), col: seatColor(a), win: view.label, kind: view.kind, scope: view.scope },
         key: a.auth_id + ":hist:" + view.id
       };
     });
@@ -5045,7 +4959,7 @@ th[aria-sort] button { color: var(--ink-1); }
        every rise counted once and summed across resets, with "~" where an
        estimate is in it; then, on a weekly window, the resets in the range
        and what they left unused, or on the 5-hour one how often it reached
-       the limit; and how long the provider refused it there, on this window
+       full; and how long the provider refused it there, on this window
        or any other that bears on it, as the tape draws. The first
        reading on record starts the count and adds nothing to it. */
     function rangeRow(sd, t0, t1) {
@@ -5080,10 +4994,10 @@ th[aria-sort] button { color: var(--ink-1); }
       });
       var lines = [];
       if (view.weekly) {
-        lines.push({ t: !resets ? "no reset in range" : (resets === 1 ? "1 reset" : resets + " resets") +
-          (lostKnown ? ", " + pct(lost, 0) + " left unused" : "") });
+        lines.push({ t: !resets ? "no reset in view" : (resets === 1 ? "1 reset" : resets + " resets") +
+          (lostKnown ? ", " + pct(lost, 0) + " unused" : "") });
       } else {
-        lines.push({ t: hits ? "at the limit " + hits + "\u00D7" : "never at the limit" });
+        lines.push({ t: hits ? "full " + hits + "\u00D7" : "never full" });
       }
       if (refused >= 60000) lines.push({ t: "refused for " + durText(Math.round(refused / 1000)) });
       return { a: sd.a, figure: (est ? "~" : "") + pct(used, 0), meter: null, lines: lines,
@@ -5092,7 +5006,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
     /* The rows' figures summed over every seat: the budget used in the range,
        in seats' windows, and the resets and what they left unused, or the
-       times at the limit, and the refused time, each summed seat by seat. */
+       times at full, and the refused time, each summed seat by seat. */
     function rangeTotal(rows) {
       var t = { used: 0, est: false, hits: 0, resets: 0, lost: 0, lostKnown: true, refused: 0 };
       rows.forEach(function (r) {
@@ -5102,10 +5016,10 @@ th[aria-sort] button { color: var(--ink-1); }
       });
       var lines = [];
       if (view.weekly) {
-        lines.push({ t: !t.resets ? "no reset in range" : (t.resets === 1 ? "1 reset" : t.resets + " resets") +
-          (t.lostKnown ? ", " + pct(t.lost, 0) + " left unused" : "") });
+        lines.push({ t: !t.resets ? "no reset in view" : (t.resets === 1 ? "1 reset" : t.resets + " resets") +
+          (t.lostKnown ? ", " + pct(t.lost, 0) + " unused" : "") });
       } else {
-        lines.push({ t: t.hits ? "at the limit " + t.hits + "\u00D7" : "never at the limit" });
+        lines.push({ t: t.hits ? "full " + t.hits + "\u00D7" : "never full" });
       }
       if (t.refused >= 60000) lines.push({ t: "refused for " + durText(Math.round(t.refused / 1000)) + " across seats" });
       return { label: "All seats", figure: (t.est ? "~" : "") + pct(t.used, 0), lines: lines };
@@ -5132,9 +5046,9 @@ th[aria-sort] button { color: var(--ink-1); }
       var root = svg("svg", {
         "class": "pace hist-tl", width: W, height: TOTAL, viewBox: "0 0 " + W + " " + TOTAL,
         role: "group", tabindex: 0, "data-fk": "hist-chart:" + view.id,
-        "aria-label": "Each seat's " + view.label + " utilization over time with its pace target, " +
+        "aria-label": view.label + " use over time with its target, " +
           absTime(new Date(t0)) + " to " + absTime(new Date(t1)) +
-          "; drag the plot or the strip under it to move, arrow keys to step, plus and minus to zoom, End to return to now"
+          ". Drag the plot or the strip below to pan; arrow keys step, plus and minus zoom, End returns to now."
       }, host);
       var defs = svg("defs", {}, root);
       var clip = svg("clipPath", { id: "hist-clip" }, defs);
@@ -5246,7 +5160,7 @@ th[aria-sort] button { color: var(--ink-1); }
       timeAxis(root, tMin, tMax, XN, pw, NAV_TOP, NAV_TOP + NAV_H, NAV_TOP + NAV_H + 15, false);
 
       var rangeRows = data.map(function (sd) { return rangeRow(sd, t0, t1); });
-      seatList(list, view.label, "use in the range shown, summed across resets; 100% is one seat's window",
+      seatList(list, view.label, "use in view, summed across resets; 100% is one full window",
         rangeRows, function () { return histGeo && histGeo.root; }, rangeTotal(rangeRows));
 
       histGeo = {
@@ -5271,8 +5185,8 @@ th[aria-sort] button { color: var(--ink-1); }
 
     [
       ["━", "recorded"],
-      ["╌", "pace target to the reset (finished cycles fainter)"],
-      ["○", "a cycle's reset and its faint fall" + (view.weekly ? ", with the budget it left unused" : "")],
+      ["╌", "target"],
+      ["○", "reset"],
       ["│", "midnight"],
       ["▒", "weekend"],
       ["●", "now"]
@@ -5431,7 +5345,7 @@ th[aria-sort] button { color: var(--ink-1); }
      where it holds the seat off the family, else the most severe lane state
      among the windows that apply to the family, which is the state the
      timeline draws on the same seat. A hold with no reset to name reads as
-     not evaluated, which is the glyph the timeline gives a window it could
+     not scored, which is the glyph the timeline gives a window it could
      not read. */
   function seatState(a, fam) {
     var sc = famScore(a, fam);
@@ -5449,9 +5363,9 @@ th[aria-sort] button { color: var(--ink-1); }
     return worst;
   }
 
-  /* One clause of the formula: a window's gap at its weight. */
+  /* One term of the formula: a window's gap at its weight. */
   function termClause(name, weight) {
-    return "the " + name + " gap at " + weightWord(weight) + " weight";
+    return name + " gap" + weightTag(weight);
   }
 
   /* The sum a listed cost is, in the weights the plugin is running with: the
@@ -5470,7 +5384,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var std = [];
     if (termShown(wts.weekly_weight)) std.push(termClause(WEEKLY_SHORT, wts.weekly_weight));
     if (termShown(wts.session_weight)) {
-      std.push(termClause(SESSION_SHORT, wts.session_weight) + ", which is not on this chart");
+      std.push(termClause(SESSION_SHORT, wts.session_weight) + " (not on this chart)");
     }
     function line(name, text) {
       if (host.childNodes.length) host.appendChild(document.createTextNode(" · "));
@@ -5480,27 +5394,26 @@ th[aria-sort] button { color: var(--ink-1); }
     /* A view of one cap states its cost whole, and says where the terms its
        plot does not draw are drawn. */
     var stdShown = shows(view, STANDARD);
-    if (stdShown) line("Standard cost", std.length ? "= " + std.join(", plus ") : "= 0: no window that applies to it carries weight");
+    if (stdShown) line("Standard cost", std.length ? "= " + std.join(" + ") : "= 0: no window carries weight");
     fams.forEach(function (fam) {
       if (!shows(view, fam)) return;
       var scoped = famPace(st, fam).scoped_weight;
       if (!termShown(scoped)) {
-        line(fam + " cost", stdShown ? "is the same figure: the cap weighs nothing in it"
-          : "= the Standard cost: the cap weighs nothing in it");
+        line(fam + " cost", "= Standard cost (cap weighs nothing)");
         return;
       }
-      var cap = termClause(fam + " cap's", scoped);
-      line(fam + " cost", std.length ? "= " + (stdShown ? "that" : std.join(", plus ")) + ", plus " + cap : "= " + cap);
+      var cap = termClause(fam + " cap", scoped);
+      line(fam + " cost", "= " + (std.length ? (stdShown ? "Standard cost" : std.join(" + ")) + " + " : "") + cap);
     });
-    /* The close says who wins, and with no seat eligible in any family shown
-       it says that no cost can: the ranking then orders seats that cannot
-       take work. */
+    /* A view of one cap points to where the weekly terms its plot does not
+       draw are drawn. The close says who wins, and with no seat eligible in
+       any family shown it says that: the ranking then orders seats that
+       cannot take work. */
     var anyLead = ranks.fams.some(function (fam) { return shows(view, fam) && !!ranks.lead[fam]; });
-    var labels = stdShown || !termShown(wts.weekly_weight)
-      ? "the gaps are the labels beside the marks"
-      : "the labels beside the marks are the cap's gaps, and the Standard view plots the " + WEEKLY_SHORT + " gaps";
-    host.appendChild(document.createTextNode(" · " + labels + " · " +
-      (anyLead ? "the lowest eligible cost wins" : "no seat is eligible, so no cost wins until one is")));
+    if (!stdShown && termShown(wts.weekly_weight)) {
+      host.appendChild(document.createTextNode(" · the " + WEEKLY_SHORT + " gaps are on the Standard view"));
+    }
+    host.appendChild(document.createTextNode(" · " + (anyLead ? "lowest eligible cost wins" : "no seat eligible")));
   }
 
   /* The legend's state mark: the state's colour, its pattern, and its glyph,
@@ -5535,14 +5448,15 @@ th[aria-sort] button { color: var(--ink-1); }
     var head = h("p", "rank-fam-head pin");
     head.appendChild(h("span", "rank-fam-name", rankLabel(fam)));
     /* With no seat left to take the family the head says where the work
-       goes, in the live bar's own words: the overflow tier where the log
-       shows traffic on one, else the seat with the fewest live
-       conversations. */
-    if (!known) head.appendChild(h("span", "rank-fam-note", "ranking unknown this refresh"));
+       goes, in the live bar's own words: the fallback credential where the
+       log shows traffic on one, else the seat the scheduler's least-bound
+       pick takes. */
+    if (!known) head.appendChild(h("span", "rank-fam-note", "ranking unknown · fetch failed"));
     else if (!ranks.lead[fam]) {
       head.appendChild(overflowInLog(st)
         ? tipOnly(h("span", "rank-fam-note", OVERFLOW_TEXT), OVERFLOW_TIP)
-        : h("span", "rank-fam-note", "no seat is eligible · the seat with the fewest live conversations takes the next new conversation"));
+        : h("span", "rank-fam-note", "no seat eligible · new conversations go to the seat with the fewest live ones, " +
+          "refused and full seats last"));
     }
     block.appendChild(head);
     if (!known) return block;
@@ -5593,7 +5507,7 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     var ul = h("ul", "rank-list");
-    ul.setAttribute("aria-label", rankLabel(fam) + " requests, every seat by cost, lowest first");
+    ul.setAttribute("aria-label", rankLabel(fam) + " ranking, lowest cost first");
     order.forEach(function (a) {
       var sc = famScore(a, fam), li = h("li", "rank-row");
       var rank = ranks.byFam[fam][a.auth_id];
@@ -5627,16 +5541,15 @@ th[aria-sort] button { color: var(--ink-1); }
           var rounded = same.filter(function (o) { return costOf(o) !== mine; });
           var notes = [];
           if (tied.length) {
-            notes.push("exactly the cost of " + tied.map(seatLabel).join(", ") +
-              ", so the rank breaks the tie on the seat id");
+            notes.push("tied exactly with " + tied.map(seatLabel).join(", ") + "; ranked by seat id");
           }
           if (rounded.length) {
-            notes.push("the same tenth as " + rounded.map(seatLabel).join(", ") +
-              ", whose unrounded cost differs");
+            notes.push("shows the same as " + rounded.map(seatLabel).join(", ") +
+              ", but the unrounded costs differ");
           }
           if (near.length) {
             notes.push("within rounding of " + near.map(seatLabel).join(", ") +
-              " · the rank compares the unrounded costs, so these figures need not run in rank order");
+              "; ranked on unrounded costs, so the figures can look out of order");
           }
           tipOnly(cost, notes.join(" · "));
           cost.setAttribute("data-fk", "cost:" + fam + ":" + a.auth_id);
@@ -5695,13 +5608,13 @@ th[aria-sort] button { color: var(--ink-1); }
     var list = all.slice(0, MAX_DECISIONS);
 
     if (!list.length) {
-      host.appendChild(h("p", "card-none", "No routing decisions yet."));
+      host.appendChild(h("p", "card-none", "No decisions yet."));
       return;
     }
 
     host.appendChild(h("p", "log-count", list.length < all.length
-      ? "showing " + list.length + " of " + all.length + " retained decisions"
-      : all.length + " routing decision" + (all.length === 1 ? "" : "s")));
+      ? "showing " + list.length + " of " + all.length
+      : all.length + " decision" + (all.length === 1 ? "" : "s")));
     var head = h("div", "log-head pin");
     head.setAttribute("aria-hidden", "true");
     ["time", "decision", "session", "model", "seat", ""].forEach(function (c) { head.appendChild(h("span", "", c)); });
@@ -5796,7 +5709,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var p = h("p", "");
       p.style.color = "var(--ink-2)";
       p.style.margin = "6px 0 0";
-      p.textContent = "No candidate scores recorded for this decision.";
+      p.textContent = "No costs recorded.";
       body.appendChild(p);
       return body;
     }
@@ -5804,7 +5717,7 @@ th[aria-sort] button { color: var(--ink-1); }
     tbl.appendChild(h("caption", "", "Candidate costs"));
     var thead = h("thead", "");
     var hr = h("tr", "");
-    ["Seat", "Cost", "Eligibility", "By window (" + SIGN_KEY + ")"].forEach(function (c, i) {
+    ["Seat", "Cost", "Eligibility", "Gap by window (+ over · − under target)"].forEach(function (c, i) {
       var th = h("th", i === 1 ? "n" : "", c);
       hr.appendChild(th);
     });
@@ -5884,7 +5797,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var rows = visibleBindings(st);
 
     if (!rows.length) {
-      host.appendChild(h("p", "card-none", "No conversation is pinned to a seat."));
+      host.appendChild(h("p", "card-none", "No bindings."));
       return;
     }
 
@@ -6035,9 +5948,8 @@ th[aria-sort] button { color: var(--ink-1); }
        public status route reduces the config to the pace block, so usually
        only the authenticated one does. */
     var every = st.config && st.config.quota ? st.config.quota.poll_interval : 0;
-    $("sync-now").setAttribute("data-tip", "reads every seat's usage now" +
-      (num(every) && every > 0 ? " · the poller reads every " + durText(Math.round(every / 1e9)) : "") +
-      " · at most one forced read every 10s");
+    $("sync-now").setAttribute("data-tip", "Reads every seat's usage now (at most once per 10s" +
+      (num(every) && every > 0 ? "; the poller reads every " + durText(Math.round(every / 1e9)) : "") + ").");
 
     renderPicks(st, ranks);
 
@@ -6045,9 +5957,8 @@ th[aria-sort] button { color: var(--ink-1); }
        seat carries one rank per family. */
     var fams = scopedFamilies(st);
     $("seats-sub").textContent = fams.length
-      ? "one row per seat, in name order, ranked for Standard and " + fams.join(", ") +
-        " requests; each family's #1 eligible seat takes its next new conversation"
-      : "one row per seat, in name order; the #1 eligible seat takes the next new conversation";
+      ? "seats by name · each family's #1 takes its next new conversation"
+      : "seats by name · #1 takes the next new conversation";
   }
 
   /* Where the next new conversation lands, one line per request family and
@@ -6055,11 +5966,11 @@ th[aria-sort] button { color: var(--ink-1); }
      leave the reader to work out which ranking it won. A family whose ranking
      is unknown this refresh reads as unknown, never as the last answer. With
      no seat left to take the family and the log showing traffic on an
-     ungoverned credential, the requests are landing on that overflow tier
-     rather than failing, and the line says so. With no eligible seat and no
-     overflow tier the seat carrying the fewest live conversations still takes
-     it: the scheduler picks past its own pace rather than refuse the
-     request. */
+     ungoverned credential, the requests are landing on that fallback
+     credential rather than failing, and the line says so. With no eligible
+     seat and no fallback credential the seat carrying the fewest live
+     conversations still takes it: the scheduler picks past its own pace
+     rather than refuse the request. */
   /* Why no seat can take this family, in the space of one narrow line. The
      reason every seat shares is the fact worth reading: a refusal says the
      provider is turning the work away and when it comes back, a window at full
@@ -6079,14 +5990,12 @@ th[aria-sort] button { color: var(--ink-1); }
     return holdText(only[0], returnsAt(st, fam), nowMs());
   }
 
-  /* A hold in the page's words: a refusal reads as rate-limited and a window
-     at full as spent, each with the instant it lifts where one is known;
-     every other reason promises no return, so it stands alone. */
+  /* A hold in the page's words, with the instant it lifts where one is known
+     for a refusal or a window at full; every other reason promises no
+     return, so it stands alone. */
   function holdText(reason, back, now) {
-    var when = back ? " · " + resetText(back, now) : "";
-    if (reason === "provider-rejected") return "rate-limited" + when;
-    if (reason === "spent") return "spent" + when;
-    return reasonText(reason);
+    var when = back && (reason === "provider-rejected" || reason === "spent") ? " · " + resetText(back, now) : "";
+    return reasonText(reason) + when;
   }
 
   /* The word a seat's cross carries: a credential the host has disabled is
@@ -6138,10 +6047,9 @@ th[aria-sort] button { color: var(--ink-1); }
      the host's own selector, which this page cannot see into. The bar says
      so in the place a reader looks for the pick, so a ranking the plugin
      still computes is never mistaken for one it applies. */
-  var DISABLED_TEXT = "plugin disabled · the host's own selector routes";
-  var DISABLED_TIP = "plugins.configs.claude-seat-pacer.enabled is false: the plugin still reads usage " +
-    "and ranks the seats for this page, but it declines every pick, so the host routes each request " +
-    "by its own priority order and no conversation is pinned to a seat.";
+  var DISABLED_TEXT = "plugin disabled · host routes every request";
+  var DISABLED_TIP = "plugins.configs.claude-seat-pacer.enabled is false, or that block does not parse. " +
+    "The host routes every request by its own priority and binds nothing; this page still ranks the seats.";
 
   function renderPicks(st, ranks) {
     var next = $("next-pick");
@@ -6424,12 +6332,12 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* The late reply, in words as well as in the amber line: the sync readout
      says the figures are the last reply's, and the note is spoken once. */
-  var STALE_TEXT = "reply late · showing the last reply";
+  var STALE_TEXT = "reply late · showing last reply";
   function setStale(on) {
     var was = document.documentElement.getAttribute("data-stale") === "true";
     if (on) document.documentElement.setAttribute("data-stale", "true");
     else document.documentElement.removeAttribute("data-stale");
-    if (on !== was) $("stale-note").textContent = on ? "Status reply is late; the page shows the last reply." : "";
+    if (on !== was) $("stale-note").textContent = on ? "Status reply late; showing the last reply." : "";
     setLive();
   }
 
@@ -6443,9 +6351,9 @@ th[aria-sort] button { color: var(--ink-1); }
     var st = state.data;
     var next = parseT(st && st.next_poll_at);
     host.textContent = "";
-    if (awaitingKey()) { host.textContent = "waiting for the management key"; return; }
+    if (awaitingKey()) { host.textContent = "waiting for key"; return; }
     if (document.documentElement.getAttribute("data-stale") === "true") { host.textContent = STALE_TEXT; return; }
-    if (state.paused) { host.textContent = "refresh paused"; return; }
+    if (state.paused) { host.textContent = "paused"; return; }
     if (!next) { host.textContent = st ? "first sync pending" : "—"; return; }
     host.appendChild(stamp(next, "", "sync"));
   }
@@ -6657,7 +6565,7 @@ th[aria-sort] button { color: var(--ink-1); }
            goes back to the form rather than retrying unseen on every tick. */
         if (HOST_MOUNT && !state.keyVerified) {
           ctl.abort();
-          holdForKey(e && e.status === 404 ? KEY_NO_API : "The page could not read its data (" + reason + "). Check the key and try again.");
+          holdForKey(e && e.status === 404 ? KEY_NO_API : "Could not load data (" + reason + "). Check the key and try again.");
           return;
         }
         setError(reason);
@@ -6713,7 +6621,7 @@ th[aria-sort] button { color: var(--ink-1); }
      already counted the failure, and a retry with the same key only counts
      another. 401 is the key; 403 is the address or a ban, and names which. */
   function refuseKey(e) {
-    holdForKey((e.status === 401 ? "The host did not accept that key: " : "The host refused this page: ") +
+    holdForKey((e.status === 401 ? "Key not accepted: " : "The host refused this page: ") +
       e.message + "." + KEY_BAN_NOTE);
   }
 
@@ -6737,8 +6645,8 @@ th[aria-sort] button { color: var(--ink-1); }
        or a zero-width space would fail in the browser before reaching the
        host. */
     if (/[^\x20-\x7e\xa0-\xff]/.test(key)) {
-      gateMsg.textContent = "That key holds a character a request header cannot carry, usually from copying it out of a " +
-        "document. Paste it again as plain text.";
+      gateMsg.textContent = "The key contains a character headers cannot carry, usually from copying it out of a " +
+        "document. Paste it as plain text.";
       return;
     }
     keyInput.value = "";
@@ -6760,6 +6668,13 @@ th[aria-sort] button { color: var(--ink-1); }
 
   var syncBtn = $("sync-now");
   syncBtn.addEventListener("click", function () { refresh(true, true); });
+
+  /* The card's button is hidden with the card, so focus goes to the seats it
+     brought back. */
+  $("show-all-seats").addEventListener("click", function () {
+    showAllSeats();
+    $("sec-seats").focus({ preventScroll: true });
+  });
 
   var toggle = $("refresh-toggle");
   toggle.addEventListener("click", function () {
