@@ -2,8 +2,9 @@
 // synthetic seats or of a recorded history file, so the page can be developed
 // and screenshotted without a CLIProxyAPI host.
 //
-// It is a development harness: it binds to loopback only and never reads a
-// real credential.
+// It is a development harness: it binds to loopback only. Only the replay
+// scenario reads an install's files: its history file, the page-id.key beside
+// it, and each seat's note and email from its credential file, never a token.
 package main
 
 import (
@@ -227,6 +228,9 @@ type fixture struct {
 	// SyncNow moves it. The polling loop's own schedule is untouched by one,
 	// the way the plugin leaves its timer alone.
 	forcedAt atomic.Int64
+	// idKeyFile is the published-id key file, empty for a key of the
+	// process's own.
+	idKeyFile string
 }
 
 // SyncNow reports whether it read, and reads at most once every
@@ -540,7 +544,7 @@ func (f *fixture) buildDecisions() []model.Decision {
 		{ago: 9 * time.Minute, kind: model.DecisionColdPick, key: "e30c95814bf7a2d6", modelID: modelOpus, chosen: seatAID, scored: true},
 		{ago: 11 * time.Minute, kind: model.DecisionAffinityHit, key: "a91d33e0c7b45f28", modelID: modelFable, chosen: seatAID},
 		{ago: 12 * time.Minute, kind: model.DecisionDeclined, key: "0a5f7ce2b4318d9f", modelID: modelFable,
-			note: "every snapshot was older than max-staleness"},
+			note: "no eligible candidate"},
 		{ago: 13 * time.Minute, kind: model.DecisionAffinityHit, key: "77b0fe4c1a8d6392", modelID: modelFable, chosen: seatBID},
 		{ago: 14 * time.Minute, kind: model.DecisionColdPick, key: "1de77a2b98c30541", modelID: modelSonnet, chosen: seatAID, scored: true},
 		{ago: 16 * time.Minute, kind: model.DecisionAffinityHit, key: "c4408b1ef6d92a70", modelID: modelOpus, chosen: seatBID, subagent: true},
@@ -647,7 +651,7 @@ func (f *fixture) exhaustedDecisions() []model.Decision {
 		out = append(out, model.Decision{
 			At: at, SessionKey: keys[i], Model: modelFable, Provider: "claude",
 			ChosenAuthID: seat, Kind: model.DecisionAffinityHit,
-			Note:   "binding kept; every seat is rate-limited for this model",
+			Note:   "binding kept; no other seat can take this model",
 			Scores: f.rankAt(f.snapshots, ids, modelFable, at),
 		})
 	}
@@ -891,7 +895,7 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 		switch kind {
 		case model.DecisionDeclined:
 			d.Model = requested
-			d.Note = "every snapshot was older than max-staleness"
+			d.Note = "no eligible candidate"
 		case model.DecisionColdPick:
 			d.Model = requested
 			d.Scores = f.rankAt(f.snapshots, ids, d.Model, at)

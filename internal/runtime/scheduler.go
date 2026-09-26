@@ -172,7 +172,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 		}
 	}
 	if in.identity.Key == "" && !usable {
-		return decline("no session key and no usable quota snapshot")
+		return decline("no session key and no usable quota reading")
 	}
 	in.scores = pace.RankWithStaleness(cfg, in.snaps, in.candidates, req.Model, now)
 
@@ -201,7 +201,7 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 			return p.decide(in, model.Decision{
 				ChosenAuthID: parent.AuthID,
 				Kind:         model.DecisionAffinityHit,
-				Note:         "pinned to parent session",
+				Note:         "follows the parent session",
 			}), true
 		}
 	}
@@ -238,7 +238,7 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 				Scores:       in.scores,
 			}), true
 		}
-		return p.pickCold(in, bound.AuthID, "bound credential is rate-limited for this model"), true
+		return p.pickCold(in, bound.AuthID, "bound credential is refused for this model"), true
 	}
 	best, hasBest := pace.Best(in.scores)
 	if hasBest && best.AuthID != bound.AuthID && !in.cfg.Affinity.OverrideThreshold &&
@@ -253,7 +253,7 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 	// the status view only marks the deliberate case.
 	note := ""
 	if score := in.scoreOf(bound.AuthID); !score.Eligible && score.Reason == model.ReasonSpent {
-		note = "binding kept; the seat is spent, and moving a live conversation costs a cache miss"
+		note = "binding kept; the seat is full, and moving a live conversation costs a cache miss"
 	}
 	return p.decide(in, model.Decision{
 		ChosenAuthID: bound.AuthID,
@@ -283,7 +283,7 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 	}
 	switch {
 	case in.identity.Key == "":
-		d.Note = joinNotes(d.Note, "no session key; not pinned")
+		d.Note = joinNotes(d.Note, "no session key; not bound")
 	case in.pinned:
 		d.Note = joinNotes(d.Note, "pinned request; binding left alone")
 	case in.cfg.Affinity.Enabled:

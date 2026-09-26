@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -27,10 +28,17 @@ type lockSpan struct {
 }
 
 // replay replaces the fixture's credentials with the seats of a recorded
-// history file as of now: one row per seat, labelled by its file name, its
-// history published through a real store, and its present reading taken from
-// the newest cycle of each window. Each window keeps the refusal spans the
-// file records, plus those locksPath names when it is set.
+// history file as of now: one row per seat, its history published through a
+// real store, and its present reading taken from the newest cycle of each
+// window. Each window keeps the refusal spans the file records, plus those
+// locksPath names when it is set.
+//
+// A seat is named as the host names it: by the note in its credential file,
+// read from the directory two above the history file's own, which is the
+// host's auth directory in a default install; a seat with no note, or whose
+// file is not there, is named by the page from its file name and address.
+// The page-id.key beside the history file is copied, so the seats' published
+// ids are the host page's.
 func (f *fixture) replay(historyPath, locksPath string, now time.Time) error {
 	var file struct {
 		Seats map[string][]model.WindowHistory `json:"seats"`
@@ -52,6 +60,10 @@ func (f *fixture) replay(historyPath, locksPath string, now time.Time) error {
 	f.bindings = nil
 	f.decisions = nil
 	f.replayed = map[string][]model.WindowHistory{}
+	if err := f.copyIDKey(filepath.Join(filepath.Dir(historyPath), "page-id.key")); err != nil {
+		return err
+	}
+	authDir := filepath.Dir(filepath.Dir(filepath.Dir(historyPath)))
 
 	ids := make([]string, 0, len(file.Seats))
 	for id := range file.Seats {
@@ -59,14 +71,14 @@ func (f *fixture) replay(historyPath, locksPath string, now time.Time) error {
 	}
 	sort.Strings(ids)
 	for i, id := range ids {
-		label := strings.TrimSuffix(strings.TrimPrefix(id, "claude-"), ".json")
+		note, email := credentialName(filepath.Join(authDir, id))
 		saved := file.Seats[id]
 		for j := range saved {
 			saved[j].Locks = mergeLocks(saved[j].Locks, locksOf(locks[id], saved[j].Kind, saved[j].Scope))
 		}
 		saved = before(saved, now)
 		snap := model.AuthSnapshot{
-			AuthID: id, AuthIndex: fmt.Sprint(i), Label: label,
+			AuthID: id, AuthIndex: fmt.Sprint(i), Label: note,
 			Source: model.SourceUsageEndpoint, ObservedAt: now,
 		}
 		// The spans go in after the snapshot, so the reading Put records at
@@ -87,12 +99,51 @@ func (f *fixture) replay(historyPath, locksPath string, now time.Time) error {
 		f.replayed[id] = store.History(id, quota.HistoryPublishMax, now)
 		f.snapshots[id] = snap
 		f.auths = append(f.auths, model.AuthStatus{
-			AuthID: id, Label: label, Name: id,
+			AuthID: id, Label: note, Name: id, Email: email,
 			Provider: "claude", Priority: 10, HostStatus: "active",
 		})
 	}
 	return nil
 }
+
+// credentialName reads a credential file's note and email and nothing else
+// from it; a file that is missing or unreadable yields neither.
+func credentialName(path string) (note, email string) {
+	var c struct {
+		Note  string `json:"note"`
+		Email string `json:"email"`
+	}
+	if readJSON(path, &c) != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(c.Note), c.Email
+}
+
+// copyIDKey copies the install's page-id.key to a file of the harness's own,
+// since the web layer rewrites a key file of the wrong length in place. An
+// install with no key file leaves the harness a key of its own.
+func (f *fixture) copyIDKey(path string) error {
+	key, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	tmp, err := os.CreateTemp("", "webdev-page-id-*.key")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.Write(key)
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		return werr
+	}
+	f.idKeyFile = tmp.Name()
+	return nil
+}
+
+// PageIDKeyFile names the key published ids are derived with.
+func (f *fixture) PageIDKeyFile() string { return f.idKeyFile }
 
 // presentWindow is a window's reading at now as its newest cycle leaves it: the
 // last sample's utilization under the cycle's reset. A reset already passed

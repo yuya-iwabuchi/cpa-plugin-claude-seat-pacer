@@ -31,13 +31,17 @@ because `-buildmode=c-shared` needs cgo. `go.mod` pins the patch release in its
 network: the usage client sends every request through an injected Doer, which
 tests stub. The two tests that drive a real CLIProxyAPI process skip unless
 `CPA_SOURCE_DIR` names a host checkout; `internal/runtime/WIRE.md` carries the
-invocation.
+invocation. The test that parses the status page's script skips where `node` is
+not installed.
 
 `go run ./cmd/webdev` serves the status page on `127.0.0.1:8377` from fixture
 seats, with `-scenario` choosing the pool it shows, so a page change can be
 seen without a host. `-scenario replay -history <file>` draws the seats of a
 recorded history file instead, `-at` renders it as of a recorded instant, and
-`-locks` adds refusal spans to the ones the file records. A locks file is a JSON
+`-locks` adds refusal spans to the ones the file records. Replaying an install's
+own `history.json` names each seat by its credential file's note, read from the
+directory two above the history file's own, and publishes ids keyed with a copy
+of the `page-id.key` beside it, as the host page does. A locks file is a JSON
 object keyed by credential id, each holding a list of spans
 `{"kind", "scope", "from", "to", "cut_by_success"}` with `from` and `to` in Unix
 seconds; `cut_by_success` marks a span a served request ended, and any other

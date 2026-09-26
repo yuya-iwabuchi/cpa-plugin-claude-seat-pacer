@@ -11,6 +11,9 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -331,6 +334,31 @@ func TestPageUndoesHostEscaping(t *testing.T) {
 	}
 }
 
+// TestPageScriptParses compiles the page's one inline script in node as a
+// browser compiles a classic script, since nothing else here parses it and a
+// script that throws on load leaves the page blank. It skips where node is
+// not installed.
+func TestPageScriptParses(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	i := bytes.Index(indexHTML, []byte("<script>"))
+	j := bytes.Index(indexHTML, []byte("</script>"))
+	if i < 0 || j < i {
+		t.Fatal("page has no inline script")
+	}
+	file := filepath.Join(t.TempDir(), "page.js")
+	if err := os.WriteFile(file, indexHTML[i+len("<script>"):j], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	compile := "new (require('vm').Script)(require('fs').readFileSync(process.argv[1], 'utf8'))"
+	if out, err := exec.Command(node, "-e", compile, file).CombinedOutput(); err != nil {
+		t.Fatalf("the page's script does not parse: %v\n%s", err, out)
+	}
+}
+
 func TestPageIsOffline(t *testing.T) {
 	t.Parallel()
 	page := get(t, testHandler(&stubSource{status: richStatus()}), "/").Body.String()
@@ -366,12 +394,13 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"page-foot", "plugin-facts", "next-pick", "seat-total", "seat-eligible", "snapshot-age",
 		"refresh-toggle", "theme-toggle", "sync-now",
 		"live-dot", "next-sync",
-		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "app",
+		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "hidden-state", "show-all-seats", "app",
 		"sec-seats", "seats-sub",
-		"timeline", "timeline-legend",
+		"timeline", "timeline-legend", "tl-cut-key",
 		"sec-pace", "pace-sub", "pace-curve", "pace-legend", "pace-missing", "pace-note",
 		"pace-formula", "pace-rank", "pace-view",
-		"sec-session", "session-sub", "session-chart", "session-legend", "session-missing", "session-focus", "session-note",
+		"sec-session", "session-sub", "session-chart", "session-legend", "session-missing", "session-focus", "session-note", "session-rank",
+		"sec-hist", "hist-sub", "hist-view", "hist-span", "hist-live", "hist-range", "hist-chart", "hist-rank", "hist-legend",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
 	}
@@ -1116,8 +1145,8 @@ func TestPublicTextKeepsPluginText(t *testing.T) {
 		"host v7.3.15 declared schema 1; plugin 0.1.0 built with go1.25.14",
 		"model claude-opus-4-6-20260212 is not governed; claude-fable-5 is",
 		"bound credential was not offered; retry after seat-b",
-		"no session key; not pinned",
-		"pinned to parent session",
+		"no session key; not bound",
+		"follows the parent session",
 		"provider claude: the host offers only seat-a (priority 10); the fallback tier (seat-b) takes no new conversation until the top tier runs out.",
 		"plugin is disabled by configuration; the host's own selector routes every request",
 		"run with routing.session-affinity: false and quota.poll-interval at 2m",

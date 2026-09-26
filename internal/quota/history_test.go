@@ -858,3 +858,89 @@ func TestImportKeepsAFallHeldOnEitherSide(t *testing.T) {
 		}
 	}
 }
+
+// resetFlap is a session window's reset as the provider answered it in
+// practice: for a few minutes after the reset it answers from either window,
+// the old one under its own reset, then its level again under the new reset,
+// before the fresh window's readings settle.
+func resetFlap(old time.Time) []struct {
+	at     time.Duration
+	u      float64
+	resets time.Time
+} {
+	fresh := old.Add(model.SessionDuration)
+	return []struct {
+		at     time.Duration
+		u      float64
+		resets time.Time
+	}{
+		{-40 * time.Minute, 0.40, old},
+		{time.Second, 0.66, old},
+		{19 * time.Second, 0.00, fresh},
+		{21 * time.Second, 0.66, old},
+		{30 * time.Second, 0.01, fresh},
+		{61 * time.Second, 0.02, fresh},
+		{62 * time.Second, 0.65, old},
+		{3 * time.Minute, 0.66, fresh},
+		{4*time.Minute + 2*time.Second, 0.64, fresh},
+		{6*time.Minute + 11*time.Second, 0.10, fresh},
+		{16 * time.Minute, 0.16, fresh},
+	}
+}
+
+// wantOneRoll checks a history holds the old window, ending at its level,
+// and then the fresh window alone, in at most `fresh` cycles that together
+// only rise from zero, with none of the old window's level in them.
+func wantOneRoll(t *testing.T, h model.WindowHistory, fresh int) {
+	t.Helper()
+	if n := len(h.Cycles); n < 2 || n > 1+fresh {
+		t.Fatalf("cycles = %+v, want the old window and at most %d fresh", h.Cycles, fresh)
+	}
+	if last := h.Cycles[0].Samples[len(h.Cycles[0].Samples)-1]; last.Utilization != 0.66 {
+		t.Errorf("old window ends at %v, want 0.66", last.Utilization)
+	}
+	prev := -1.0
+	for _, c := range h.Cycles[1:] {
+		for _, smp := range c.Samples {
+			if smp.Utilization < prev || smp.Utilization > 0.16 {
+				t.Fatalf("fresh window = %+v, want it to rise from zero to 0.16", h.Cycles[1:])
+			}
+			prev = smp.Utilization
+		}
+	}
+}
+
+func TestAResetTheProviderAnswersFromBothWindowsRollsOnce(t *testing.T) {
+	s := NewStore()
+	old := testNow.Add(-2 * time.Hour)
+	for _, r := range resetFlap(old) {
+		s.Put(endpointSnapshot("auth-1", old.Add(r.at), sessionAt(r.u, r.resets)))
+	}
+	wantOneRoll(t, historyOf(t, s, "auth-1", model.WindowSession), 1)
+}
+
+// TestAStoredResetFlapReplaysAsOneRoll covers a stored history that split a
+// reset flap into one cycle per answer, the settled readings in the last: a
+// replay folds the one-reading answers into the fresh window and drops the
+// old window's level, and the settled cycle stays a cycle of its own, since
+// a stored cycle of several readings is a boundary as recorded.
+func TestAStoredResetFlapReplaysAsOneRoll(t *testing.T) {
+	old := testNow.Add(-2 * time.Hour)
+	flap := resetFlap(old)
+	h := model.WindowHistory{Kind: model.WindowSession}
+	h.Cycles = append(h.Cycles, model.Cycle{ResetsAt: old, Samples: []model.Sample{
+		{At: old.Add(flap[0].at), Utilization: flap[0].u}, {At: old.Add(flap[1].at), Utilization: flap[1].u},
+	}})
+	for _, r := range flap[2 : len(flap)-1] {
+		h.Cycles = append(h.Cycles, model.Cycle{ResetsAt: r.resets, Samples: []model.Sample{{At: old.Add(r.at), Utilization: r.u}}})
+	}
+	settled := &h.Cycles[len(h.Cycles)-1]
+	last := flap[len(flap)-1]
+	settled.Samples = append(settled.Samples, model.Sample{At: old.Add(last.at), Utilization: last.u})
+	if len(h.Cycles) < 8 {
+		t.Fatalf("stored history = %+v, want the flap split across its answers", h.Cycles)
+	}
+	r := &ring{}
+	r.replay(h, testNow)
+	wantOneRoll(t, r.export(h.Kind, h.Scope, 0, testNow), 2)
+}
