@@ -420,7 +420,7 @@ func (r *ring) replay(h model.WindowHistory, loaded time.Time) {
 	r.compact()
 }
 
-// addCycles records recorded cycles in order without compacting. The first
+// addCycles replays recorded cycles in order without compacting. The first
 // cycle's samples pass through add like live readings, so they can continue
 // the ring's newest cycle. A later cycle opens a cycle of its own, since its
 // boundary was already decided when it was recorded, except within

@@ -1097,14 +1097,14 @@ th[aria-sort] button { color: var(--ink-1); }
       <div class="card tl-card">
         <div id="timeline"></div>
         <!-- Two lists: what a bar's fill says, then the marks drawn over it.
-             The lane states come from STATE_META and the sign key from
-             SIGN_KEY, both at render time; only the axis markers, which no
-             script draws, are markup. -->
+             The lane states come from STATE_META, the sign key from SIGN_KEY
+             and the curve key's words from CURVE_KEY, all at render time;
+             only the other axis markers, which no script draws, are markup. -->
         <div class="tl-legend" id="timeline-legend">
           <ul class="legend" id="timeline-states" aria-label="Window states"></ul>
           <ul class="legend" id="timeline-marks" aria-label="Axis marks">
             <li><span class="gl">&#9662;&#8202;&#9474;</span> target</li>
-            <li><span class="gl">&#8942;</span> curve (window weighs nothing)</li>
+            <li id="tl-curve-key"><span class="gl">&#8942;</span></li>
             <li><span class="gl">&#8943;</span> gap to target</li>
             <li><span class="gl">&#9474;</span> now</li>
             <li><span class="gl">&#9618;</span> weekend</li>
@@ -1404,16 +1404,8 @@ th[aria-sort] button { color: var(--ink-1); }
     return pts(gap) + (gap >= 0 ? " under target" : " over target");
   }
 
-  /* The 5-hour window's gap in words. Under the curve on this window is
-     headroom, and that is the only direction the word names. */
-  function headroomText(gap) {
-    if (!num(gap)) return "—";
-    return pts(gap) + (gap >= 0 ? " under the curve (headroom)" : " over the curve");
-  }
-
   /* The one sentence on the page that says what the sign means. Every legend
-     carrying a signed figure prints it, so no two can disagree. The 5-hour
-     chart names the under-target direction it keeps its own word for. */
+     carrying a signed figure prints it, so no two can disagree. */
   var SIGN_KEY = "+ over target · − under target";
 
   function absTime(d) {
@@ -2170,13 +2162,14 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     if (hs === "disabled" && !obs) {
       spec.lines.push({ t: "disabled in the host, so it is not read; re-enable it in the host's auth files" });
-    } else if (!obs) {
-      if (hs !== "active") spec.lines.push({ b: "host", t: hs });
+      return spec;
+    }
+    if (hs !== "active") spec.lines.push({ b: "host", t: hs });
+    if (!obs) {
       spec.lines.push({ t: "not read yet; it takes no new conversation until its first reading, usually within " +
         "one poll interval, and if it stays, check the host log for \u201Cusage fetch failed\u201D" });
-    } else {
-      if (hs !== "active") spec.lines.push({ b: "host", t: hs });
-      if (a.score && a.score.reason === "stale-snapshot") spec.lines.push({ t: "read " + relText(obs, now) });
+    } else if (a.score && a.score.reason === "stale-snapshot") {
+      spec.lines.push({ t: "read " + relText(obs, now) });
     }
     return spec;
   }
@@ -2253,23 +2246,15 @@ th[aria-sort] button { color: var(--ink-1); }
     return ws && num(ws.target) ? ws.target : null;
   }
 
-  /* The compact gap with its verdict: +N.N over target, −N.N under target,
-     or on pace inside the band. */
-  function paceVerdict(gap) {
-    if (!num(gap)) return "—";
-    if (Math.abs(gap) < PACE_BAND) return "on pace";
-    return overPts(gap) + (gap < 0 ? " over target" : " under target");
-  }
-
   function laneAria(a, w, ws, stt) {
+    var now = nowMs(), curve = openWindow(w) ? curveAt(w, ws, now) : null, resets = parseT(w.resets_at);
     return seatLabel(a) + ", " + windowName(w) + ", " +
-      (stt === "limit" && openWindow(w) && num(curveAt(w, ws, nowMs())) ? curveVerdict(w, curveAt(w, ws, nowMs())) + ", " : "") +
-      STATE_META[stt].label +
+      (stt === "limit" && num(curve) ? curveVerdict(w, curve) + ", " : "") + STATE_META[stt].label +
       (advisory(w, stt) ? ", headroom critical" : "") +
       ", " + pct(w.utilization) + " used" +
       (counted(ws) ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") +
-      (gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs())) ? ", curve " + pct(curveAt(w, ws, nowMs())) : "") +
-      (parseT(w.resets_at) ? ", " + resetText(parseT(w.resets_at), nowMs()) : "");
+      (gatedOnly(w, ws) && num(curve) ? ", curve " + pct(curve) : "") +
+      (resets ? ", " + resetText(resets, now) : "");
   }
 
   /* ------------------------------------------------------------ timeline */
@@ -2329,6 +2314,8 @@ th[aria-sort] button { color: var(--ink-1); }
       li.appendChild(document.createTextNode(" " + (meta.legend || meta.label)));
       host.appendChild(li);
     });
+    var curve = $("tl-curve-key");
+    if (curve.childNodes.length === 1) curve.appendChild(document.createTextNode(" " + CURVE_KEY));
     var marks = $("timeline-marks");
     if (!marks.querySelector("[data-sign]")) legendRow(marks, SW_SIGN, SIGN_KEY).setAttribute("data-sign", "true");
   }
@@ -2370,7 +2357,7 @@ th[aria-sort] button { color: var(--ink-1); }
     if (agree) {
       var one = parts[0];
       return [{ ok: one.ok, lead: one.lead, label: one.text, word: one.text,
-        lift: one.ok ? "" : pairText(fams, function (fam) { return famVerdict(a, fam, now).lift; }),
+        lift: one.ok ? "" : liftText(fams, a, now),
         tip: one.ok ? null : pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) }];
     }
     return parts.map(function (p) {
@@ -2379,15 +2366,21 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
+  /* When each family's hold lifts, for the families that name an instant:
+     one phrase where they agree. */
+  function liftText(fams, a, now) {
+    var named = fams.filter(function (fam) { return famVerdict(a, fam, now).lift; });
+    return named.length ? pairText(named, function (fam) { return famVerdict(a, fam, now).lift; }) : "";
+  }
+
   /* A chip's text as it is set: a cross before a hold, a rank bare. */
   function chipText(c) { return (c.ok ? "" : "✕ ") + c.label; }
 
   /* One chip on a seat's header row: a plate behind a short label, a hold's
      led by a cross, drawn at the origin so the caller can slide it beside the
-     name once that has been trimmed. A chip with a tip is a stop, described
-     by the tip to a pointer, a keyboard and a screen reader alike; one
-     without says nothing the row's own label does not, so it is out of the
-     reading. */
+     name once that has been trimmed. A chip with a tip is a stop named by
+     its tip, which the rich tooltip draws; one without says nothing the
+     row's own label does not, so it is out of the reading. */
   function seatChip(parent, y, a, c) {
     var g = svg("g", { "class": "fam" }, parent);
     if (c.lead) g.setAttribute("data-lead", "true");
@@ -2501,7 +2494,7 @@ th[aria-sort] button { color: var(--ink-1); }
     setTip(g, { seat: seatLabel(a), col: seatColor(a), win: windowShort(w), type: "reset", label: "resets",
       when: absTime(resets), lines: [] });
     g.setAttribute("data-tip-visual", "true");
-    g.setAttribute("aria-label", "resets " + absTime(resets));
+    g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(w) + ", resets " + absTime(resets));
     return g;
   }
 
@@ -2636,7 +2629,6 @@ th[aria-sort] button { color: var(--ink-1); }
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
       gh.setAttribute("aria-label", seatAria(a, ranks));
       setTip(gh, seatTip(a, ranks));
-      gh.setAttribute("data-tip-visual", "true");
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: gut - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
       var nameX = NAME_X;
@@ -2692,7 +2684,6 @@ th[aria-sort] button { color: var(--ink-1); }
         if (!resets || durMs <= 0 || X(resets.getTime()) <= gut) {
           g.setAttribute("aria-label", laneAria(a, w, ws, stt));
           setTip(g, laneTip(a, w, ws, stt, false, false));
-          g.setAttribute("data-tip-visual", "true");
           svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
           if (resets) resetStamp(gRow, cy, a, w, resets, rstX);
           return;
@@ -2705,7 +2696,6 @@ th[aria-sort] button { color: var(--ink-1); }
         if (!cutL && !cutR) bx1 = Math.max(bx1, bx0 + 8);
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
         setTip(g, laneTip(a, w, ws, stt, cutL, cutR));
-        g.setAttribute("data-tip-visual", "true");
 
         var barH = compact ? 11 : 13, by = cy - barH / 2;
 
@@ -4447,11 +4437,12 @@ th[aria-sort] button { color: var(--ink-1); }
       var locks5 = lockSpans(a, { kind: "five_hour" }, start, s.resets.getTime(), now);
       var estCur = 0;
       var hoursIn = clamp(hoursOf(now), 0, SESSION_HOURS), lastHour = rateText(recentSlope(s.cur, 3600000));
-      /* The tooltip gives the reading against the curve and any limit in
-         force; the name reads a fuller record, since it gets no second hover. */
+      /* The tooltip gives the reading against the target or the curve and
+         any limit in force; the name reads a fuller record, since it gets no
+         second hover. */
       var headAria = seatLabel(a) + ", 5-hour session, " + hoursIn.toFixed(1) + " of " + SESSION_HOURS + " hours elapsed" +
         ", " + pct(s.w.utilization) + " used" +
-        (counts ? (ws ? ", target " + pct(ws.target) + ", " + headroomText(ws.slack) : "") : num(along) ? ", curve " + pct(along) : "") +
+        (counts ? (ws ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") : num(along) ? ", curve " + pct(along) : "") +
         ", resets " + relText(s.resets, now) +
         ", last hour " + lastHour + liveAria(locks5.live, now);
       if (s.cur.length >= 2) {
@@ -4504,8 +4495,9 @@ th[aria-sort] button { color: var(--ink-1); }
       var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated" : "";
       setTip(hg, markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, along, counts ? "target" : "curve", locks5.live, now));
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
-      /* The tick is the gap to the curve at this seat's own elapsed, as on
-         the weekly chart; the present reading is always observed. */
+      /* Where the window counts, the tick is the gap to the target at this
+         seat's own elapsed, as on the weekly chart; the present reading is
+         always observed. */
       if (counts && ws && Math.abs(ws.slack) >= PACE_BAND) {
         head(hg, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), null);
       }
@@ -4919,7 +4911,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var resets = w ? parseT(w.resets_at) : null;
       wins.forEach(function (win, i) {
         var next = wins[i + 1], last = win.samples[win.samples.length - 1];
-        win.end = next ? fallAt(win, next) : Math.max(now, last.t);
+        win.end = next ? fallAt(win, next) : cur === null ? last.t : Math.max(now, last.t);
         win.endU = next || cur === null ? last.u : cur;
         var at = next ? win.at : resets ? resets.getTime() : win.at;
         /* A window starts a duration before its reset, or at its first
@@ -5194,7 +5186,7 @@ th[aria-sort] button { color: var(--ink-1); }
       if (now >= t0 && now <= t1) {
         var nx = X(now);
         svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2" }, root);
-        /* Set left of the line where it would run past the plot's edge. */
+        /* Set left of the line where it would run past the chart's edge. */
         var nearEdge = nx + 34 > m.l + pw + m.r;
         svgText(root, nearEdge ? nx - 5 : nx + 5, m.t - 4, "NOW", "t-mono",
           { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600, "text-anchor": nearEdge ? "end" : "start" });

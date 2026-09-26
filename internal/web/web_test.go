@@ -334,9 +334,10 @@ func TestPageUndoesHostEscaping(t *testing.T) {
 	}
 }
 
-// TestPageScriptParses runs the page's one inline script through node's
-// syntax check, since nothing else here parses it and a script that throws
-// on load leaves the page blank. It skips where node is not installed.
+// TestPageScriptParses compiles the page's one inline script in node as a
+// browser compiles a classic script, since nothing else here parses it and a
+// script that throws on load leaves the page blank. It skips where node is
+// not installed.
 func TestPageScriptParses(t *testing.T) {
 	t.Parallel()
 	node, err := exec.LookPath("node")
@@ -352,7 +353,8 @@ func TestPageScriptParses(t *testing.T) {
 	if err := os.WriteFile(file, indexHTML[i+len("<script>"):j], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command(node, "--check", file).CombinedOutput(); err != nil {
+	compile := "new (require('vm').Script)(require('fs').readFileSync(process.argv[1], 'utf8'))"
+	if out, err := exec.Command(node, "-e", compile, file).CombinedOutput(); err != nil {
 		t.Fatalf("the page's script does not parse: %v\n%s", err, out)
 	}
 }
