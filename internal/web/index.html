@@ -1640,7 +1640,7 @@ th[aria-sort] button { color: var(--ink-1); }
     on:      { color: "var(--info)",     glyph: "≈", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
     spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "bars" },
-    limit:   { color: "var(--ink-1)",    glyph: "◇", label: "weighs nothing in the cost" },
+    limit:   { color: "var(--ink-1)",    glyph: "◇", label: "under or above curve, weighs nothing" },
     blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "hatch" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not scored" }
   };
@@ -2235,6 +2235,10 @@ th[aria-sort] button { color: var(--ink-1); }
     var spec = { seat: seatLabel(a), col: seatColor(a), win: windowShort(w), type: "state", tone: meta.color,
       label: meta.label, when: resets ? resetText(resets, now) : "no open window", big: [pct(w.utilization, 0)], lines: [] };
     var curve = curveAt(w, ws, now);
+    if (stt === "limit") {
+      spec.label = curveVerdict(w, curve);
+      spec.lines.push({ t: "weighs nothing in the cost" });
+    }
     if (counted(ws)) {
       spec.delta = "vs " + pct(ws.target, 0) + " target";
       spec.lines.push({ t: paceVerdict(ws.slack) + (ws.weight !== 1 ? " · counts" + weightTag(ws.weight) + " in the cost" : "") });
@@ -2250,6 +2254,14 @@ th[aria-sort] button { color: var(--ink-1); }
     if (cutL || cutR) spec.lines.push({ t: cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
       "resets after the axis ends" });
     return spec;
+  }
+
+  /* A window the cost does not weigh, against its curve: under, on or above
+     it, as a paced window reads against its target. */
+  function curveVerdict(w, curve) {
+    if (!num(curve)) return "weighs nothing in the cost";
+    var gap = w.utilization - curve;
+    return Math.abs(gap) < PACE_BAND ? "on curve" : gap < 0 ? "under curve" : "above curve";
   }
 
   /* Where a window that the cost does not weigh stands on its curve now: the
@@ -2271,7 +2283,8 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   function laneAria(a, w, ws, stt) {
-    return seatLabel(a) + ", " + windowName(w) + ", " + STATE_META[stt].label +
+    return seatLabel(a) + ", " + windowName(w) + ", " +
+      (stt === "limit" ? curveVerdict(w, curveAt(w, ws, nowMs())) + ", weighs nothing in the cost" : STATE_META[stt].label) +
       (advisory(w, stt) ? ", headroom critical" : "") +
       ", " + pct(w.utilization) + " used" +
       (counted(ws) ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") +
