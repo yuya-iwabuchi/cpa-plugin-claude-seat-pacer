@@ -7,6 +7,10 @@ gopkg.in/yaml.v3. Their licence texts follow.
 Go standard library (https://go.dev)
 ================================================================
 
+The darwin/amd64 library links a Go runtime built from Go's source with
+.github/scripts/go-tls-slot.patch applied, which moves the runtime's
+goroutine pointer from thread-local slot 6 to slot 11.
+
 Copyright 2009 The Go Authors.
 
 Redistribution and use in source and binary forms, with or without

@@ -85,12 +85,19 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       # cgo cannot cross-compile here, so each platform builds natively and
-      # GOOS/GOARCH stay unset. The packager writes the zip and its sha256 line.
+      # GOOS/GOARCH stay unset. darwin/amd64 builds with a toolchain patched
+      # to keep the goroutine pointer out of the host runtime's TSD slot,
+      # compiled here from source. The packager writes the zip and its sha256
+      # line.
       - name: build and package
         shell: bash
         run: |
           library="dist/claude-seat-pacer.${{ matrix.ext }}"
-          CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "$library" .
+          if [ "${{ matrix.goos }}/${{ matrix.goarch }}" = darwin/amd64 ]; then
+            .github/scripts/build-darwin-amd64.sh "$library"
+          else
+            CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "$library" .
+          fi
           if [ "${{ matrix.goos }}" = darwin ]; then
             minos=$(otool -l "$library" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
             test "$minos" = "$MACOSX_DEPLOYMENT_TARGET" || { echo "library needs macOS $minos, want $MACOSX_DEPLOYMENT_TARGET"; exit 1; }
@@ -103,8 +110,30 @@ jobs:
           path: release/
           if-no-files-found: error
 
-  assemble:
+  # The darwin/amd64 library shares its process with the host's Go runtime,
+  # so it ships only after the official CLIProxyAPI darwin/amd64 build loads
+  # it on Intel hardware and survives a soak.
+  load-test:
+    name: load test (darwin/amd64)
     needs: package
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: darwin-amd64
+          path: staging
+      - name: load the packaged library into CLIProxyAPI
+        shell: bash
+        run: |
+          unzip -q staging/*.zip -d library
+          .github/scripts/load-test-darwin-amd64.sh library/claude-seat-pacer.dylib
+
+  assemble:
+    needs: [package, load-test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

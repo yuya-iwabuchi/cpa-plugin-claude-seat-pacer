@@ -70,9 +70,27 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # darwin/amd64 builds with the patched toolchain the release uses,
+      # cached under the Go version, the patch and the script that built it.
+      - name: read the pinned Go version
+        id: go
+        if: matrix.goos == 'darwin' && matrix.goarch == 'amd64'
+        shell: bash
+        run: echo "version=$(sed -n 's/^toolchain //p' go.mod)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.goos == 'darwin' && matrix.goarch == 'amd64'
+        with:
+          path: ${{ runner.temp }}/go-tls/go
+          key: go-tls-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.version }}-${{ hashFiles('.github/scripts/go-tls-slot.patch', '.github/scripts/build-darwin-amd64.sh') }}
       # -buildmode=c-shared needs cgo, and cgo has no cross toolchain here, so
       # every target builds on a runner of its own architecture. GOOS and
       # GOARCH stay unset for that reason: the native default is the target.
       - name: build
         shell: bash
-        run: CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "dist/claude-seat-pacer.${{ matrix.ext }}" .
+        run: |
+          library="dist/claude-seat-pacer.${{ matrix.ext }}"
+          if [ "${{ matrix.goos }}/${{ matrix.goarch }}" = darwin/amd64 ]; then
+            .github/scripts/build-darwin-amd64.sh "$library"
+          else
+            CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "$library" .
+          fi

@@ -20,11 +20,17 @@ ARCHIVE    := dist/$(NAME)_$(VERSION)_$(GOOS)_$(GOARCH).zip
 
 .PHONY: build test vet fmt check dist install release-tag clean
 
+# -trimpath keeps the builder's filesystem paths out of the library's file
+# table; the shipped artifact names only module paths. A darwin/amd64 library
+# built with stock Go shares the host runtime's goroutine slot and crashes the
+# host, so that target builds with the patched toolchain the script compiles.
 build:
 	@mkdir -p $(dir $(OUT))
-# -trimpath keeps the builder's filesystem paths out of the library's file
-# table; the shipped artifact names only module paths.
+ifeq ($(GOOS)/$(GOARCH),darwin/amd64)
+	.github/scripts/build-darwin-amd64.sh $(OUT)
+else
 	CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o $(OUT) .
+endif
 	@echo "built $(OUT)"
 
 test:
