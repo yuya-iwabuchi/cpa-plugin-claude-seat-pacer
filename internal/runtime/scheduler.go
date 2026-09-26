@@ -172,7 +172,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 		}
 	}
 	if in.identity.Key == "" && !usable {
-		return decline("no session key and no usable quota snapshot")
+		return decline("no session key and no usable quota reading")
 	}
 	in.scores = pace.RankWithStaleness(cfg, in.snaps, in.candidates, req.Model, now)
 

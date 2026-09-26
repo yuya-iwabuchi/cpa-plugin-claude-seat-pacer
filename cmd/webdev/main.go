@@ -651,7 +651,7 @@ func (f *fixture) exhaustedDecisions() []model.Decision {
 		out = append(out, model.Decision{
 			At: at, SessionKey: keys[i], Model: modelFable, Provider: "claude",
 			ChosenAuthID: seat, Kind: model.DecisionAffinityHit,
-			Note:   "binding kept; every seat is refused for this model",
+			Note:   "binding kept; no other seat can take this model",
 			Scores: f.rankAt(f.snapshots, ids, modelFable, at),
 		})
 	}

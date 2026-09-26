@@ -39,7 +39,7 @@ seen without a host. `-scenario replay -history <file>` draws the seats of a
 recorded history file instead, `-at` renders it as of a recorded instant, and
 `-locks` adds refusal spans to the ones the file records. Replaying an install's
 own `history.json` names each seat by its credential file's note, read from the
-directory two above the history file, and publishes ids keyed with a copy of
+directory two above the history file's own, and publishes ids keyed with a copy of
 the `page-id.key` beside it, as the host page does. A locks file is a JSON
 object keyed by credential id, each holding a list of spans
 `{"kind", "scope", "from", "to", "cut_by_success"}` with `from` and `to` in Unix

@@ -5,7 +5,7 @@ Uses up each Claude seat's weekly quota before it resets, and keeps every conver
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png">
-  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats ranked by pace score with the winner highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
+  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats ranked by cost with the winner highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
 </picture>
 
 ## Why
@@ -204,8 +204,8 @@ conversation's binding alone.
 ## Status page
 
 The Management Center gains a "Claude Seat Pacer" entry showing each seat's
-windows, utilization history, pace score and eligibility for a chosen model,
-the live bindings per seat, recent decisions with their scores, and a warning
+windows, utilization history, cost and eligibility for a chosen model,
+the live bindings per seat, recent decisions with each seat's cost, and a warning
 for anything that leaves the plugin inert or degraded.
 
 The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
