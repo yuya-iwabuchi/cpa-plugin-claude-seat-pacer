@@ -749,7 +749,7 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 .ol-total-name { font-weight: 600; font-size: 12px; color: var(--ink-1); }
 svg.hist-tl path.hs-target { fill: none; stroke-width: 1; stroke-dasharray: 5 4; opacity: .7; }
 svg.hist-tl path.hs-reset { fill: none; stroke-width: 1; stroke-dasharray: 1 3; opacity: .3; }
-svg.hist-tl rect.hs-weekend { fill: var(--ink-3); opacity: .09; }
+svg.hist-tl rect.hs-weekend, svg.tl rect.hs-weekend { fill: var(--ink-3); opacity: .09; }
 svg.hist-tl path.hs-target.hs-past { opacity: .28; }
 svg.hist-tl rect.hs-future { fill: var(--emph); }
 
@@ -1099,6 +1099,7 @@ th[aria-sort] button { color: var(--ink-1); }
             <li><span class="gl">&#8942;</span> curve (window weighs nothing)</li>
             <li><span class="gl">&#8943;</span> gap to target</li>
             <li><span class="gl">&#9474;</span> now</li>
+            <li><span class="gl">&#9618;</span> weekend</li>
             <li><span class="sw sw-cut"></span> runs past the axis</li>
           </ul>
         </div>
@@ -2286,13 +2287,12 @@ th[aria-sort] button { color: var(--ink-1); }
      own text steps one ink token down instead. */
   var MARK_DIM = 0.62;
 
-  /* Row geometry, at the two densities the timeline draws. A roomy seat row
-     has a second line for its live figures; a compact one keeps them in the
-     tooltip. */
+  /* Row geometry, at the two densities the timeline draws. A seat's live
+     figures are in its tooltip at either. */
   var TL_REACH = 7 * 86400000, TL_FADE = 7;
   var TL_GEO = {
-    roomy:   { head: 38, lane: 21, gap: 10, name: 13.5, sub: true },
-    compact: { head: 26, lane: 21, gap: 8,  name: 12.5, sub: false }
+    roomy:   { head: 28, lane: 21, gap: 10, name: 13.5 },
+    compact: { head: 26, lane: 21, gap: 8,  name: 12.5 }
   };
 
   /* The lane states are one list: the legend, the glyph, the tooltip, the
@@ -2528,7 +2528,7 @@ th[aria-sort] button { color: var(--ink-1); }
        whole and its chips — up to GUT_SHARE of the width, and never less
        than its floor; so a seat named by its account address reads whole
        wherever the card is wide enough, and the plot keeps the larger part
-       everywhere. The header's weekly gap takes only the room left over. */
+       everywhere. */
     var gut = GUT;
     seats.forEach(function (a) {
       var need = NAME_X + textW(root, seatLabel(a), { "font-size": geo.name, "font-weight": 600 }) + 8;
@@ -2565,6 +2565,13 @@ th[aria-sort] button { color: var(--ink-1); }
       new Date(t0).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " to " +
       new Date(t1).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
       ", one gridline per day, dated every " + (perLabel === 1 ? "day" : perLabel + " days"));
+    /* Saturdays and Sundays, as on the Over time chart. */
+    for (var wd = new Date(t0).setHours(0, 0, 0, 0); wd < t1; wd = midnightAfter(wd)) {
+      var dow = new Date(wd).getDay();
+      if (dow !== 0 && dow !== 6) continue;
+      var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
+      svg("rect", { "class": "hs-weekend", x: wx0, y: 0, width: Math.max(0, wx1 - wx0), height: plotH }, gGrid);
+    }
     for (var d = day.getTime(), di = 0; d <= t1; d += 86400000, di++) {
       var gx = X(d);
       svg("line", { x1: gx, x2: gx, y1: 0, y2: plotH, stroke: "var(--rule)", "stroke-width": 1 }, gGrid);
@@ -2596,12 +2603,11 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: identity, then rank or hold per request family, and
-         the weekly gap in the gutter, its live figures on a second line where
-         there is room, and the whole record in the tooltip. Every name starts
-         at NAME_X, so the names read down the page as one column. The name is
-         trimmed to the measured space, so the tooltip is also where a long
-         name is read whole. */
+      /* The seat's row: identity, then rank or hold per request family, with
+         the whole record in the tooltip. Every name starts at NAME_X, so the
+         names read down the page as one column. The name is trimmed to the
+         measured space, so the tooltip is also where a long name is read
+         whole. */
       var headY = row.top + (compact ? 17 : 18);
       var gRow = svg("g", { "class": "row" }, gRows);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gRow);
@@ -2622,22 +2628,13 @@ th[aria-sort] button { color: var(--ink-1); }
       var chipsW = 0;
       chips.forEach(function (c) { chipsW += c.w + 6; });
 
-      /* Eligible everywhere: the weekly gap to target closes the row where
-         the name keeps its whole width beside it. It gives way before the
-         name does, because it is on the 7-day lane below in any case. */
-      var anywhere = fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
-      var tail = svgText(gh, gut - 14 - HIDE_RES, headY, anywhere ? weeklyGapText(a.score) : "",
-        "t-mono t-sec", { "font-size": 11, "text-anchor": "end" });
-      var room = gut - nameX - chipsW - 18 - HIDE_RES;
-      if (room - tail.getComputedTextLength() < nameEl.getComputedTextLength()) tail.textContent = "";
-      fitText(nameEl, room - tail.getComputedTextLength());
+      fitText(nameEl, gut - nameX - chipsW - 18 - HIDE_RES);
       var cx = nameX + nameEl.getComputedTextLength() + 8;
       chips.forEach(function (c) {
         c.g.setAttribute("transform", "translate(" + cx + ",0)");
         cx += c.w + 6;
       });
 
-      if (geo.sub) seatSubLine(gh, nameX, headY + 14, a, gut - nameX - 14 - HIDE_RES);
       hideControl(gRow, gut - 14 - HIDE_W, headY - 4, a);
 
       var markOpacity = eligible ? 1 : MARK_DIM;
@@ -2760,38 +2757,6 @@ th[aria-sort] button { color: var(--ink-1); }
     svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
     var bars = svg("pattern", { id: "bars", width: 4, height: 4, patternUnits: "userSpaceOnUse" }, defs);
     svg("rect", { x: 0, y: 0, width: 1.6, height: 4, fill: "var(--surface-1)", opacity: .9 }, bars);
-  }
-
-  /* The second line of a roomy seat row, least important figure last, so a
-     line that overruns the gutter loses figures from the end; the tooltip
-     keeps every one. The reading's age is a ticking stamp. */
-  function seatSubLine(parent, x, y, a, maxW) {
-    var snap = a.snapshot || {};
-    var hs = a.host_status || "unknown";
-    var obs = parseT(snap.observed_at);
-    var hr = hitRate(a.cache);
-    var parts = [];
-    if (hs !== "active") parts.push({ t: "host " + hs });
-    if (snap.err || snap.err_category) parts.push({ t: "⚠ " + (snap.err_category || "read failing") });
-    parts.push(obs ? { age: obs } : { t: hs === "disabled" ? "not polled" : "not read yet" });
-    parts.push({ t: intFmt(a.bindings) + " live" });
-    if (hr !== null) parts.push({ t: pct(hr, 0) + " cache hits" });
-    var el = svgText(parent, x, y, "", "t-mono t-muted", { "font-size": 10 });
-    for (var n = parts.length; n > 0; n--) {
-      el.textContent = "";
-      parts.slice(0, n).forEach(function (p, i) {
-        if (i) el.appendChild(document.createTextNode("  ·  "));
-        if (p.age) {
-          el.appendChild(document.createTextNode("read "));
-          var ts = svg("tspan", { "data-ts": p.age.getTime() }, el);
-          ts.textContent = relText(p.age, nowMs());
-        } else {
-          el.appendChild(document.createTextNode(p.t));
-        }
-      });
-      if (el.getComputedTextLength() <= maxW) break;
-    }
-    return el;
   }
 
   /* Whether a window's meter carries a gap connector: the cost weighs it, so
