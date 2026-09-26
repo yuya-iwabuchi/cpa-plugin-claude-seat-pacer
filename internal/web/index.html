@@ -2367,10 +2367,12 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* When each family's hold lifts, for the families that name an instant:
-     one phrase where they agree. */
+     one phrase where every family names the same, else each named. */
   function liftText(fams, a, now) {
     var named = fams.filter(function (fam) { return famVerdict(a, fam, now).lift; });
-    return named.length ? pairText(named, function (fam) { return famVerdict(a, fam, now).lift; }) : "";
+    var liftOf = function (fam) { return famVerdict(a, fam, now).lift; };
+    if (named.length === fams.length) return pairText(fams, liftOf);
+    return named.map(function (fam) { return rankLabel(fam) + " " + liftOf(fam); }).join(" · ");
   }
 
   /* A chip's text as it is set: a cross before a hold, a rank bare. */
@@ -5043,7 +5045,10 @@ th[aria-sort] button { color: var(--ink-1); }
         if (c.est) lostKnown = false;
         else lost += Math.max(0, 1 - c.u);
       });
-      var spans = lockSpans(sd.a, view, t0, t1, now).drawn.map(function (sp) { return [sp.t0, sp.t1]; });
+      /* A seat with no current reading's line, and its tape, end at its last
+         window's end, and so does its refused time. */
+      var until = sd.cur === null && lw ? Math.min(t1, lw.end) : t1;
+      var spans = until > t0 ? lockSpans(sd.a, view, t0, until, now).drawn.map(function (sp) { return [sp.t0, sp.t1]; }) : [];
       spans.sort(function (x, y) { return x[0] - y[0]; });
       var refused = 0, end = -Infinity;
       spans.forEach(function (sp) {
@@ -5170,7 +5175,7 @@ th[aria-sort] button { color: var(--ink-1); }
           var drawn = historyLine(gl, win.samples, X, Y, sd.col, tail);
           resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key, gMarks, sd.a.auth_id);
           sectionHits(gl, win.sections, win.v, X, Y, sd.col,
-            function (sec) { return sectionTip(sd.head, sec, win.samples, win.end, win.endU, now, !!next); },
+            function (sec) { return sectionTip(sd.head, sec, win.samples, win.end, win.endU, now, !!next || sd.cur === null); },
             function (sec) { return !!(sec.spans && sec.spans.length) && inView(sec.a, sec.b); }, sd.key);
           if (!next) return;
           var first = next.samples[0], x = X(win.end).toFixed(1);
