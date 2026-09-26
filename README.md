@@ -1,6 +1,6 @@
 # Claude Seat Pacer
 
-Uses up each Claude seat's weekly quota before it resets, and keeps every conversation on one seat so its prompt cache keeps working.
+Uses up each Claude seat's weekly quota before it resets by sending every new conversation to the seat furthest behind its plan, and keeps each conversation on its seat so its prompt cache keeps working.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
@@ -8,26 +8,78 @@ Uses up each Claude seat's weekly quota before it resets, and keeps every conver
   <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats with their rank and cost, the one taking the next conversation highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
 </picture>
 
+## Features
+
+- **Paces every seat against its own week.** Each weekly window gets a plan
+  that rises from nothing at the window's start to the full quota a little
+  before its reset. A new conversation goes to the seat furthest behind its
+  plan, so a seat still holding quota near its reset goes first, and one that
+  just reset waits until the others are closer to their plans.
+- **Hands new work on as each seat catches up.** The rate-limit headers on
+  every completed response update that seat's reading between usage polls.
+  The seat taking new conversations closes its gap as it works, and once
+  another seat is further behind its own plan, new conversations start going
+  there.
+- **Keeps each conversation on its seat.** CLIProxyAPI's own session affinity
+  never binds a conversation a plugin routes, so the plugin binds each
+  conversation itself, per model; run the host with
+  `routing.session-affinity: false`. A subagent on the same model shares its
+  parent's seat unless that seat has refused the model. By default a
+  conversation stays put through a rebalance and moves only when it has to;
+  [How it picks](#how-it-picks) lists when.
+- **Reads every window Anthropic reports.** The usage endpoint gives the
+  5-hour window, the weekly all-models window and each model family's weekly
+  cap, read every two minutes by default and again a few seconds after each
+  reset. The headers of every response add fresher readings of the 5-hour
+  and weekly windows and the Fable cap, and any refusal. A seat refused or
+  full on a window takes no new conversation for the models that window caps
+  while another seat has room, until a later reading shows room on it; a new
+  subagent still joins its parent on a full seat, though not on a refused
+  one. Conversations already on it stay by default; [How it
+  picks](#how-it-picks) lists when they move.
+- **Sends no probe requests.** Its only outbound request is the usage read,
+  made through the host's HTTP client. Everything else comes from the
+  responses your own requests already get.
+- **Shows its work.** A [status page](#status-page) in the Management Center
+  charts every seat against its plan, the ranking, each window's history with
+  its refusals, the live bindings and the routing log. Email addresses show
+  only their first letter and domain.
+- **Declines rather than breaks.** The pick reads memory only, every entry
+  point recovers from a panic, and the pick never answers with an error that
+  would fail a request. When the plugin declines, the host's own selector
+  routes the request.
+
 ## Why
 
-A Claude subscription has a 5-hour limit and a weekly limit, and any weekly
-quota left at the reset is lost. More seats raise that ceiling linearly, and
+A Claude subscription has a 5-hour limit and a weekly limit, and weekly quota
+left at the reset is gone. More seats raise that ceiling linearly, and
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) makes pooling them
-easy. Its fill-first and round-robin strategies and session affinity work well
-out of the box, but they don't track how far each seat is into its week. I
-wanted a simple, usage-aware pick: drain the seats closest to their reset and
-hold back the ones that just reset.
+easy, but its fill-first and round-robin strategies don't track how far each
+seat is into its week.
 
-Claude Seat Pacer gives each seat a steady plan that finishes a little before
-its reset, and sends every new conversation to the seat furthest behind its
-plan. Once a conversation lands on a seat it stays there. Anthropic's prompt
-cache never crosses accounts, and about 96% of input tokens are cache reads,
-so moving a live conversation would pay full price for everything it has
-already sent.
+I run several Claude Code sessions at once across a few seats, and I wanted
+three things from the pick:
 
-The defaults suit my pool: drain the seat about to reset. Set
-`landing-target: 1.0` to plan each seat to finish at its reset instead of
-early. For an even spread, disable the plugin and turn the host's
+- Spend every seat's week before it resets. A seat still holding quota near
+  its reset should go first, and the one that just reset should wait.
+- Judge a seat by how much it has left against how long it has left. A seat
+  resetting in 24 hours with 5% left is on track; one resetting in three days
+  with 70% left is not, and it should take the next conversation.
+- Never move a live conversation without a reason. Anthropic's prompt cache
+  never crosses organizations, and about 96% of my input tokens are cache
+  reads, so a moved conversation pays full price for everything it has
+  already sent.
+
+Sending everything to the seat that resets soonest looks only at the clock: it
+keeps feeding a nearly spent seat while one with most of its week unused
+waits. A fixed usage cutoff looks only at the meter, and wastes whatever sits
+above the cutoff. A plan per weekly window weighs both. It says how much a
+seat should have used by now, and the seat furthest behind its plan is the
+one most at risk of reaching its reset with quota left.
+
+The defaults suit my pool: each seat's plan reaches full quota about 15 hours
+before its reset. Set `landing-target: 1.0` to plan each seat to finish at its
+reset instead. For an even spread, disable the plugin and turn the host's
 `routing.session-affinity` back on; its round-robin takes over.
 
 ## Install
@@ -133,7 +185,7 @@ open conversation one prompt-cache miss.
       affinity:
         enabled: true
         ttl: 1h                 # idle time before a conversation's binding expires
-        subagents: true         # a subagent shares its parent conversation's seat
+        subagents: true         # a subagent on the same model shares its parent conversation's seat
         override-threshold: true # keep a binding even when another seat is further behind its plan
         max-sessions: 65536     # bindings held before the least recently seen is dropped
       pace:
@@ -193,10 +245,17 @@ Once bound, a conversation:
 - stays on its seat while the host still offers it, and with the default
   `override-threshold` even when another seat is further behind or its own
   runs out, because the cache hit is worth more than the rebalance;
-- moves after a refusal for its model only when another seat can take that
-  model;
+- moves when a request on its seat fails, a refusal included, and the host
+  retries it on another seat, since the retry no longer offers the failed one;
+- otherwise moves after a refusal for its model only when another seat can
+  take that model;
 - loses its binding once idle past `affinity.ttl`: the binding stops counting
   as live at once and is cleared after the next background poll.
+
+Bindings are per model, so a conversation that switches model is placed
+separately for the new one. They live in memory, so a host restart, a new
+plugin version, or a change to `affinity.ttl` or `max-sessions` starts with
+none.
 
 When no seat is eligible, a conversation still gets one stable seat: first one
 Anthropic has neither refused nor reported full, then the one with the fewest
@@ -206,10 +265,34 @@ conversation's binding alone.
 
 ## Status page
 
-The Management Center gains a "Claude Seat Pacer" entry showing each seat's
-windows, utilization history, cost and eligibility for a chosen model,
-the live bindings per seat, recent decisions with each seat's cost, and a warning
-for anything that leaves the plugin inert or degraded.
+The Management Center gains a "Claude Seat Pacer" entry: a live dashboard of
+what the plugin decides and the numbers behind it. The page calls a seat's
+plan its target, and ranks the eligible seats by cost: the weighted gap to
+target, negative while a seat is behind, so the lowest cost takes the next
+new conversation. A seat held off ranks below them.
+
+- **Next pick.** The bar across the top names the eligible seat the next new
+  conversation lands on, for Standard requests and for each family cap, or
+  that no seat is eligible, with the reason when the seats share one. It
+  shows the count of eligible seats and the age of the newest reading, and
+  its Sync now button reads every seat at once.
+- **Seats.** Each seat's windows as bars, the weekly ones against their plan,
+  with the gap to target and the time to reset, beside a two-week time axis
+  showing each window's current cycle. A refused window is hatched.
+- **Weekly window.** Every seat's use plotted against the target curve over
+  its own week, and the seats ranked by cost, each with where it is headed at
+  its last 24 hours' rate.
+- **5-hour window.** Where each seat stands against the limit that can make
+  it ineligible.
+- **Over time.** Each seat's use of one window across the recorded cycles,
+  with each refusal and what ended it.
+- **Bindings.** The conversations held on each seat.
+- **Routing log.** The recent decisions, newest first. Each new pick and each
+  move opens to show every seat's cost at that moment.
+
+A warning banner names anything that leaves the plugin inert or degraded, such
+as a seat alone on the top priority tier, a seat not read yet, or a failing
+usage poll.
 
 The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
 data. It asks once per browser tab for the management key and reads from the
