@@ -257,11 +257,9 @@ a { color: inherit; }
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
 /* Every control the page has, in one row after the sync readout and the
-   live dot that read the state they act on. The row fits at every width the bar holds, so it
-   never sets the bar's height: the readouts beside it are two lines tall and
-   the buttons are shorter than that. */
+   live dot that read the state they act on. The buttons are shorter than
+   the two-line readout, so the row never sets the bar's height. */
 .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
-#theme-toggle { margin-left: 10px; }
 /* The live dot leads the sync readout, level with its first line. */
 .lb-sync { align-items: flex-start; }
 .lb-sync .live-dot { margin-top: 6px; }
@@ -1016,6 +1014,8 @@ th[aria-sort] button { color: var(--ink-1); }
       <div class="btn-row">
         <button type="button" id="sync-now">Sync now</button>
         <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
+      </div>
+      <div class="btn-row">
         <button type="button" id="theme-toggle">Theme: auto</button>
       </div>
     </div>
@@ -1107,7 +1107,7 @@ th[aria-sort] button { color: var(--ink-1); }
             <li><span class="gl">&#8943;</span> gap to target</li>
             <li><span class="gl">&#9474;</span> now</li>
             <li><span class="gl">&#9618;</span> weekend</li>
-            <li><span class="sw sw-cut"></span> runs past the axis</li>
+            <li id="tl-cut-key" hidden><span class="sw sw-cut"></span> runs past the axis</li>
           </ul>
         </div>
       </div>
@@ -1153,7 +1153,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-hist">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>5-hour window</h2>
-        <span class="sec-sub" id="session-sub">a rate limit, not a budget &middot; a refusal, a full reading or a bad reading makes a seat ineligible</span>
+        <span class="sec-sub" id="session-sub">a rate limit, not a budget &middot; a refusal, a bad reading or a full reading makes a seat ineligible</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card outlook-card">
@@ -1716,15 +1716,8 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* How the cost was built, in the units the page uses everywhere: the
-     weekly gap to target and the family cap's gap at its weight. Every term
-     adds. */
-  function costBreakdown(score) {
-    if (score === null) return "cost unknown";
-    if (!scored(score)) return "cost —";
-    return "cost " + [costText(score)].concat(costParts(score)).join(" · ");
-  }
-
-  /* The terms costBreakdown lists, one string per window. */
+     weekly gap to target and the family cap's gap at its weight, one string
+     per window. Every term adds. */
   function costParts(score) {
     var weekly = pacedWindow(score, PACE_KIND), cap = pacedWindow(score, "weekly_scoped");
     var parts = [];
@@ -2318,9 +2311,10 @@ th[aria-sort] button { color: var(--ink-1); }
      own text steps one ink token down instead. */
   var MARK_DIM = 0.62;
 
-  /* Row geometry, at the two densities the timeline draws. A seat's live
-     figures are in its tooltip at either. */
+  /* How far the axis runs either side of now, and how wide the fade is at an
+     end of a bar the axis cuts. */
   var TL_REACH = 7 * 86400000, TL_FADE = 7;
+  /* Row geometry, at the two densities the timeline draws. */
   var TL_GEO = {
     roomy:   { head: 28, lane: 21, gap: 10, name: 13.5 },
     compact: { head: 26, lane: 21, gap: 8,  name: 12.5 }
@@ -2601,14 +2595,8 @@ th[aria-sort] button { color: var(--ink-1); }
       new Date(t0).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " to " +
       new Date(t1).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
       ", one gridline per day, dated every " + (perLabel === 1 ? "day" : perLabel + " days"));
-    /* Saturdays and Sundays, as on the Over time chart. */
-    for (var wd = new Date(t0).setHours(0, 0, 0, 0); wd < t1; wd = midnightAfter(wd)) {
-      var dow = new Date(wd).getDay();
-      if (dow !== 0 && dow !== 6) continue;
-      var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
-      svg("rect", { "class": "hs-weekend", x: wx0, y: 0, width: Math.max(0, wx1 - wx0), height: plotH }, gGrid);
-    }
-    for (var d = day.getTime(), di = 0; d <= t1; d += 86400000, di++) {
+    weekendBands(gGrid, t0, t1, X, 0, plotH);
+    for (var d = day.getTime(), di = 0; d <= t1; d = midnightAfter(d), di++) {
       var gx = X(d);
       svg("line", { x1: gx, x2: gx, y1: 0, y2: plotH, stroke: "var(--rule)", "stroke-width": 1 }, gGrid);
       if (di % perLabel) continue;
@@ -2622,7 +2610,8 @@ th[aria-sort] button { color: var(--ink-1); }
     }, gGrid);
     showHiddenControl(gGrid, plotH + 20, st);
 
-    /* Rows. */
+    /* Rows. The legend names a cut end only where a bar has one. */
+    var anyCut = false;
     layout.forEach(function (row) {
       var a = row.g.a;
       var fams = ranks.fams;
@@ -2690,7 +2679,7 @@ th[aria-sort] button { color: var(--ink-1); }
            sets them one ink token down; the glyph keeps its own and carries no
            opacity, so a state reads at full strength whatever the seat's
            standing is. */
-        var nm = svgText(gRow, 40, cy + 4, windowShort(w), eligible ? "t-sec" : "t-muted", { "font-size": 11.5 });
+        var nm = svgText(gRow, LANE_NAME_X, cy + 4, windowShort(w), eligible ? "t-sec" : "t-muted", { "font-size": 11.5 });
         fitText(nm, LANE_NAME_W);
         svgText(gRow, LANE_GLYPH_X, cy + 4, meta.glyph, "", { "font-size": 10, fill: meta.color });
         svgText(gRow, LANE_PCT_X, cy + 4, pct(w.utilization), eligible ? "t-mono" : "t-mono t-sec",
@@ -2701,7 +2690,8 @@ th[aria-sort] button { color: var(--ink-1); }
 
         var resets = parseT(w.resets_at);
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
-        if (!resets || durMs <= 0) {
+        /* A window that reset before the axis begins is not open on it. */
+        if (!resets || durMs <= 0 || X(resets.getTime()) <= gut) {
           g.setAttribute("aria-label", laneAria(a, w, ws, stt));
           setTip(g, laneTip(a, w, ws, stt, false, false));
           svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
@@ -2711,6 +2701,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
         var x0 = X(resets.getTime() - durMs), x1 = X(resets.getTime());
         var cutL = x0 < gut - 0.5, cutR = x1 > gut + plotW + 0.5;
+        anyCut = anyCut || cutL || cutR;
         var bx0 = Math.max(x0, gut), bx1 = Math.min(x1, gut + plotW);
         if (!cutL && !cutR) bx1 = Math.max(bx1, bx0 + 8);
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
@@ -2773,6 +2764,8 @@ th[aria-sort] button { color: var(--ink-1); }
         resetStamp(gRow, cy, a, w, resets, rstX);
       });
     });
+
+    $("tl-cut-key").hidden = !anyCut;
 
     /* One now line across every row. */
     var nx = X(now.getTime());
@@ -3451,9 +3444,8 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   var tapeN = 0;
-  /* One band of tape from x0 to x1 centred on y, with round ends, as thick
-     as a seat's mark and never shorter than one tile, whose stripes start at
-     its left end. */
+  /* One band of tape from x0 to x1 centred on y, 4px thick with round ends
+     and never shorter than one tile, whose stripes start at its left end. */
   function tapeRun(parent, x0, x1, y) {
     var root = parent.ownerSVGElement || parent, defs = root.querySelector("defs") || svg("defs", {}, root);
     var hh = 4, tw = 6, top = y - hh / 2, id = "tape-" + (++tapeN), w = Math.max(tw, x1 - x0);
@@ -3613,7 +3605,8 @@ th[aria-sort] button { color: var(--ink-1); }
     return d;
   }
 
-  /* The badge each type of section carries in its tooltip. */
+  /* The badge each type of section carries in its tooltip; a limit's names
+     the refusing windows (limitLabel). */
   var SECTION_LABEL = { usage: "usage", idle: "idle", unrec: "not recorded" };
 
   /* What ended a span, as a limit's line reads it. */
@@ -3649,7 +3642,7 @@ th[aria-sort] button { color: var(--ink-1); }
      section names a span's own. A flat limit section under only other
      windows' refusals says why it holds. */
   function sectionTip(head, sec, samples, tNow, uNow, now) {
-    var a = sec.a, b = sec.b, live = sec.b >= tNow;
+    var a = sec.a, b = sec.b, live = sec.b >= tNow && tNow >= now;
     if (sec.type === "limit") {
       a = Math.min.apply(null, sec.spans.map(function (sp) { return sp.from; }));
       live = sec.spans.some(function (sp) { return !sp.ended; });
@@ -3681,13 +3674,16 @@ th[aria-sort] button { color: var(--ink-1); }
     } else if (sec.type === "unrec") {
       spec.lines.push({ t: "no readings after the early reset, so the line is drawn straight" });
     } else {
-      spec.big = u1 > u0 ? [pct(u0, 0), pct(u1, 0)] : [pct(u0, 0)];
-      spec.delta = u1 > u0 ? rise() : "";
+      /* A refused seat's rise under a twentieth of a point is rounding, so
+         the stretch reads as flat. */
+      var rose = u1 - u0 >= 0.0005;
+      spec.big = rose ? [pct(u0, 0), pct(u1, 0)] : [pct(u0, 0)];
+      spec.delta = rose ? rise() : "";
     }
     (sec.spans || []).forEach(function (sp) {
       spec.lines.push(lockLine(sp, now, sec.type !== "limit" || sec.spans.length > 1));
     });
-    if (sec.type === "limit" && u1 <= u0 && sec.spans.every(function (sp) { return sp.kind !== head.kind || (sp.scope || "") !== (head.scope || ""); })) {
+    if (sec.type === "limit" && !rose && sec.spans.every(function (sp) { return sp.kind !== head.kind || (sp.scope || "") !== (head.scope || ""); })) {
       spec.lines.push({ t: "flat because a refused seat takes no requests" });
     }
     return spec;
@@ -3695,8 +3691,9 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* A rich tooltip, as data: the line it belongs to (seat, colour, window),
      the kind of stretch or state and when, a headline figure, and plain
-     lines under it. tone colours the badge where its type names no tone. tipText reads it out as the plain text data-tip carries, tipSpeech
-     as one line for assistive technology; tipRender draws it into the
+     lines under it; tone colours the badge where its type names no tone.
+     tipText reads it out as the plain text data-tip carries, tipSpeech as
+     one line for assistive technology; tipRender draws it into the
      tooltip. */
   function tipText(spec) {
     var out = [spec.seat + (spec.win ? " · " + spec.win : ""),
@@ -3784,15 +3781,25 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* Each reset dot's tooltip, and the stop it makes, keyed by key, the
-     line's own. */
-  function resetTips(resets, head, key) {
+     line's own; the dot moves into above where that is given. */
+  function resetTips(resets, head, key, above) {
     resets.forEach(function (r) {
+      if (above) above.appendChild(r.el);
       var spec = Object.assign({}, head, { type: "reset", label: "reset",
         when: spanClock(r.t), dur: "", big: [pct(r.u, 0), "0%"], delta: "",
-        lines: [{ t: "Early reset by the provider; the scheduled reset time is unchanged." }] });
+        lines: [{ t: "an early reset by the provider; the scheduled reset time is unchanged" }] });
       setTip(r.el, spec);
       tipStop(r.el, spec, "reset:" + key + ":" + r.t);
     });
+  }
+
+  /* A seat's group in a chart's top layer, for the parts of its line that
+     are stops of their own: a refusal's tape, drawn over the lines, would
+     otherwise cover them. It dims and lifts with the seat's line. */
+  function seatLayer(layer, id) {
+    var g = svg("g", { "class": "pt-line" }, layer);
+    g.setAttribute("data-seat", id);
+    return g;
   }
 
   /* A present mark's tooltip: where the reading stands against the curve,
@@ -3968,7 +3975,7 @@ th[aria-sort] button { color: var(--ink-1); }
           var drawn = historyLine(gl, line, xOf, Y, col, tailTo(cx, cy));
           anyEst = anyEst || drawn.est > 0;
           anyUnrec = anyUnrec || drawn.unrecorded.length > 0;
-          resetTips(drawn.resets, tipHead, key);
+          resetTips(drawn.resets, tipHead, key, seatLayer(gPts, a.auth_id));
           sectionHits(gl, lineSections(line, start, tNow, ws.utilization, locks.drawn, PACE_IDLE_MS), v, xOf, Y, col,
             function (sec) { return sectionTip(tipHead, sec, line, tNow, ws.utilization, now); },
             function (sec) {
@@ -4026,7 +4033,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-        renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock);
+    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock);
     renderRank(st, seats, ranks, view);
     renderPaceNote(st);
   }
@@ -4253,9 +4260,10 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* ---------------------------------------------------------- 5-hour chart */
 
-  /* The 5-hour window is a rate limit, and its chart is the weekly chart's
-     construction on a 5-hour axis: the same target curve, each seat's mark
-     with a tick to the curve and the recorded line behind it. Under the curve
+  /* The 5-hour window is a rate limit, and its chart puts each seat's mark
+     and recorded line on a 5-hour axis, against the weekly chart's target
+     curve with a tick to it where pace.session-weight counts the window, and
+     against a straight reference line where it does not. Under the curve
      here is headroom rather than a verdict, because the window resets several
      times a day and unused capacity is not carried; what that headroom is
      worth in a pick is pace.session-weight's to say, and the chart's subhead,
@@ -4281,7 +4289,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
      The subhead and the chart's name print this constant, so the two list
      the gates alike. */
-  var SESSION_GATES = "a refusal, a full reading or a bad reading makes a seat ineligible";
+  var SESSION_GATES = "a refusal, a bad reading or a full reading makes a seat ineligible";
 
   /* Why a seat draws no 5-hour line. Null means plottable. */
   function sessionGap(a, w, resets) {
@@ -4451,7 +4459,7 @@ th[aria-sort] button { color: var(--ink-1); }
         estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
         anyUnrec = anyUnrec || drawnCur.unrecorded.length > 0;
-        resetTips(drawnCur.resets, sHead, key);
+        resetTips(drawnCur.resets, sHead, key, seatLayer(gMarks, a.auth_id));
         /* One pointer target per section of the line; a usage section also
            lists the conversations the routing log shows on the seat in it,
            in its tooltip and in the line under the chart. */
@@ -4618,7 +4626,7 @@ th[aria-sort] button { color: var(--ink-1); }
     if (!num(rate) || rate <= 0) {
       return { at: o.cur, tone: "", line: "no use in the last " + (budget ? "24h" : "hour") };
     }
-    var at = o.cur + rate * (reset - o.now) / 3600000 / 100;
+    var at = o.cur + rate * Math.max(0, reset - o.now) / 3600000 / 100;
     if (at >= 1) {
       var full = spanClock(o.now + (1 - o.cur) * 100 / rate * 3600000, o.now);
       return { at: 1, tone: budget ? "" : "serious", line: "full by " + full };
@@ -4723,7 +4731,6 @@ th[aria-sort] button { color: var(--ink-1); }
     markMore(host);
   }
 
-
   /* ----------------------------------------------------------- over time */
 
   /* The window the over-time plot draws, one at a time, since a 5-hour
@@ -4756,6 +4763,16 @@ th[aria-sort] button { color: var(--ink-1); }
   /* Maps a window's elapsed fraction to x on a calendar axis, so curvePath
      lays a cycle's target from the instant the window opened to its reset. */
   function calendarX(X, open, dur) { return function (e) { return X(open + e * dur); }; }
+
+  /* Saturdays and Sundays from t0 to t1, shaded from y down hgt. */
+  function weekendBands(parent, t0, t1, X, y, hgt) {
+    for (var wd = new Date(t0).setHours(0, 0, 0, 0); wd < t1; wd = midnightAfter(wd)) {
+      var dow = new Date(wd).getDay();
+      if (dow !== 0 && dow !== 6) continue;
+      var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
+      svg("rect", { "class": "hs-weekend", x: wx0, y: y, width: Math.max(0, wx1 - wx0), height: hgt }, parent);
+    }
+  }
 
   function midnightAfter(d) { return new Date(d + 1.5 * H_DAY).setHours(0, 0, 0, 0); }
 
@@ -4836,6 +4853,16 @@ th[aria-sort] button { color: var(--ink-1); }
 
     var pace = (st.config && st.config.pace) || {};
     var now = nowMs();
+    /* A window the cost gives no weight has no target, as on the 5-hour
+       chart: its dashed line is the curve, and on the 5-hour view the
+       straight line from nothing to full across each window. */
+    var weightOf = { five_hour: pace.session_weight, seven_day: pace.weekly_weight, weekly_scoped: pace.scoped_weight };
+    var reference = !termShown(weightOf[view.kind]);
+    var cyclePath = function (X, start, dur, Y) {
+      return reference && view.kind === "five_hour"
+        ? "M" + X(start).toFixed(2) + " " + Y(0).toFixed(2) + "L" + X(start + dur).toFixed(2) + " " + Y(1).toFixed(2)
+        : curvePath(pace, calendarX(X, start, dur), Y);
+    };
 
     /* Where a finished window's line falls to zero: at its reset, or at the
        next window's first reading where that comes first, and never before
@@ -4889,7 +4916,10 @@ th[aria-sort] button { color: var(--ink-1); }
         win.end = next ? fallAt(win, next) : Math.max(now, last.t);
         win.endU = next || cur === null ? last.u : cur;
         var at = next ? win.at : resets ? resets.getTime() : win.at;
-        win.start = at !== null ? at - dur : win.samples[0].t;
+        /* A window starts a duration before its reset, or at its first
+           reading where that is earlier: a refused, idle seat's provider
+           moves the reset on while it reads the same window. */
+        win.start = Math.min(at !== null ? at - dur : Infinity, win.samples[0].t);
         win.v = lineVertices(win.samples, win.start, win.end, win.endU);
         win.locks = lockSpans(a, view, win.start, win.end, now);
         win.sections = lineSections(win.samples, win.start, win.end, win.endU, win.locks.drawn, idleMs);
@@ -5070,7 +5100,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var root = svg("svg", {
         "class": "pace hist-tl", width: W, height: TOTAL, viewBox: "0 0 " + W + " " + TOTAL,
         role: "group", tabindex: 0, "data-fk": "hist-chart:" + view.id,
-        "aria-label": view.label + " use over time with its target, " +
+        "aria-label": view.label + " use over time with its " + (reference ? "curve" : "target") + ", " +
           absTime(new Date(t0)) + " to " + absTime(new Date(t1)) +
           ". Drag the plot or the strip below to pan; arrow keys step, plus and minus zoom, End returns to now."
       }, host);
@@ -5084,13 +5114,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var fx = clamp(X(now), m.l, m.l + pw);
       svg("rect", { "class": "hs-future", x: fx, y: m.t, width: m.l + pw - fx, height: ph }, root);
 
-      /* Saturdays and Sundays, clipped to the plot. */
-      for (var wd = new Date(t0).setHours(0, 0, 0, 0); wd < t1; wd = midnightAfter(wd)) {
-        var dow = new Date(wd).getDay();
-        if (dow !== 0 && dow !== 6) continue;
-        var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
-        svg("rect", { "class": "hs-weekend", x: wx0, y: m.t, width: Math.max(0, wx1 - wx0), height: ph }, root);
-      }
+      weekendBands(root, t0, t1, X, m.t, ph);
       yGrid(root, m, pw, Y);
       timeAxis(root, t0, t1, X, pw, m.t, Y(0), Y(0) + 20, true);
       svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0) + 0.5, y2: Y(0) + 0.5, stroke: "var(--axis)", "stroke-width": 1 }, root);
@@ -5113,9 +5137,9 @@ th[aria-sort] button { color: var(--ink-1); }
         sd.done.forEach(function (c) {
           if (c.at < t0 || c.at - sd.dur > t1) return;
           if (cyclePx >= 40) {
-            svg("path", { "class": "hs-target hs-past", d: curvePath(pace, calendarX(X, c.at - sd.dur, sd.dur), Y), stroke: sd.col }, gl);
+            svg("path", { "class": "hs-target hs-past", d: cyclePath(X, c.at - sd.dur, sd.dur, Y), stroke: sd.col }, gl);
           }
-          if (c.u === null || c.at > t1 || cyclePx < 16) return;
+          if (c.at > t1 || cyclePx < 16) return;
           var ex = X(c.at), ey = Y(c.u), left = Math.max(0, 1 - c.u);
           svg("circle", { cx: ex, cy: ey, r: 3.5, fill: "var(--surface-1)", stroke: sd.col, "stroke-width": 1.6 }, gm);
           /* A cycle that spent its whole budget left nothing to name. */
@@ -5125,7 +5149,7 @@ th[aria-sort] button { color: var(--ink-1); }
           }
         });
         if (sd.resets) {
-          svg("path", { "class": "hs-target", d: curvePath(pace, calendarX(X, sd.resets.getTime() - sd.dur, sd.dur), Y), stroke: sd.col }, gl);
+          svg("path", { "class": "hs-target", d: cyclePath(X, sd.resets.getTime() - sd.dur, sd.dur, Y), stroke: sd.col }, gl);
         }
         /* A window's line holds its last reading to the reset, falls to zero
            there and holds zero to the next window's first reading; the last
@@ -5137,12 +5161,17 @@ th[aria-sort] button { color: var(--ink-1); }
           lockTape(gt, win.locks.drawn, win.v, X, Y);
           var tail = next ? (win.end > last.t ? tailTo(X(win.end), Y(last.u)) : null) : (sd.cur !== null ? tailTo(X(now), Y(sd.cur)) : null);
           var drawn = historyLine(gl, win.samples, X, Y, sd.col, tail);
-          resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key);
+          resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key, seatLayer(gMarks, sd.a.auth_id));
           sectionHits(gl, win.sections, win.v, X, Y, sd.col,
             function (sec) { return sectionTip(sd.head, sec, win.samples, win.end, win.endU, now); },
             function (sec) { return !!(sec.spans && sec.spans.length) && inView(sec.a, sec.b); }, sd.key);
           if (!next) return;
           var first = next.samples[0], x = X(win.end).toFixed(1);
+          /* Between two windows the seat holds at zero; a refusal from any
+             window that bears on this one lies along that hold too. */
+          if (first.t > win.end) {
+            lockTape(gt, lockSpans(sd.a, view, win.end, first.t, now).drawn, [{ t: win.end, u: 0 }, { t: first.t, u: 0 }], X, Y);
+          }
           svg("path", { "class": "hs-reset", d: "M" + x + " " + Y(last.u).toFixed(1) + "V" + Y(0).toFixed(1), stroke: sd.col }, gl);
           svg("path", { "class": "hist", d: "M" + x + " " + Y(0).toFixed(1) + tailTo(X(first.t), Y(first.u)), stroke: sd.col }, gl);
         });
@@ -5203,13 +5232,12 @@ th[aria-sort] button { color: var(--ink-1); }
         : function (t) { return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
       $("hist-range").textContent = fmt(t0) + " – " + fmt(t1);
 
-            if (hadFocus) root.focus({ preventScroll: true });
+      if (hadFocus) root.focus({ preventScroll: true });
     }
-
 
     [
       ["━", "recorded"],
-      ["╌", "target"],
+      ["╌", reference ? "curve (window weighs nothing)" : "target"],
       ["○", "reset"],
       ["│", "midnight"],
       ["▒", "weekend"],
