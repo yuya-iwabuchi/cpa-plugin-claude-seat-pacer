@@ -3630,7 +3630,7 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* The badge each type of section carries in its tooltip. */
-  var SECTION_LABEL = { usage: "usage", idle: "idle", limit: "limit reached", unrec: "not recorded" };
+  var SECTION_LABEL = { usage: "usage", idle: "idle", unrec: "not recorded" };
 
   /* What ended a span, as a limit's line reads it. */
   var LOCK_ENDED = {
@@ -3650,11 +3650,20 @@ th[aria-sort] button { color: var(--ink-1); }
       "the provider refused requests " + LOCK_ENDED[sp.ended] };
   }
 
+  /* A limit section's badge: the windows that refused, each once. */
+  function limitLabel(spans) {
+    var names = [];
+    spans.forEach(function (sp) { var n = windowShort(sp); if (names.indexOf(n) < 0) names.push(n); });
+    var caps = spans.every(function (sp) { return sp.kind === "weekly_scoped"; });
+    return names.join(" + ") + (caps ? " reached" : " limit reached");
+  }
+
   /* A section's tooltip: the line, what the section is and when, then what
      happened in it. A limit section is dated by its spans' own ends, which
      a clearing or the window's start can cut the section short of; its one
      span's line leaves the ends to the head, and every line of any other
-     section names a span's own. */
+     section names a span's own. A flat limit section under only other
+     windows' refusals says why it holds. */
   function sectionTip(head, sec, samples, tNow, uNow, now) {
     var a = sec.a, b = sec.b, live = sec.b >= tNow;
     if (sec.type === "limit") {
@@ -3663,7 +3672,7 @@ th[aria-sort] button { color: var(--ink-1); }
       b = live ? now : Math.max.apply(null, sec.spans.map(function (sp) { return sp.to; }));
     }
     var spec = Object.assign({}, head, {
-      type: sec.type, label: SECTION_LABEL[sec.type],
+      type: sec.type, label: sec.type === "limit" ? limitLabel(sec.spans) : SECTION_LABEL[sec.type],
       when: b === a ? spanClock(a) : spanClock(a) + " – " + (live ? "now" : spanClock(b, a)),
       dur: b === a ? "" : durText(Math.max(0, Math.round(((live ? now : b) - a) / 1000))),
       lines: []
@@ -3695,6 +3704,9 @@ th[aria-sort] button { color: var(--ink-1); }
     (sec.spans || []).forEach(function (sp) {
       spec.lines.push(lockLine(sp, now, sec.type !== "limit" || sec.spans.length > 1));
     });
+    if (sec.type === "limit" && u1 <= u0 && sec.spans.every(function (sp) { return sp.kind !== head.kind || (sp.scope || "") !== (head.scope || ""); })) {
+      spec.lines.push({ t: "a refused seat takes no requests, so this line holds where it was" });
+    }
     return spec;
   }
 
@@ -3953,7 +3965,7 @@ th[aria-sort] button { color: var(--ink-1); }
          tooltip, and a limit or a reset on it is a stop of its own. */
       var gl = svg("g", { "class": "pt-line" }, gLines);
       gl.setAttribute("data-seat", a.auth_id);
-      var tipHead = { seat: seatLabel(a), col: col, win: windowShort(ws), cap: ws.kind === "weekly_scoped" };
+      var tipHead = { seat: seatLabel(a), col: col, win: windowShort(ws), kind: ws.kind, scope: ws.scope, cap: ws.kind === "weekly_scoped" };
       var key = a.auth_id + ":" + ws.kind + ":" + (ws.scope || "");
       /* The recorded path from the window's start to the present reading,
          under the mark; a seat with one sample this window draws the mark
@@ -4166,8 +4178,9 @@ th[aria-sort] button { color: var(--ink-1); }
   function sectionsText(pause) {
     return "Point at a stretch of a line to see what happened in it. A usage stretch is a run of rises less " +
       "than " + pause + " apart, an idle stretch holds its level, and a not-recorded stretch is a climb after " +
-      "an early clearing that no reading covers. A limit stretch is where the provider refused requests on a " +
-      "window of the line, under red and black tape. Its tooltip gives each refusal's own start and end and " +
+      "an early clearing that no reading covers. A limit stretch is where the provider refused the seat, under " +
+      "red and black tape, and its badge names the window that refused: a 7-day limit holds the 5-hour line " +
+      "flat too, since a refused seat takes no requests. Its tooltip gives each refusal's own start and end and " +
       "what ended it, and a stretch a refusal overlaps names that refusal too. A thin red ring inside a mark " +
       "means the provider is refusing the seat now. A dotted fall to zero under a hollow dot named " +
       "\u201Creset\u201D is the provider clearing the window early, before its reset time.";
@@ -4467,7 +4480,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var hoursOf = function (t) { return (t - start) / 3600000; };
       var xOf = function (t) { return X(hoursOf(t)); };
       var cx = X(hoursOf(now)), cy = Y(s.w.utilization), ws = s.ws;
-      var sHead = { seat: seatLabel(a), col: col, win: SESSION_SHORT };
+      var sHead = { seat: seatLabel(a), col: col, win: SESSION_SHORT, kind: "five_hour" };
       var key = a.auth_id + ":five_hour:";
       var locks5 = lockSpans(a, { kind: "five_hour" }, start, s.resets.getTime(), now);
       var estCur = 0;
@@ -4957,7 +4970,7 @@ th[aria-sort] button { color: var(--ink-1); }
       });
       return {
         a: a, col: seatColor(a), dur: dur, done: done, wins: wins, resets: resets, cur: cur,
-        head: { seat: seatLabel(a), col: seatColor(a), win: view.label, cap: view.kind === "weekly_scoped" },
+        head: { seat: seatLabel(a), col: seatColor(a), win: view.label, kind: view.kind, scope: view.scope, cap: view.kind === "weekly_scoped" },
         key: a.auth_id + ":hist:" + view.id
       };
     });
