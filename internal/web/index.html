@@ -36,6 +36,9 @@
   --info:         #2568bd;
   --serious:      #c0521f;
   --critical:     #d03b3b;
+  /* A limit's underlay on the charts: the critical red as it paints at 85%
+     over the card, set solid. */
+  --limit:        #d75858;
   --warning:      #fab219;
 
   /* Twelve identity hues: IBM Carbon's categorical sequence in its published
@@ -80,6 +83,7 @@
     --track:      #2c2c2a;
     --track-edge: #999892;
     --critical:   #e05050;
+    --limit:      #b34040;
     --emph:       rgba(57,135,229,.12);
     --good:       #0ca30c;
     --serious:    #ec835a;
@@ -117,6 +121,9 @@
   --track-edge: #999892;
   --emph:       rgba(57,135,229,.12);
   --critical:   #e05050;
+  /* Darker than the critical red, so the band keeps apart from the lightest
+     pink seat hue and still stands 3:1 on the card. */
+  --limit:      #b34040;
   --good:       #0ca30c;
   --serious:    #ec835a;
   --info:       #3987e5;
@@ -565,17 +572,13 @@ svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; 
    after it where no reading between them was recorded: a straight, sparse
    dotted line, because only its two ends are known. */
 svg.pace path.hist-gap { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: .55; stroke-dasharray: 1 4; }
-/* A span in which the provider refused the seat: a wide critical stroke along
-   the seat's own line, under it, barred through with the card's surface as
-   the Seats chart bars a refused window. Twelve seat hues leave no red that
-   stands clear of every one of them, so the bars tell a limit from a seat's
-   line whatever the seat's hue. */
-svg.pace path.lock-under { fill: none; stroke: var(--critical); stroke-width: 5; stroke-opacity: .9; stroke-linecap: round; }
-svg.pace path.lock-bars { fill: none; stroke: var(--surface-1); stroke-width: 5; stroke-dasharray: 1.6 2.4; opacity: .9; }
+/* A span in which the provider refused the seat: a wide red stroke along the
+   seat's own line, under it. */
+svg.pace path.lock-under { fill: none; stroke: var(--limit); stroke-width: 4; stroke-linecap: round; }
 /* A line's sections take the pointer, the drawn strokes under them never do;
    the section under the pointer shows in the seat's colour. A square cap
    closes the corners of a step and gives an instant a target of its own. */
-svg.pace path.hist, svg.pace path.lock-under, svg.pace path.lock-bars { pointer-events: none; }
+svg.pace path.hist, svg.pace path.lock-under { pointer-events: none; }
 svg.pace path.span-hit { fill: none; stroke-width: 9; stroke-opacity: 0; stroke-linecap: square; pointer-events: stroke; cursor: default; }
 svg.pace path.span-hit:hover { stroke-opacity: .22; }
 /* A focused section is marked by the halo its target draws; the page's box
@@ -3322,8 +3325,7 @@ th[aria-sort] button { color: var(--ink-1); }
   var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
   var SW_GAP = "height:0;border-top:2px dotted var(--ink-3);opacity:.55";
   var UNRECORDED_KEY = "not recorded after an early clearing";
-  var SW_LOCK = "height:5px;border-radius:2.5px;opacity:.9;" +
-    "background:repeating-linear-gradient(90deg, var(--critical) 0 2.4px, var(--surface-1) 2.4px 4px)";
+  var SW_LOCK = "height:4px;border-radius:2px;background:var(--limit)";
   var LOCK_KEY = "limit reached (provider refused)";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
@@ -3467,7 +3469,7 @@ th[aria-sort] button { color: var(--ink-1); }
     return out;
   }
 
-  /* Draws each span as a barred stroke along the flat runs of the line under
+  /* Draws each span as a stroke along the flat runs of the line under
      parent, the layer under every seat's line, so every line runs over every
      underlay. A run under a pixel wide draws nothing, since its round caps
      would draw a dot on a climb. Reports whether it drew any. */
@@ -3478,7 +3480,6 @@ th[aria-sort] button { color: var(--ink-1); }
       if (!seg.length) return;
       var d = seg.map(function (r) { return "M" + xOf(r[0]).toFixed(1) + " " + Y(r[2]).toFixed(1) + "H" + xOf(r[1]).toFixed(1); }).join("");
       svg("path", { "class": "lock-under", d: d }, parent);
-      svg("path", { "class": "lock-bars", d: d }, parent);
       drew = true;
     });
     return drew;
@@ -4945,8 +4946,8 @@ th[aria-sort] button { color: var(--ink-1); }
 
     /* The range the strip spans: from the earlier of the first recorded
        sample and one default span back, to a day ahead of now for a weekly
-       window and three hours for the 5-hour one. */
-    var ahead = view.weekly ? H_DAY : 3 * H_HOUR;
+       window and an hour for the 5-hour one. */
+    var ahead = view.weekly ? H_DAY : H_HOUR;
     var defSpan = view.weekly ? 7 * H_DAY : 6 * H_HOUR;
     var minSpan = view.weekly ? 6 * H_HOUR : H_HOUR;
     var tMax = now + ahead, tMin = tMax - defSpan;
