@@ -255,12 +255,16 @@ a { color: inherit; }
   .lb-stack { flex-direction: row; flex-wrap: wrap; gap: 0 8px; }
   .lb-stack > span:empty { display: none; }
 }
-.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-/* Every control the page has, in one row beside the live dot that reads as
-   the state they act on. The row fits at every width the bar holds, so it
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
+/* Every control the page has, in one row after the sync readout and the
+   live dot that read the state they act on. The row fits at every width the bar holds, so it
    never sets the bar's height: the readouts beside it are two lines tall and
    the buttons are shorter than that. */
 .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+#theme-toggle { margin-left: 10px; }
+/* The live dot leads the sync readout, level with its first line. */
+.lb-sync { align-items: flex-start; }
+.lb-sync .live-dot { margin-top: 6px; }
 button {
   font: 600 11.5px/1 var(--sans);
   color: var(--ink-1); background: var(--surface-1);
@@ -994,18 +998,21 @@ th[aria-sort] button { color: var(--ink-1); }
         <span id="seat-eligible"></span>
       </div>
     </div>
-    <div class="lb">
-      <span class="lb-key">Sync</span>
-      <div class="lb-val lb-stack">
-        <span id="snapshot-age">&mdash;</span>
-        <span id="next-sync">&mdash;</span>
-      </div>
-    </div>
     <div class="spacer"></div>
+    <!-- The sync readout sits with the controls that act on it, behind the
+         live dot that reads its state; the theme, a page preference, closes
+         the bar apart from them. -->
     <div class="ctl">
       <!-- Spoken once when a status reply runs late, and cleared when it lands. -->
       <span class="sr-only" id="stale-note" role="status" aria-live="polite"></span>
-      <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
+      <div class="lb lb-sync">
+        <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
+        <span class="sr-only">Sync</span>
+        <div class="lb-val lb-stack">
+          <span id="snapshot-age">&mdash;</span>
+          <span id="next-sync">&mdash;</span>
+        </div>
+      </div>
       <div class="btn-row">
         <button type="button" id="sync-now">Sync now</button>
         <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
@@ -3272,6 +3279,7 @@ th[aria-sort] button { color: var(--ink-1); }
     "background:repeating-linear-gradient(133deg, var(--critical) 0 3.28px, #161616 3.28px 4.38px)";
   var LOCK_KEY = "refused";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
+  var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
 
   function dayText(elapsed) {
     return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS;
@@ -4295,7 +4303,7 @@ th[aria-sort] button { color: var(--ink-1); }
        decides, and that the window gates whatever that weight is. Written
        here rather than left standing in the markup, so it follows the config
        the way the seats and weekly subheads do. */
-    var wt = paceCfg.session_weight;
+    var wt = paceCfg.session_weight, counts = termShown(wt);
     var weightClause = !num(wt) ? "" : wt === 0 ? "weighs nothing in the cost" : "counts" + weightTag(wt) + " in the cost";
     $("session-sub").textContent = ["a rate limit, not a budget", weightClause, SESSION_GATES]
       .filter(Boolean).join(" · ");
@@ -4337,7 +4345,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": "Each seat's 5-hour use by hours into its own window, against the target curve: one mark per seat, with its recorded line and its gap label" +
+      "aria-label": "Each seat's 5-hour use by hours into its own window, against the " +
+        (counts ? "target curve: one mark per seat, with its recorded line and its gap label" : "curve for reference: one mark per seat, with its recorded line") +
         (num(wt) ? (wt === 0 ? "; it weighs nothing in the cost" : "; its gap counts" + weightTag(wt) + " in the cost") : "") +
         "; " + SESSION_GATES
     }, host);
@@ -4353,13 +4362,18 @@ th[aria-sort] button { color: var(--ink-1); }
     svgText(root, m.l + pw / 2, H - 8, "hours into each seat's own window", "t-muted",
       { "font-size": 10.5, "text-anchor": "middle" });
     svgText(root, m.l - 38, m.t - 6, "% used", "t-muted", { "font-size": 10.5 });
-    /* The same curve as the weekly chart, over the 5-hour window. */
+    /* The same curve as the weekly chart, over the 5-hour window. Where the
+       cost weighs this window it is the target, drawn as on the weekly
+       chart with each seat's gap to it; where it weighs nothing it is a
+       reference, dashed and fainter, with no gaps, since no seat is paced
+       against it. */
     svg("path", {
       d: curvePath(paceCfg, function (e) { return X(e * SESSION_HOURS); }, Y),
-      fill: "none", stroke: "var(--ink-1)", "stroke-width": 2, "stroke-linecap": "round", opacity: .78
+      fill: "none", stroke: "var(--ink-1)", "stroke-width": counts ? 2 : 1.4, "stroke-linecap": "round",
+      "stroke-dasharray": counts ? null : "5 4", opacity: counts ? .78 : .5
     }, root);
     var curveLabel = svgText(root, X(SESSION_HOURS) - 4, curveLabelY(paceCfg, Y, m.t),
-      curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }),
+      curveLabelText(paceCfg, counts ? "target" : "curve", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
     var plotted = 0, labels = [], anyEst = false, anyUnrec = false, anyLock = false;
@@ -4441,7 +4455,7 @@ th[aria-sort] button { color: var(--ink-1); }
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
       /* The tick is the gap to the curve at this seat's own elapsed, as on
          the weekly chart; the present reading is always observed. */
-      if (ws && Math.abs(ws.slack) >= PACE_BAND) {
+      if (counts && ws && Math.abs(ws.slack) >= PACE_BAND) {
         head(hg, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), null);
       }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
@@ -4458,7 +4472,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-        renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
+    renderSessionLegend(series, root, anyEst, anyUnrec, anyLock, counts);
     seatList($("session-rank"), SESSION_SHORT, "used now · outlook at the last hour's rate",
       series.map(function (s) {
         var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
@@ -4467,10 +4481,11 @@ th[aria-sort] button { color: var(--ink-1); }
     renderSessionNote(st);
   }
 
-  function renderSessionLegend(series, root, anyEst, anyUnrec, anyLock) {
+  function renderSessionLegend(series, root, anyEst, anyUnrec, anyLock, counts) {
     var leg = $("session-legend");
     leg.textContent = "";
-    legendRow(leg, SW_SIGN, SIGN_KEY);
+    if (counts) legendRow(leg, SW_SIGN, SIGN_KEY);
+    else legendRow(leg, SW_CURVE, "curve (window weighs nothing)");
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
@@ -4510,8 +4525,9 @@ th[aria-sort] button { color: var(--ink-1); }
     p.appendChild(document.createTextNode("Each mark is a seat's " + SESSION_SHORT + ", with its recorded line " +
       "behind it. The curve is the weekly one, "));
     p.appendChild(h("code", "", curveText(wts)));
-    p.appendChild(document.createTextNode(", over five hours. The dotted tick to the curve is the gap; under the " +
-      "curve here means headroom."));
+    p.appendChild(document.createTextNode(", over five hours. " + (termShown(wts.session_weight)
+      ? "The dotted tick to the curve is the gap; under the curve here means headroom."
+      : "No seat is paced against it here, so it is drawn dashed, for reference, with no gaps.")));
     var r = def(dl, "a rate limit, not a budget");
     r.appendChild(document.createTextNode("The " + SESSION_SHORT + " resets several times a day, so unused " +
       "capacity is gone at each reset and there is no budget to pace." +
@@ -5574,7 +5590,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var list = all.slice(0, MAX_DECISIONS);
 
     if (!list.length) {
-      host.appendChild(h("p", "card-none", "No decisions yet."));
+      host.appendChild(h("p", "card-none", "No decisions."));
       return;
     }
 
