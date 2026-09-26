@@ -368,7 +368,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"live-dot", "next-sync",
 		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "hidden-state", "show-all-seats", "app",
 		"sec-seats", "seats-sub",
-		"timeline", "timeline-legend",
+		"timeline", "timeline-legend", "tl-cut-key",
 		"sec-pace", "pace-sub", "pace-curve", "pace-legend", "pace-missing", "pace-note",
 		"pace-formula", "pace-rank", "pace-view",
 		"sec-session", "session-sub", "session-chart", "session-legend", "session-missing", "session-focus", "session-note", "session-rank",

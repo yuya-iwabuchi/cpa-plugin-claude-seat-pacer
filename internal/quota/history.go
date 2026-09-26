@@ -45,7 +45,8 @@ const clearDrop = 0.05
 // carryOverSpan is how long past the previous window's reset a reading at
 // that window's level is taken for the provider still reporting it under the
 // new reset, rather than for use in the fresh one; carryDrift is how far
-// under that level such a reading can sit, the two sources' rounding.
+// under that level the provider's late answers for the old window have been
+// seen to sit.
 const (
 	carryOverSpan = 10 * time.Minute
 	carryDrift    = 0.02
@@ -55,7 +56,7 @@ const (
 // oldest first within a cycle.
 type ring struct {
 	cycles []model.Cycle
-	// replaying is set while addCycles reads a stored history, whose samples
+	// replaying is set while addCycles reads recorded cycles, whose samples
 	// inside a cycle were already accepted live.
 	replaying bool
 	// fall holds a reading that fell clearDrop under the cycle's level, until
@@ -126,8 +127,8 @@ func (f *pendingFall) after(r *ring) *pendingFall {
 // and already past, describes the window that ended and is dropped; so is
 // one within carryOverSpan of the previous window's reset that jumps back to
 // that window's level under the new reset. A replay applies that second test
-// only to a stored cycle's first sample, since a sample inside a stored cycle
-// was already accepted live.
+// only to the reading of a one-reading cycle addCycles folds in, since every
+// other stored sample was already accepted when it was recorded.
 //
 // Readings out of order, with no instant or with a non-finite utilization
 // are dropped. Utilization only rises until the window resets or the
@@ -266,8 +267,8 @@ func (r *ring) carriedOver(s model.Sample) bool {
 }
 
 // nearRoll reports whether the newest cycle opened at the previous cycle's
-// reset and `at` is within carryOverSpan of that reset. Both ends are the
-// reset instant, which compaction never moves.
+// reset and `at` is within carryOverSpan of that reset. `at` is measured from
+// the reset instant, which compaction never moves.
 func (r *ring) nearRoll(at time.Time) bool {
 	n := len(r.cycles)
 	if n < 2 {
@@ -423,14 +424,14 @@ func (r *ring) replay(h model.WindowHistory, loaded time.Time) {
 // cycle's samples pass through add like live readings, so they can continue
 // the ring's newest cycle. A later cycle opens a cycle of its own, since its
 // boundary was already decided when it was recorded, except within
-// carryOverSpan of a reset: there a one-reading cycle under the ring's newest
-// cycle's reset that neither closes nor clears it passes through add too, so
-// a reset the provider answered from both windows reads as the one roll it
-// was. A cycle of several readings keeps its boundary, since the reading that
-// opened it may be one a later reading replaced. A
-// later cycle for a window that ended before the ring's newest, or whose
-// first sample is not after the ring's newest, is dropped whole, like any
-// reading out of order.
+// carryOverSpan of a reset: there an observed one-reading cycle under the
+// ring's newest cycle's reset that neither closes nor clears it passes through
+// add too, so a reset the provider answered from both windows reads as the one
+// roll it was. A cycle of several readings, or an estimated one, keeps its
+// boundary, since the reading that opened it may be one a later reading
+// replaced. A later cycle for a window that ended before the ring's newest, or
+// whose first sample is not after the ring's newest, is dropped whole, like
+// any reading out of order.
 func (r *ring) addCycles(kind model.WindowKind, scope string, cycles []model.Cycle) {
 	r.replaying = true
 	defer func() { r.replaying = false }()

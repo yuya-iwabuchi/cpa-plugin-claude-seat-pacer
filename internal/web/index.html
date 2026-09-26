@@ -256,9 +256,10 @@ a { color: inherit; }
   .lb-stack > span:empty { display: none; }
 }
 .ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-width: 0; }
-/* Every control the page has, in one row after the sync readout and the
-   live dot that read the state they act on. The buttons are shorter than
-   the two-line readout, so the row never sets the bar's height. */
+/* The page's controls, in groups after the sync readout and the live dot
+   that read the state they act on: the sync buttons, then the theme. The
+   buttons are shorter than the two-line readout, so a row of them never
+   sets the bar's height. */
 .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
 /* The live dot leads the sync readout, level with its first line. */
 .lb-sync { align-items: flex-start; }
@@ -1632,15 +1633,17 @@ th[aria-sort] button { color: var(--ink-1); }
      gate on a reading and not on the pace forecast. Full is the page's one
      word for that state. Blocked is the provider's own refusal of the window,
      which the page calls refused, and it makes the seat ineligible the same
-     way. The usage endpoint's critical-headroom advisory is no state of its
-     own: a window it is raised on keeps its pace verdict, and the advisory is
-     on the window's tooltip. */
+     way. Limit is a window the cost does not weigh; its lane reads under, on
+     or above its curve, which the legend says. The usage endpoint's
+     critical-headroom advisory is no state of its own: a window it is raised
+     on keeps its pace verdict, and the advisory is on the window's tooltip. */
   var STATE_META = {
     under:   { color: "var(--good)",     glyph: "−", label: "under target" },
     on:      { color: "var(--info)",     glyph: "≈", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
     spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "bars" },
-    limit:   { color: "var(--ink-1)",    glyph: "◇", label: "under or above curve, weighs nothing" },
+    limit:   { color: "var(--ink-1)",    glyph: "◇", label: "weighs nothing in the cost",
+               legend: "under, on or above curve, weighs nothing" },
     blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "hatch" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not scored" }
   };
@@ -1977,23 +1980,6 @@ th[aria-sort] button { color: var(--ink-1); }
     return pairText(fams, textOf);
   }
 
-  /* The window whose rejection keeps a family off this seat, soonest reset
-     first: what an operator watching an exhausted seat is waiting on. Only an
-     observed refusal counts, which is what the scheduler gates on; a window
-     the usage endpoint merely rates critical still serves. Null where nothing
-     applying to the family is rejected. */
-  function blockingWindow(a, fam) {
-    var out = null;
-    ((a.snapshot && a.snapshot.windows) || []).forEach(function (w) {
-      if (w.status !== "rejected") return;
-      if (w.kind === "weekly_scoped" && (w.scope || "") !== fam) return;
-      var r = parseT(w.resets_at);
-      if (!r) return;
-      if (!out || r < parseT(out.resets_at)) out = w;
-    });
-    return out;
-  }
-
   function hitRate(c) {
     if (!c) return null;
     var total = (c.cache_read_tokens || 0) + (c.cache_creation_tokens || 0) + (c.fresh_input_tokens || 0);
@@ -2156,30 +2142,25 @@ th[aria-sort] button { color: var(--ink-1); }
     var fams = ranks.fams;
     var rank = rankText(a, ranks), lead = leadText(leadsOf(a, ranks), fams);
     var spec = { seat: seatLabel(a), col: seatColor(a), win: maskedName(a) ? "address masked" : "", lines: [] };
+    /* A family held off an eligible seat says so on its cost line. */
+    var held = {};
     if (rank) {
       Object.assign(spec, { type: "rank", tone: lead ? "var(--info)" : "var(--ink-2)", label: rank, when: lead });
       fams.forEach(function (fam) {
         var sc = famScore(a, fam);
-        if (sc && !sc.eligible) spec.lines.push({ b: rankLabel(fam), t: famVerdict(a, fam, now).text });
+        if (sc && !sc.eligible) held[fam] = famVerdict(a, fam, now).text;
       });
     } else {
-      var blk = null;
-      fams.forEach(function (fam) {
-        var w = blockingWindow(a, fam);
-        if (w && (!blk || parseT(w.resets_at) < parseT(blk.resets_at))) blk = w;
-      });
       Object.assign(spec, { type: "limit", label: "ineligible",
-        when: pairText(fams, function (fam) { return famVerdict(a, fam, now).word; }) });
-      if (blk) spec.lines.push({ b: windowShort(blk), t: resetText(parseT(blk.resets_at), now) });
+        when: pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) });
     }
     var std = famScore(a, fams[0]);
     spec.big = [costText(std)];
     spec.delta = fams.length > 1 ? rankLabel(fams[0]) + " cost" : "cost";
-    if (scored(std) && costParts(std).length) spec.lines.push({ b: fams.length > 1 ? rankLabel(fams[0]) : "", t: costParts(std).join(" · ") });
-    fams.slice(1).forEach(function (fam) {
-      var sc = famScore(a, fam);
-      if (sc === null) return;
-      spec.lines.push({ b: rankLabel(fam), t: costText(sc) + (scored(sc) && costParts(sc).length ? " · " + costParts(sc).join(" · ") : "") });
+    fams.forEach(function (fam, i) {
+      var sc = famScore(a, fam), parts = scored(sc) ? costParts(sc) : [];
+      var t = [held[fam]].concat(i ? [costText(sc)] : [], parts).filter(Boolean).join(" · ");
+      if (sc !== null && t) spec.lines.push({ b: fams.length > 1 ? rankLabel(fam) : "", t: t });
     });
     spec.lines.push({ t: intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits") });
@@ -2187,15 +2168,15 @@ th[aria-sort] button { color: var(--ink-1); }
     if (snap.err || snap.err_category) {
       spec.lines.push({ b: "read failing", t: [snap.err_category, snap.err].filter(Boolean).join(": ") });
     }
-    if (hs !== "active") spec.lines.push({ b: "host", t: hs });
     if (hs === "disabled" && !obs) {
-      spec.lines.push({ t: "Disabled in the host, so it is not read and takes no new conversations. " +
-        "Re-enable it in the host's auth files." });
+      spec.lines.push({ t: "disabled in the host, so it is not read; re-enable it in the host's auth files" });
     } else if (!obs) {
-      spec.lines.push({ t: "Not read yet: it takes no new conversation until its first reading, usually within one " +
-        "poll interval. If it stays, check the host log for \u201Cusage fetch failed\u201D." });
-    } else if (a.score && a.score.reason === "stale-snapshot") {
-      spec.lines.push({ b: "reading too old", t: relText(obs, now) });
+      if (hs !== "active") spec.lines.push({ b: "host", t: hs });
+      spec.lines.push({ t: "not read yet; it takes no new conversation until its first reading, usually within " +
+        "one poll interval, and if it stays, check the host log for \u201Cusage fetch failed\u201D" });
+    } else {
+      if (hs !== "active") spec.lines.push({ b: "host", t: hs });
+      if (a.score && a.score.reason === "stale-snapshot") spec.lines.push({ t: "read " + relText(obs, now) });
     }
     return spec;
   }
@@ -2235,21 +2216,20 @@ th[aria-sort] button { color: var(--ink-1); }
     var spec = { seat: seatLabel(a), col: seatColor(a), win: windowShort(w), type: "state", tone: meta.color,
       label: meta.label, when: resets ? resetText(resets, now) : "no open window", big: [pct(w.utilization, 0)], lines: [] };
     var curve = curveAt(w, ws, now);
-    if (stt === "limit") {
+    var placed = openWindow(w) && num(curve);
+    if (stt === "limit" && placed) {
       spec.label = curveVerdict(w, curve);
       spec.lines.push({ t: "weighs nothing in the cost" });
     }
     if (counted(ws)) {
       spec.delta = "vs " + pct(ws.target, 0) + " target";
-      spec.lines.push({ t: paceVerdict(ws.slack) + (ws.weight !== 1 ? " · counts" + weightTag(ws.weight) + " in the cost" : "") });
-    } else if (gatedOnly(w, ws) && openWindow(w) && num(curve)) {
+      spec.lines.push({ t: overPts(ws.slack) + " pts" + (ws.weight !== 1 ? " · counts" + weightTag(ws.weight) + " in the cost" : "") });
+    } else if (gatedOnly(w, ws) && placed) {
       spec.delta = "vs " + pct(curve, 0) + " curve";
-    } else if (stt === "unknown") {
-      spec.lines.push({ t: "not scored for this model" });
     }
-    if (stt === "blocked") spec.lines.push({ t: "The seat takes no new conversations on this window's requests, and " +
-      "bound ones move where another seat can take the model." });
-    if (stt === "spent") spec.lines.push({ t: "The seat takes no new conversations on this window's requests until it resets." });
+    if (stt === "blocked") spec.lines.push({ t: "takes no new conversations on this window's requests; bound ones " +
+      "move where another seat can take the model" });
+    if (stt === "spent") spec.lines.push({ t: "takes no new conversations on this window's requests until it resets" });
     if (advisory(w, stt)) spec.lines.push({ b: "headroom critical", t: "the provider rates it nearly full, and requests still succeed" });
     if (cutL || cutR) spec.lines.push({ t: cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
       "resets after the axis ends" });
@@ -2259,7 +2239,6 @@ th[aria-sort] button { color: var(--ink-1); }
   /* A window the cost does not weigh, against its curve: under, on or above
      it, as a paced window reads against its target. */
   function curveVerdict(w, curve) {
-    if (!num(curve)) return "weighs nothing in the cost";
     var gap = w.utilization - curve;
     return Math.abs(gap) < PACE_BAND ? "on curve" : gap < 0 ? "under curve" : "above curve";
   }
@@ -2284,11 +2263,13 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function laneAria(a, w, ws, stt) {
     return seatLabel(a) + ", " + windowName(w) + ", " +
-      (stt === "limit" ? curveVerdict(w, curveAt(w, ws, nowMs())) + ", weighs nothing in the cost" : STATE_META[stt].label) +
+      (stt === "limit" && openWindow(w) && num(curveAt(w, ws, nowMs())) ? curveVerdict(w, curveAt(w, ws, nowMs())) + ", " : "") +
+      STATE_META[stt].label +
       (advisory(w, stt) ? ", headroom critical" : "") +
       ", " + pct(w.utilization) + " used" +
       (counted(ws) ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") +
-      (gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs())) ? ", curve " + pct(curveAt(w, ws, nowMs())) : "");
+      (gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs())) ? ", curve " + pct(curveAt(w, ws, nowMs())) : "") +
+      (parseT(w.resets_at) ? ", " + resetText(parseT(w.resets_at), nowMs()) : "");
   }
 
   /* ------------------------------------------------------------ timeline */
@@ -2345,7 +2326,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var meta = STATE_META[key];
       var li = h("li", "");
       li.appendChild(stateSwatch(meta));
-      li.appendChild(document.createTextNode(" " + meta.label));
+      li.appendChild(document.createTextNode(" " + (meta.legend || meta.label)));
       host.appendChild(li);
     });
     var marks = $("timeline-marks");
@@ -2355,12 +2336,14 @@ th[aria-sort] button { color: var(--ink-1); }
   /* A family's standing on a seat, in the page's words: eligible, or why it
      is held off, with the instant the hold lifts where the provider names
      one. The word alone is the line's label; the text with the instant is
-     the tooltip's. A family whose ranking is unknown reads as unknown. */
+     the tooltip's, and lift is that instant's phrase alone. A family whose
+     ranking is unknown reads as unknown. */
   function famVerdict(a, fam, now) {
     var sc = famScore(a, fam);
-    if (!sc) return { ok: false, word: "unknown", text: "unknown" };
-    if (sc.eligible) return { ok: true, word: "eligible", text: "eligible" };
-    return { ok: false, word: holdWord(a, sc.reason, null, now), text: holdWord(a, sc.reason, seatReturnsAt(a, fam), now) };
+    if (!sc) return { ok: false, word: "unknown", text: "unknown", lift: "" };
+    if (sc.eligible) return { ok: true, word: "eligible", text: "eligible", lift: "" };
+    var word = holdWord(a, sc.reason, null, now), text = holdWord(a, sc.reason, seatReturnsAt(a, fam), now);
+    return { ok: false, word: word, text: text, lift: text.indexOf(word + " · ") === 0 ? text.slice(word.length + 3) : "" };
   }
 
   /* The chips a seat's header row carries, one per request family: the
@@ -2377,7 +2360,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var leads = leadsOf(a, ranks);
     var parts = fams.map(function (fam) {
       var v = famVerdict(a, fam, now);
-      if (!v.ok) return { ok: false, text: v.word, tip: v.text, fam: fam };
+      if (!v.ok) return { ok: false, text: v.word, tip: v.text, lift: v.lift, fam: fam };
       var r = ranks.byFam[fam][a.auth_id];
       return { ok: true, text: r === undefined ? "#?" : "#" + (r + 1), lead: leads.indexOf(fam) >= 0, fam: fam };
     });
@@ -2387,11 +2370,12 @@ th[aria-sort] button { color: var(--ink-1); }
     if (agree) {
       var one = parts[0];
       return [{ ok: one.ok, lead: one.lead, label: one.text, word: one.text,
+        lift: one.ok ? "" : pairText(fams, function (fam) { return famVerdict(a, fam, now).lift; }),
         tip: one.ok ? null : pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) }];
     }
     return parts.map(function (p) {
       return { ok: p.ok, lead: p.lead, fam: p.fam, label: rankLabel(p.fam) + " " + p.text, word: p.text,
-        hold: p.tip, tip: p.ok ? null : rankLabel(p.fam) + ": " + p.tip };
+        lift: p.lift, tip: p.ok ? null : rankLabel(p.fam) + ": " + p.tip };
     });
   }
 
@@ -2422,11 +2406,10 @@ th[aria-sort] button { color: var(--ink-1); }
       g.setAttribute("role", "img");
       g.setAttribute("data-fk", "fam:" + a.auth_id + ":" + (c.fam || ""));
       g.setAttribute("aria-label", c.tip);
-      /* The hold's word is the badge; what follows it in the hold's text is
-         when it lifts. */
-      var hold = c.hold || c.tip, lifts = hold.indexOf(c.word + " · ") === 0 ? hold.slice(c.word.length + 3) : hold === c.word ? "" : hold;
+      /* The hold's word is the badge, and when it lifts follows it. */
       setTip(g, { seat: seatLabel(a), col: seatColor(a), win: c.fam ? rankLabel(c.fam) : "", type: "limit",
-        label: c.word, when: lifts, lines: [] });
+        label: c.word, when: c.lift, lines: [] });
+      g.setAttribute("data-tip-visual", "true");
     } else {
       g.setAttribute("aria-hidden", "true");
     }
@@ -2517,6 +2500,7 @@ th[aria-sort] button { color: var(--ink-1); }
     t.setAttribute("data-ts-mode", "reset");
     setTip(g, { seat: seatLabel(a), col: seatColor(a), win: windowShort(w), type: "reset", label: "resets",
       when: absTime(resets), lines: [] });
+    g.setAttribute("data-tip-visual", "true");
     g.setAttribute("aria-label", "resets " + absTime(resets));
     return g;
   }
@@ -2652,6 +2636,7 @@ th[aria-sort] button { color: var(--ink-1); }
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
       gh.setAttribute("aria-label", seatAria(a, ranks));
       setTip(gh, seatTip(a, ranks));
+      gh.setAttribute("data-tip-visual", "true");
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: gut - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
       var nameX = NAME_X;
@@ -2707,6 +2692,7 @@ th[aria-sort] button { color: var(--ink-1); }
         if (!resets || durMs <= 0 || X(resets.getTime()) <= gut) {
           g.setAttribute("aria-label", laneAria(a, w, ws, stt));
           setTip(g, laneTip(a, w, ws, stt, false, false));
+          g.setAttribute("data-tip-visual", "true");
           svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
           if (resets) resetStamp(gRow, cy, a, w, resets, rstX);
           return;
@@ -2719,6 +2705,7 @@ th[aria-sort] button { color: var(--ink-1); }
         if (!cutL && !cutR) bx1 = Math.max(bx1, bx0 + 8);
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
         setTip(g, laneTip(a, w, ws, stt, cutL, cutR));
+        g.setAttribute("data-tip-visual", "true");
 
         var barH = compact ? 11 : 13, by = cy - barH / 2;
 
@@ -3315,6 +3302,7 @@ th[aria-sort] button { color: var(--ink-1); }
   var LOCK_KEY = "refused";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
+  var CURVE_KEY = "curve (window weighs nothing)";
 
   function dayText(elapsed) {
     return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS;
@@ -3469,17 +3457,20 @@ th[aria-sort] button { color: var(--ink-1); }
     svg("rect", { "class": "lock-tape", x: x0, y: top, width: w, height: hh, rx: hh / 2, fill: "url(#" + id + ")" }, parent);
   }
 
-  /* Draws each span as tape along the flat runs of the line under parent,
-     the layer over every seat's line. Runs that meet at one level, from one
-     span or from spans end to end, make one band. A run under a pixel wide
-     draws nothing, since it would draw a lone tile on a climb. Reports
-     whether it drew any. */
-  function lockTape(parent, spans, v, xOf, Y) {
+  /* Draws spans as tape along the flat runs of a seat's line, in parent,
+     the layer over every seat's line. parts lists [spans, vertices] pairs,
+     one per stretch of the line: a window, or the hold between two. Runs
+     that meet at one level, from one span, from spans end to end or across
+     parts, make one band. A run under a pixel wide draws nothing, since it
+     would draw a lone tile on a climb. Reports whether it drew any. */
+  function lockTape(parent, parts, xOf, Y) {
     var runs = [];
-    spans.forEach(function (sp) {
-      flatRuns(v, sp.t0, sp.t1).forEach(function (r) {
-        var a = xOf(r[0]), b = xOf(r[1]);
-        if (b - a >= 1) runs.push([a, b, Y(r[2])]);
+    parts.forEach(function (part) {
+      part[0].forEach(function (sp) {
+        flatRuns(part[1], sp.t0, sp.t1).forEach(function (r) {
+          var a = xOf(r[0]), b = xOf(r[1]);
+          if (b - a >= 1) runs.push([a, b, Y(r[2])]);
+        });
       });
     });
     runs.sort(function (p, q) { return p[2] - q[2] || p[0] - q[0]; });
@@ -3653,9 +3644,10 @@ th[aria-sort] button { color: var(--ink-1); }
      a clearing or the window's start can cut the section short of; its one
      span's line leaves the ends to the head, and every line of any other
      section names a span's own. A flat limit section under only other
-     windows' refusals says why it holds. */
-  function sectionTip(head, sec, samples, tNow, uNow, now) {
-    var a = sec.a, b = sec.b, live = sec.b >= tNow && tNow >= now;
+     windows' refusals says why it holds. done marks a window a later one
+     followed, whose last stretch is over. */
+  function sectionTip(head, sec, samples, tNow, uNow, now, done) {
+    var a = sec.a, b = sec.b, live = sec.b >= tNow && !done;
     if (sec.type === "limit") {
       a = Math.min.apply(null, sec.spans.map(function (sp) { return sp.from; }));
       live = sec.spans.some(function (sp) { return !sp.ended; });
@@ -3794,10 +3786,12 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* Each reset dot's tooltip, and the stop it makes, keyed by key, the
-     line's own; the dot moves into above where that is given. */
-  function resetTips(resets, head, key, above) {
+     line's own. The dots move into the seat's group in layer, the chart's
+     top one, so a refusal's tape never covers them. */
+  function resetTips(resets, head, key, layer, id) {
+    var above = resets.length ? seatLayer(layer, id) : null;
     resets.forEach(function (r) {
-      if (above) above.appendChild(r.el);
+      above.appendChild(r.el);
       var spec = Object.assign({}, head, { type: "reset", label: "reset",
         when: spanClock(r.t), dur: "", big: [pct(r.u, 0), "0%"], delta: "",
         lines: [{ t: "an early reset by the provider; the scheduled reset time is unchanged" }] });
@@ -3807,8 +3801,7 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* A seat's group in a chart's top layer, for the parts of its line that
-     are stops of their own: a refusal's tape, drawn over the lines, would
-     otherwise cover them. It dims and lifts with the seat's line. */
+     are stops of their own. It dims and lifts with the seat's line. */
   function seatLayer(layer, id) {
     var g = svg("g", { "class": "pt-line" }, layer);
     g.setAttribute("data-seat", id);
@@ -3984,11 +3977,11 @@ th[aria-sort] button { color: var(--ink-1); }
           var v = lineVertices(line, start, tNow, ws.utilization);
           var gt = svg("g", { "class": "pt-tape" }, gTape);
           gt.setAttribute("data-seat", a.auth_id);
-          anyLock = lockTape(gt, locks.drawn, v, xOf, Y) || anyLock;
+          anyLock = lockTape(gt, [[locks.drawn, v]], xOf, Y) || anyLock;
           var drawn = historyLine(gl, line, xOf, Y, col, tailTo(cx, cy));
           anyEst = anyEst || drawn.est > 0;
           anyUnrec = anyUnrec || drawn.unrecorded.length > 0;
-          resetTips(drawn.resets, tipHead, key, seatLayer(gPts, a.auth_id));
+          resetTips(drawn.resets, tipHead, key, gPts, a.auth_id);
           sectionHits(gl, lineSections(line, start, tNow, ws.utilization, locks.drawn, PACE_IDLE_MS), v, xOf, Y, col,
             function (sec) { return sectionTip(tipHead, sec, line, tNow, ws.utilization, now); },
             function (sec) {
@@ -4283,9 +4276,9 @@ th[aria-sort] button { color: var(--ink-1); }
      labels and note read the running value. What the window does at any weight
      is gate, as the same facts do on any other window — SESSION_GATES names
      them — so a pick that went elsewhere is often read here. Spend is
-     measured per seat, so the
-     conversations a stretch of the line names are the ones the routing log
-     shows active on that seat then, not the ones that spent the tokens. */
+     measured per seat, so the conversations a stretch of the line names are
+     the ones the routing log shows active on that seat then, not the ones
+     that spent the tokens. */
   var SESSION_HOURS = 5;
   var SESSION_MS = SESSION_HOURS * 3600000;
   /* A 5-hour line's usage splits into sections across a pause this long. */
@@ -4448,7 +4441,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var cx = X(hoursOf(now)), cy = Y(s.w.utilization), ws = s.ws;
       /* What the mark is read against: the scorer's target where the window
          counts, the straight reference line where it does not. */
-      var along = counts ? (ws ? ws.target : null) : clamp(hoursOf(now) / SESSION_HOURS, 0, 1);
+      var along = counts ? (ws ? ws.target : null) : curveAt(s.w, ws, now);
       var sHead = { seat: seatLabel(a), col: col, win: SESSION_SHORT, kind: "five_hour" };
       var key = a.auth_id + ":five_hour:";
       var locks5 = lockSpans(a, { kind: "five_hour" }, start, s.resets.getTime(), now);
@@ -4458,7 +4451,7 @@ th[aria-sort] button { color: var(--ink-1); }
          force; the name reads a fuller record, since it gets no second hover. */
       var headAria = seatLabel(a) + ", 5-hour session, " + hoursIn.toFixed(1) + " of " + SESSION_HOURS + " hours elapsed" +
         ", " + pct(s.w.utilization) + " used" +
-        (counts ? (ws ? ", curve " + pct(ws.target) + ", " + headroomText(ws.slack) : "") : ", curve " + pct(along)) +
+        (counts ? (ws ? ", target " + pct(ws.target) + ", " + headroomText(ws.slack) : "") : num(along) ? ", curve " + pct(along) : "") +
         ", resets " + relText(s.resets, now) +
         ", last hour " + lastHour + liveAria(locks5.live, now);
       if (s.cur.length >= 2) {
@@ -4467,12 +4460,12 @@ th[aria-sort] button { color: var(--ink-1); }
         var v5 = lineVertices(s.cur, start, now, s.w.utilization);
         var gt = svg("g", { "class": "pt-tape" }, gTape);
         gt.setAttribute("data-seat", a.auth_id);
-        anyLock = lockTape(gt, locks5.drawn, v5, xOf, Y) || anyLock;
+        anyLock = lockTape(gt, [[locks5.drawn, v5]], xOf, Y) || anyLock;
         var drawnCur = historyLine(gSeat, s.cur, xOf, Y, col, tailTo(cx, cy));
         estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
         anyUnrec = anyUnrec || drawnCur.unrecorded.length > 0;
-        resetTips(drawnCur.resets, sHead, key, seatLayer(gMarks, a.auth_id));
+        resetTips(drawnCur.resets, sHead, key, gMarks, a.auth_id);
         /* One pointer target per section of the line; a usage section also
            lists the conversations the routing log shows on the seat in it,
            in its tooltip and in the line under the chart. */
@@ -4509,7 +4502,7 @@ th[aria-sort] button { color: var(--ink-1); }
       hg.setAttribute("data-seat", a.auth_id);
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
       var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated" : "";
-      setTip(hg, markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, along, "curve", locks5.live, now));
+      setTip(hg, markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, along, counts ? "target" : "curve", locks5.live, now));
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
       /* The tick is the gap to the curve at this seat's own elapsed, as on
          the weekly chart; the present reading is always observed. */
@@ -4543,7 +4536,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var leg = $("session-legend");
     leg.textContent = "";
     if (counts) legendRow(leg, SW_SIGN, SIGN_KEY);
-    else legendRow(leg, SW_CURVE, "curve (window weighs nothing)");
+    else legendRow(leg, SW_CURVE, CURVE_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
@@ -4936,7 +4929,14 @@ th[aria-sort] button { color: var(--ink-1); }
         win.v = lineVertices(win.samples, win.start, win.end, win.endU);
         win.locks = lockSpans(a, view, win.start, win.end, now);
         win.sections = lineSections(win.samples, win.start, win.end, win.endU, win.locks.drawn, idleMs);
-        if (win.locks.drawn.some(function (sp) { return flatRuns(win.v, sp.t0, sp.t1).length; })) anyLock = true;
+        /* Between two windows the seat holds at zero; a refusal from any
+           window that bears on this one lies along that hold too. */
+        win.hold = next && next.samples[0].t > win.end
+          ? [lockSpans(a, view, win.end, next.samples[0].t, now).drawn, [{ t: win.end, u: 0 }, { t: next.samples[0].t, u: 0 }]]
+          : null;
+        [[win.locks.drawn, win.v]].concat(win.hold ? [win.hold] : []).forEach(function (part) {
+          if (part[0].some(function (sp) { return flatRuns(part[1], sp.t0, sp.t1).length; })) anyLock = true;
+        });
         win.samples.forEach(function (s, j) {
           if (s.est) anyEst = true;
           if (s.fresh && s.t - win.samples[j - 1].t >= UNRECORDED_MS) anyGap = true;
@@ -5169,25 +5169,23 @@ th[aria-sort] button { color: var(--ink-1); }
            window's runs on to the present reading. Refusals lie along its
            flat runs, and each section of it carries its tooltip. A section
            or reset in the range shown is a keyboard stop. */
+        var tapeParts = [];
         sd.wins.forEach(function (win, i) {
           var next = sd.wins[i + 1], last = win.samples[win.samples.length - 1];
-          lockTape(gt, win.locks.drawn, win.v, X, Y);
+          tapeParts.push([win.locks.drawn, win.v]);
+          if (win.hold) tapeParts.push(win.hold);
           var tail = next ? (win.end > last.t ? tailTo(X(win.end), Y(last.u)) : null) : (sd.cur !== null ? tailTo(X(now), Y(sd.cur)) : null);
           var drawn = historyLine(gl, win.samples, X, Y, sd.col, tail);
-          resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key, seatLayer(gMarks, sd.a.auth_id));
+          resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key, gMarks, sd.a.auth_id);
           sectionHits(gl, win.sections, win.v, X, Y, sd.col,
-            function (sec) { return sectionTip(sd.head, sec, win.samples, win.end, win.endU, now); },
+            function (sec) { return sectionTip(sd.head, sec, win.samples, win.end, win.endU, now, !!next); },
             function (sec) { return !!(sec.spans && sec.spans.length) && inView(sec.a, sec.b); }, sd.key);
           if (!next) return;
           var first = next.samples[0], x = X(win.end).toFixed(1);
-          /* Between two windows the seat holds at zero; a refusal from any
-             window that bears on this one lies along that hold too. */
-          if (first.t > win.end) {
-            lockTape(gt, lockSpans(sd.a, view, win.end, first.t, now).drawn, [{ t: win.end, u: 0 }, { t: first.t, u: 0 }], X, Y);
-          }
           svg("path", { "class": "hs-reset", d: "M" + x + " " + Y(last.u).toFixed(1) + "V" + Y(0).toFixed(1), stroke: sd.col }, gl);
           svg("path", { "class": "hist", d: "M" + x + " " + Y(0).toFixed(1) + tailTo(X(first.t), Y(first.u)), stroke: sd.col }, gl);
         });
+        lockTape(gt, tapeParts, X, Y);
         if (sd.cur !== null && now >= t0 && now <= t1) {
           svg("circle", { cx: X(now), cy: Y(sd.cur), r: 4, fill: sd.col, stroke: "var(--surface-1)", "stroke-width": 1.5 }, gm);
         }
@@ -5196,7 +5194,10 @@ th[aria-sort] button { color: var(--ink-1); }
       if (now >= t0 && now <= t1) {
         var nx = X(now);
         svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2" }, root);
-        svgText(root, nx + 5, m.t - 4, "NOW", "t-mono", { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600 });
+        /* Set left of the line where it would run past the plot's edge. */
+        var nearEdge = nx + 34 > m.l + pw + m.r;
+        svgText(root, nearEdge ? nx - 5 : nx + 5, m.t - 4, "NOW", "t-mono",
+          { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600, "text-anchor": nearEdge ? "end" : "start" });
       }
 
       /* The strip: every recorded line over the whole history, with the
@@ -5250,7 +5251,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
     [
       ["━", "recorded"],
-      ["╌", reference ? "curve (window weighs nothing)" : "target"],
+      ["╌", reference ? CURVE_KEY : "target"],
       ["○", "reset"],
       ["│", "midnight"],
       ["▒", "weekend"],
