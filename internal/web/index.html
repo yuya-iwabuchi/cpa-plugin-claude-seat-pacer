@@ -36,9 +36,6 @@
   --info:         #2568bd;
   --serious:      #c0521f;
   --critical:     #d03b3b;
-  /* A limit's underlay on the charts: the critical red as it paints at 85%
-     over the card, set solid. */
-  --limit:        #d75858;
   --warning:      #fab219;
 
   /* Twelve identity hues: IBM Carbon's categorical sequence in its published
@@ -83,7 +80,6 @@
     --track:      #2c2c2a;
     --track-edge: #999892;
     --critical:   #e05050;
-    --limit:      #b34040;
     --emph:       rgba(57,135,229,.12);
     --good:       #0ca30c;
     --serious:    #ec835a;
@@ -121,9 +117,6 @@
   --track-edge: #999892;
   --emph:       rgba(57,135,229,.12);
   --critical:   #e05050;
-  /* Darker than the critical red, so the band keeps apart from the lightest
-     pink seat hue and still stands 3:1 on the card. */
-  --limit:      #b34040;
   --good:       #0ca30c;
   --serious:    #ec835a;
   --info:       #3987e5;
@@ -545,10 +538,10 @@ svg.pace g.pt:focus-visible circle.hit { stroke: var(--focus); stroke-width: 2; 
    still read as the chart's shape behind the one pointed at. */
 svg.pace[data-focus] g.pt:not([data-focused]),
 svg.pace[data-focus] g.pt-line:not([data-focused]),
-svg.pace[data-focus] g.pt-under:not([data-focused]) { opacity: .38; }
+svg.pace[data-focus] g.pt-tape:not([data-focused]) { opacity: .38; }
 /* Pointing at one seat holds the others back only while the pointer is there;
    a stop the keyboard reaches keeps its mark and line, so its ring is never
-   dimmed, and its underlay follows the pointer's seat. */
+   dimmed, and its tape follows the pointer's seat. */
 svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.pt-line:has(:focus-visible) { opacity: 1; }
 /* The gap label reads in ink over the curve and grid; the gap tick under
    the mark carries the seat's colour. A label that crowding pushed off its
@@ -572,13 +565,16 @@ svg.pace path.hist-est { fill: none; stroke-width: 1.4; stroke-linejoin: round; 
    after it where no reading between them was recorded: a straight, sparse
    dotted line, because only its two ends are known. */
 svg.pace path.hist-gap { fill: none; stroke-width: 1.4; stroke-linecap: round; opacity: .55; stroke-dasharray: 1 4; }
-/* A span in which the provider refused the seat: a wide red stroke along the
-   seat's own line, under it. */
-svg.pace path.lock-under { fill: none; stroke: var(--limit); stroke-width: 4; stroke-linecap: round; }
+/* A span in which the provider refused the seat: a band of hazard tape over
+   the seat's own line, three parts red to one of black and see-through
+   enough that the line still shows. */
+svg.pace rect.lock-tape { opacity: .8; }
+svg.pace pattern rect.tape-red { fill: var(--critical); }
+svg.pace pattern path.tape-black { fill: #161616; }
 /* A line's sections take the pointer, the drawn strokes under them never do;
    the section under the pointer shows in the seat's colour. A square cap
    closes the corners of a step and gives an instant a target of its own. */
-svg.pace path.hist, svg.pace path.lock-under { pointer-events: none; }
+svg.pace path.hist, svg.pace rect.lock-tape { pointer-events: none; }
 svg.pace path.span-hit { fill: none; stroke-width: 9; stroke-opacity: 0; stroke-linecap: square; pointer-events: stroke; cursor: default; }
 svg.pace path.span-hit:hover { stroke-opacity: .22; }
 /* A focused section is marked by the halo its target draws; the page's box
@@ -3160,7 +3156,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Samples as historyLine draws them: in each run between clearings, the
      estimated stretch rescaled by anchoredEstimate, every flag kept. Every
-     reading of a line's figures, targets and underlays comes from this list,
+     reading of a line's figures, targets and tapes comes from this list,
      so they match the line on screen. */
   function drawnSamples(samples) {
     var runs = [], out = [];
@@ -3325,7 +3321,8 @@ th[aria-sort] button { color: var(--ink-1); }
   var SW_EST = "height:0;border-top:2px dashed var(--ink-3);opacity:.6";
   var SW_GAP = "height:0;border-top:2px dotted var(--ink-3);opacity:.55";
   var UNRECORDED_KEY = "not recorded after an early clearing";
-  var SW_LOCK = "height:4px;border-radius:2px;background:var(--limit)";
+  var SW_LOCK = "height:4px;border-radius:2px;opacity:.8;" +
+    "background:repeating-linear-gradient(133deg, var(--critical) 0 3.28px, #161616 3.28px 4.38px)";
   var LOCK_KEY = "limit reached (provider refused)";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
 
@@ -3469,20 +3466,42 @@ th[aria-sort] button { color: var(--ink-1); }
     return out;
   }
 
-  /* Draws each span as a stroke along the flat runs of the line under
-     parent, the layer under every seat's line, so every line runs over every
-     underlay. A run under a pixel wide draws nothing, since its round caps
-     would draw a dot on a climb. Reports whether it drew any. */
-  function lockUnderlay(parent, spans, v, xOf, Y) {
-    var drew = false;
+  var tapeN = 0;
+  /* One band of tape from x0 to x1 centred on y, with round ends, as thick
+     as a seat's mark and never shorter than one tile, whose stripes start at
+     its left end. */
+  function tapeRun(parent, x0, x1, y) {
+    var root = parent.ownerSVGElement || parent, defs = root.querySelector("defs") || svg("defs", {}, root);
+    var hh = 4, tw = 6, top = y - hh / 2, id = "tape-" + (++tapeN), w = Math.max(tw, x1 - x0);
+    x0 = (x0 + x1 - w) / 2;
+    var pat = svg("pattern", { id: id, patternUnits: "userSpaceOnUse", x: x0, y: top, width: tw, height: hh }, defs);
+    svg("rect", { "class": "tape-red", width: tw, height: hh }, pat);
+    svg("path", { "class": "tape-black", d: "M0.75 4L4.5 0H6L2.25 4Z" }, pat);
+    svg("rect", { "class": "lock-tape", x: x0, y: top, width: w, height: hh, rx: hh / 2, fill: "url(#" + id + ")" }, parent);
+  }
+
+  /* Draws each span as tape along the flat runs of the line under parent,
+     the layer over every seat's line. Runs that meet at one level, from one
+     span or from spans end to end, make one band. A run under a pixel wide
+     draws nothing, since it would draw a lone tile on a climb. Reports
+     whether it drew any. */
+  function lockTape(parent, spans, v, xOf, Y) {
+    var runs = [];
     spans.forEach(function (sp) {
-      var seg = flatRuns(v, sp.t0, sp.t1).filter(function (r) { return xOf(r[1]) - xOf(r[0]) >= 1; });
-      if (!seg.length) return;
-      var d = seg.map(function (r) { return "M" + xOf(r[0]).toFixed(1) + " " + Y(r[2]).toFixed(1) + "H" + xOf(r[1]).toFixed(1); }).join("");
-      svg("path", { "class": "lock-under", d: d }, parent);
-      drew = true;
+      flatRuns(v, sp.t0, sp.t1).forEach(function (r) {
+        var a = xOf(r[0]), b = xOf(r[1]);
+        if (b - a >= 1) runs.push([a, b, Y(r[2])]);
+      });
     });
-    return drew;
+    runs.sort(function (p, q) { return p[2] - q[2] || p[0] - q[0]; });
+    var bands = [];
+    runs.forEach(function (r) {
+      var last = bands[bands.length - 1];
+      if (last && Math.abs(last[2] - r[2]) < 0.5 && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1]);
+      else bands.push(r.slice());
+    });
+    bands.forEach(function (r) { tapeRun(parent, r[0], r[1], r[2]); });
+    return bands.length > 0;
   }
 
   /* A line's sections, oldest first from the window's start, each {type, a,
@@ -3914,12 +3933,11 @@ th[aria-sort] button { color: var(--ink-1); }
     var labels = [], anyEst = false, anyUnrec = false, anyLock = false;
     /* Three layers, because SVG paints in document order and a seat drawn
        later would otherwise run its recorded line across an earlier seat's
-       mark and label, or its limit underlay across an earlier seat's line.
-       Every underlay goes in the lowest layer, every line above it, and
-       every mark, label and hit area in the top one, so no seat can hide
-       another's reading. */
-    var gUnder = svg("g", {}, root);
+       mark and label. Every line goes in the lowest layer, every limit's
+       tape over them, and every mark, label and hit area in the top one, so
+       no seat can hide another's reading. */
     var gLines = svg("g", {}, root);
+    var gTape = svg("g", {}, root);
     var gPts = svg("g", {}, root);
     dimOnHover(root);
     /* weighted marks a family cap's mark; ownStops, that the seat's 7-day line
@@ -3953,9 +3971,9 @@ th[aria-sort] button { color: var(--ink-1); }
         if (line.length >= 2) {
           drewLine = true;
           var v = lineVertices(line, start, tNow, ws.utilization);
-          var gu = svg("g", { "class": "pt-under" }, gUnder);
-          gu.setAttribute("data-seat", a.auth_id);
-          anyLock = lockUnderlay(gu, locks.drawn, v, xOf, Y) || anyLock;
+          var gt = svg("g", { "class": "pt-tape" }, gTape);
+          gt.setAttribute("data-seat", a.auth_id);
+          anyLock = lockTape(gt, locks.drawn, v, xOf, Y) || anyLock;
           var drawn = historyLine(gl, line, xOf, Y, col, tailTo(cx, cy));
           anyEst = anyEst || drawn.est > 0;
           anyUnrec = anyUnrec || drawn.unrecorded.length > 0;
@@ -4018,7 +4036,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock);
+        renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock);
     renderRank(st, seats, ranks, view);
     renderPaceNote(st);
   }
@@ -4044,13 +4062,13 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Lifts one seat's marks, lines and underlays out of the rest, or none for
+  /* Lifts one seat's marks, lines and tapes out of the rest, or none for
      an empty id: with a dozen seats the neutral ones are told apart by name,
      not hue. */
   function focusSeat(root, id) {
     if (!id) { root.removeAttribute("data-focus"); }
     else { root.setAttribute("data-focus", id); }
-    var pts = root.querySelectorAll("g.pt, g.pt-line, g.pt-under");
+    var pts = root.querySelectorAll("g.pt, g.pt-line, g.pt-tape");
     for (var i = 0; i < pts.length; i++) {
       if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
       else pts[i].removeAttribute("data-focused");
@@ -4149,7 +4167,7 @@ th[aria-sort] button { color: var(--ink-1); }
     return "Point at a stretch of a line to see what happened in it. A usage stretch is a run of rises less " +
       "than " + pause + " apart, an idle stretch holds its level, and a not-recorded stretch is a climb after " +
       "an early clearing that no reading covers. A limit stretch is where the provider refused requests on a " +
-      "window of the line, with a red stroke under it. Its tooltip gives each refusal's own start and end and " +
+      "window of the line, under red and black tape. Its tooltip gives each refusal's own start and end and " +
       "what ended it, and a stretch a refusal overlaps names that refusal too. A thin red ring inside a mark " +
       "means the provider is refusing the seat now. A dotted fall to zero under a hollow dot named " +
       "\u201Creset\u201D is the provider clearing the window early, before its reset time.";
@@ -4435,11 +4453,11 @@ th[aria-sort] button { color: var(--ink-1); }
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
     var plotted = 0, labels = [], anyEst = false, anyUnrec = false, anyLock = false;
-    /* Three layers, as on the weekly chart: every underlay below every line,
-       and every line below every mark and label, so a seat drawn later cannot
-       run its line or its underlay across an earlier seat's reading. */
-    var gUnder = svg("g", {}, root);
+    /* Three layers, as on the weekly chart: every line below every limit's
+       tape, and both below every mark and label, so a seat drawn later cannot
+       run its line or its tape across an earlier seat's reading. */
     var gLines = svg("g", {}, root);
+    var gTape = svg("g", {}, root);
     var gMarks = svg("g", {}, root);
     dimOnHover(root);
     series.forEach(function (s) {
@@ -4468,9 +4486,9 @@ th[aria-sort] button { color: var(--ink-1); }
         var gSeat = svg("g", { "class": "pt-line" }, gLines);
         gSeat.setAttribute("data-seat", a.auth_id);
         var v5 = lineVertices(s.cur, start, now, s.w.utilization);
-        var gu = svg("g", { "class": "pt-under" }, gUnder);
-        gu.setAttribute("data-seat", a.auth_id);
-        anyLock = lockUnderlay(gu, locks5.drawn, v5, xOf, Y) || anyLock;
+        var gt = svg("g", { "class": "pt-tape" }, gTape);
+        gt.setAttribute("data-seat", a.auth_id);
+        anyLock = lockTape(gt, locks5.drawn, v5, xOf, Y) || anyLock;
         var drawnCur = historyLine(gSeat, s.cur, xOf, Y, col, tailTo(cx, cy));
         estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
@@ -4533,7 +4551,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
+        renderSessionLegend(series, root, anyEst, anyUnrec, anyLock);
     seatList($("session-rank"), SESSION_SHORT, "used now; whether the last hour's rate reaches the limit before the reset",
       series.map(function (s) {
         var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
@@ -5018,7 +5036,7 @@ th[aria-sort] button { color: var(--ink-1); }
        estimate is in it; then, on a weekly window, the resets in the range
        and what they left unused, or on the 5-hour one how often it reached
        the limit; and how long the provider refused it there, on this window
-       or any other that bears on it, as the underlay draws. The first
+       or any other that bears on it, as the tape draws. The first
        reading on record starts the count and adds nothing to it. */
     function rangeRow(sd, t0, t1) {
       var used = 0, est = false, hits = 0, resets = 0, lost = 0, lostKnown = true;
@@ -5130,15 +5148,15 @@ th[aria-sort] button { color: var(--ink-1); }
       svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0) + 0.5, y2: Y(0) + 0.5, stroke: "var(--axis)", "stroke-width": 1 }, root);
       svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
 
-      /* Three layers, as on the Weekly chart: every refusal underlay under
-         every line, and every mark and label over both. */
-      var gUnder = svg("g", { "clip-path": "url(#hist-clip)" }, root);
+      /* Three layers, as on the Weekly chart: every line under every
+         refusal's tape, and every mark and label over both. */
       var gPlot = svg("g", { "clip-path": "url(#hist-clip)" }, root);
+      var gTape = svg("g", { "clip-path": "url(#hist-clip)" }, root);
       var gMarks = svg("g", { "clip-path": "url(#hist-clip)" }, root);
       dimOnHover(root);
       var inView = function (a, b) { return b >= t0 && a <= t1; }, labels = [];
       data.forEach(function (sd) {
-        var gu = svg("g", { "class": "pt-under", "data-seat": sd.a.auth_id }, gUnder);
+        var gt = svg("g", { "class": "pt-tape", "data-seat": sd.a.auth_id }, gTape);
         var gl = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, gPlot);
         var gm = svg("g", { "class": "pt", "data-seat": sd.a.auth_id }, gMarks);
         /* A finished cycle's target and reset mark are drawn only where the
@@ -5168,7 +5186,7 @@ th[aria-sort] button { color: var(--ink-1); }
            or reset in the range shown is a keyboard stop. */
         sd.wins.forEach(function (win, i) {
           var next = sd.wins[i + 1], last = win.samples[win.samples.length - 1];
-          lockUnderlay(gu, win.locks.drawn, win.v, X, Y);
+          lockTape(gt, win.locks.drawn, win.v, X, Y);
           var tail = next ? (win.end > last.t ? tailTo(X(win.end), Y(last.u)) : null) : (sd.cur !== null ? tailTo(X(now), Y(sd.cur)) : null);
           var drawn = historyLine(gl, win.samples, X, Y, sd.col, tail);
           resetTips(drawn.resets.filter(function (r) { return inView(r.t, r.t); }), sd.head, sd.key);
@@ -5237,7 +5255,7 @@ th[aria-sort] button { color: var(--ink-1); }
         : function (t) { return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
       $("hist-range").textContent = fmt(t0) + " – " + fmt(t1);
 
-      if (hadFocus) root.focus({ preventScroll: true });
+            if (hadFocus) root.focus({ preventScroll: true });
     }
 
 
