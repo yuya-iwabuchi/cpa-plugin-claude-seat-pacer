@@ -42,6 +42,11 @@ const utilizationScale = 1e4
 // climbs back past it.
 const clearDrop = 0.05
 
+// carryOverSpan is how long after a window rolls a reading at the previous
+// window's level is taken for the provider still reporting that window under
+// the new reset, rather than for use in the fresh one.
+const carryOverSpan = 10 * time.Minute
+
 // ring is the recorded history of one window: cycles oldest first, samples
 // oldest first within a cycle.
 type ring struct {
@@ -109,6 +114,12 @@ func (f *pendingFall) after(r *ring) *pendingFall {
 // level is stale — a response header describing the window as a long
 // request found it, or an endpoint read behind the traffic — and is dropped.
 //
+// Around a reset the provider can answer from both windows for a few
+// minutes. A reading stamped with a reset earlier than the current cycle's,
+// and already past, describes the window that ended and is dropped; so is
+// one within carryOverSpan of a roll that jumps back to the previous
+// window's level under the new reset.
+//
 // Readings out of order, with no instant or with a non-finite utilization
 // are dropped. Utilization only rises until the window resets or the
 // provider clears it, and the two sources that feed a ring round
@@ -146,6 +157,9 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 	s := model.Sample{At: at.Truncate(time.Second), Utilization: math.Round(w.Utilization*utilizationScale) / utilizationScale}
 
 	n := len(r.cycles)
+	if n > 0 && endedBefore(r.cycles[n-1].ResetsAt, w.ResetsAt, s.At) {
+		return false
+	}
 	if n == 0 || rolled(r.cycles[n-1].ResetsAt, w.ResetsAt) || closed(r.cycles[n-1], s.At) {
 		// A cycle opened by a reading the provider is still stamping with the
 		// expired reset inherits that stale instant; the first reading to
@@ -179,6 +193,9 @@ func (r *ring) add(at time.Time, w model.Window, estimated bool) bool {
 	if c.ResetsAt.IsZero() {
 		c.ResetsAt = w.ResetsAt
 	}
+	if !estimated && r.carriedOver(s) {
+		return false
+	}
 	last := &c.Samples[len(c.Samples)-1]
 	if s.Utilization < last.Utilization && !estimated && !c.SampleEstimated(*last) {
 		s.Utilization = last.Utilization
@@ -210,6 +227,37 @@ func rolled(cycle, reading time.Time) bool {
 		return false
 	}
 	return reading.Sub(cycle).Abs() > resetTolerance
+}
+
+// endedBefore reports whether a reading taken at `at` describes a window that
+// ended before the cycle's: its reset is more than resetTolerance earlier
+// than the cycle's, and already past.
+func endedBefore(cycle, reading, at time.Time) bool {
+	if cycle.IsZero() || reading.IsZero() {
+		return false
+	}
+	return cycle.Sub(reading) > resetTolerance && !reading.After(at)
+}
+
+// carriedOver reports whether an observed reading in the newest cycle is the
+// previous window's level reported under the new reset: the cycle opened at
+// a reset under carryOverSpan before it, and the reading climbs more than
+// clearDrop over the cycle's last sample to within clearDrop of the level
+// the previous cycle ended at.
+func (r *ring) carriedOver(s model.Sample) bool {
+	n := len(r.cycles)
+	if n < 2 {
+		return false
+	}
+	prev, c := r.cycles[n-2], r.cycles[n-1]
+	first, last := c.Samples[0], c.Samples[len(c.Samples)-1]
+	atReset := rolled(prev.ResetsAt, c.ResetsAt) ||
+		(!prev.ResetsAt.IsZero() && first.At.After(prev.ResetsAt.Add(resetTolerance)))
+	if !atReset || s.At.Sub(first.At) > carryOverSpan {
+		return false
+	}
+	level := prev.Samples[len(prev.Samples)-1].Utilization
+	return s.Utilization-last.Utilization > clearDrop && math.Abs(s.Utilization-level) <= clearDrop
 }
 
 // closed reports whether a reading taken at `at` falls past the end of a
@@ -352,10 +400,13 @@ func (r *ring) replay(h model.WindowHistory, loaded time.Time) {
 
 // addCycles records recorded cycles in order without compacting. The first
 // cycle's samples pass through add like live readings, so they can continue
-// the ring's newest cycle; every later cycle opens a cycle of its own, since
-// its boundary was already decided when it was recorded. A later cycle whose
-// first sample is not after the ring's newest is dropped whole, like any
-// reading out of order.
+// the ring's newest cycle. A later cycle whose first sample rolls, closes or
+// clears the ring's newest cycle opens a cycle of its own, since that
+// boundary was already decided when it was recorded; any other passes
+// through add too, so a run the provider split across two windows' answers
+// is read as the one window it was. A later cycle for a window that ended
+// before the ring's newest, or whose first sample is not after the ring's
+// newest, is dropped whole, like any reading out of order.
 func (r *ring) addCycles(kind model.WindowKind, scope string, cycles []model.Cycle) {
 	for i, c := range cycles {
 		for j, s := range c.Samples {
@@ -366,9 +417,14 @@ func (r *ring) addCycles(kind model.WindowKind, scope string, cycles []model.Cyc
 				continue
 			}
 			if n := len(r.cycles); n > 0 {
-				newest := r.cycles[n-1].Samples
-				if !s.At.After(newest[len(newest)-1].At) {
+				cur := r.cycles[n-1]
+				newest := cur.Samples
+				if !s.At.After(newest[len(newest)-1].At) || endedBefore(cur.ResetsAt, c.ResetsAt, s.At) {
 					break
+				}
+				if !estimated && !rolled(cur.ResetsAt, c.ResetsAt) && !closed(cur, s.At) && !cleared(cur, s, false) {
+					r.add(s.At, w, estimated)
+					continue
 				}
 			}
 			r.fall = nil
