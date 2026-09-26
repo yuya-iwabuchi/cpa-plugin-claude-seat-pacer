@@ -2706,7 +2706,16 @@ th[aria-sort] button { color: var(--ink-1); }
           rx: 4, fill: "transparent"
         }, g);
         /* The drawn marks alone take the dim, so a lane keeps its focus ring
-           at full strength whatever the seat's standing is. */
+           at full strength whatever the seat's standing is. A dimmed bar is
+           backed in the card's colour, so the weekend bands and day gridlines
+           stop at its edge as they do at an undimmed bar's opaque track. Only
+           an eligible seat leads, so the backing never sits on the lead's
+           tint. */
+        var mask = cutL || cutR ? "url(#" + cutMask(defs, bx0, bx1, by, barH, cutL, cutR) + ")" : "";
+        if (markOpacity < 1) {
+          var under = svg("path", { d: roundedBar(bx0, by, bx1 - bx0, barH, 3, !cutL, !cutR), fill: "var(--surface-1)" }, g);
+          if (mask) under.setAttribute("mask", mask);
+        }
         var gm = svg("g", { opacity: markOpacity }, g);
         /* The track's fill is barely off the card, so its 1px edge is what
            reads as the window's extent; the path is inset half a pixel so the
@@ -2715,7 +2724,7 @@ th[aria-sort] button { color: var(--ink-1); }
            unspent run alone. An end past the axis is square and fades out
            over TL_FADE, so the bar reads as running on. */
         var gb = svg("g", {}, gm);
-        if (cutL || cutR) gb.setAttribute("mask", "url(#" + cutMask(defs, bx0, bx1, by, barH, cutL, cutR) + ")");
+        if (mask) gb.setAttribute("mask", mask);
         svg("path", {
           d: roundedBar(bx0 + 0.5, by + 0.5, (bx1 - bx0) - 1, barH - 1, 2.5, !cutL, !cutR),
           fill: "var(--track)", stroke: "var(--track-edge)", "stroke-width": 1
