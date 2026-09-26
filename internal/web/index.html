@@ -1721,12 +1721,16 @@ th[aria-sort] button { color: var(--ink-1); }
   function costBreakdown(score) {
     if (score === null) return "cost unknown";
     if (!scored(score)) return "cost —";
+    return "cost " + [costText(score)].concat(costParts(score)).join(" · ");
+  }
+
+  /* The terms costBreakdown lists, one string per window. */
+  function costParts(score) {
     var weekly = pacedWindow(score, PACE_KIND), cap = pacedWindow(score, "weekly_scoped");
     var parts = [];
-    if (weekly) parts.push(WEEKLY_SHORT + " " + overPts(weekly.slack) +
-      weightTag(weekly.weight));
+    if (weekly) parts.push(WEEKLY_SHORT + " " + overPts(weekly.slack) + weightTag(weekly.weight));
     if (cap) parts.push(windowShort(cap) + " " + overPts(cap.slack) + weightTag(cap.weight));
-    return "cost " + [costText(score)].concat(parts).join(" · ");
+    return parts;
   }
 
   /* Seat identity, indexed once per payload.
@@ -2144,9 +2148,11 @@ th[aria-sort] button { color: var(--ink-1); }
     }
   }
 
-  /* Behind a seat's row in the timeline gutter: why it ranks where it does
-     and whether it can take work, then the cost that ranks it and its live
-     load. Anything unremarkable stays out; the name is here whole because
+  /* Behind a seat's row in the timeline gutter, as a rich tooltip: its rank,
+     and whether it takes the next new conversation, or why it is
+     ineligible and when that lifts; its cost large, with the terms that make
+     it per family; then its live load, and a failing read, a host status or
+     a missing reading where there is one. The name is here whole because
      the row trims it to the measured space. */
   function seatTip(a, ranks) {
     var now = nowMs();
@@ -2156,38 +2162,49 @@ th[aria-sort] button { color: var(--ink-1); }
     var obs = parseT(snap.observed_at);
     var fams = ranks.fams;
     var rank = rankText(a, ranks), lead = leadText(leadsOf(a, ranks), fams);
-    var out = fams.filter(function (fam) { var sc = famScore(a, fam); return sc && !sc.eligible; });
-    var verdict = seatLabel(a) + (maskedName(a) ? " (address masked; set a note on the credential to name it)" : "") + " · ";
+    var spec = { seat: seatLabel(a), col: seatColor(a), win: maskedName(a) ? "address masked" : "", lines: [] };
     if (rank) {
-      verdict += rank + (lead ? " · " + lead : "");
-      if (out.length) verdict += " · " + out.map(function (fam) { return rankLabel(fam) + " " + famVerdict(a, fam, now).word; }).join(" · ");
+      Object.assign(spec, { type: "rank", tone: lead ? "var(--info)" : "var(--ink-2)", label: rank, when: lead });
+      fams.forEach(function (fam) {
+        var sc = famScore(a, fam);
+        if (sc && !sc.eligible) spec.lines.push({ b: rankLabel(fam), t: famVerdict(a, fam, now).text });
+      });
     } else {
-      verdict += "ineligible: " + pairText(fams, function (fam) { return famVerdict(a, fam, now).word; });
       var blk = null;
       fams.forEach(function (fam) {
         var w = blockingWindow(a, fam);
         if (w && (!blk || parseT(w.resets_at) < parseT(blk.resets_at))) blk = w;
       });
-      if (blk) verdict += " · " + windowShort(blk) + " " + resetText(parseT(blk.resets_at), now);
+      Object.assign(spec, { type: "limit", label: "ineligible",
+        when: pairText(fams, function (fam) { return famVerdict(a, fam, now).word; }) });
+      if (blk) spec.lines.push({ b: windowShort(blk), t: resetText(parseT(blk.resets_at), now) });
     }
-    var std = costBreakdown(famScore(a, fams[0]));
-    var scores = [std].concat(fams.slice(1).map(function (fam) {
-      var line = costBreakdown(famScore(a, fam));
-      return line === std ? null : rankLabel(fam) + " " + line;
-    }));
-    var lines = [verdict].concat(scores, [
-      intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
-        " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits"),
-      snap.err || snap.err_category ? "read failing" + (snap.err_category ? " · " + snap.err_category : "") +
-        (snap.err ? ": " + snap.err : "") : null,
-      hs !== "active" ? "host " + hs : null,
-      hs === "disabled" && !obs ? "Disabled in the host, so it is not read and takes no new conversations. " +
-        "Re-enable it in the host's auth files."
-        : !obs ? "not read yet · it takes no new conversation until its first reading, usually within one " +
-        "poll interval. If it stays, check the host log for \u201Cusage fetch failed\u201D."
-        : (a.score && a.score.reason === "stale-snapshot" ? "reading too old (" + relText(obs, now) + ")" : null)
-    ]);
-    return lines.filter(Boolean).join("\n");
+    var std = famScore(a, fams[0]);
+    spec.big = [costText(std)];
+    spec.delta = fams.length > 1 ? rankLabel(fams[0]) + " cost" : "cost";
+    if (scored(std) && costParts(std).length) spec.lines.push({ b: fams.length > 1 ? rankLabel(fams[0]) : "", t: costParts(std).join(" · ") });
+    fams.slice(1).forEach(function (fam) {
+      var sc = famScore(a, fam);
+      if (sc === null) return;
+      spec.lines.push({ b: rankLabel(fam), t: costText(sc) + (scored(sc) && costParts(sc).length ? " · " + costParts(sc).join(" · ") : "") });
+    });
+    spec.lines.push({ t: intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
+      " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits") });
+    if (maskedName(a)) spec.lines.push({ t: "set a note on the credential to name it" });
+    if (snap.err || snap.err_category) {
+      spec.lines.push({ b: "read failing", t: [snap.err_category, snap.err].filter(Boolean).join(": ") });
+    }
+    if (hs !== "active") spec.lines.push({ b: "host", t: hs });
+    if (hs === "disabled" && !obs) {
+      spec.lines.push({ t: "Disabled in the host, so it is not read and takes no new conversations. " +
+        "Re-enable it in the host's auth files." });
+    } else if (!obs) {
+      spec.lines.push({ t: "Not read yet: it takes no new conversation until its first reading, usually within one " +
+        "poll interval. If it stays, check the host log for \u201Cusage fetch failed\u201D." });
+    } else if (a.score && a.score.reason === "stale-snapshot") {
+      spec.lines.push({ b: "reading too old", t: relText(obs, now) });
+    }
+    return spec;
   }
 
   function seatAria(a, ranks) {
@@ -2212,37 +2229,44 @@ th[aria-sort] button { color: var(--ink-1); }
     return w.severity === "critical" && stt !== "blocked" && stt !== "spent";
   }
 
-  /* Behind a window bar: how full it is against what bounds it — the pace
-     target, or nothing this model is scored on — and when it resets. Below
-     those two, one line per red state the bar is in — a refusal, a window at
-     full — one for the critical-headroom advisory, and one for a bar the axis
-     cuts. Each red line opens on that state's own STATE_META label, so the
-     tip and the legend name the state alike. What the window is worth in the
-     cost belongs to the first line, so no later one repeats it. */
-  function laneTip(w, ws, stt, cutL, cutR) {
+  /* Behind a window bar, as a rich tooltip: the window's state as its badge,
+     with when it resets; how full it is, large, against what bounds it — the
+     pace target, the curve for a window the cost does not weigh, or nothing
+     this model is scored on; then the gap and its weight, what a refusal or
+     a reading at full does to the seat, the critical-headroom advisory, and
+     an end the axis cuts. */
+  function laneTip(a, w, ws, stt, cutL, cutR) {
     var now = nowMs();
     var resets = parseT(w.resets_at);
-    var fill = pct(w.utilization, 0) + " used";
+    var meta = STATE_META[stt];
+    var spec = { seat: seatLabel(a), col: seatColor(a), win: windowShort(w), type: "state", tone: meta.color,
+      label: meta.label, when: resets ? resetText(resets, now) : "no open window", big: [pct(w.utilization, 0)], lines: [] };
+    var curve = curveAt(w, ws, now);
     if (counted(ws)) {
-      fill += " · target " + pct(ws.target, 0) + " · " + paceVerdict(ws.slack) +
-        (ws.weight !== 1 ? " · ×" + ws.weight.toFixed(2) + " in the cost" : "");
-    } else if (gatedOnly(w, ws) && openWindow(w)) {
-      fill += " · curve " + pct(ws.target, 0) + " · weighs nothing in the cost";
+      spec.delta = "vs " + pct(ws.target, 0) + " target";
+      spec.lines.push({ t: paceVerdict(ws.slack) + (ws.weight !== 1 ? " · counts" + weightTag(ws.weight) + " in the cost" : "") });
+    } else if (gatedOnly(w, ws) && openWindow(w) && num(curve)) {
+      spec.delta = "vs " + pct(curve, 0) + " curve";
     } else if (stt === "unknown") {
-      fill += " · not scored for this model";
+      spec.lines.push({ t: "not scored for this model" });
     }
-    var lines = [
-      fill,
-      resets ? resetText(resets, now) : "no open window",
-      stt === "blocked" ? STATE_META.blocked.label + " · the seat takes no new conversations on " +
-        "this window's requests, and bound ones move where another seat can take the model" : null,
-      stt === "spent" ? STATE_META.spent.label + " · the seat takes no new conversations on " +
-        "this window's requests until it resets" : null,
-      advisory(w, stt) ? "headroom critical · the provider rates it nearly full, and requests still succeed" : null,
-      cutL || cutR ? (cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
-        "resets after the axis ends") : null
-    ];
-    return lines.filter(Boolean).join("\n");
+    if (stt === "blocked") spec.lines.push({ t: "The seat takes no new conversations on this window's requests, and " +
+      "bound ones move where another seat can take the model." });
+    if (stt === "spent") spec.lines.push({ t: "The seat takes no new conversations on this window's requests until it resets." });
+    if (advisory(w, stt)) spec.lines.push({ b: "headroom critical", t: "the provider rates it nearly full, and requests still succeed" });
+    if (cutL || cutR) spec.lines.push({ t: cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
+      "resets after the axis ends" });
+    return spec;
+  }
+
+  /* Where a window that the cost does not weigh stands on its curve now: the
+     5-hour chart's straight line, elapsed over the window, for the session
+     window, and the scorer's curve for any other. */
+  function curveAt(w, ws, now) {
+    if (w.kind === "five_hour" && openWindow(w)) {
+      return clamp(1 - (parseT(w.resets_at).getTime() - now) / (w.duration / 1e6), 0, 1);
+    }
+    return ws && num(ws.target) ? ws.target : null;
   }
 
   /* The compact gap with its verdict: +N.N over target, −N.N under target,
@@ -2258,7 +2282,7 @@ th[aria-sort] button { color: var(--ink-1); }
       (advisory(w, stt) ? ", headroom critical" : "") +
       ", " + pct(w.utilization) + " used" +
       (counted(ws) ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") +
-      (gatedOnly(w, ws) && openWindow(w) && num(ws.target) ? ", curve " + pct(ws.target) : "");
+      (gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs())) ? ", curve " + pct(curveAt(w, ws, nowMs())) : "");
   }
 
   /* ------------------------------------------------------------ timeline */
@@ -2355,12 +2379,12 @@ th[aria-sort] button { color: var(--ink-1); }
     });
     if (agree) {
       var one = parts[0];
-      return [{ ok: one.ok, lead: one.lead, label: one.text,
+      return [{ ok: one.ok, lead: one.lead, label: one.text, word: one.text,
         tip: one.ok ? null : pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) }];
     }
     return parts.map(function (p) {
-      return { ok: p.ok, lead: p.lead, fam: p.fam, label: rankLabel(p.fam) + " " + p.text,
-        tip: p.ok ? null : rankLabel(p.fam) + ": " + p.tip };
+      return { ok: p.ok, lead: p.lead, fam: p.fam, label: rankLabel(p.fam) + " " + p.text, word: p.text,
+        hold: p.tip, tip: p.ok ? null : rankLabel(p.fam) + ": " + p.tip };
     });
   }
 
@@ -2391,7 +2415,11 @@ th[aria-sort] button { color: var(--ink-1); }
       g.setAttribute("role", "img");
       g.setAttribute("data-fk", "fam:" + a.auth_id + ":" + (c.fam || ""));
       g.setAttribute("aria-label", c.tip);
-      g.setAttribute("data-tip", c.tip);
+      /* The hold's word is the badge; what follows it in the hold's text is
+         when it lifts. */
+      var hold = c.hold || c.tip, lifts = hold.indexOf(c.word + " · ") === 0 ? hold.slice(c.word.length + 3) : hold === c.word ? "" : hold;
+      setTip(g, { seat: seatLabel(a), col: seatColor(a), win: c.fam ? rankLabel(c.fam) : "", type: "limit",
+        label: c.word, when: lifts, lines: [] });
     } else {
       g.setAttribute("aria-hidden", "true");
     }
@@ -2472,7 +2500,7 @@ th[aria-sort] button { color: var(--ink-1); }
      changes length as it counts down keeps one target. The stamp is already
      set in the dimmest ink the page has, and carries no opacity of its own:
      a seat's standing shows in its marks. */
-  function resetStamp(parent, cy, resets, rstX) {
+  function resetStamp(parent, cy, a, w, resets, rstX) {
     var g = svg("g", { "class": "rst", tabindex: 0, role: "img" }, parent);
     svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W, height: 18,
       rx: 3, fill: "transparent" }, g);
@@ -2480,7 +2508,8 @@ th[aria-sort] button { color: var(--ink-1); }
       { "font-size": 10, "text-anchor": "end" });
     t.setAttribute("data-ts", String(resets.getTime()));
     t.setAttribute("data-ts-mode", "reset");
-    g.setAttribute("data-tip", absTime(resets));
+    setTip(g, { seat: seatLabel(a), col: seatColor(a), win: windowShort(w), type: "reset", label: "resets",
+      when: absTime(resets), lines: [] });
     g.setAttribute("aria-label", "resets " + absTime(resets));
     return g;
   }
@@ -2620,7 +2649,7 @@ th[aria-sort] button { color: var(--ink-1); }
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gRow);
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
       gh.setAttribute("aria-label", seatAria(a, ranks));
-      gh.setAttribute("data-tip", seatTip(a, ranks));
+      setTip(gh, seatTip(a, ranks));
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: gut - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
       var nameX = NAME_X;
@@ -2674,9 +2703,9 @@ th[aria-sort] button { color: var(--ink-1); }
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
         if (!resets || durMs <= 0) {
           g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-          g.setAttribute("data-tip", laneTip(w, ws, stt, false));
+          setTip(g, laneTip(a, w, ws, stt, false, false));
           svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
-          if (resets) resetStamp(gRow, cy, resets, rstX);
+          if (resets) resetStamp(gRow, cy, a, w, resets, rstX);
           return;
         }
 
@@ -2685,7 +2714,7 @@ th[aria-sort] button { color: var(--ink-1); }
         var bx0 = Math.max(x0, gut), bx1 = Math.min(x1, gut + plotW);
         if (!cutL && !cutR) bx1 = Math.max(bx1, bx0 + 8);
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-        g.setAttribute("data-tip", laneTip(w, ws, stt, cutL, cutR));
+        setTip(g, laneTip(a, w, ws, stt, cutL, cutR));
 
         var barH = compact ? 11 : 13, by = cy - barH / 2;
 
@@ -2741,7 +2770,7 @@ th[aria-sort] button { color: var(--ink-1); }
             fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
           }, gm);
         }
-        resetStamp(gRow, cy, resets, rstX);
+        resetStamp(gRow, cy, a, w, resets, rstX);
       });
     });
 
@@ -2807,12 +2836,12 @@ th[aria-sort] button { color: var(--ink-1); }
         svgText(parent, GAP_X, cy + 3.5, overPts(ws.slack),
           eligible ? "gap-label t-mono" : "gap-label t-mono t-muted", { "font-size": 10 });
       }
-    } else if (gatedOnly(w, ws) && openWindow(w) && num(ws.target)) {
+    } else if (gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs()))) {
       /* A window the cost does not weigh still sits somewhere on the curve,
          and the tooltip quotes that figure, so the meter shows where: a paler
          dashed tick rather than the target's solid one, because nothing holds
          this window to it. */
-      var cx = MET_X + MET_W * clamp(ws.target, 0, 1);
+      var cx = MET_X + MET_W * clamp(curveAt(w, ws, nowMs()), 0, 1);
       svg("line", { x1: cx, x2: cx, y1: y - 2, y2: y + MET_H + 2,
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
       svg("line", { x1: cx, x2: cx, y1: y - 2, y2: y + MET_H + 2,
@@ -3665,12 +3694,13 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* A rich tooltip, as data: the line it belongs to (seat, colour, window),
-     the kind of stretch and when, a headline figure, and plain lines under
-     it. tipText reads it out as the plain text data-tip carries, tipSpeech
+     the kind of stretch or state and when, a headline figure, and plain
+     lines under it. tone colours the badge where its type names no tone. tipText reads it out as the plain text data-tip carries, tipSpeech
      as one line for assistive technology; tipRender draws it into the
      tooltip. */
   function tipText(spec) {
-    var out = [spec.seat + " · " + spec.win, spec.label + " · " + spec.when + (spec.dur ? " (" + spec.dur + ")" : "")];
+    var out = [spec.seat + (spec.win ? " · " + spec.win : ""),
+      spec.label + (spec.when ? " · " + spec.when : "") + (spec.dur ? " (" + spec.dur + ")" : "")];
     if (spec.big) out.push(spec.big.join(" → ") + (spec.delta ? " · " + spec.delta : ""));
     spec.lines.forEach(function (l) { out.push((l.b ? l.b + ": " : "") + l.t + (l.alert ? " · " + l.alert : "")); });
     return out.join("\n");
@@ -3689,7 +3719,9 @@ th[aria-sort] button { color: var(--ink-1); }
     put(top, "span", "tip-seat", spec.seat);
     put(top, "span", "tip-win", spec.win);
     var tag = row("tip-tag");
-    put(tag, "span", "tip-badge", spec.label).setAttribute("data-type", spec.type);
+    var badge = put(tag, "span", "tip-badge", spec.label);
+    badge.setAttribute("data-type", spec.type);
+    if (spec.tone) badge.style.setProperty("--tone", spec.tone);
     put(tag, "span", "tip-when", spec.when);
     if (spec.dur) put(tag, "span", "tip-dur", spec.dur);
     if (spec.big) {
