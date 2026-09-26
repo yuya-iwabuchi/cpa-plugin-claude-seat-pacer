@@ -11,6 +11,9 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -328,6 +331,29 @@ func TestPageUndoesHostEscaping(t *testing.T) {
 		if name := strings.Trim(esc, "&;"); !strings.Contains(page, "|"+name+"|") && !strings.Contains(page, "(?:"+name+"|") && !strings.Contains(page, "|"+name+");") {
 			t.Errorf("page's entity pattern does not match %s", esc)
 		}
+	}
+}
+
+// TestPageScriptParses runs the page's one inline script through node's
+// syntax check, since nothing else here parses it and a script that throws
+// on load leaves the page blank. It skips where node is not installed.
+func TestPageScriptParses(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	i := bytes.Index(indexHTML, []byte("<script>"))
+	j := bytes.Index(indexHTML, []byte("</script>"))
+	if i < 0 || j < i {
+		t.Fatal("page has no inline script")
+	}
+	file := filepath.Join(t.TempDir(), "page.js")
+	if err := os.WriteFile(file, indexHTML[i+len("<script>"):j], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(node, "--check", file).CombinedOutput(); err != nil {
+		t.Fatalf("the page's script does not parse: %v\n%s", err, out)
 	}
 }
 
