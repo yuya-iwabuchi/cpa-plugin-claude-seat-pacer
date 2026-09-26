@@ -61,11 +61,14 @@ hand.
 Download your platform's zip from the
 [latest release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases/latest)
 and put the library in `~/.cli-proxy-api/plugins/<goos>/<goarch>/`, keeping its
-file name. From v0.1.1 the libraries load on macOS 12, Windows 10, or Linux
-with glibc 2.34, or newer. [SECURITY.md](SECURITY.md) shows how to verify the
+file name. The libraries load on macOS 12, Windows 10, or Linux with glibc
+2.34, or newer: on Apple silicon Macs, Windows and Linux from v0.1.1, and on
+Intel Macs from v0.2.1. [SECURITY.md](SECURITY.md) shows how to verify the
 zip.
 
-Or build from source, with Go 1.25 and a C toolchain:
+Or build from source, with Go 1.25 and a C toolchain. On an Intel Mac the
+build first compiles a patched Go toolchain from source, which takes a few
+minutes:
 
 ```sh
 git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
@@ -244,6 +247,13 @@ scrubbed first.
 `<goos>/<goarch>/`. The plugin id comes from the library filename minus
 its extension and `-v<version>`, and the config block, routes and history
 directory all carry it, so keep the library's file name.
+
+**An Intel Mac host crashes or logs `cliproxy_plugin_init returned 1`.**
+A library older than v0.2.1 shares the host's Go runtime state on Intel Macs
+and corrupts it. Update the plugin. Any other Go plugin built with stock Go
+does the same, and two plugins built with the same slot patch collide with
+each other, so an Intel host runs this plugin beside no other Go plugin of
+either kind.
 
 **The page keeps asking for the key.** The key is kept per browser tab. A 401
 means the host did not accept the key; a 403 names its reason, either remote

@@ -26,6 +26,9 @@ than as an issue.
 it into the host's plugin directory. Both need Go 1.25 or newer and a C toolchain,
 because `-buildmode=c-shared` needs cgo. `go.mod` pins the patch release in its
 `toolchain` directive, and the `go` command downloads it when yours is older.
+A darwin/amd64 build also compiles that Go release from source with
+`.github/scripts/go-tls-slot.patch` applied, a few minutes the first time;
+AGENTS.md says why.
 
 `make test` runs the tests under the race detector. Tests must not reach the
 network: the usage client sends every request through an injected Doer, which

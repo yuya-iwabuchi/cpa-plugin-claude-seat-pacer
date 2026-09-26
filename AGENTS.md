@@ -151,6 +151,20 @@ and fully unit-testable without the host.
   library whose recorded minimum differs. Raising the toolchain past a Go that
   drops a macOS release means raising the target with it, and the README's
   stated minimums.
+- The darwin/amd64 library builds with Go compiled from upstream source plus
+  `.github/scripts/go-tls-slot.patch`, which moves the runtime's goroutine
+  pointer from TSD slot 6 (`%gs:0x30`) to slot 11 (`%gs:0x58`). Stock Go puts
+  every runtime in slot 6, so a stock-built plugin reads CLIProxyAPI's
+  goroutine on host threads and corrupts the host's heap; the other platforms
+  give each runtime its own slot and build with stock Go. Every library built
+  with this patch shares slot 11, so an Intel host holds at most one of them
+  and no stock-built Go plugin.
+  `build-darwin-amd64.sh` refuses a `toolchain` pin other than its own
+  `GO_VERSION`, so raising the pin means setting its version and source
+  checksum and confirming the patch still applies. The build fails unless the
+  library holds no `%gs:0x30` access, and the release publishes it only after
+  `load-test-darwin-amd64.sh` loads it into the official CLIProxyAPI on
+  `macos-15-intel`.
 - No blocking I/O on the pick path. Ever.
 - Every exported cgo entry point recovers from panics.
 - Prefer declining (`Handled: false`) over guessing.
@@ -164,9 +178,9 @@ and fully unit-testable without the host.
   byte ships a hash no browser matches (`TestPageHoldsNoRewrittenByte`).
 - `pluginName` in `main.go`, `NAME` in the Makefile, the history path in
   `internal/runtime/poller.go`, the library name in `.github/workflows/` and
-  the plugin store registry `id` stay equal: the host derives the plugin id
-  from the library filename, and the config block, the management routes and
-  the history directory all carry that id.
+  `.github/scripts/`, and the plugin store registry `id` stay equal: the host
+  derives the plugin id from the library filename, and the config block, the
+  management routes and the history directory all carry that id.
 - Config bounds live in `model.Config.Normalize`: give a new setting its range
   there, not in the code that reads it. A setting clamped to its upper bound,
   or one the operator set that is raised to fit another, returns a warning,
