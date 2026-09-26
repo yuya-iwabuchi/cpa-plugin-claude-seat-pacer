@@ -449,6 +449,8 @@ td .seat-mark { max-width: 22ch; }
 .legend li[data-seat] { cursor: default; }
 .legend li[data-seat]:hover { color: var(--ink-1); }
 .legend .sw { width: 14px; height: 9px; border-radius: 2px; flex: none; }
+/* A bar that runs past the axis, fading out toward its cut end. */
+.legend .sw-cut { width: 22px; border-radius: 2px 0 0 2px; background: linear-gradient(90deg, var(--ink-3) 40%, transparent); }
 /* The red states are told apart by the pattern their swatch and their bar
    carry, so neither rests on colour: a refused window is hatched on the
    diagonal, a spent one barred upright. */
@@ -1101,6 +1103,7 @@ th[aria-sort] button { color: var(--ink-1); }
             <li><span class="gl">&#8942;</span> curve position of a window that weighs nothing in the cost</li>
             <li><span class="gl">&#8943;</span> gap to the pace target</li>
             <li><span class="gl">&#9474;</span> now</li>
+            <li><span class="sw sw-cut"></span> runs past the axis</li>
           </ul>
         </div>
       </div>
@@ -2220,10 +2223,10 @@ th[aria-sort] button { color: var(--ink-1); }
      target, or nothing this model is scored on — and when it resets. Below
      those two, one line per red state the bar is in — a refusal, a window at
      full — one for the critical-headroom advisory, and one for a bar the axis
-     clips. Each red line opens on that state's own STATE_META label, so the
+     cuts. Each red line opens on that state's own STATE_META label, so the
      tip and the legend name the state alike. What the window is worth in the
      cost belongs to the first line, so no later one repeats it. */
-  function laneTip(w, ws, stt, clipped) {
+  function laneTip(w, ws, stt, cutL, cutR) {
     var now = nowMs();
     var resets = parseT(w.resets_at);
     var fill = pct(w.utilization, 0) + " used";
@@ -2244,7 +2247,8 @@ th[aria-sort] button { color: var(--ink-1); }
       stt === "spent" ? STATE_META.spent.label + " · the seat takes no new conversation on the " +
         "requests this window applies to until it resets" : null,
       advisory(w, stt) ? "headroom critical · the provider has refused nothing on it" : null,
-      clipped ? "opened before the axis begins" : null
+      cutL || cutR ? (cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
+        "resets after the axis ends") : null
     ];
     return lines.filter(Boolean).join("\n");
   }
@@ -2300,6 +2304,7 @@ th[aria-sort] button { color: var(--ink-1); }
   /* Row geometry, at the two densities the timeline draws. A roomy seat row
      has a second line for its live figures; a compact one keeps them in the
      tooltip. */
+  var TL_REACH = 5 * 86400000, TL_FADE = 28;
   var TL_GEO = {
     roomy:   { head: 38, lane: 21, gap: 10, name: 13.5, sub: true },
     compact: { head: 26, lane: 21, gap: 8,  name: 12.5, sub: false }
@@ -2506,24 +2511,11 @@ th[aria-sort] button { color: var(--ink-1); }
     var now = new Date(nowMs());
     var width = Math.max(860, host.clientWidth || 1000);
 
-    /* The axis runs from the earliest open window's start, floored eight days
-       back, to the latest reset. A window that opened before that floor is
-       drawn with a torn left edge, because a silently rescaled bar reads as a
-       whole one however much of it is missing. */
-    var tMax = now.getTime() + 7 * 86400000;
-    var earliest = now.getTime() - 86400000;
-    seats.forEach(function (a) {
-      sortedWindows(a.snapshot && a.snapshot.windows).forEach(function (w) {
-        var r = parseT(w.resets_at);
-        if (!r) return;
-        tMax = Math.max(tMax, r.getTime());
-        if (num(w.duration) && w.duration > 0) {
-          earliest = Math.min(earliest, r.getTime() - w.duration / 1e6);
-        }
-      });
-    });
-    var t0 = Math.floor(Math.max(earliest, now.getTime() - 8 * 86400000) / 3600000) * 3600000;
-    var t1 = Math.ceil((tMax + 2 * 3600000) / 3600000) * 3600000;
+    /* The axis runs TL_REACH either side of now, so a 5-hour window keeps a
+       readable width; a weekly window runs past one edge or both, and fades
+       out there, because a bar cut square reads as one that ends. */
+    var t0 = Math.floor((now.getTime() - TL_REACH) / 3600000) * 3600000;
+    var t1 = Math.ceil((now.getTime() + TL_REACH) / 3600000) * 3600000;
 
     var groups = seats.map(function (a) {
       return { a: a, wins: sortedWindows(a.snapshot && a.snapshot.windows) };
@@ -2564,6 +2556,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var plotW = width - gut - PAD_R;
     var X = function (t) { return gut + (t - t0) / (t1 - t0) * plotW; };
 
+    var defs = svg("defs", {}, root);
     var gGrid = svg("g", {}, root);
     var gBack = svg("g", {}, root);
     /* Every seat's stops in reading order — its header, its chips, then each
@@ -2697,10 +2690,11 @@ th[aria-sort] button { color: var(--ink-1); }
         }
 
         var x0 = X(resets.getTime() - durMs), x1 = X(resets.getTime());
-        var bx0 = Math.max(x0, gut), bx1 = Math.max(Math.min(x1, gut + plotW), bx0 + 8);
-        var clipped = x0 < gut - 0.5;
+        var cutL = x0 < gut - 0.5, cutR = x1 > gut + plotW + 0.5;
+        var bx0 = Math.max(x0, gut), bx1 = Math.min(x1, gut + plotW);
+        if (!cutL && !cutR) bx1 = Math.max(bx1, bx0 + 8);
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
-        g.setAttribute("data-tip", laneTip(w, ws, stt, clipped));
+        g.setAttribute("data-tip", laneTip(w, ws, stt, cutL, cutR));
 
         var barH = compact ? 11 : 13, by = cy - barH / 2;
 
@@ -2712,41 +2706,32 @@ th[aria-sort] button { color: var(--ink-1); }
            at full strength whatever the seat's standing is. */
         var gm = svg("g", { opacity: markOpacity }, g);
         /* The track's fill is barely off the card, so its 1px edge is what
-           reads as the window's extent; the rect is inset half a pixel so the
+           reads as the window's extent; the path is inset half a pixel so the
            edge lands on whole device pixels rather than straddling them. The
            coloured fill covers that edge, which leaves it showing along the
-           unspent run alone. */
-        svg("rect", {
-          x: bx0 + 0.5, y: by + 0.5, width: (bx1 - bx0) - 1, height: barH - 1, rx: 2.5,
+           unspent run alone. An end past the axis is square and fades out
+           over TL_FADE, so the bar reads as running on. */
+        var gb = svg("g", {}, gm);
+        if (cutL || cutR) gb.setAttribute("mask", "url(#" + cutMask(defs, bx0, bx1, by, barH, cutL, cutR) + ")");
+        svg("path", {
+          d: roundedBar(bx0 + 0.5, by + 0.5, (bx1 - bx0) - 1, barH - 1, 2.5, !cutL, !cutR),
           fill: "var(--track)", stroke: "var(--track-edge)", "stroke-width": 1
-        }, gm);
+        }, gb);
 
-        /* Fill and target are measured against the track as drawn, not against
-           the window's true span: the track has a floor and a clamp, and a
-           fraction of the untruncated span lands somewhere else inside it. */
-        var track = bx1 - bx0;
-        var fx1 = bx0 + track * clamp(w.utilization, 0, 1);
+        /* Fill and target are measured against the track as drawn where the
+           whole window is on the axis, since the track has a floor; a window
+           the axis cuts is measured against its true span, and its fill and
+           target show where they fall inside the part drawn. */
+        var sx = cutL || cutR ? x0 : bx0, sw = cutL || cutR ? x1 - x0 : bx1 - bx0;
+        var fx1 = clamp(sx + sw * clamp(w.utilization, 0, 1), bx0, bx1);
         if (fx1 > bx0) {
-          svg("path", { d: roundedRight(bx0, by, fx1 - bx0, barH, 3), fill: meta.color }, gm);
+          var fr = !(cutR && fx1 >= bx1);
+          svg("path", { d: roundedBar(bx0, by, fx1 - bx0, barH, 3, !cutL, fr), fill: meta.color }, gb);
+          if (meta.pattern) {
+            svg("path", { d: roundedBar(bx0, by, fx1 - bx0, barH, 3, !cutL, fr), fill: "url(#" + meta.pattern + ")" }, gb);
+          }
         }
-        if (meta.pattern) {
-          svg("rect", {
-            x: bx0, y: by, width: fx1 - bx0, height: barH, rx: 3,
-            fill: "url(#" + meta.pattern + ")"
-          }, gm);
-        }
-        if (clipped) {
-          /* A torn left edge: this bar begins before the axis does. */
-          svg("path", {
-            d: "M" + (bx0 + 3.5) + " " + by +
-               "L" + bx0 + " " + (by + barH * 0.3) +
-               "L" + (bx0 + 3.5) + " " + (by + barH * 0.5) +
-               "L" + bx0 + " " + (by + barH * 0.7) +
-               "L" + (bx0 + 3.5) + " " + (by + barH),
-            fill: "none", stroke: "var(--surface-1)", "stroke-width": 2, "stroke-linejoin": "round"
-          }, gm);
-        }
-        if (w.utilization > 1) {
+        if (w.utilization > 1 && !cutR) {
           svg("path", {
             d: "M" + (bx1 + 4) + " " + (cy - 4) + "L" + (bx1 + 10) + " " + cy + "L" + (bx1 + 4) + " " + (cy + 4) + "Z",
             fill: meta.color
@@ -2756,8 +2741,8 @@ th[aria-sort] button { color: var(--ink-1); }
            fill should reach right now. A window the cost does not weigh has no
            target to hold it to, so it carries no mark here; where it sits on
            the curve is a reference tick on its gutter meter instead. */
-        if (counted(ws) && stt !== "unknown" && num(ws.target)) {
-          var tx = bx0 + track * clamp(ws.target, 0, 1);
+        var tx = counted(ws) && num(ws.target) ? sx + sw * clamp(ws.target, 0, 1) : NaN;
+        if (counted(ws) && stt !== "unknown" && tx >= bx0 && tx <= bx1) {
           svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, gm);
           svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, gm);
           svg("path", {
@@ -2781,7 +2766,6 @@ th[aria-sort] button { color: var(--ink-1); }
        leaning on colour: a refused window is hatched on the diagonal, a spent
        one is barred upright. Both cut the fill with the card's own colour, so
        the pattern carries whatever contrast the fill has against the card. */
-    var defs = svg("defs", {}, root);
     var pat = svg("pattern", {
       id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse",
       patternTransform: "rotate(45)"
@@ -2840,7 +2824,7 @@ th[aria-sort] button { color: var(--ink-1); }
       "stroke-width": 1, opacity: opacity }, parent);
     var fw = MET_W * clamp(w.utilization, 0, 1);
     if (fw > 0.5) {
-      svg("path", { d: roundedRight(MET_X, y, fw, MET_H, MET_H / 2), fill: color, opacity: opacity }, parent);
+      svg("path", { d: roundedBar(MET_X, y, fw, MET_H, MET_H / 2, true, true), fill: color, opacity: opacity }, parent);
       if (meta.pattern) {
         svg("rect", { x: MET_X, y: y, width: fw, height: MET_H, rx: MET_H / 2,
           fill: "url(#" + meta.pattern + ")", opacity: opacity }, parent);
@@ -2881,14 +2865,27 @@ th[aria-sort] button { color: var(--ink-1); }
     }
   }
 
-  function roundedRight(x, y, w, hgt, r) {
+  /* A bar's outline with each end rounded or square. */
+  function roundedBar(x, y, w, hgt, r, left, right) {
     if (w <= 0) return "";
-    r = Math.min(r, w, hgt / 2);
-    if (r <= 0) return "M" + x + " " + y + "h" + w + "v" + hgt + "h" + (-w) + "Z";
-    return "M" + x + " " + y +
-      "h" + (w - r) + "a" + r + " " + r + " 0 0 1 " + r + " " + r +
-      "v" + (hgt - 2 * r) + "a" + r + " " + r + " 0 0 1 " + (-r) + " " + r +
-      "h" + (-(w - r)) + "Z";
+    var rl = left ? Math.min(r, w / 2, hgt / 2) : 0, rr = right ? Math.min(r, w / 2, hgt / 2) : 0;
+    var arc = function (rad, dx, dy) { return rad ? "a" + rad + " " + rad + " 0 0 1 " + dx + " " + dy : ""; };
+    return "M" + (x + rl) + " " + y +
+      "h" + (w - rl - rr) + arc(rr, rr, rr) + "v" + (hgt - 2 * rr) + arc(rr, -rr, rr) +
+      "h" + (-(w - rl - rr)) + arc(rl, -rl, -rl) + "v" + (-(hgt - 2 * rl)) + arc(rl, rl, -rl) + "Z";
+  }
+
+  var cutN = 0;
+  /* A mask that fades a bar out over TL_FADE at each end the axis cuts. */
+  function cutMask(defs, x0, x1, y, hgt, left, right) {
+    var id = "cut-" + (++cutN), len = Math.max(1, x1 - x0), f = Math.min(0.5, TL_FADE / len);
+    var gr = svg("linearGradient", { id: id + "-g", gradientUnits: "userSpaceOnUse", x1: x0, x2: x1, y1: 0, y2: 0 }, defs);
+    [[0, left ? 0 : 1], [f, 1], [1 - f, 1], [1, right ? 0 : 1]].forEach(function (st) {
+      svg("stop", { offset: st[0], "stop-color": "#fff", "stop-opacity": st[1] }, gr);
+    });
+    var m = svg("mask", { id: id, maskUnits: "userSpaceOnUse", x: x0 - 1, y: y - 2, width: len + 2, height: hgt + 4 }, defs);
+    svg("rect", { x: x0 - 1, y: y - 2, width: len + 2, height: hgt + 4, fill: "url(#" + id + "-g)" }, m);
+    return id;
   }
 
   /* ------------------------------------------------------- history lines */
