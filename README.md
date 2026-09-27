@@ -89,19 +89,22 @@ The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
 
 ### From the Plugin Store
 
-1. Add the author's [registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry)
-   as a plugin source. In the Management Center, open Config Panel → Advanced
-   → Third-party Plugin Sources, add this URL, and save (or list it under
-   `store-sources` in the config below):
+Claude Seat Pacer is in CLIProxyAPI's official plugin store, so there is no
+source to add.
 
-   ```
-   https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
-   ```
-
-2. Install Claude Seat Pacer from the Plugin Store. It checks the download
-   against the release's checksums and loads it without a restart.
+1. Turn plugins on (`plugins.enabled: true`, shown under Configure below).
+2. Install Claude Seat Pacer from the Plugin Store in the Management Center. It
+   checks the download against the release's checksums and loads it without a
+   restart.
 3. Click Update when a new release shows as one, within about an hour of its
    publication.
+
+If you installed it from the author's
+[registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry) before it
+joined the official store, it keeps updating from there as long as that
+registry stays in your plugin sources. Moving to the official store means
+deleting the plugin in the Management Center, which drops its saved settings
+and needs a host restart while the plugin is loaded, then installing it again.
 
 The store records the installed version under `store:` in the plugin's config
 block. The host then loads only that version and deletes the plugin's other
@@ -152,8 +155,6 @@ routing:
 plugins:
   enabled: true
   dir: "~/.cli-proxy-api/plugins"
-  store-sources:           # the author's plugin registry
-    - https://raw.githubusercontent.com/yuya-iwabuchi/cpa-plugin-registry/main/registry.json
   configs:
     claude-seat-pacer:
       enabled: true
