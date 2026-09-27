@@ -346,16 +346,22 @@ func TestNormalizeBoundsTheWeights(t *testing.T) {
 	}
 }
 
-// Every seat's bearer token goes to the usage URL, so plain http is allowed
-// only where the request never leaves the machine.
+// Every seat's bearer token goes to the usage URL, so it may name no remote
+// host but Anthropic's, and plain http only where the request never leaves the
+// machine.
 func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
 		kept bool
 	}{
 		{DefaultUsageURL, true},
-		{"https://usage.internal.example/api/oauth/usage", true},
-		{"HTTPS://usage.internal.example/api/oauth/usage", true},
+		{"HTTPS://API.Anthropic.com/api/oauth/usage", true},
+		{"https://api.anthropic.com:443/api/oauth/usage", true},
+		{"https://usage.internal.example/api/oauth/usage", false},
+		{"https://api.anthropic.com.example/api/oauth/usage", false},
+		{"https://api.anthropic.com:8443/api/oauth/usage", false},
+		{"https://user@api.anthropic.com/api/oauth/usage", false},
+		{"https://evil.example/https://api.anthropic.com/api/oauth/usage", false},
 		{"http://localhost:8080/usage", true},
 		{"http://LOCALHOST/usage", true},
 		{"http://127.0.0.1:41234/usage", true},
@@ -379,7 +385,7 @@ func TestNormalizeAdmitsOnlyATrustedUsageURL(t *testing.T) {
 		} else if tc.in != "" {
 			// The warning names the key alone: the refused URL can carry a
 			// host the page withholds.
-			warning = "quota.usage-url is not https or loopback http, so it runs at the default Anthropic endpoint"
+			warning = "quota.usage-url is not https to api.anthropic.com or loopback http, so it runs at the default Anthropic endpoint"
 		}
 		if cfg.Quota.UsageURL != want {
 			t.Errorf("UsageURL %q normalized to %q, want %q", tc.in, cfg.Quota.UsageURL, want)

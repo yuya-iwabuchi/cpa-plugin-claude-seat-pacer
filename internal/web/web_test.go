@@ -258,7 +258,8 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 		t.Fatalf("decode: %v\nbody: %s", err, rec.Body.String())
 	}
 	// This route serves the pace curve and the poll cadence for the whole
-	// config and a hashed credential id; everything else travels unchanged.
+	// config, and hashes credential ids and conversation keys; everything else
+	// travels unchanged.
 	expect := want
 	expect.Config = model.Config{
 		Pace:  want.Config.Pace,
@@ -271,8 +272,10 @@ func TestStatusJSONRoundTrip(t *testing.T) {
 	expect.Auths[0].Score.AuthID = testID("auth-a")
 	expect.Bindings = []model.Binding{want.Bindings[0]}
 	expect.Bindings[0].AuthID = testID("auth-a")
+	expect.Bindings[0].SessionKey = testID(want.Bindings[0].SessionKey)
 	expect.Decisions = []model.Decision{want.Decisions[0]}
 	expect.Decisions[0].ChosenAuthID = testID("auth-a")
+	expect.Decisions[0].SessionKey = testID(want.Decisions[0].SessionKey)
 	expect.Decisions[0].PreviousAuthID = testID("auth-b")
 	expect.Decisions[0].Scores = []model.Score{want.Decisions[0].Scores[0]}
 	expect.Decisions[0].Scores[0].AuthID = testID("auth-b")
@@ -876,7 +879,7 @@ func TestCredentialIDsArePublished(t *testing.T) {
 	// The whole body, so a field added to model.Status and left carrying a
 	// real id fails here rather than at the fields this test enumerates.
 	body := rec.Body.String()
-	for _, raw := range []string{seatAID, seatBID, "alice@", "aaron@", "3011c15be15be4ee"} {
+	for _, raw := range []string{seatAID, seatBID, "alice@", "aaron@", "3011c15be15be4ee", "5f2c0b7d", "a91d33e0"} {
 		if strings.Contains(body, raw) {
 			t.Errorf("the unauthenticated route serves %q: %s", raw, body)
 		}
@@ -911,6 +914,9 @@ func TestCredentialIDsArePublished(t *testing.T) {
 		{"decisions[0].scores[0].auth_id", got.Decisions[0].Scores[0].AuthID, a},
 		{"decisions[0].scores[1].auth_id", got.Decisions[0].Scores[1].AuthID, b},
 		{"decisions[0].note", got.Decisions[0].Note, "retry after " + b},
+		{"bindings[0].session_key", got.Bindings[0].SessionKey, testID("5f2c0b7d")},
+		{"bindings[1].session_key", got.Bindings[1].SessionKey, testID("a91d33e0")},
+		{"decisions[0].session_key", got.Decisions[0].SessionKey, testID("5f2c0b7d")},
 		{"warnings[0]", got.Warnings[0], b + " has not been read yet; it cannot take a new conversation"},
 	} {
 		if c.got != c.want {

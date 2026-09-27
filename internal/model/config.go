@@ -120,8 +120,8 @@ type QuotaConfig struct {
 	// twice PollInterval.
 	MaxStaleness time.Duration `yaml:"max-staleness" json:"max_staleness"`
 	// UsageURL is the endpoint read for per-window utilization. Every seat's
-	// OAuth bearer token goes to it, so it is https, or http to a loopback
-	// host.
+	// OAuth bearer token goes to it, so it is https to Anthropic's API host,
+	// or http to a loopback host.
 	UsageURL string `yaml:"usage-url" json:"usage_url"`
 	// PersistHistory writes the utilization history to disk between polls,
 	// so a chart survives a host restart. The file holds the utilization
@@ -291,7 +291,7 @@ func (c *Config) Normalize() (warnings []string) {
 	if !trustedUsageURL(c.Quota.UsageURL) {
 		if c.Quota.UsageURL != "" {
 			warnings = append(warnings,
-				"quota.usage-url is not https or loopback http, so it runs at the default Anthropic endpoint")
+				"quota.usage-url is not https to "+usageHost+" or loopback http, so it runs at the default Anthropic endpoint")
 		}
 		c.Quota.UsageURL = d.Quota.UsageURL
 	}
@@ -319,16 +319,21 @@ func aboveBound[T int | float64 | time.Duration](key string, given, bound T) str
 	return fmt.Sprintf("%s %v is above its bound, so it runs at %v", key, given, bound)
 }
 
+// usageHost is the one remote host a usage URL may name: the host that issued
+// the tokens it carries.
+const usageHost = "api.anthropic.com"
+
 // trustedUsageURL reports whether a usage URL may receive every seat's OAuth
-// bearer token: https to any host, or plain http to a loopback host only.
+// bearer token: https to usageHost on its default port, or plain http to a
+// loopback host, which is how a test stands in for the endpoint.
 func trustedUsageURL(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil {
 		return false
 	}
-	switch u.Scheme {
+	switch strings.ToLower(u.Scheme) {
 	case "https":
-		return true
+		return strings.EqualFold(u.Hostname(), usageHost) && (u.Port() == "" || u.Port() == "443")
 	case "http":
 		host := u.Hostname()
 		if strings.EqualFold(host, "localhost") {

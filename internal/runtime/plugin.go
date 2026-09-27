@@ -170,7 +170,7 @@ func (p *Plugin) config() model.Config {
 func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			raw, ok = degrade(method, codePluginPanic, fmt.Sprintf("recovered: %v", r))
+			raw, ok = Degrade(method, codePluginPanic, fmt.Sprintf("recovered: %v", r))
 			// The guard covers scheduler.pick, which the host gives no
 			// timeout, so the line goes out on a tracked goroutine rather
 			// than holding the request behind the host's logger.
@@ -184,7 +184,7 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	}()
 	raw, err := p.handle(method, payload)
 	if err != nil {
-		return degrade(method, codePluginError, err.Error())
+		return Degrade(method, codePluginError, err.Error())
 	}
 	var env Envelope
 	if json.Unmarshal(raw, &env) == nil && !env.OK {
@@ -193,7 +193,7 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 	return raw, true
 }
 
-// degrade is the answer for a method the plugin could not serve. It is per
+// Degrade is the answer for a method the plugin could not serve. It is per
 // method because an error envelope costs more than a decline on every hook the
 // host routes traffic through: scheduler.pick hard-fails the request with no
 // fallback to the host's own selector, an interceptor error makes the host drop
@@ -202,7 +202,10 @@ func (p *Plugin) Call(method string, payload []byte) (raw []byte, ok bool) {
 // the host handles for the lifecycle methods and answers for
 // management.register by skipping the plugin's routes entirely, status page
 // included (internal/pluginhost/management.go:50-52).
-func degrade(method, code, message string) ([]byte, bool) {
+//
+// The cgo shim calls it too, for a call that fails before the runtime sees it.
+// The bool reports whether the envelope is a success the host acts on.
+func Degrade(method, code, message string) ([]byte, bool) {
 	var result any
 	switch method {
 	case MethodSchedulerPick:

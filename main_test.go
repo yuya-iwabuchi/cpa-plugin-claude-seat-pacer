@@ -101,3 +101,16 @@ func TestPaceShapeIsAChoiceOfTheThreeShapes(t *testing.T) {
 	}
 	t.Error("configFields declares no pace.shape")
 }
+
+// TestShimFailureDeclinesAPick holds the shim's own failure path to the
+// runtime's per-method degradation: a scheduler.pick it cannot serve answers
+// with a success envelope and rc 0, which the host reads as a decline, while a
+// method with no safe answer still reports an error with rc 1.
+func TestShimFailureDeclinesAPick(t *testing.T) {
+	if rc := fail(nil, "scheduler.pick", "plugin_panic", "boom"); rc != 0 {
+		t.Errorf("fail(scheduler.pick) rc = %d, want 0", rc)
+	}
+	if rc := fail(nil, "plugin.register", "plugin_panic", "boom"); rc != 1 {
+		t.Errorf("fail(plugin.register) rc = %d, want 1", rc)
+	}
+}
