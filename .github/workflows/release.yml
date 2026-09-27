@@ -141,7 +141,9 @@ jobs:
         with:
           path: staging
       # One checksums.txt lists every platform's zip; the store verifies only
-      # the line matching the archive it selected.
+      # the line matching the archive it selected. The plugin store's install
+      # contract is exactly these five platforms, so a release carrying any
+      # other set fails here.
       - name: assemble the release directory
         shell: bash
         run: |
@@ -150,6 +152,12 @@ jobs:
           find staging -name '*.sha256' | sort | xargs cat > release/checksums.txt
           test "$(find release -name '*.zip' | wc -l)" -eq 5
           test "$(wc -l < release/checksums.txt)" -eq 5
+          version=$(find release -name 'claude-seat-pacer_*.zip' | head -n 1 | sed -E 's#.*/claude-seat-pacer_([^_]+)_.*#\1#')
+          for platform in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64 windows_amd64; do
+            asset="claude-seat-pacer_${version}_${platform}.zip"
+            test -f "release/$asset" || { echo "missing $asset"; exit 1; }
+            grep -q "  $asset\$" release/checksums.txt || { echo "checksums.txt lacks $asset"; exit 1; }
+          done
           (cd release && sha256sum --check --strict checksums.txt)
           ls -l release && cat release/checksums.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

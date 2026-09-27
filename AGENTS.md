@@ -178,6 +178,15 @@ and unit-testable without the host.
 
 ## Releasing
 
+Every release keeps the plugin store's install contract. It ships
+`checksums.txt` and one `claude-seat-pacer_<version>_<goos>_<goarch>.zip` for
+each of darwin amd64/arm64, linux amd64/arm64 and windows amd64, each holding
+the library at its root, and `release.yml`'s assemble step fails on any other
+set. The resource route serves the static page alone
+(`TestManagementRegisterDeclaresRoutesAndResources`,
+`TestManagementAdapterStripsResourcePrefix`): new data or actions go on a
+management route behind the key.
+
 1. Set `pluginVersion` in `main.go` to the new version and merge it to `main`.
 2. On an up-to-date, clean `main`, run `make release-tag`. It refuses another
    branch, a dirty tree, a `main` that differs from `origin/main`, or a
