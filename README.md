@@ -29,9 +29,9 @@ Uses up each Claude seat's weekly quota before it resets by sending every new co
   [How it picks](#how-it-picks) lists when.
 - **Reads every window Anthropic reports.** The usage endpoint gives the
   5-hour window, the weekly all-models window and each model family's weekly
-  cap, read every two minutes by default and again a few seconds after each
-  reset. The headers of every response add fresher readings of the 5-hour
-  and weekly windows and the Fable cap, and any refusal. A seat refused or
+  window, read every two minutes by default and again a few seconds after
+  each reset. The headers of every response add fresher readings of the
+  5-hour, weekly and Fable weekly windows, and any refusal. A seat refused or
   full on a window takes no new conversation for the models that window caps
   while another seat has room, until a later reading shows room on it; a new
   subagent still joins its parent on a full seat, though not on a refused
@@ -272,13 +272,14 @@ target, negative while a seat is behind, so the lowest cost takes the next
 new conversation. A seat held off ranks below them.
 
 - **Next pick.** The bar across the top names the eligible seat the next new
-  conversation lands on, for Standard requests and for each family cap, or
-  that no seat is eligible, with the reason when the seats share one. It
-  shows the count of eligible seats and the age of the newest reading, and
-  its Sync now button reads every seat at once.
+  conversation lands on, for Standard requests and for each model family with
+  a weekly window of its own, or that no seat is eligible, with the reason
+  when the seats share one. It shows the count of eligible seats and the age
+  of the newest reading, and its Sync now button reads every seat at once.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
-  showing each window's current cycle. A refused window is hatched.
+  showing each window's current cycle. A window holding its seat off, full or
+  refused, is taped red and black, and that seat's other windows turn grey.
 - **Weekly window.** Every seat's use plotted against the target curve over
   its own week, and the seats ranked by cost, each with where it is headed at
   its last 24 hours' rate.
