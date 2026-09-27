@@ -90,7 +90,7 @@ var _ web.Syncer = (*runtime.Plugin)(nil)
 // Makefile reads pluginVersion from this line to name the installed library.
 const (
 	pluginName    = "claude-seat-pacer"
-	pluginVersion = "0.2.1"
+	pluginVersion = "0.2.2"
 	pluginAuthor  = "yuya-iwabuchi"
 	pluginRepo    = "https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer"
 )
@@ -153,10 +153,10 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 	// The host's recover runs in its own runtime and cannot catch a panic
 	// raised inside this library; an escaped panic terminates the proxy. The
 	// runtime guards its own dispatch too, so this covers the shim itself.
+	name := ""
 	defer func() {
 		if r := recover(); r != nil {
-			writeResponse(response, errorEnvelope("plugin_panic", fmt.Sprintf("recovered: %v", r)))
-			rc = 1
+			rc = fail(response, name, "plugin_panic", fmt.Sprintf("recovered: %v", r))
 		}
 	}()
 	if response != nil {
@@ -167,15 +167,15 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 		writeResponse(response, errorEnvelope("invalid_method", "method is required"))
 		return 1
 	}
+	name = C.GoString(method)
 	if bufferTooLarge(uint64(requestLen)) {
-		writeResponse(response, errorEnvelope("invalid_request", "request envelope is too large"))
-		return 1
+		return fail(response, name, "invalid_request", "request envelope is too large")
 	}
 	var payload []byte
 	if request != nil && requestLen > 0 {
 		payload = C.GoBytes(unsafe.Pointer(request), C.int(requestLen))
 	}
-	raw, ok := plugin.Call(C.GoString(method), payload)
+	raw, ok := plugin.Call(name, payload)
 	writeResponse(response, raw)
 	if !ok {
 		return 1
@@ -200,6 +200,19 @@ func cliproxyPluginShutdown() {
 	// the struct the host frees as soon as this returns.
 	plugin.Shutdown()
 	C.store_host_api(nil)
+}
+
+// fail answers a call the shim could not hand to the runtime with the same
+// per-method degradation the runtime gives its own failures, so a failed
+// scheduler.pick declines rather than failing the request, and returns the rc
+// that goes with it.
+func fail(response *C.cliproxy_buffer, method, code, message string) C.int {
+	raw, ok := runtime.Degrade(method, code, message)
+	writeResponse(response, raw)
+	if ok {
+		return 0
+	}
+	return 1
 }
 
 // errorEnvelope is the shim's own failure encoding, for the paths where the

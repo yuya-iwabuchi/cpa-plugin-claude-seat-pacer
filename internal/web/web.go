@@ -213,7 +213,7 @@ func encodeStatus(status model.Status) ([]byte, error) {
 }
 
 // reduceForPage is the status as the page's route serves it, with every
-// credential id published under key. It copies every slice it rewrites, so the
+// credential id and conversation key published under key. It copies every slice it rewrites, so the
 // source's own state is untouched.
 func reduceForPage(st model.Status, key []byte) model.Status {
 	// The page reads the pace curve and the poll cadence out of the config and
@@ -226,7 +226,7 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 		Quota:   model.QuotaConfig{PollInterval: st.Config.Quota.PollInterval},
 	}
 
-	publish := func(authID string) string { return publicID(key, authID) }
+	publish := func(id string) string { return publicID(key, id) }
 	ids := authIDReplacer(st, publish)
 
 	// The cap applies before the rewrite, so a store running to
@@ -268,6 +268,7 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 
 	decisions := make([]model.Decision, len(st.Decisions))
 	for i, d := range st.Decisions {
+		d.SessionKey = publish(d.SessionKey)
 		d.ChosenAuthID = publish(d.ChosenAuthID)
 		d.PreviousAuthID = publish(d.PreviousAuthID)
 		d.Note = publicText(d.Note, ids)
@@ -286,6 +287,10 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 
 	bindings := make([]model.Binding, len(st.Bindings))
 	for i, b := range st.Bindings {
+		// A conversation key digests the conversation's opening when the
+		// request names no session, so the bare key would confirm a guessed
+		// prompt. Keyed like an id, it still joins a binding to its decisions.
+		b.SessionKey = publish(b.SessionKey)
 		b.AuthID = publish(b.AuthID)
 		bindings[i] = b
 	}
@@ -299,24 +304,24 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 	return st
 }
 
-// publicIDBytes is how much of an HMAC-SHA256 a published credential id
-// carries: 8 bytes, so 16 hex characters. Across the hundred credentials a
-// pool holds at the outside, the birthday bound on 64 bits stays under 1e-15,
-// so the id is injective in practice and the joins between the page's tables
-// hold.
+// publicIDBytes is how much of an HMAC-SHA256 a published credential id or
+// conversation key carries: 8 bytes, so 16 hex characters. Across the 65536
+// bindings affinity.max-sessions allows by default, the birthday bound on 64
+// bits stays near 1e-10, so the published form is injective in practice and the
+// joins between the page's tables hold.
 const publicIDBytes = 8
 
-// publicID is the credential id this route publishes, keyed with key.
-// CLIProxyAPI names a Claude OAuth credential file after the account and falls
-// back to that name for the id, so the real id is routinely an email address.
-// An empty id stays empty, which is how a decision records having no previous
-// credential.
-func publicID(key []byte, authID string) string {
-	if authID == "" {
+// publicID is the form this route publishes a credential id or conversation
+// key in, keyed with key. CLIProxyAPI names a Claude OAuth credential file
+// after the account and falls back to that name for the id, so the real id is
+// routinely an email address. An empty id stays empty, which is how a decision
+// records having no previous credential or no session.
+func publicID(key []byte, id string) string {
+	if id == "" {
 		return ""
 	}
 	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(authID))
+	mac.Write([]byte(id))
 	return hex.EncodeToString(mac.Sum(nil)[:publicIDBytes])
 }
 

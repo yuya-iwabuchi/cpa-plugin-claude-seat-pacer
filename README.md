@@ -66,8 +66,8 @@ three things from the pick:
   resetting in 24 hours with 5% left is on track; one resetting in three days
   with 70% left is not, and it should take the next conversation.
 - Never move a live conversation without a reason. Anthropic's prompt cache
-  never crosses organizations, and about 96% of my input tokens are cache
-  reads, so a moved conversation pays full price for everything it has
+  never crosses organizations, and a long conversation's input is nearly all
+  cache reads, so a moved conversation pays full price for everything it has
   already sent.
 
 Sending everything to the seat that resets soonest looks only at the clock: it
@@ -213,9 +213,10 @@ Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
 and the status page says so, as it does when a `max-staleness` you set is under
 twice `poll-interval` and runs at twice it. A negative weight or
 `hysteresis-margin` counts as 0, and any other out-of-range value falls back to
-its default. `usage-url` receives every seat's token, so it must be `https`, or
-`http` to a loopback host; anything else runs at the default, with a
-status-page warning. A block that doesn't parse loads the plugin disabled.
+its default. `usage-url` receives every seat's token, so it must be `https` to
+`api.anthropic.com`, or `http` to a loopback host; anything else runs at the
+default, with a status-page warning. A block that doesn't parse loads the
+plugin disabled.
 
 The Management Center saves each field as a top-level dotted key, such as
 `affinity.ttl: 2h`, which wins over the nested form. When the two disagree the
@@ -318,9 +319,10 @@ client with each seat's OAuth token, which the host already holds.
 
 The status page leaves out account addresses, file paths and network addresses,
 so it is safe to put on a screen. An email is masked to its first letter and
-its domain, and a `note` appears as written. Credential ids are keyed by a
-secret in `page-id.key` beside `history.json`; deleting that file changes every
-published id. The `status` route serves everything unreduced.
+its domain, and a `note` appears as written. Credential ids and conversation
+keys are keyed by a secret in `page-id.key` beside `history.json`; deleting
+that file changes every published id. The `status` route serves everything
+unreduced.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples across restarts: credential ids (file names or account
