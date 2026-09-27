@@ -208,6 +208,12 @@ windows, utilization history, cost and eligibility for a chosen model,
 the live bindings per seat, recent decisions with each seat's cost, and a warning
 for anything that leaves the plugin inert or degraded.
 
+The page names a window by its length and the requests it gates. `5h Standard`
+and `7d Standard` are the 5-hour and all-models weekly windows, which apply to
+every request; `7d Fable` is a model family's weekly window, which applies to
+that family's requests on top. Each family is ranked apart: `Standard` ranks
+seats for models without a window of their own.
+
 The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
 data. It asks once per browser tab for the management key and reads from the
 plugin's management routes, which the host answers only with that key and,
