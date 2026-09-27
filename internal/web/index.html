@@ -22,8 +22,7 @@
   /* A window's track stays dark enough against the card that the coloured
      fill drawn over it keeps its own boundary, which leaves the track itself
      near 1.2:1 there. Its 1px edge carries the window's extent instead, and
-     clears 3:1 on the card even under the dim an ineligible seat's marks
-     take. */
+     clears 3:1 on the card. */
   --track:        #e6e5df;
   --track-edge:   #4f4e4a;
   --emph:         rgba(42,120,214,.07);
@@ -454,20 +453,15 @@ td .seat-mark { max-width: 22ch; }
 .legend .sw { width: 14px; height: 9px; border-radius: 2px; flex: none; }
 /* A bar that runs past the axis, fading out toward its cut end. */
 .legend .sw-cut { width: 22px; border-radius: 2px 0 0 2px; background: linear-gradient(90deg, var(--ink-3) 40%, transparent); }
-/* The red states are told apart by the pattern their swatch and their bar
-   carry, so neither rests on colour: a refused window is hatched on the
-   diagonal, a spent one barred upright. */
-.sw[data-pattern="hatch"] {
-  background-image: repeating-linear-gradient(45deg,
-    var(--surface-1) 0 1.5px, transparent 1.5px 4px);
-}
-.sw[data-pattern="bars"] {
-  background-image: repeating-linear-gradient(90deg,
-    var(--surface-1) 0 1.6px, transparent 1.6px 4px);
+/* A window that holds its seat, full or refused, is taped red and black, as
+   a refusal is along the line charts. */
+.sw[data-pattern="tape"] {
+  background-image: repeating-linear-gradient(133deg,
+    transparent 0 4.92px, #161616 4.92px 6.57px);
 }
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
 /* The timeline's legend sits inside its card under the chart, the same 8px
-   below it and 6px above the card's edge as a pace card's does, in two short
+   below it and 6px above the card's edge as a pace card's does, in short
    lists rather than one long one. The chart alone scrolls sideways, so the
    lists wrap to the card's width rather than to the timeline's. */
 .tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; }
@@ -1096,10 +1090,13 @@ th[aria-sort] button { color: var(--ink-1); }
       </div>
       <div class="card tl-card">
         <div id="timeline"></div>
-        <!-- Two lists: what a bar's fill says, then the marks drawn over it.
-             The lane states come from STATE_META, the sign key from SIGN_KEY
-             and the curve key's words from CURVE_KEY, all at render time;
-             only the other axis markers, which no script draws, are markup. -->
+        <!-- Lists: what a bar's fill says, the marks drawn over it, and what
+             Standard means where a family has a window of its own.
+             The lane states come from STATE_META and a held seat's other
+             windows from HELD_META, the sign key from SIGN_KEY, the curve
+             key's words from CURVE_KEY and the Standard line from onTopText,
+             all at render time; only the other axis markers, which no script
+             draws, are markup. -->
         <div class="tl-legend" id="timeline-legend">
           <ul class="legend" id="timeline-states" aria-label="Window states"></ul>
           <ul class="legend" id="timeline-marks" aria-label="Axis marks">
@@ -1110,6 +1107,7 @@ th[aria-sort] button { color: var(--ink-1); }
             <li><span class="gl">&#9618;</span> weekend</li>
             <li id="tl-cut-key" hidden><span class="sw sw-cut"></span> runs past the axis</li>
           </ul>
+          <ul class="legend" id="tl-std-key" aria-label="Window names" hidden><li></li></ul>
         </div>
       </div>
     </section>
@@ -1485,19 +1483,47 @@ th[aria-sort] button { color: var(--ink-1); }
   /* --------------------------------------------------------- domain shape */
 
   function windowName(w) {
-    if (w.kind === "five_hour") return "5-hour session";
-    if (w.kind === "seven_day") return "7-day all models";
-    if (w.kind === "weekly_scoped") return (w.scope || "family") + " weekly cap";
+    if (w.kind === "five_hour") return "5-hour Standard";
+    if (w.kind === "seven_day") return "7-day Standard";
+    if (w.kind === "weekly_scoped") return "7-day " + (w.scope || "family");
     return w.kind;
   }
 
   /* The one visible name of each window: every row, legend, label and clause
      the eye reads prints this; windowName is for speech alone. */
   function windowShort(w) {
-    if (w.kind === "five_hour") return "5h session";
-    if (w.kind === "seven_day") return "7d all models";
-    if (w.kind === "weekly_scoped") return (w.scope || "family") + " cap";
+    if (w.kind === "five_hour") return "5h Standard";
+    if (w.kind === "seven_day") return "7d Standard";
+    if (w.kind === "weekly_scoped") return "7d " + (w.scope || "family");
     return w.kind;
+  }
+  /* A family's own weekly window, by its visible name. */
+  function capShort(fam) { return windowShort({ kind: "weekly_scoped", scope: fam }); }
+
+  /* Names in a sentence: "A", "A and B", "A, B and C". */
+  function andList(names) {
+    return names.length < 3 ? names.join(" and ") : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+  }
+
+  /* What the family windows add to the Standard ones, for the legend and
+     the notes: each gates its own family's requests on top of them. */
+  function onTopText(fams) {
+    var own = fams.filter(function (f) { return f !== STANDARD; }).map(capShort);
+    return own.length === 1 ? own[0] + " applies to its family's requests on top"
+      : andList(own) + " apply to their own families' requests on top";
+  }
+
+  /* Whom a window gates and the provider's own name for it. The Standard
+     windows gate every request; a family's window gates that family's
+     requests on top of them. */
+  function windowReach(w) {
+    if (w.kind === "five_hour") return "applies to every request · the provider's 5-hour session limit";
+    if (w.kind === "seven_day") return "applies to every request · the provider's weekly all-models limit";
+    if (w.kind === "weekly_scoped") {
+      var fam = w.scope || "family";
+      return "applies to " + fam + " requests, on top of the Standard windows · the provider's weekly " + fam + " limit";
+    }
+    return "";
   }
   var WEEKLY_SHORT = windowShort({ kind: "seven_day" });
   var SESSION_SHORT = windowShort({ kind: "five_hour" });
@@ -1618,11 +1644,13 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* The lane states, in the order the legend lists them. Every state carries
-     a glyph, so no state rests on its hue; two states share the critical hue
-     and are also told apart by the pattern their bar and swatch carry. Spent
-     is a window the provider reports full: no new conversation lands on the
-     seat for the requests the window applies to until it resets, which is a
-     gate on a reading and not on the pace forecast. Full is the page's one
+     a glyph, so no state rests on its hue. The two states that hold a seat
+     share the critical hue and the tape, and share one legend row: either
+     one keeps new conversations off the seat, and its glyph and the seat's
+     chip say which. Spent is a window the provider reports full: no new
+     conversation lands on the seat for the requests the window applies to
+     until it resets, which is a gate on a reading and not on the pace
+     forecast. Full is the page's one
      word for that state. Blocked is the provider's own refusal of the window,
      which the page calls refused, and it makes the seat ineligible the same
      way. Limit is a window the cost does not weigh; its lane reads under, on
@@ -1633,22 +1661,27 @@ th[aria-sort] button { color: var(--ink-1); }
     under:   { color: "var(--good)",     glyph: "−", label: "under target" },
     on:      { color: "var(--info)",     glyph: "≈", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
-    spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "bars" },
+    spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "tape" },
     limit:   { color: "var(--ink-1)",    glyph: "◇", label: "weighs nothing in the cost",
                legend: "under, on or above curve, weighs nothing" },
-    blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "hatch" },
+    blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "tape" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not scored" }
   };
 
+  /* An ineligible seat's windows that do not hold it off: drawn in one
+     opaque neutral, so the window that holds it is the only one whose bar,
+     meter and glyph keep a state's colour. */
+  var HELD_META = { color: "color-mix(in srgb, var(--ink-3) 55%, var(--track))", legend: "held seat, other windows" };
+
   function laneState(w, ws) {
-    /* A provider rejection is a reading rather than an evaluation, so it
-       stands even where the scorer produced nothing. A window the provider
-       reports full reads as full ahead of its pace verdict, because full is
-       the harder fact: it makes the seat ineligible. */
+    /* A provider rejection and a full reading are readings rather than
+       evaluations, so both stand even where the scorer produced nothing, and
+       full reads ahead of the pace verdict because it is the harder fact: it
+       makes the seat ineligible. */
     if (w.status === "rejected") return "blocked";
+    if (num(w.utilization) && w.utilization >= 1) return "spent";
     var paced = counted(ws), gated = gatedOnly(w, ws);
     if (!paced && !gated) return "unknown";
-    if (num(w.utilization) && w.utilization >= 1) return "spent";
     if (!paced) return "limit";
     if (ws.slack > PACE_BAND) return "under";
     if (ws.slack < -PACE_BAND) return "over";
@@ -2143,8 +2176,7 @@ th[aria-sort] button { color: var(--ink-1); }
         if (sc && !sc.eligible) held[fam] = famVerdict(a, fam, now).text;
       });
     } else {
-      Object.assign(spec, { type: "limit", label: "ineligible",
-        when: pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) });
+      Object.assign(spec, { type: "limit", label: "ineligible", when: holdsText(a, ranks) });
     }
     var std = famScore(a, fams[0]);
     spec.big = [costText(std)];
@@ -2179,8 +2211,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var hs = a.host_status || "unknown";
     var lead = leadText(leadsOf(a, ranks), ranks.fams);
     return seatLabel(a) + ", rank " + (rankText(a, ranks) || "unranked") + (lead ? ", " + lead : "") +
-      ", " + pairText(ranks.fams, function (fam) { return famVerdict(a, fam, now).text; }) +
-      ", weekly " + weeklyGapText(sc) +
+      ", " + (holdsText(a, ranks) || "eligible") +
+      ", " + WEEKLY_SHORT + " " + weeklyGapText(sc) +
       ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
       ", " + intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       (hs !== "active" ? ", host " + hs : "") +
@@ -2226,6 +2258,7 @@ th[aria-sort] button { color: var(--ink-1); }
     if (advisory(w, stt)) spec.lines.push({ b: "headroom critical", t: "the provider rates it nearly full, and requests still succeed" });
     if (cutL || cutR) spec.lines.push({ t: cutL && cutR ? "runs past both ends of the axis" : cutL ? "opened before the axis begins" :
       "resets after the axis ends" });
+    if (windowReach(w)) spec.lines.push({ t: windowReach(w) });
     return spec;
   }
 
@@ -2284,12 +2317,6 @@ th[aria-sort] button { color: var(--ink-1); }
   /* The plot a date on the axis needs to itself: a "Sep 16" set at 10.5px is
      about 40 of it, and the rest is the gap to the next one. */
   var DAY_LABEL_PX = 54;
-  /* What an ineligible seat's marks are drawn at. Opacity multiplies with
-     whatever it is set on, so it stays on the bars, the meters and the ticks:
-     a figure set in it lands under the ratio this page holds text to, and its
-     own text steps one ink token down instead. */
-  var MARK_DIM = 0.62;
-
   /* How far the axis runs either side of now, and how wide the fade is at an
      end of a bar the axis cuts. */
   var TL_REACH = 7 * 86400000, TL_FADE = 7;
@@ -2301,17 +2328,30 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* The lane states are one list: the legend, the glyph, the tooltip, the
      aria-label and the ranked list's icons all read STATE_META, so they
-     cannot drift apart. The sign key closes the marks list, from the one
-     constant every legend prints, and is written once because the markup
-     around it is static. */
+     cannot drift apart. States that share a pattern share a legend row, with
+     both glyphs and both words. A held seat's other windows close the list,
+     from HELD_META, shown while a seat is held. The sign key closes the
+     marks list, from the one constant every legend prints, and is written
+     once because the markup around it is static. */
   function renderStateLegend() {
     var host = $("timeline-states");
     host.textContent = "";
+    var rows = [];
     Object.keys(STATE_META).forEach(function (key) {
       var meta = STATE_META[key];
+      var same = meta.pattern && rows.filter(function (r) { return r.pattern === meta.pattern; })[0];
+      if (same) {
+        same.glyph += " " + meta.glyph;
+        same.label += " or " + (meta.legend || meta.label);
+      } else {
+        rows.push({ color: meta.color, pattern: meta.pattern, glyph: meta.glyph, label: meta.legend || meta.label });
+      }
+    });
+    rows.concat([Object.assign({ id: "tl-held-key", label: HELD_META.legend }, HELD_META)]).forEach(function (r) {
       var li = h("li", "");
-      li.appendChild(stateSwatch(meta));
-      li.appendChild(document.createTextNode(" " + (meta.legend || meta.label)));
+      if (r.id) { li.id = r.id; li.hidden = true; }
+      li.appendChild(stateSwatch(r));
+      li.appendChild(document.createTextNode(" " + r.label));
       host.appendChild(li);
     });
     var curve = $("tl-curve-key");
@@ -2329,50 +2369,72 @@ th[aria-sort] button { color: var(--ink-1); }
     var sc = famScore(a, fam);
     if (!sc) return { ok: false, word: "unknown", text: "unknown", lift: "" };
     if (sc.eligible) return { ok: true, word: "eligible", text: "eligible", lift: "" };
-    var word = holdWord(a, sc.reason, null, now), text = holdWord(a, sc.reason, seatReturnsAt(a, fam), now);
+    var word = holdWord(a, sc.reason, fam, null, now), text = holdWord(a, sc.reason, fam, seatReturnsAt(a, fam), now);
     return { ok: false, word: word, text: text, lift: text.indexOf(word + " · ") === 0 ? text.slice(word.length + 3) : "" };
   }
 
-  /* The chips a seat's header row carries, one per request family: the
-     seat's rank there, or a cross and the reason the family is held off it.
-     Ranking puts every eligible seat first, so a #1 is the seat that takes
-     that family's next new conversation, and its chip is the one tinted.
-     Families that agree collapse to one chip with no family named, which is
-     also every chip of a pool with one family; past that each chip names its
-     family, because a seat can lead one and not the other. A cross carries
-     the hold in its tip: why, and when the work returns where the provider
-     names an instant. */
+  /* The chips a seat's header row carries: its rank in each family it can
+     serve, then a cross for each hold. Ranking puts every eligible seat
+     first, so a #1 is the seat that takes that family's next new
+     conversation, and its chip is the one tinted. Ranks that agree across
+     every family collapse to one chip with no family named, which is also
+     every chip of a pool with one family; past that each rank names its
+     family, because a seat can lead one and not the other. A hold names the
+     window that holds the seat, whose name says which requests it gates, so
+     it carries no family. A hold on no window names its reason, led by its
+     families where it holds only some. Each hold is one chip however many
+     families it holds; its tip adds the families it keeps the seat off,
+     where the ranking is known, and when it lifts. */
   function seatChips(a, ranks) {
     var fams = ranks.fams, now = nowMs();
     var leads = leadsOf(a, ranks);
-    var parts = fams.map(function (fam) {
+    var ranked = [], holds = [];
+    fams.forEach(function (fam) {
       var v = famVerdict(a, fam, now);
-      if (!v.ok) return { ok: false, text: v.word, tip: v.text, lift: v.lift, fam: fam };
-      var r = ranks.byFam[fam][a.auth_id];
-      return { ok: true, text: r === undefined ? "#?" : "#" + (r + 1), lead: leads.indexOf(fam) >= 0, fam: fam };
+      if (v.ok) {
+        var r = ranks.byFam[fam][a.auth_id];
+        ranked.push({ ok: true, text: r === undefined ? "#?" : "#" + (r + 1), lead: leads.indexOf(fam) >= 0, fam: fam });
+        return;
+      }
+      holdChips(a, fam, v, now).forEach(function (hc) {
+        var same = holds.filter(function (q) { return q.label === hc.label; })[0];
+        if (same) same.fams.push(fam);
+        else { hc.fams = [fam]; holds.push(hc); }
+      });
     });
-    var agree = parts.every(function (p) {
-      return p.ok === parts[0].ok && p.text === parts[0].text && !!p.lead === !!parts[0].lead;
+    var agree = !holds.length && ranked.every(function (p) {
+      return p.text === ranked[0].text && !!p.lead === !!ranked[0].lead;
     });
-    if (agree) {
-      var one = parts[0];
-      return [{ ok: one.ok, lead: one.lead, label: one.text, word: one.text,
-        lift: one.ok ? "" : liftText(fams, a, now),
-        tip: one.ok ? null : pairText(fams, function (fam) { return famVerdict(a, fam, now).text; }) }];
-    }
-    return parts.map(function (p) {
-      return { ok: p.ok, lead: p.lead, fam: p.fam, label: rankLabel(p.fam) + " " + p.text, word: p.text,
-        lift: p.lift, tip: p.ok ? null : rankLabel(p.fam) + ": " + p.tip };
+    var chips = agree
+      ? [{ ok: true, lead: ranked[0].lead, label: ranked[0].text }]
+      : ranked.map(function (p) { return { ok: true, lead: p.lead, label: rankLabel(p.fam) + " " + p.text }; });
+    holds.forEach(function (hc) {
+      var some = fams.length > 1 && hc.fams.length < fams.length;
+      var label = some && !hc.window ? andList(hc.fams.map(rankLabel)) + " " + hc.label : hc.label;
+      var reach = fams.length > 1 && hc.known ? "keeps the seat off " + andList(hc.fams.map(rankLabel)) + " requests" : "";
+      chips.push({ ok: false, key: label, label: label, word: label, lift: hc.lift, win: reach,
+        tip: [label, hc.lift, reach].filter(Boolean).join(" · ") });
     });
+    return chips;
   }
 
-  /* When each family's hold lifts, for the families that name an instant:
-     one phrase where every family names the same, else each named. */
-  function liftText(fams, a, now) {
-    var named = fams.filter(function (fam) { return famVerdict(a, fam, now).lift; });
-    var liftOf = function (fam) { return famVerdict(a, fam, now).lift; };
-    if (named.length === fams.length) return pairText(fams, liftOf);
-    return named.map(function (fam) { return rankLabel(fam) + " " + liftOf(fam); }).join(" · ");
+  /* The holds keeping a seat off one family: each window that holds it, full
+     or refused, with its reset, led by the family's reason with when it lifts
+     where that reason is not one of those windows. */
+  function holdChips(a, fam, v, now) {
+    var sc = famScore(a, fam), reason = sc && sc.reason;
+    var out = holdingWindows(a, fam).map(function (w) {
+      var r = parseT(w.resets_at);
+      return { label: holdLabel(w), lift: r ? resetText(r, now) : "", window: true, known: true };
+    });
+    var named = out.length && (reason === "spent" || reason === "provider-rejected");
+    return named ? out : [{ label: v.word, lift: v.lift, window: false, known: !!sc }].concat(out);
+  }
+
+  /* A seat's holds as one phrase, each with its reset: its hold chips' words. */
+  function holdsText(a, ranks) {
+    return seatChips(a, ranks).filter(function (c) { return !c.ok; })
+      .map(function (c) { return [c.label, c.lift].filter(Boolean).join(" · "); }).join("; ");
   }
 
   /* A chip's text as it is set: a cross before a hold, a rank bare. */
@@ -2399,10 +2461,10 @@ th[aria-sort] button { color: var(--ink-1); }
     if (c.tip) {
       g.setAttribute("tabindex", "0");
       g.setAttribute("role", "img");
-      g.setAttribute("data-fk", "fam:" + a.auth_id + ":" + (c.fam || ""));
+      g.setAttribute("data-fk", "fam:" + a.auth_id + ":" + c.key);
       g.setAttribute("aria-label", c.tip);
       /* The hold's word is the badge, and when it lifts follows it. */
-      setTip(g, { seat: seatLabel(a), col: seatColor(a), win: c.fam ? rankLabel(c.fam) : "", type: "limit",
+      setTip(g, { seat: seatLabel(a), col: seatColor(a), win: c.win, type: "limit",
         label: c.word, when: c.lift, lines: [] });
       g.setAttribute("data-tip-visual", "true");
     } else {
@@ -2482,9 +2544,8 @@ th[aria-sort] button { color: var(--ink-1); }
   /* The last column of a lane's gutter: when that window rolls. The stamp
      ticks with the rest of the page and its tooltip is the instant itself, in
      the reader's own zone. The hit box is the whole column, so a figure that
-     changes length as it counts down keeps one target. The stamp is already
-     set in the dimmest ink the page has, and carries no opacity of its own:
-     a seat's standing shows in its marks. */
+     changes length as it counts down keeps one target. The stamp is set in
+     the dimmest ink the page has. */
   function resetStamp(parent, cy, a, w, resets, rstX) {
     var g = svg("g", { "class": "rst", tabindex: 0, role: "img" }, parent);
     svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W, height: 18,
@@ -2602,12 +2663,14 @@ th[aria-sort] button { color: var(--ink-1); }
     }, gGrid);
     showHiddenControl(gGrid, plotH + 20, st);
 
-    /* Rows. The legend names a cut end only where a bar has one. */
-    var anyCut = false;
+    /* Rows. The legend names a cut end only where a bar has one, and a held
+       seat's other windows only while a seat is held. */
+    var anyCut = false, anyHeld = false;
     layout.forEach(function (row) {
       var a = row.g.a;
       var fams = ranks.fams;
       var eligible = anyEligible(a, fams);
+      anyHeld = anyHeld || !eligible;
       var leads = leadsOf(a, ranks);
       var lead = leads.length > 0;
       var col = seatColor(a);
@@ -2620,7 +2683,7 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: identity, then rank or hold per request family, with
+      /* The seat's row: identity, then its rank per family and a cross per hold, with
          the whole record in the tooltip. Every name starts at NAME_X, so the
          names read down the page as one column. The name is trimmed to the
          measured space, so the tooltip is also where a long name is read
@@ -2654,13 +2717,14 @@ th[aria-sort] button { color: var(--ink-1); }
 
       hideControl(gRow, gut - 14 - HIDE_W, headY - 4, a);
 
-      var markOpacity = eligible ? 1 : MARK_DIM;
-
       row.lanes.forEach(function (lane) {
         var w = lane.w;
         var ws = scoreFor(a, w);
         var stt = laneState(w, ws);
         var meta = STATE_META[stt];
+        /* A full or refused window is what holds a seat off; every other
+           window of a held seat takes the neutral. */
+        var drawn = eligible || holdsBack(w) ? meta : HELD_META;
         var cy = lane.y + geo.lane / 2;
 
         var g = svg("g", { "class": "lane", tabindex: 0, role: "img" }, gRow);
@@ -2668,17 +2732,19 @@ th[aria-sort] button { color: var(--ink-1); }
 
         /* Gutter: name, state glyph, utilization. All three are text, so no
            value in this view depends on hovering a bar. An ineligible seat
-           sets them one ink token down; the glyph keeps its own and carries no
-           opacity, so a state reads at full strength whatever the seat's
-           standing is. */
+           sets them one ink token down. The glyph takes its state's colour as
+           the bar does, and the dimmest ink where the bar takes the neutral;
+           it is set as a style, since the chart's text rule outranks a fill
+           attribute. */
         var nm = svgText(gRow, LANE_NAME_X, cy + 4, windowShort(w), eligible ? "t-sec" : "t-muted", { "font-size": 11.5 });
         fitText(nm, LANE_NAME_W);
-        svgText(gRow, LANE_GLYPH_X, cy + 4, meta.glyph, "", { "font-size": 10, fill: meta.color });
+        svgText(gRow, LANE_GLYPH_X, cy + 4, meta.glyph, "", { "font-size": 10 }).style.fill =
+          drawn === HELD_META ? "var(--ink-3)" : meta.color;
         svgText(gRow, LANE_PCT_X, cy + 4, pct(w.utilization), eligible ? "t-mono" : "t-mono t-sec",
           { "font-size": 11.5, "text-anchor": "end" });
         /* The budget meter is a fixed width, so utilization and its target
            stay readable even where the window is a sliver on the time axis. */
-        budgetMeter(gRow, cy, w, ws, meta, eligible);
+        budgetMeter(gRow, cy, w, ws, drawn, eligible);
 
         var resets = parseT(w.resets_at);
         var durMs = num(w.duration) ? w.duration / 1e6 : 0;
@@ -2705,16 +2771,13 @@ th[aria-sort] button { color: var(--ink-1); }
           "class": "hit", x: bx0 - 6, y: lane.y, width: (bx1 - bx0) + 12, height: geo.lane,
           rx: 4, fill: "transparent"
         }, g);
-        /* The drawn marks alone take the dim, so a lane keeps its focus ring
-           at full strength whatever the seat's standing is. */
-        var gm = svg("g", { opacity: markOpacity }, g);
         /* The track's fill is barely off the card, so its 1px edge is what
            reads as the window's extent; the path is inset half a pixel so the
            edge lands on whole device pixels rather than straddling them. The
            coloured fill covers that edge, which leaves it showing along the
            unspent run alone. An end past the axis is square and fades out
            over TL_FADE, so the bar reads as running on. */
-        var gb = svg("g", {}, gm);
+        var gb = svg("g", {}, g);
         if (cutL || cutR) gb.setAttribute("mask", "url(#" + cutMask(defs, bx0, bx1, by, barH, cutL, cutR) + ")");
         svg("path", {
           d: roundedBar(bx0 + 0.5, by + 0.5, (bx1 - bx0) - 1, barH - 1, 2.5, !cutL, !cutR),
@@ -2729,16 +2792,16 @@ th[aria-sort] button { color: var(--ink-1); }
         var fx1 = clamp(sx + sw * clamp(w.utilization, 0, 1), bx0, bx1);
         if (fx1 > bx0) {
           var fr = !(cutR && fx1 >= bx1);
-          svg("path", { d: roundedBar(bx0, by, fx1 - bx0, barH, 3, !cutL, fr), fill: meta.color }, gb);
-          if (meta.pattern) {
-            svg("path", { d: roundedBar(bx0, by, fx1 - bx0, barH, 3, !cutL, fr), fill: "url(#" + meta.pattern + ")" }, gb);
+          svg("path", { d: roundedBar(bx0, by, fx1 - bx0, barH, 3, !cutL, fr), fill: drawn.color }, gb);
+          if (drawn.pattern) {
+            svg("path", { d: roundedBar(bx0, by, fx1 - bx0, barH, 3, !cutL, fr), fill: "url(#" + drawn.pattern + ")" }, gb);
           }
         }
         if (w.utilization > 1 && !cutR) {
           svg("path", {
             d: "M" + (bx1 + 4) + " " + (cy - 4) + "L" + (bx1 + 10) + " " + cy + "L" + (bx1 + 4) + " " + (cy + 4) + "Z",
-            fill: meta.color
-          }, gm);
+            fill: drawn.color
+          }, g);
         }
         /* The pace target rides the same axis as the fill: it marks where the
            fill should reach right now. A window the cost does not weigh has no
@@ -2746,18 +2809,22 @@ th[aria-sort] button { color: var(--ink-1); }
            the curve is a reference tick on its gutter meter instead. */
         var tx = counted(ws) && num(ws.target) ? sx + sw * clamp(ws.target, 0, 1) : NaN;
         if (counted(ws) && stt !== "unknown" && tx >= bx0 && tx <= bx1) {
-          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, gm);
-          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, gm);
+          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
+          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
           svg("path", {
             d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
             fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
-          }, gm);
+          }, g);
         }
         resetStamp(gRow, cy, a, w, resets, rstX);
       });
     });
 
     $("tl-cut-key").hidden = !anyCut;
+    var stdKey = $("tl-std-key");
+    stdKey.hidden = ranks.fams.length < 2;
+    stdKey.firstElementChild.textContent = "Standard windows apply to every request; " + onTopText(ranks.fams);
+    $("tl-held-key").hidden = !anyHeld;
 
     /* One now line across every row. */
     var nx = X(now.getTime());
@@ -2767,17 +2834,13 @@ th[aria-sort] button { color: var(--ink-1); }
     svg("rect", { x: nx + 2, y: 1, width: lw + 6, height: 11, fill: "var(--surface-1)" }, gNow);
     gNow.appendChild(nowLabel);
 
-    /* The patterns STATE_META names, so the two red states read apart without
-       leaning on colour: a refused window is hatched on the diagonal, a spent
-       one is barred upright. Both cut the fill with the card's own colour, so
-       the pattern carries whatever contrast the fill has against the card. */
-    var pat = svg("pattern", {
-      id: "hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse",
-      patternTransform: "rotate(45)"
+    /* The tape STATE_META names for a window that holds its seat: black
+       stripes over the fill, in the Over time chart's slope and black. */
+    var tape = svg("pattern", {
+      id: "tape", width: 6.6, height: 6.6, patternUnits: "userSpaceOnUse",
+      patternTransform: "rotate(43)"
     }, defs);
-    svg("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--surface-1)", "stroke-width": 2, opacity: .85 }, pat);
-    var bars = svg("pattern", { id: "bars", width: 4, height: 4, patternUnits: "userSpaceOnUse" }, defs);
-    svg("rect", { x: 0, y: 0, width: 1.6, height: 4, fill: "var(--surface-1)", opacity: .9 }, bars);
+    svg("rect", { x: 0, y: 0, width: 1.65, height: 6.6, fill: "#161616" }, tape);
   }
 
   /* Whether a window's meter carries a gap connector: the cost weighs it, so
@@ -2792,16 +2855,16 @@ th[aria-sort] button { color: var(--ink-1); }
      refused or spent window reads as one in the gutter, where a
      window that is a sliver on the time axis is read. */
   function budgetMeter(parent, cy, w, ws, meta, eligible) {
-    var color = meta.color, y = cy - MET_H / 2, opacity = eligible ? 1 : MARK_DIM;
+    var color = meta.color, y = cy - MET_H / 2;
     svg("rect", { x: MET_X + 0.5, y: y + 0.5, width: MET_W - 1, height: MET_H - 1,
       rx: (MET_H - 1) / 2, fill: "var(--track)", stroke: "var(--track-edge)",
-      "stroke-width": 1, opacity: opacity }, parent);
+      "stroke-width": 1 }, parent);
     var fw = MET_W * clamp(w.utilization, 0, 1);
     if (fw > 0.5) {
-      svg("path", { d: roundedBar(MET_X, y, fw, MET_H, MET_H / 2, true, true), fill: color, opacity: opacity }, parent);
+      svg("path", { d: roundedBar(MET_X, y, fw, MET_H, MET_H / 2, true, true), fill: color }, parent);
       if (meta.pattern) {
         svg("rect", { x: MET_X, y: y, width: fw, height: MET_H, rx: MET_H / 2,
-          fill: "url(#" + meta.pattern + ")", opacity: opacity }, parent);
+          fill: "url(#" + meta.pattern + ")" }, parent);
       }
     }
     if (counted(ws) && num(ws.target)) {
@@ -2809,13 +2872,13 @@ th[aria-sort] button { color: var(--ink-1); }
       svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
       svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
-        stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: opacity }, parent);
+        stroke: "var(--ink-1)", "stroke-width": 1.5 }, parent);
       /* The gap is the run along the meter between where the fill ends and
          where the target stands, dotted in ink over a halo so it reads on the
          fill as well as on the track, and labelled in points with its direction. */
       if (gapDrawn(ws)) {
         var sx = MET_X + fw;
-        var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round", opacity: opacity };
+        var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round" };
         svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
         svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
         svgText(parent, GAP_X, cy + 3.5, overPts(ws.slack),
@@ -2830,12 +2893,12 @@ th[aria-sort] button { color: var(--ink-1); }
       svg("line", { x1: cx, x2: cx, y1: y - 2, y2: y + MET_H + 2,
         stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
       svg("line", { x1: cx, x2: cx, y1: y - 2, y2: y + MET_H + 2,
-        stroke: "var(--ink-3)", "stroke-width": 1.5, "stroke-dasharray": "2 1.6", opacity: opacity }, parent);
+        stroke: "var(--ink-3)", "stroke-width": 1.5, "stroke-dasharray": "2 1.6" }, parent);
     }
     if (w.utilization > 1) {
       svg("path", { d: "M" + (MET_X + MET_W + 3) + " " + (cy - 3.5) +
         "L" + (MET_X + MET_W + 8) + " " + cy + "L" + (MET_X + MET_W + 3) + " " + (cy + 3.5) + "Z",
-        fill: color, opacity: opacity }, parent);
+        fill: color }, parent);
     }
   }
 
@@ -3305,7 +3368,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function paceGap(a, ws) {
     var sc = a.score;
     if (!sc || !sc.windows || !sc.windows.length) return sc && sc.reason ? reasonText(sc.reason) : "not scored";
-    if (!ws) return "no weekly reading";
+    if (!ws) return "no " + WEEKLY_SHORT + " reading";
     if (!num(ws.utilization) || !num(ws.elapsed)) return "bad reading";
     if (!(ws.weight > 0)) return WEEKLY_SHORT + " weighs nothing";
     return null;
@@ -3315,9 +3378,9 @@ th[aria-sort] button { color: var(--ink-1); }
      its entry for that window lacks. Null means plottable. */
   function scopedGap(fam, sc, ws) {
     if (sc === null) return fam + " ranking unknown";
-    if (!ws) return "no " + fam + " cap reading";
-    if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + fam + " cap reading";
-    if (!(ws.weight > 0)) return fam + " cap weighs nothing";
+    if (!ws) return "no " + capShort(fam) + " reading";
+    if (!num(ws.utilization) || !num(ws.elapsed)) return "bad " + capShort(fam) + " reading";
+    if (!(ws.weight > 0)) return capShort(fam) + " weighs nothing";
     return null;
   }
 
@@ -3843,7 +3906,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var capDrawn = fams.length && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     var view = paceViewOf(fams, capDrawn);
     renderPaceView(fams, view, capDrawn);
-    $("pace-sub").textContent = "each seat's " + (shows(view, STANDARD) ? "" : view + " cap ") +
+    $("pace-sub").textContent = "each seat's " + (shows(view, STANDARD) ? "" : capShort(view) + " ") +
       "use against the target curve, ranked by cost";
     var pace = (st.config && st.config.pace) || {};
 
@@ -3887,9 +3950,9 @@ th[aria-sort] button { color: var(--ink-1); }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": (shows(view, STANDARD) ? "Weekly" : view + " cap") +
+      "aria-label": (shows(view, STANDARD) ? "Weekly" : capShort(view)) +
         " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it" +
-        (view === PACE_ALL && capDrawn ? ", plus one per seat for its " + fams.join(" and ") + " cap when the cost weighs it" : "")
+        (view === PACE_ALL && capDrawn ? ", plus one per seat for its " + andList(fams.map(capShort)) + " window when the cost weighs it" : "")
     }, host);
 
     yGrid(root, m, pw, Y);
@@ -4027,7 +4090,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2,
-        shows(view, STANDARD) ? "no weekly window to plot" : "no " + view + " cap to plot",
+        shows(view, STANDARD) ? "no " + WEEKLY_SHORT + " window to plot" : "no " + capShort(view) + " window to plot",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
@@ -4112,7 +4175,7 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       if (capsShown.length) {
         legendRow(leg, "background:var(--ink-2);width:9px;height:9px;border-radius:1px;transform:rotate(45deg);margin:0 1px",
-          capsShown.map(function (f) { return windowShort({ kind: "weekly_scoped", scope: f }); }).join(", "));
+          capsShown.map(capShort).join(", "));
       }
     }
     legendRow(leg, SW_SIGN, SIGN_KEY);
@@ -4190,9 +4253,9 @@ th[aria-sort] button { color: var(--ink-1); }
     p.appendChild(document.createTextNode("Each circle is a seat's " + WEEKLY_SHORT + " window." +
       (!fams.length ? ""
         : termShown(wts.scoped_weight)
-          ? " Each diamond is the seat's " + fams.join(" or ") + " cap, a 7-day window on the same target " +
+          ? " Each diamond is the seat's " + fams.map(capShort).join(" or ") + " window, on the same target " +
             "curve, counted" + weightTag(wts.scoped_weight) + " in its own family's cost and not in Standard's."
-          : " The " + fams.join(" or ") + " cap weighs nothing, so it has no diamond; a refused or full cap " +
+          : " The " + fams.map(capShort).join(" or ") + " window weighs nothing, so it has no diamond; refused or full, it " +
             "still makes a seat ineligible for that family's requests.") +
       " The dotted tick from a mark to the curve is its gap in points, and the label beside the mark gives " +
       "it. Where marks crowd, a label shows when you point at or focus its mark."));
@@ -4227,7 +4290,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var terms = [];
     if (termShown(wts.weekly_weight)) terms.push("the " + WEEKLY_SHORT + " gap" + weightTag(wts.weekly_weight));
     if (fams.length && termShown(wts.scoped_weight)) {
-      terms.push("the " + fams.join(" or ") + " cap gap" + weightTag(wts.scoped_weight) + " for that family's requests");
+      terms.push("the " + fams.map(capShort).join(" or ") + " gap" + weightTag(wts.scoped_weight) + " for that family's requests");
     }
     if (termShown(wts.session_weight)) terms.push("the " + SESSION_SHORT + " gap" + weightTag(wts.session_weight));
     q.appendChild(document.createTextNode(
@@ -4237,11 +4300,12 @@ th[aria-sort] button { color: var(--ink-1); }
         : "No window carries weight, so every cost is 0 and seats rank by seat id.") +
       (termShown(wts.session_weight)
         ? " The " + SESSION_SHORT + " gap is a short-horizon term that separates seats whose weekly gaps tie."
-        : " The " + SESSION_SHORT + " weighs nothing: it resets several times a day, so its headroom is not " +
+        : " The " + SESSION_SHORT + " window weighs nothing: it resets several times a day, so its headroom is not " +
           "budget to pace.") +
       " The eligible seat with the lowest cost takes the next new conversation" +
       (fams.length ? " of its family, so each family has its own ranking: " + fams.join(" and ") +
-        " for models with their own weekly cap, Standard for the rest" : "") +
+        " for models with their own 7d window, Standard for the rest. The Standard windows apply to every " +
+        "request; " + onTopText(fams) : "") +
       "." +
       (num(wts.hysteresis_margin)
         ? " With affinity.override-threshold off, a challenger must undercut a bound seat's cost by " +
@@ -4253,7 +4317,7 @@ th[aria-sort] button { color: var(--ink-1); }
       "request is refused, reads full or gives a reading that is not a number; when no window applies; or when " +
       "its usage has never been read or its reading is too old. These are readings, not forecasts: full means " +
       "100% or more, and a window at 99.9% still takes work." +
-      (fams.length ? " A seat ineligible on its " + fams.join(" or ") + " cap can still take Standard requests." : "")));
+      (fams.length ? " A seat ineligible on its " + fams.map(capShort).join(" or ") + " window can still take Standard requests." : "")));
   }
 
   /* ---------------------------------------------------------- 5-hour chart */
@@ -4442,7 +4506,7 @@ th[aria-sort] button { color: var(--ink-1); }
       /* The tooltip gives the reading against the target or the curve and
          any limit in force; the name reads a fuller record, since it gets no
          second hover. */
-      var headAria = seatLabel(a) + ", 5-hour session, " + hoursIn.toFixed(1) + " of " + SESSION_HOURS + " hours elapsed" +
+      var headAria = seatLabel(a) + ", " + windowName({ kind: "five_hour" }) + ", " + hoursIn.toFixed(1) + " of " + SESSION_HOURS + " hours elapsed" +
         ", " + pct(s.w.utilization) + " used" +
         (counts ? (ws ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") : num(along) ? ", curve " + pct(along) : "") +
         ", resets " + relText(s.resets, now) +
@@ -4513,7 +4577,7 @@ th[aria-sort] button { color: var(--ink-1); }
     clearResetLabels(root, labels);
 
     if (!plotted) {
-      svgText(root, m.l + pw / 2, m.t + ph / 2, "no open 5-hour window",
+      svgText(root, m.l + pw / 2, m.t + ph / 2, "no open " + SESSION_SHORT + " window",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
@@ -4567,7 +4631,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var dl = h("dl", "");
     note.appendChild(dl);
     var p = def(dl, "the marks and the curve");
-    p.appendChild(document.createTextNode("Each mark is a seat's " + SESSION_SHORT + ", with its recorded line " +
+    p.appendChild(document.createTextNode("Each mark is a seat's " + SESSION_SHORT + " window, with its recorded line " +
       "behind it. "));
     if (termShown(wts.session_weight)) {
       p.appendChild(document.createTextNode("The curve is the weekly one, "));
@@ -4579,7 +4643,7 @@ th[aria-sort] button { color: var(--ink-1); }
         "reference line from 0% to 100% across the five hours, with no gaps."));
     }
     var r = def(dl, "a rate limit, not a budget");
-    r.appendChild(document.createTextNode("The " + SESSION_SHORT + " resets several times a day, so unused " +
+    r.appendChild(document.createTextNode("The " + SESSION_SHORT + " window resets several times a day, so unused " +
       "capacity is gone at each reset and there is no budget to pace." +
       (termShown(wts.session_weight)
         ? " Its gap counts" + weightTag(wts.session_weight) + " in every seat's cost and separates seats whose " +
@@ -4837,7 +4901,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
       .concat(fams.map(function (f) { return { id: "scoped:" + f, kind: "weekly_scoped", scope: f, weekly: true }; }))
       .concat([{ id: "five_hour", kind: "five_hour", scope: "", weekly: false }]);
-    views.forEach(function (v) { v.label = (v.kind === "weekly_scoped" ? "7d " : "") + windowShort(v); });
+    views.forEach(function (v) { v.label = windowShort(v); });
     var view = views.filter(function (v) { return v.id === histView; })[0] || views[0];
 
     var bar = $("hist-view");
@@ -5462,10 +5526,10 @@ th[aria-sort] button { color: var(--ink-1); }
       if (!shows(view, fam)) return;
       var scoped = famPace(st, fam).scoped_weight;
       if (!termShown(scoped)) {
-        line(fam + " cost", "= Standard cost (cap weighs nothing)");
+        line(fam + " cost", "= Standard cost (" + capShort(fam) + " weighs nothing)");
         return;
       }
-      var cap = termClause(fam + " cap", scoped);
+      var cap = termClause(capShort(fam), scoped);
       line(fam + " cost", "= " + (std.length ? (stdShown ? "Standard cost" : std.join(" + ")) + " + " : "") + cap);
     });
     /* A view of one cap points to where the weekly terms its plot does not
@@ -5487,9 +5551,11 @@ th[aria-sort] button { color: var(--ink-1); }
     sw.style.backgroundColor = meta.color;
     if (meta.pattern) sw.setAttribute("data-pattern", meta.pattern);
     box.appendChild(sw);
-    var gl = h("span", "gl", meta.glyph);
-    gl.style.color = meta.color;
-    box.appendChild(gl);
+    if (meta.glyph) {
+      var gl = h("span", "gl", meta.glyph);
+      gl.style.color = meta.color;
+      box.appendChild(gl);
+    }
     return box;
   }
 
@@ -6056,17 +6122,26 @@ th[aria-sort] button { color: var(--ink-1); }
   /* A hold in the page's words, with the instant it lifts where one is known
      for a refusal or a window at full; every other reason promises no
      return, so it stands alone. */
-  function holdText(reason, back, now) {
+  function holdText(reason, back, now, word) {
     var when = back && (reason === "provider-rejected" || reason === "spent") ? " · " + resetText(back, now) : "";
-    return reasonText(reason) + when;
+    return (word || reasonText(reason)) + when;
   }
+
+  /* The windows holding a seat off a family, in lane order. */
+  function holdingWindows(a, fam) {
+    return sortedWindows((a.snapshot || {}).windows).filter(function (w) { return appliesTo(w, fam) && holdsBack(w); });
+  }
+
+  /* A holding window as the page names it: the window, then full or refused. */
+  function holdLabel(w) { return windowShort(w) + (w.status === "rejected" ? " refused" : " full"); }
 
   /* The word a seat's cross carries: a credential the host has disabled is
      never polled, so "not read yet" would promise a reading that will not
      come; the host state is the reason. */
-  function holdWord(a, reason, back, now) {
+  function holdWord(a, reason, fam, back, now) {
     if (reason === "no-snapshot" && (a.host_status || "") === "disabled") return "host disabled";
-    return holdText(reason, back, now);
+    var named = reason === "spent" || reason === "provider-rejected";
+    return holdText(reason, back, now, named ? holdingWindows(a, fam).map(holdLabel).join(", ") : "");
   }
 
   /* Whether a window holds its seat back with a reset to name: a refusal of
@@ -6086,8 +6161,7 @@ th[aria-sort] button { color: var(--ink-1); }
      cannot be claimed as a time. */
   function seatReturnsAt(a, fam) {
     var last = null, unknown = false;
-    ((a.snapshot || {}).windows || []).forEach(function (w) {
-      if (!appliesTo(w, fam) || !holdsBack(w)) return;
+    holdingWindows(a, fam).forEach(function (w) {
       var r = parseT(w.resets_at);
       if (!r) { unknown = true; return; }
       if (!last || r > last) last = r;
