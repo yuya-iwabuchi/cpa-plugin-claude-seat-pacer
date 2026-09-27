@@ -426,8 +426,6 @@ func withSessionUtil(s model.AuthSnapshot, util float64, status, severity string
 // rebuildWarnings is the warning list runtime.Status would build for whichever
 // credentials and config the scenario leaves in place. A pool of one stands in
 // for the single-candidate pick the plugin only learns about from the host.
-// Nothing warns about the host's own routing.session-affinity: no signal the
-// plugin receives distinguishes it.
 func (f *fixture) rebuildWarnings() {
 	rows := append([]model.AuthStatus(nil), f.auths...)
 	sort.Slice(rows, func(i, j int) bool { return rows[i].AuthID < rows[j].AuthID })

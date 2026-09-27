@@ -66,14 +66,15 @@ the run. Do not remove that test.
   before the plugin is asked, and lower tiers are never offered, so every seat
   must share one `priority`. The status page warns while the pick sees a single
   candidate.
-- **A plugin pick never seeds the host's affinity cache**: `SessionCache.Touch`
-  refuses to create entries, so a hybrid where the host keeps affinity and the
-  plugin only biases cold starts cannot bootstrap. A plugin that answers
-  `Handled: true` also skips the host's selector, `SessionAffinitySelector`
-  included. This plugin owns affinity; run with
-  `routing.session-affinity: false`. `host.affinity.lookup` (host 7.2.156+)
-  answers `unsupported` while a plugin scheduler is wired, so it tells this
-  plugin nothing.
+- **The plugin owns affinity for what it routes.** The host asks the plugin
+  before its own selector, and a plugin that answers `Handled: true` skips
+  that selector, `SessionAffinitySelector` included, so
+  `routing.session-affinity` governs only the requests the plugin declines
+  and either value works. A plugin pick never seeds the host's affinity cache
+  (`SessionCache.Touch` refuses to create entries), so a hybrid where the host
+  keeps affinity and the plugin only biases cold starts cannot bootstrap.
+  `host.affinity.lookup` (host 7.2.156+) answers `unsupported` while a plugin
+  scheduler is wired, so it tells this plugin nothing.
 - **Only one scheduler plugin is ever consulted**: the first non-fused one by
   plugin priority, then id.
 - **Home mode bypasses the scheduler hook entirely**, while

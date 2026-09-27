@@ -25,11 +25,6 @@ const defaultStatusModel = "claude-opus-5"
 // leak. The page's route is behind the management key, and the web package
 // still names each seat without its account address and drops paths and URLs
 // from the warnings' text, so the page is safe to show on a screen.
-//
-// There is no warning for the host's own routing.session-affinity: the host
-// stamps session_affinity_provider on every pick regardless of that setting
-// (sdk/cliproxy/auth/conductor_selection.go:1474, :1730, :1790, :1902), so
-// nothing the plugin receives distinguishes the two states.
 func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	p.mu.Lock()
 	cfg := p.config()
