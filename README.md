@@ -22,8 +22,7 @@ Uses up each Claude seat's weekly quota before it resets by sending every new co
   there.
 - **Keeps each conversation on its seat.** CLIProxyAPI's own session affinity
   never binds a conversation a plugin routes, so the plugin binds each
-  conversation itself, per model; run the host with
-  `routing.session-affinity: false`. A subagent on the same model shares its
+  conversation itself, per model. A subagent on the same model shares its
   parent's seat unless that seat has refused the model. By default a
   conversation stays put through a rebalance and moves only when it has to;
   [How it picks](#how-it-picks) lists when.
@@ -79,8 +78,8 @@ one most at risk of reaching its reset with quota left.
 
 The defaults suit my pool: each seat's plan reaches full quota about 15 hours
 before its reset. Set `landing-target: 1.0` to plan each seat to finish at its
-reset instead. For an even spread, disable the plugin and turn the host's
-`routing.session-affinity` back on; its round-robin takes over.
+reset instead. For an even spread, disable the plugin; the host's round-robin
+takes over.
 
 ## Install
 
@@ -149,9 +148,6 @@ host: "127.0.0.1"          # optional: keeps the proxy off the network
 remote-management:
   secret-key: "<a long random string>"   # the status page asks for this
 
-routing:
-  session-affinity: false
-
 plugins:
   enabled: true
   dir: "~/.cli-proxy-api/plugins"
@@ -165,8 +161,6 @@ plugins:
   directory when the host runs as a service.
 - The status page reads through the management API, which the host serves only
   once `remote-management.secret-key` is set.
-- Turn the host's session affinity off: the plugin owns affinity, and a
-  plugin's pick never seeds the host's cache.
 - Give every seat the same `priority`. The host offers the plugin only its top
   tier, so a seat alone there takes every new conversation.
 - A seat is named by its credential's `note` (set on the auth-file card in the
@@ -360,10 +354,6 @@ restart the host, and enter that key on the page.
 
 **Every new conversation lands on one seat.** That seat is alone on the top
 `priority` tier. The status page warns and names the seats.
-
-**Conversations do not stick.** The host's `routing.session-affinity` is still
-on; set it to `false`. Nothing the plugin receives distinguishes the two
-states, so the page cannot warn about this one.
 
 **Seats show as ineligible.** Their reading is missing, older than
 `max-staleness`, or has never succeeded. The page names the reason per seat
