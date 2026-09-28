@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- x 12 to 56 spans one week and y 56 to 14 spans 0 to 100% used.
+       The plan reaches 100% at 1/1.10 of the week, the default landing target. -->
+  <rect width="64" height="64" rx="16" fill="#141413"/>
+  <g fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 56L52 14H56" stroke="#ecebe6" stroke-width="2.75"/>
+    <path d="M12 56H14V41H34.5V14.5H41" stroke="#33b1ff"/>
+    <path d="M12 56H22V28.5H26.5" stroke="#a56eff"/>
+  </g>
+  <circle cx="41" cy="14.5" r="3.1" fill="#33b1ff"/>
+  <circle cx="26.5" cy="28.5" r="3.1" fill="#a56eff"/>
+</svg>

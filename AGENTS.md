@@ -155,6 +155,10 @@ and unit-testable without the host.
 - `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
   script from the file's bytes, and the HTML tokenizer rewrites both
   (`TestPageHoldsNoRewrittenByte`).
+- `docs/logo.svg` is the plugin store listing's `logo`, which the registries
+  fetch from `main` by URL, so the file keeps its path. `index.html` carries
+  the same bytes as its favicon, and `TestFaviconIsTheLogo` prints the line to
+  paste there after the logo changes.
 - `go.mod` pins the Go toolchain with a `toolchain` directive, and govulncheck
   (`vuln.yml`) judges that toolchain's standard library: a standard-library
   finding is fixed by raising the pin, a dependency finding by raising that

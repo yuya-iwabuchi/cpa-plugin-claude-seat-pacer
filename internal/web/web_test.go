@@ -212,6 +212,7 @@ func TestHeaders(t *testing.T) {
 			"default-src 'none'",
 			"style-src 'unsafe-inline'",
 			"connect-src 'self'",
+			"img-src data:",
 			"base-uri 'none'",
 			"form-action 'none'",
 			"frame-ancestors 'self'",
@@ -227,9 +228,6 @@ func TestHeaders(t *testing.T) {
 		}
 		if strings.Contains(csp, "script-src 'unsafe-inline'") {
 			t.Errorf("%s: script-src falls back to unsafe-inline: %q", target, csp)
-		}
-		if strings.Contains(csp, "img-src") {
-			t.Errorf("%s: CSP grants img-src, which the document has no use for: %q", target, csp)
 		}
 		for _, banned := range []string{"http:", "https:", "*"} {
 			if strings.Contains(csp, banned) {
@@ -449,6 +447,20 @@ func TestScriptHashCoversTheServedPage(t *testing.T) {
 // script no browser runs: the HTML tokenizer rewrites NUL to U+FFFD and CR to
 // LF inside script data, so a document carrying either hashes to one value here
 // and to another in the browser, which then blocks the page whole.
+// TestFaviconIsTheLogo holds the page's inline favicon to docs/logo.svg, the
+// file the README and the plugin store show.
+func TestFaviconIsTheLogo(t *testing.T) {
+	t.Parallel()
+	logo, err := os.ReadFile(filepath.Join("..", "..", "docs", "logo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `<link rel="icon" href="data:image/svg+xml;base64,` + base64.StdEncoding.EncodeToString(logo) + `">`
+	if !bytes.Contains(indexHTML, []byte(want)) {
+		t.Errorf("index.html does not carry docs/logo.svg as its favicon; want the line\n%s", want)
+	}
+}
+
 func TestPageHoldsNoRewrittenByte(t *testing.T) {
 	t.Parallel()
 	page := get(t, testHandler(&stubSource{}), "/index.html").Body.Bytes()
