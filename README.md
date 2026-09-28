@@ -1,4 +1,4 @@
-# Claude Seat Pacer
+# <img src="docs/logo.svg" width="28" height="28" alt=""> Claude Seat Pacer
 
 Uses up each Claude seat's weekly quota before it resets by sending every new conversation to the seat furthest behind its plan, and keeps each conversation on its seat so its prompt cache keeps working.
 

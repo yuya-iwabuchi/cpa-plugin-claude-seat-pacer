@@ -56,7 +56,8 @@ const maxStatusBindings = 500
 
 // contentSecurityPolicy confines script execution to the one inline block of
 // this document, named by hash. No directive names a remote origin, and
-// connect-src 'self' is what lets the page reach its own api/status. Inline
+// connect-src 'self' is what lets the page reach its own api/status, and
+// img-src data: admits the favicon the document carries inline. Inline
 // style attributes in the markup keep style-src on 'unsafe-inline', which a
 // hash cannot cover. The Management Center reaches this page by embedding it
 // in an iframe of the same origin, so frame-ancestors admits 'self' and no
@@ -65,6 +66,7 @@ var contentSecurityPolicy = "default-src 'none'; " +
 	"script-src " + inlineScriptSource(indexHTML) + "; " +
 	"style-src 'unsafe-inline'; " +
 	"connect-src 'self'; " +
+	"img-src data:; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +
 	"frame-ancestors 'self'"
