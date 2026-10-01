@@ -1073,11 +1073,11 @@ th[aria-sort] button { color: var(--ink-1); }
     </div>
 
     <!-- Every seat hidden is not an empty pool, and the card above would say
-         it was. The seats are still routed to; only this browser is drawing
-         none of them. -->
+         it was. The reader's hidden seats are still routed to; only this page
+         is drawing none of them. -->
     <div id="hidden-state" class="card empty" hidden style="margin-top:24px">
-      <p><strong>Every seat is hidden in this browser.</strong>
-      Routing is unchanged.</p>
+      <p><strong>Every seat is hidden on this page.</strong>
+      <span id="hidden-state-off"></span>Routing is unchanged.</p>
       <button type="button" id="show-all-seats">Show all</button>
     </div>
 
@@ -1263,11 +1263,12 @@ th[aria-sort] button { color: var(--ink-1); }
     ? HOST_MOUNT[1] + "/v0/management/plugins/" + HOST_MOUNT[2] + "/page-status"
     : "api/status";
   var KEY_STORE = "claude-seat-pacer.management-key";
-  var KEY_PROMPT = "Enter the CLIProxyAPI management key (remote-management.secret-key). " +
+  var KEY_PROMPT = "Enter the CLIProxyAPI management key (management.secret-key, or " +
+    "remote-management.secret-key before host 8.0). " +
     "It is kept in this browser tab only.";
   var KEY_BAN_NOTE = " Five failed tries lock this address out for 30 minutes.";
-  var KEY_NO_API = "The host's management API is off (HTTP 404). Set remote-management.secret-key, " +
-    "restart the host, and enter that key here.";
+  var KEY_NO_API = "The host's management API is off (HTTP 404). Set management.secret-key " +
+    "(remote-management.secret-key before host 8.0), restart the host, and enter that key here.";
 
   var state = {
     paused: false,
@@ -1862,14 +1863,38 @@ th[aria-sort] button { color: var(--ink-1); }
     });
   }
 
-  /* Seats this browser is not drawing, by published id. The plugin keeps
-     routing to a hidden seat and the status payload keeps carrying it: this
-     is a view filter and nothing else, so the ranking, the counts and the
-     picks every surface below shows are of the seats on screen and can differ
-     from the pick the plugin actually makes. That is the price of the filter
-     and the page does not disguise it. */
+  /* Seats the reader has hidden in this browser, by published id. The
+     plugin keeps routing to a hidden seat and the status payload keeps
+     carrying it: this is a view filter and nothing else, so the ranking, the
+     counts and the picks every surface below shows are of the seats on screen
+     and can differ from the pick the plugin actually makes. That is the price
+     of the filter and the page does not disguise it. */
   var hiddenSeats = Object.create(null);
   var HIDDEN_KEY = "pacer-hidden";
+
+  /* A seat the host has disabled is hidden as well: the host never offers it
+     and the plugin never reads it, so its row would hold nothing to act on.
+     Showing every seat draws disabled seats until the page reloads, those the
+     host disables afterwards included, and is never saved the way a seat the
+     reader hid is. A disabled seat returns on its own once the host enables
+     it again. */
+  var revealDisabled = false;
+
+  function hostDisabled(a) { return (a.host_status || "") === "disabled"; }
+
+  function seatHidden(a) {
+    return !!hiddenSeats[a.auth_id] || (!revealDisabled && hostDisabled(a));
+  }
+
+  /* The hidden seats' ids, for the payloads that name a seat by id alone. A
+     seat the reader hid stays in it after the host stops listing the seat,
+     because log entries and bindings naming it outlive its row. */
+  function hiddenIDs(st) {
+    var ids = Object.create(null);
+    Object.keys(hiddenSeats).forEach(function (id) { ids[id] = true; });
+    (st.auths || []).forEach(function (a) { if (seatHidden(a)) ids[a.auth_id] = true; });
+    return ids;
+  }
 
   function loadHidden() {
     var raw;
@@ -1921,12 +1946,12 @@ th[aria-sort] button { color: var(--ink-1); }
   function shows(view, fam) { return view === PACE_ALL || view === fam; }
 
   /* Seats in name order, numbers within a name read as numbers, then by id
-     where two names match, minus the ones this browser hides: the order every
+     where two names match, minus the hidden ones: the order every
      per-seat view keeps, so a change of ranking moves badges, not rows. Every
      seat list on the page comes through here, which is what makes one filter
      reach all of them. */
   function stableAuths(auths) {
-    return (auths || []).filter(function (a) { return !hiddenSeats[a.auth_id]; })
+    return (auths || []).filter(function (a) { return !seatHidden(a); })
       .sort(function (x, y) {
         return seatLabel(x).localeCompare(seatLabel(y), undefined, { numeric: true, sensitivity: "base" }) ||
           String(x.auth_id).localeCompare(String(y.auth_id));
@@ -1937,13 +1962,15 @@ th[aria-sort] button { color: var(--ink-1); }
      hidden seat as its pick or as the seat it moved off would put the name
      back on the page, so both go with it. */
   function visibleDecisions(st) {
+    var hidden = hiddenIDs(st);
     return (st.decisions || []).filter(function (d) {
-      return !hiddenSeats[d.chosen_auth_id] && !hiddenSeats[d.previous_auth_id];
+      return !hidden[d.chosen_auth_id] && !hidden[d.previous_auth_id];
     });
   }
 
   function visibleBindings(st) {
-    return (st.bindings || []).filter(function (b) { return !hiddenSeats[b.auth_id]; });
+    var hidden = hiddenIDs(st);
+    return (st.bindings || []).filter(function (b) { return !hidden[b.auth_id]; });
   }
 
   function firstEligible(ranked, fam) {
@@ -2498,17 +2525,21 @@ th[aria-sort] button { color: var(--ink-1); }
     return g;
   }
 
-  /* The seats this browser holds back, counted, and the one control that
-     draws them all again; nothing when none is hidden. The names are the
-     tooltip, so the line stays one figure wide. */
+  /* The seats this page holds back, counted with the host-disabled ones
+     among them, and the one control that draws them all again; nothing when
+     none is hidden. The names are the tooltip, so the line stays short. */
   function showHiddenControl(parent, y, st) {
-    var gone = (st.auths || []).filter(function (a) { return hiddenSeats[a.auth_id]; });
+    var gone = (st.auths || []).filter(seatHidden);
     if (!gone.length) return null;
+    var off = gone.filter(hostDisabled).length;
     var g = svg("g", { "class": "show-hidden", tabindex: 0, role: "button" }, parent);
     g.setAttribute("data-fk", "show-hidden");
-    g.setAttribute("aria-label", "show the " + gone.length + " hidden " + (gone.length === 1 ? "seat" : "seats"));
-    g.setAttribute("data-tip", "hidden: " + gone.map(seatLabel).join(", "));
-    var t = svgText(g, 34, y, gone.length + " hidden \u00b7 ", "t-mono", { "font-size": 10.5 });
+    var offText = off ? " (" + off + " host disabled)" : "";
+    g.setAttribute("aria-label", "show the " + gone.length + " hidden " + (gone.length === 1 ? "seat" : "seats") + offText);
+    g.setAttribute("data-tip", "hidden: " + gone.map(function (a) {
+      return seatLabel(a) + (hostDisabled(a) ? " (host disabled)" : "");
+    }).join(", "));
+    var t = svgText(g, 34, y, gone.length + " hidden" + offText + " \u00b7 ", "t-mono", { "font-size": 10.5 });
     var act = svg("tspan", { "class": "show-act" }, t);
     act.textContent = "show";
     var w = t.getComputedTextLength();
@@ -2538,6 +2569,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function showAllSeats() {
     hiddenSeats = Object.create(null);
+    revealDisabled = true;
     saveHidden();
     render();
   }
@@ -6408,6 +6440,10 @@ th[aria-sort] button { color: var(--ink-1); }
     var pooled = !!(st.auths || []).length;
     $("empty-state").hidden = !(empty && !pooled);
     $("hidden-state").hidden = !(empty && pooled);
+    var off = (st.auths || []).filter(hostDisabled).length;
+    $("hidden-state-off").textContent = !off ? "" :
+      off === st.auths.length ? "The host has disabled every one of them. " :
+      off + " of them " + (off === 1 ? "is" : "are") + " disabled in the host. ";
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
     $("sec-session").hidden = empty;

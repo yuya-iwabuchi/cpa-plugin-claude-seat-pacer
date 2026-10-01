@@ -26,9 +26,10 @@ const resourceIndexPath = "/index.html"
 const appStatusPath = "/api/status"
 
 // Management routes, authenticated by the host with the management key and,
-// unless remote-management.allow-remote is set, answered for loopback clients
-// only. Setting Menu on a GET management route would reclassify it as an
-// unauthenticated resource (management.go:153), so none of these carry one.
+// unless management.allow-remote (remote-management.allow-remote before host
+// 8.0) is set, answered for loopback clients only. Setting Menu on a GET
+// management route would reclassify it as an unauthenticated resource
+// (management.go:153), so none of these carry one.
 //
 // routePageStatus is the status page's own data: the routeStatus payload as the
 // status app shapes it, with non-finite readings made null, the binding list

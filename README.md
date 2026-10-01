@@ -84,7 +84,7 @@ takes over.
 ## Install
 
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
-7.3.10 and 7.3.15.
+7.3.10, 7.3.15 and 8.0.4.
 
 ### From the Plugin Store
 
@@ -143,9 +143,10 @@ uninstalling: an unloaded Go library can leave a thread running in the host.
 ## Configure
 
 ```yaml
-host: "127.0.0.1"          # optional: keeps the proxy off the network
+server:
+  host: "127.0.0.1"        # optional: keeps the proxy off the network
 
-remote-management:
+management:
   secret-key: "<a long random string>"   # the status page asks for this
 
 plugins:
@@ -156,11 +157,15 @@ plugins:
       enabled: true
 ```
 
+- This is the layout CLIProxyAPI 8.0 introduced. Before 8.0, `server.host` is
+  a top-level `host` and `management` is `remote-management`, and 8.0 still
+  reads that layout.
 - CLIProxyAPI ships with plugins off. `dir` expands a leading `~/`; a relative
   path resolves against the host's working directory, which isn't your home
   directory when the host runs as a service.
 - The status page reads through the management API, which the host serves only
-  once `remote-management.secret-key` is set.
+  once `management.secret-key` is set (`remote-management.secret-key` before
+  8.0).
 - Give every seat the same `priority`. The host offers the plugin only its top
   tier, so a seat alone there takes every new conversation.
 - A seat is named by its credential's `note` (set on the auth-file card in the
@@ -287,6 +292,12 @@ new conversation. A seat held off ranks below them.
 - **Routing log.** The recent decisions, newest first. Each new pick and each
   move opens to show every seat's cost at that moment.
 
+A seat you hide with the eye beside its name leaves every view, the bindings
+and the routing log included, and stays hidden in that browser. A seat the host
+has disabled is hidden the same way and returns once the host enables it.
+`N hidden · show` under the seats draws every seat again, the disabled ones
+until the page reloads. Hiding changes only the page; routing is unchanged.
+
 A warning banner names anything that leaves the plugin inert or degraded, such
 as a seat alone on the top priority tier, a seat not read yet, or a failing
 usage poll.
@@ -300,7 +311,8 @@ seats for models without a window of their own.
 The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
 data. It asks once per browser tab for the management key and reads from the
 plugin's management routes, which the host answers only with that key and,
-unless `remote-management.allow-remote` is on, only from the same machine.
+unless `management.allow-remote` (`remote-management.allow-remote` before 8.0)
+is on, only from the same machine.
 
 The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
 (the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
@@ -349,8 +361,9 @@ being locked out for 30 minutes after five failed tries, a lock the Management
 Center shares.
 
 **The page says the management API is off (HTTP 404).** The host serves the
-management API only once `remote-management.secret-key` is set. Set it,
-restart the host, and enter that key on the page.
+management API only once `management.secret-key` is set
+(`remote-management.secret-key` before 8.0). Set it, restart the host, and
+enter that key on the page.
 
 **Every new conversation lands on one seat.** That seat is alone on the top
 `priority` tier. The status page warns and names the seats.

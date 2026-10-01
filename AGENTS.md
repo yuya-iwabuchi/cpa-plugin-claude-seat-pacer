@@ -1,8 +1,9 @@
 # Agent brief
 
 Host line references are to CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit
-`2a6b87ac`). The host-driven tests pass against v7.3.10 and v7.3.15. The
-deployment target is 7.2.145+, a lower bound nothing in this repository tests.
+`2a6b87ac`). The host-driven tests pass against v7.3.10, v7.3.15 and v8.0.4.
+The deployment target is 7.2.145+, a lower bound nothing in this repository
+tests.
 
 ## What this plugin is
 
@@ -86,14 +87,14 @@ the run. Do not remove that test.
 - **Resource routes are served to anyone who can reach the host's port**, with
   no key and no loopback check, so the resource route carries the static page
   and nothing else. The page's data is the `page-status` management route,
-  which needs the key and, unless `remote-management.allow-remote` is set, a
-  loopback client. For a plugin declaring a schema below 6 the host
-  HTML-escapes every string in a management JSON body, and the page restores
-  the text once; raising it to 6 or above ends the escaping, and the page's
-  decode goes with it. The host bans a client address, loopback included, for
-  30 minutes after five failed key checks, a request with no key among them,
-  so the page never sends a request without a key and stops at the first
-  refusal.
+  which needs the key and, unless `management.allow-remote`
+  (`remote-management.allow-remote` before host 8.0) is set, a loopback
+  client. For a plugin declaring a schema below 6 the host HTML-escapes every
+  string in a management JSON body, and the page restores the text once;
+  raising it to 6 or above ends the escaping, and the page's decode goes with
+  it. The host bans a client address, loopback included, for 30 minutes after
+  five failed key checks, a request with no key among them, so the page never
+  sends a request without a key and stops at the first refusal.
 
 ## Wire format
 
