@@ -1,6 +1,6 @@
 # <img src="docs/logo.svg" width="28" height="28" alt=""> Claude Seat Pacer
 
-Uses up each Claude seat's weekly quota before it resets by sending every new conversation to the seat furthest behind its plan, and keeps each conversation on its seat so its prompt cache keeps working.
+A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for pooling several Claude subscriptions. It spends each seat's weekly quota before the reset instead of letting it lapse, and keeps each conversation on one seat so its prompt cache keeps hitting.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
@@ -8,401 +8,98 @@ Uses up each Claude seat's weekly quota before it resets by sending every new co
   <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats with their rank and cost, the one taking the next conversation highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
 </picture>
 
-## Features
-
-- **Paces every seat against its own week.** Each weekly window gets a plan
-  that rises from nothing at the window's start to the full quota a little
-  before its reset. A new conversation goes to the seat furthest behind its
-  plan, so a seat still holding quota near its reset goes first, and one that
-  just reset waits until the others are closer to their plans.
-- **Hands new work on as each seat catches up.** The rate-limit headers on
-  every completed response update that seat's reading between usage polls.
-  The seat taking new conversations closes its gap as it works, and once
-  another seat is further behind its own plan, new conversations start going
-  there.
-- **Keeps each conversation on its seat.** CLIProxyAPI's own session affinity
-  never binds a conversation a plugin routes, so the plugin binds each
-  conversation itself, per model. A subagent on the same model shares its
-  parent's seat unless that seat has refused the model. By default a
-  conversation stays put through a rebalance and moves only when it has to;
-  [How it picks](#how-it-picks) lists when.
-- **Reads every window Anthropic reports.** The usage endpoint gives the
-  5-hour window, the weekly all-models window and each model family's weekly
-  window, read every two minutes by default and again a few seconds after
-  each reset. The headers of every response add fresher readings of the
-  5-hour, weekly and Fable weekly windows, and any refusal. A seat refused or
-  full on a window takes no new conversation for the models that window caps
-  while another seat has room, until a later reading shows room on it; a new
-  subagent still joins its parent on a full seat, though not on a refused
-  one. Conversations already on it stay by default; [How it
-  picks](#how-it-picks) lists when they move.
-- **Sends no probe requests.** Its only outbound request is the usage read,
-  made through the host's HTTP client. Everything else comes from the
-  responses your own requests already get.
-- **Shows its work.** A [status page](#status-page) in the Management Center
-  charts every seat against its plan, the ranking, each window's history per
-  seat and pooled, with its refusals, the live bindings and the routing log.
-  Email addresses show only their first letter and domain.
-- **Declines rather than breaks.** The pick reads memory only, every entry
-  point recovers from a panic, and the pick never answers with an error that
-  would fail a request. When the plugin declines, the host's own selector
-  routes the request.
-
 ## Why
 
 A Claude subscription has a 5-hour limit and a weekly limit, and weekly quota
-left at the reset is gone. More seats raise that ceiling linearly, and
-[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) makes pooling them
-easy, but its fill-first and round-robin strategies don't track how far each
-seat is into its week.
+left at the reset is gone. More seats raise the ceiling, and CLIProxyAPI, a
+proxy that puts several subscription logins behind one API endpoint, makes
+pooling them easy. Its fill-first and round-robin strategies don't track how
+far each seat is into its week, though, so a seat can reach its reset with
+quota to spare while work goes to seats whose weeks have days left.
 
-I run several Claude Code sessions at once across a few seats, and I wanted
-three things from the pick:
+Moving a conversation has a price too. Anthropic's prompt cache never crosses
+organizations, and a long conversation's input is nearly all cache reads, so a
+conversation moved to another seat pays full price for everything it has
+already sent.
 
-- Spend every seat's week before it resets. A seat still holding quota near
-  its reset should go first, and the one that just reset should wait.
-- Judge a seat by how much it has left against how long it has left. A seat
-  resetting in 24 hours with 5% left is on track; one resetting in three days
-  with 70% left is not, and it should take the next conversation.
-- Never move a live conversation without a reason. Anthropic's prompt cache
-  never crosses organizations, and a long conversation's input is nearly all
-  cache reads, so a moved conversation pays full price for everything it has
-  already sent.
+I run several Claude Code sessions at once across a few seats, and wanted a
+pick that spends every seat's week and never moves a conversation without a
+reason. This plugin is that pick.
 
-Sending everything to the seat that resets soonest looks only at the clock: it
-keeps feeding a nearly spent seat while one with most of its week unused
-waits. A fixed usage cutoff looks only at the meter, and wastes whatever sits
-above the cutoff. A plan per weekly window weighs both. It says how much a
-seat should have used by now, and the seat furthest behind its plan is the
-one most at risk of reaching its reset with quota left.
+## How it works
 
-The defaults suit my pool: each seat's plan reaches full quota about 15 hours
-before its reset. Set `landing-target: 1.0` to plan each seat to finish at its
-reset instead. For an even spread, disable the plugin; the host's round-robin
-takes over.
+- **Every seat gets a plan for its week.** The plan rises from nothing at the
+  window's start to the full quota a little before its reset. A seat resetting
+  in a day with 5% left is on track; one resetting in three days with 70% left
+  is behind.
+- **The seat furthest behind takes the next conversation.** A seat still
+  holding quota near its reset goes first, and one that just reset waits until
+  the others are closer to their plans.
+- **Conversations stay on their seat.** Each conversation, and its subagents
+  on the same model, keeps its seat. It moves only if that seat refuses it,
+  fails a request or drops out of the host's rotation, or after an hour idle.
+- **It sends no probe requests.** Each seat's reading comes from Anthropic's
+  usage endpoint, read every two minutes, and from the rate-limit headers on
+  every response your own requests get. The usage read is its only request of
+  its own.
+- **It declines rather than breaks.** The pick reads memory only and never
+  fails a request. When it can't help, the host's own selector routes the
+  request.
+
+## See the pool
+
+The plugin adds a status page to the Management Center showing the next pick,
+every seat against its plan, the live bindings and the routing log. Over time
+piles every seat's use into the pool's total and totals each day, so you can
+see whether the pool has enough seats.
+
+<img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has left and what each reset brings back.">
 
 ## Install
 
-The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
-7.3.10, 7.3.15 and 8.0.4.
+You need CLIProxyAPI 7.2.145 or newer; the plugin is tested against 7.3.10,
+7.3.15 and 8.0.4.
 
-### From the Plugin Store
+1. Turn plugins on and set a management key, which the status page asks for:
 
-Claude Seat Pacer is in CLIProxyAPI's official plugin store, so there is no
-source to add.
+   ```yaml
+   management:
+     secret-key: "<a long random string>"
+   plugins:
+     enabled: true
+     dir: "~/.cli-proxy-api/plugins"
+   ```
 
-1. Turn plugins on (`plugins.enabled: true`, shown under Configure below).
-2. Install Claude Seat Pacer from the Plugin Store in the Management Center. It
-   checks the download against the release's checksums and loads it without a
-   restart.
-3. Click Update when a new release shows as one, within about an hour of its
-   publication.
+   Before CLIProxyAPI 8.0, `management` is `remote-management`.
+2. Install Claude Seat Pacer from the Plugin Store in the Management Center.
+   It loads without a restart.
+3. Keep the seats you want paced together on one `priority`. They share one
+   by default.
 
-If you installed it from the author's
-[registry](https://github.com/yuya-iwabuchi/cpa-plugin-registry) before it
-joined the official store, it keeps updating from there as long as that
-registry stays in your plugin sources. Moving to the official store means
-deleting the plugin in the Management Center, which drops its saved settings
-and needs a host restart while the plugin is loaded, then installing it again.
+Every setting has a default. [Configuration](docs/configuration.md) lists them,
+and [Install](docs/install.md) covers manual installs, building from source,
+updating and uninstalling.
 
-The store records the installed version under `store:` in the plugin's config
-block. The host then loads only that version and deletes the plugin's other
-library files at its next start, so remove that key before installing by
-hand.
+## Privacy
 
-### Other ways to install
+The plugin sends each seat's token only to Anthropic's usage endpoint, or to a
+loopback host you set as `usage-url`, through the host's own HTTP client, and
+never logs a token or a request body. The status page masks email addresses,
+so it is safe to put on a screen. [Privacy and data](docs/privacy.md) covers
+what it stores.
 
-Download your platform's zip from the
-[latest release](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/releases/latest)
-and put the library in `~/.cli-proxy-api/plugins/<goos>/<goarch>/`, keeping its
-file name. The libraries load on macOS 12, Windows 10, or Linux with glibc
-2.34, or newer: on Apple silicon Macs, Windows and Linux from v0.1.1, and on
-Intel Macs from v0.2.1. [SECURITY.md](SECURITY.md) shows how to verify the
-zip.
+## Documentation
 
-Or build from source, with Go 1.25 and a C toolchain. On an Intel Mac the
-build first compiles a patched Go toolchain from source, which takes a few
-minutes:
-
-```sh
-git clone https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer
-cd cpa-plugin-claude-seat-pacer
-make install   # PLUGIN_DIR overrides ~/.cli-proxy-api/plugins
-```
-
-The host loads a library the next time it applies a config change, but only
-from a file path it hasn't loaded before. After replacing a loaded file,
-restart the host (`brew services restart cliproxyapi` on Homebrew).
-
-### Updating and uninstalling
-
-A new version starts with no conversation bindings, costing each open
-conversation one prompt-cache miss. On macOS, restart the host after
-uninstalling: an unloaded Go library can leave a thread running in the host.
-
-## Configure
-
-```yaml
-server:
-  host: "127.0.0.1"        # optional: keeps the proxy off the network
-
-management:
-  secret-key: "<a long random string>"   # the status page asks for this
-
-plugins:
-  enabled: true
-  dir: "~/.cli-proxy-api/plugins"
-  configs:
-    claude-seat-pacer:
-      enabled: true
-```
-
-- This is the layout CLIProxyAPI 8.0 introduced. Before 8.0, `server.host` is
-  a top-level `host` and `management` is `remote-management`, and 8.0 still
-  reads that layout.
-- CLIProxyAPI ships with plugins off. `dir` expands a leading `~/`; a relative
-  path resolves against the host's working directory, which isn't your home
-  directory when the host runs as a service.
-- The status page reads through the management API, which the host serves only
-  once `management.secret-key` is set (`remote-management.secret-key` before
-  8.0).
-- The host offers each request only to the highest-priority credentials it
-  can currently use, and the plugin paces conversations across the seats in
-  that tier. Give the seats you want paced together the same `priority`; a
-  seat on a lower priority takes requests only while no seat above it can
-  take them.
-- A seat is named by its credential's `note` (set on the auth-file card in the
-  Management Center, or as a `note` key in the file), or else by its account
-  email, masked to `y…@example.com`.
-
-### All settings
-
-Every key is optional; `landing-target`, `affinity.ttl`, `override-threshold`
-and `poll-interval` are the ones worth tuning. The host applies changes live.
-Changing `affinity.ttl` or `max-sessions` clears the bindings, costing each
-open conversation one prompt-cache miss.
-
-```yaml
-      providers: [claude]       # provider keys the plugin routes; others fall to the host
-      models: []                # model ids the plugin routes; empty means all
-      affinity:
-        enabled: true
-        ttl: 1h                 # idle time before a conversation's binding expires
-        subagents: true         # a subagent on the same model shares its parent conversation's seat
-        override-threshold: true # keep a binding even when another seat is further behind its plan
-        max-sessions: 65536     # bindings held before the least recently seen is dropped
-      pace:
-        shape: linear           # linear, power or sigmoid
-        curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
-        steepness: 8.0          # sigmoid shape only
-        landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
-        weekly-weight: 1.0      # weight of the all-models weekly window
-        scoped-weight: 0.5      # weight of a model-family weekly window
-        session-weight: 0       # weight of the 5-hour window; it is a rate limit, not a budget
-        hysteresis-margin: 0.05 # cost gap a challenger must beat to move a binding when override-threshold is off
-      quota:
-        poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
-        request-timeout: 10s    # one usage read; at most 1m
-        max-staleness: 15m      # a reading older than this makes the seat ineligible; at least twice poll-interval
-        persist-history: true   # keep utilization history across host restarts
-        usage-url: https://api.anthropic.com/api/oauth/usage
-      web:
-        enabled: true           # serve the status page
-        history-limit: 500      # routing decisions kept for the page; 1 to 10000
-```
-
-Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
-`request-timeout` above 1m or a `history-limit` above 10000 runs at that bound,
-and the status page says so, as it does when a `max-staleness` you set is under
-twice `poll-interval` and runs at twice it. A negative weight or
-`hysteresis-margin` counts as 0, and any other out-of-range value falls back to
-its default. `usage-url` receives every seat's token, so it must be `https` to
-`api.anthropic.com`, or `http` to a loopback host; anything else runs at the
-default, with a status-page warning. A block that doesn't parse loads the
-plugin disabled.
-
-The Management Center saves each field as a top-level dotted key, such as
-`affinity.ttl: 2h`, which wins over the nested form. When the two disagree the
-status page names the dotted key; remove one.
-
-## How it picks
-
-Each weekly window's plan rises from nothing at the window's start. At the
-default `landing-target: 1.10` on the linear shape it reaches the full quota
-about nine-tenths of the way through the week. Any quota a seat still holds
-near its reset puts it behind its plan, at 1.10 or at 1.0. How far behind a
-seat is counts the all-models weekly window in full and a model-family window
-at half. The 5-hour window can make a seat ineligible but carries no weight by
-default: it resets several times a day and nothing in it carries over.
-
-A seat is ineligible when:
-
-- Anthropic has refused a request on a window covering the requested model's
-  family,
-- such a window reads full, or not as a number,
-- no window covers the requested model's family,
-- its usage read has never succeeded, or
-- its reading is older than `max-staleness`.
-
-Once bound, a conversation:
-
-- stays on its seat while the host still offers it, and with the default
-  `override-threshold` even when another seat is further behind or its own
-  runs out, because the cache hit is worth more than the rebalance;
-- moves when a request on its seat fails, a refusal included, and the host
-  retries it on another seat, since the retry no longer offers the failed one;
-- otherwise moves after a refusal for its model only when another seat can
-  take that model;
-- loses its binding once idle past `affinity.ttl`: the binding stops counting
-  as live at once and is cleared after the next background poll.
-
-Bindings are per model, so a conversation that switches model is placed
-separately for the new one. They live in memory, so a host restart, a new
-plugin version, or a change to `affinity.ttl` or `max-sessions` starts with
-none.
-
-When no seat is eligible, a conversation still gets one stable seat: first one
-Anthropic has neither refused nor reported full, then the one with the fewest
-live conversations. A request with no session id and no eligible seat goes to
-the host's own selector. A request the host pins to one seat leaves its
-conversation's binding alone.
-
-## Status page
-
-The Management Center gains a "Claude Seat Pacer" entry: a live dashboard of
-what the plugin decides and the numbers behind it. The page calls a seat's
-plan its target, and ranks the eligible seats by cost: the weighted gap to
-target, negative while a seat is behind, so the lowest cost takes the next
-new conversation. A seat held off ranks below them.
-
-- **Next pick.** The bar across the top names the eligible seat the next new
-  conversation lands on, for Standard requests and for each model family with
-  a weekly window of its own, or that no seat is eligible, with the reason
-  when the seats on the tier taking requests, or every seat while no tier
-  can, share one. It shows how many seats are eligible on each family's tier
-  taking requests and the age of the newest reading, and its Sync now button
-  reads every seat at once.
-- **Seats.** Each seat's windows as bars, the weekly ones against their plan,
-  with the gap to target and the time to reset, beside a two-week time axis
-  showing each window's current cycle. A window holding its seat off, full or
-  refused, is taped red and black, and that seat's other windows turn grey.
-  When seats differ in `priority`, the page groups them by tier, marks the
-  tier taking requests as serving, and ranks only its seats. A tier below it
-  is marked fallback, and a tier whose seats are all refused, full,
-  unavailable or disabled is skipped.
-- **Weekly window.** Every seat's use plotted against the target curve over
-  its own week, and the seats ranked by cost, each with where it is headed at
-  its last 24 hours' rate.
-- **5-hour window.** Where each seat stands against the limit that can make
-  it ineligible.
-- **Over time.** One window across the recorded cycles, counting every seat in
-  the pool whatever its priority tier. Lines draws each seat's use, with each
-  refusal and what ended it, and its side list totals the pool's use in seats'
-  worth a week. Stacked piles the seats' use into the pool's total against
-  what the pool holds, one full window per seat able to spend it, shades each
-  seat's refused stretches grey, and runs past now to show what comes back at
-  each reset if no more is used. Both mark the stretches in which every seat
-  was refused at once. On a weekly window, brackets over the plot give the
-  pool's use per local day, or per week from Monday once days are too narrow
-  to label, and each bracket's tooltip sets that against what the pool renews
-  and splits it by seat. If every seat is on the same plan, these figures show
-  whether the pool has enough seats, though use understates demand while every
-  seat is refused.
-
-  <img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has left and what each reset brings back.">
-
-  <img src="docs/over-time-lines.png" width="900" alt="The same chart in its Lines form: each seat's use of 7d Standard against its target over two weeks, with day brackets above and a side list giving the pool's total use, what it renewed and its seats' worth a week, then each seat's total.">
-
-- **Bindings.** The conversations held on each seat.
-- **Routing log.** The recent decisions, newest first. Each new pick and each
-  move opens to show every seat's cost at that moment.
-
-A seat you hide with the eye beside its name leaves every view, the bindings
-and the routing log included, and stays hidden in that browser. A seat the host
-has disabled is hidden the same way and returns once the host enables it.
-`N hidden · show` under the seats draws every seat again. It shows the
-disabled ones only until the page reloads, and never in Over time. Hiding
-changes only the page; routing is unchanged.
-
-A warning banner names anything that leaves the plugin inert or degraded, such
-as a seat alone on the top priority tier, a seat not read yet, or a failing
-usage poll.
-
-The page names a window by its length and the requests it gates. `5h Standard`
-and `7d Standard` are the 5-hour and all-models weekly windows, which apply to
-every request; `7d Fable` is a model family's weekly window, which applies to
-that family's requests on top. Each family is ranked apart: `Standard` ranks
-seats for models without a window of their own.
-
-The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
-data. It asks once per browser tab for the management key and reads from the
-plugin's management routes, which the host answers only with that key and,
-unless `management.allow-remote` (`remote-management.allow-remote` before 8.0)
-is on, only from the same machine.
-
-The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
-(the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
-while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
-`POST bindings/sweep`.
-
-## Privacy and data
-
-The plugin calls one external endpoint, `usage-url`, through the host's HTTP
-client with each seat's OAuth token, which the host already holds.
-
-The status page leaves out account addresses, file paths and network addresses,
-so it is safe to put on a screen. An email is masked to its first letter and
-its domain, and a `note` appears as written. Credential ids and conversation
-keys are keyed by a secret in `page-id.key` beside `history.json`; deleting
-that file changes every published id. The `status` route serves everything
-unreduced.
-
-`~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
-utilization samples across restarts: credential ids (file names or account
-emails), timestamped fractions, and when the provider refused each window and
-what ended each refusal. An unreadable file is set aside as
-`history.json.corrupt-<unix-ts>` and a fresh one starts. No token, refresh
-token or request body is ever logged, and an error that would carry a token is
-scrubbed first.
-
-## Troubleshooting
-
-**The host does not list the plugin.** Plugins are off by default: set
-`plugins.enabled: true` and point `plugins.dir` at the directory above
-`<goos>/<goarch>/`. The plugin id comes from the library filename minus
-its extension and `-v<version>`, and the config block, routes and history
-directory all carry it, so keep the library's file name.
-
-**An Intel Mac host crashes or logs `cliproxy_plugin_init returned 1`.**
-A library older than v0.2.1 shares the host's Go runtime state on Intel Macs
-and corrupts it. Update the plugin. Any other Go plugin built with stock Go
-does the same, and two plugins built with the same slot patch collide with
-each other, so an Intel host runs this plugin beside no other Go plugin of
-either kind.
-
-**The page keeps asking for the key.** The key is kept per browser tab. A 401
-means the host did not accept the key; a 403 names its reason, either remote
-management being off for a connection from another machine, or the address
-being locked out for 30 minutes after five failed tries, a lock the Management
-Center shares.
-
-**The page says the management API is off (HTTP 404).** The host serves the
-management API only once `management.secret-key` is set
-(`remote-management.secret-key` before 8.0). Set it, restart the host, and
-enter that key on the page.
-
-**Every new conversation lands on one seat.** Either that seat is alone on
-the top `priority` tier, or the other seats on its tier, or every seat on the
-tiers above it, are unavailable to the host or refused upstream. The status
-page warns which, and names the seats when it is the tier layout.
-
-**Seats show as ineligible.** Their reading is missing, older than
-`max-staleness`, or has never succeeded. The page names the reason per seat
-and carries the poll error; wait one `poll-interval` or `POST refresh`.
-
-**The config block seems ignored.** A block that does not parse loads the
-plugin disabled with defaults, and the page warns that the plugin is disabled.
-Fix the YAML; the host applies the fix live, without a restart.
+- [How it picks](docs/how-it-picks.md): when a seat is eligible, how it is
+  ranked, and when a conversation moves.
+- [Status page](docs/status-page.md): every section of the page, and its
+  routes.
+- [Configuration](docs/configuration.md): every setting and its bounds.
+- [Install](docs/install.md): the Plugin Store, manual installs, building from
+  source, updating.
+- [Privacy and data](docs/privacy.md): what the plugin sends, shows and
+  stores.
+- [Troubleshooting](docs/troubleshooting.md): the failures seen so far.
 
 ## Contributing
 

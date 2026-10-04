@@ -173,7 +173,7 @@ and unit-testable without the host.
 - Both workflows set `MACOSX_DEPLOYMENT_TARGET` to the oldest macOS the pinned
   Go supports (12.0 for Go 1.25 and 1.26), and the release fails a macOS
   library recording another minimum. A toolchain that drops a macOS release
-  raises the target and the README's stated minimums with it.
+  raises the target and the minimums `docs/install.md` states with it.
 - The darwin/amd64 library builds with Go compiled from upstream source plus
   `.github/scripts/go-tls-slot.patch`, which moves the runtime's goroutine
   pointer from TSD slot 6 (`%gs:0x30`) to slot 11 (`%gs:0x58`). Stock Go puts

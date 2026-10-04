@@ -3,8 +3,8 @@
 One person maintains this plugin, with no support commitment. Bug reports and
 questions go to
 [Issues](https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/issues);
-the README's Troubleshooting section covers the failures seen so far, so check
-it first.
+[Troubleshooting](docs/troubleshooting.md) covers the failures seen so far, so
+check it first.
 
 ## Changes
 
