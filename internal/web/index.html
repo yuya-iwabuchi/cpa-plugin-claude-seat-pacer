@@ -27,6 +27,7 @@
   --track:        #e6e5df;
   --track-edge:   #4f4e4a;
   --emph:         rgba(42,120,214,.07);
+  --refused:      rgba(140,138,130,.55);
 
   /* The four tones a chip can take carry the non-colour encoding — glyph, bar
      fill, meter fill — so each clears 3:1 against both the card and the
@@ -81,6 +82,7 @@
     --track-edge: #999892;
     --critical:   #e05050;
     --emph:       rgba(57,135,229,.12);
+    --refused:    rgba(58,58,58,.6);
     --good:       #0ca30c;
     --serious:    #ec835a;
     --info:       #3987e5;
@@ -116,6 +118,7 @@
   --track:      #2c2c2a;
   --track-edge: #999892;
   --emph:       rgba(57,135,229,.12);
+  --refused:    rgba(58,58,58,.6);
   --critical:   #e05050;
   --good:       #0ca30c;
   --serious:    #ec835a;
@@ -813,7 +816,7 @@ svg.hist-tl rect.hs-future { fill: var(--emph); }
    pool holds, one window per seat on the roster. */
 svg.hist-tl path.hs-stack { stroke: none; opacity: .45; }
 svg.hist-tl path.hs-stack.hs-proj { opacity: .16; }
-svg.hist-tl path.hs-refused { fill: #3a3a3a; opacity: .6; stroke: none; }
+svg.hist-tl path.hs-refused { fill: var(--refused); stroke: none; }
 svg.hist-tl path.hs-edge { fill: none; stroke-width: 1.5; stroke-linejoin: round; pointer-events: none; }
 svg.hist-tl path.hs-edge.hs-proj { stroke-dasharray: 4 3; opacity: .55; }
 svg.hist-tl path.hs-cap { fill: none; stroke: var(--ink-1); stroke-width: 1.5; opacity: .75; pointer-events: none; }
@@ -831,7 +834,7 @@ svg.hist-tl text.rg-total { fill: var(--ink-1); font-weight: 650; font-variant-n
 svg.hist-tl text.rg-total.rg-part { fill: var(--ink-3); font-weight: 500; }
 svg.hist-tl text.rg-seat { pointer-events: none; fill: var(--ink-1); opacity: .78; font-weight: 600; font-variant-numeric: tabular-nums; }
 svg.hist-tl g.rs-mark circle { fill: var(--surface-1); stroke-width: 1.5; }
-svg.hist-tl g.rs-mark path.rs-arc { fill: none; stroke-width: 1.6; stroke-linecap: round; }
+svg.hist-tl g.rs-mark path.rs-arc { fill: none; stroke-width: 1.4; stroke-linecap: round; }
 svg.hist-tl g.rs-mark.rs-ahead { opacity: .6; }
 svg.hist-tl g.rs-mark:hover circle { stroke-width: 2.5; }
 
@@ -1976,9 +1979,9 @@ time[data-ts] { cursor: help; }
   /* A seat the host has disabled is hidden as well: the host never offers it
      and the plugin never reads it, so its row would hold nothing to act on.
      Showing every seat draws disabled seats until the page reloads, those the
-     host disables afterwards included, and is never saved the way a seat the
-     reader hid is. A disabled seat returns on its own once the host enables
-     it again. */
+     host disables afterwards included, everywhere but Over time, and is never
+     saved the way a seat the reader hid is. A disabled seat returns on its
+     own once the host enables it again. */
   var revealDisabled = false;
 
   function hostDisabled(a) { return (a.host_status || "") === "disabled"; }
@@ -3644,7 +3647,7 @@ time[data-ts] { cursor: help; }
   var SW_LOCK = "height:4px;border-radius:2px;opacity:.8;" +
     "background:repeating-linear-gradient(133deg, var(--critical) 0 3.28px, #161616 3.28px 4.38px)";
   var LOCK_KEY = "refused";
-  var SW_SHADE = "height:10px;width:14px;border-radius:2px;background:#3a3a3a;opacity:.6";
+  var SW_SHADE = "height:10px;width:14px;border-radius:2px;background:linear-gradient(var(--refused),var(--refused)),var(--ink-3)";
   var POOL_KEY = "under the axis: every seat refused";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
@@ -5150,8 +5153,8 @@ time[data-ts] { cursor: help; }
   function saveHistForm() { savePref(HIST_FORM_KEY, histForm); }
 
   /* The span each view shows and the instant it ends, kept across refreshes;
-     a span of Infinity is the whole history, and an end of null follows now,
-     by ahead past it where ahead is set, else as a live range does. */
+     a span of Infinity is the whole history, and an end of null follows now:
+     by ahead past it where ahead is set, else by the lead liveEnd gives. */
   var histRange = {};
   /* What the last draw left for the pointer and key handlers: the plot's and
      the strip's boxes and time mappings, the range shown, and what moves it:
@@ -5362,12 +5365,12 @@ time[data-ts] { cursor: help; }
   /* A clockwise circular arrow centred on x, y in col: an arc of 300
      degrees ending at the top, with its head there. */
   function resetGlyph(parent, x, y, col) {
-    var r = 4.3, a0 = 50 * Math.PI / 180, a1 = 350 * Math.PI / 180;
+    var r = 3.5, a0 = 50 * Math.PI / 180, a1 = 350 * Math.PI / 180;
     var p = function (a, d) { return [x + (r + (d || 0)) * Math.sin(a), y - (r + (d || 0)) * Math.cos(a)]; };
     var s0 = p(a0), s1 = p(a1), t = [Math.cos(a1), Math.sin(a1)];
     svg("path", { "class": "rs-arc", stroke: col, d: "M" + s0[0].toFixed(2) + " " + s0[1].toFixed(2) +
       "A" + r + " " + r + " 0 1 1 " + s1[0].toFixed(2) + " " + s1[1].toFixed(2) }, parent);
-    var tip = [s1[0] + t[0] * 2.4, s1[1] + t[1] * 2.4], o = p(a1, 2.1), i = p(a1, -2.1);
+    var tip = [s1[0] + t[0] * 2, s1[1] + t[1] * 2], o = p(a1, 1.75), i = p(a1, -1.75);
     svg("path", { fill: col, d: "M" + tip.map(function (v) { return v.toFixed(2); }).join(" ") +
       "L" + o.map(function (v) { return v.toFixed(2); }).join(" ") + "L" + i.map(function (v) { return v.toFixed(2); }).join(" ") + "Z" }, parent);
   }
@@ -5473,11 +5476,15 @@ time[data-ts] { cursor: help; }
     var list = $("hist-rank");
     list.textContent = "";
     histGeo = null;
-    /* A seat the host disabled holds nothing the pool can use, and stays out
-       of the chart even while the hidden seats are shown. */
+    /* Over time neither draws nor counts a seat the host disabled, its past
+       use included, even while the hidden seats are shown. */
     seats = seats.filter(function (a) { return !hostDisabled(a); });
-    $("sec-hist").hidden = !seats.length;
-    if (!seats.length) return;
+    if (!seats.length) {
+      ["hist-view", "hist-form", "hist-span", "hist-range"].forEach(function (id) { $(id).textContent = ""; });
+      $("hist-live").hidden = true;
+      host.appendChild(h("p", "card-none", "Every seat shown is one the host has disabled, and Over time leaves those out."));
+      return;
+    }
 
     var fams = scopedFamilies(st);
     var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
@@ -5668,8 +5675,8 @@ time[data-ts] { cursor: help; }
        keeps the edge it did not drag, and a zoom below the least span grows
        back about its middle. A range covering the strip is the whole history;
        one that ends where a live one would follows now as a live one does;
-       one that ends past that, or that follows now and keeps its end through
-       a drag or zoom, follows by the lead it has. */
+       one that ends past that, or that follows now and still ends after it
+       through a resize or zoom, follows by the lead it has. */
     function set(t0, t1, keep) {
       var kept = !keep && rg.end === null && histGeo !== null && Math.abs(t1 - histGeo.t1) <= (t1 - t0) * 0.002;
       if (kept) t1 = histGeo.t1;
@@ -5693,9 +5700,10 @@ time[data-ts] { cursor: help; }
       if (t0 < tMin) { t0 = tMin; t1 = t0 + span; }
       if (t1 > tMax) { t1 = tMax; t0 = t1 - span; }
       rg.span = span;
-      var live = kept || t1 >= liveEnd(span) - span * 0.002;
-      rg.end = live ? null : t1;
-      rg.ahead = live && (kept || t1 > liveEnd(span) + span * 0.002) ? t1 - now : null;
+      var atLive = Math.abs(t1 - liveEnd(span)) <= span * 0.002;
+      var follows = kept || atLive || t1 > liveEnd(span) || (!keep && rg.end === null && t1 > now);
+      rg.end = follows ? null : t1;
+      rg.ahead = follows && (kept || !atLive) ? t1 - now : null;
       draw();
     }
 
@@ -5751,8 +5759,8 @@ time[data-ts] { cursor: help; }
       var renewed = poolRenewal(data, t0, t1, now);
       var lines = [{ t: pooled + (pooled === 1 ? " seat renews " : " seats renew ") + pct(renewed, 0) + " in view" +
         (renewed > 0 ? ", used " + pct(t.used / renewed, 0) + " of it" : "") }];
-      /* Use a week over the time on record in view, in windows: how many
-         seats' worth of work the pool served. */
+      /* Use per week of time on record in view, in windows: how many seats'
+         worth of work the pool served. */
       var onRecord = start === null ? 0 : Math.min(t1, now) - Math.max(t0, start);
       if (view.weekly && onRecord >= H_DAY) {
         lines.push({ t: (t.est ? "~" : "") + (t.used / (onRecord / (7 * H_DAY))).toFixed(1) + " seats' worth a week" });
@@ -5852,13 +5860,13 @@ time[data-ts] { cursor: help; }
         while (jb + 1 < st.ts.length && st.ts[jb + 1] < c.t) jb++;
         var ja = Math.min(jb + 1, st.ts.length - 1);
         var x = X(c.t), y = (Y(st.tops[p][jb]) + Y(st.tops[p][ja])) / 2;
-        var box = { x0: x - 9, x1: x + 9, y0: y - 9, y1: y + 9 };
+        var box = { x0: x - 8, x1: x + 8, y0: y - 8, y1: y + 8 };
         if (taken.some(function (o) { return boxesMeet(box, o); })) return;
         taken.push(box);
         var sd = data[c.k], ahead = c.t > now;
         var gs = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, g);
         var mk = svg("g", { "class": "rs-mark" + (ahead ? " rs-ahead" : "") }, gs);
-        svg("circle", { cx: x, cy: y, r: 8.5, stroke: sd.col }, mk);
+        svg("circle", { cx: x, cy: y, r: 7, stroke: sd.col }, mk);
         resetGlyph(mk, x, y, sd.col);
         setTip(mk, {
           seat: seatLabel(sd.a), col: sd.col, win: view.label, type: "reset", label: ahead ? "resets" : "reset",
@@ -5950,6 +5958,7 @@ time[data-ts] { cursor: help; }
       if (!schedule.length) {
         fam.appendChild(h("p", "bal-none", spent > 0.005 ? "no reset ahead on record" : "nothing spent"));
         list.scrollTop = top;
+        markMore(list);
         return;
       }
       var ol = fam.appendChild(h("ol", "bal-list", ""));
@@ -6006,8 +6015,9 @@ time[data-ts] { cursor: help; }
       var hadFocus = host.contains(document.activeElement);
       host.textContent = "";
       var span = Math.min(rg.span, tMax - tMin);
-      var t1 = rg.end !== null ? clamp(rg.end, tMin + span, tMax)
-        : rg.ahead !== null ? Math.min(tMax, now + rg.ahead) : liveEnd(span), t0 = t1 - span;
+      var t1 = rg.end !== null ? rg.end : rg.ahead !== null ? now + rg.ahead : liveEnd(span);
+      t1 = clamp(t1, tMin + span, tMax);
+      var t0 = t1 - span;
 
       var W = Math.max(280, host.clientWidth || 480);
       var H = Math.round(clamp(W * 0.34, 260, 440));
@@ -6205,7 +6215,9 @@ time[data-ts] { cursor: help; }
     });
     if (anyEst && !stacked) legendRow(legend, SW_EST, "estimated from token spend");
     if (anyGap && !stacked) legendRow(legend, SW_GAP, UNRECORDED_KEY);
-    if (anyLock) legendRow(legend, stacked ? SW_SHADE : SW_LOCK, LOCK_KEY);
+    if (stacked ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
+      legendRow(legend, stacked ? SW_SHADE : SW_LOCK, LOCK_KEY);
+    }
     if (pool.length) legendRow(legend, SW_LOCK, POOL_KEY);
     if (view.weekly) {
       var li = legend.appendChild(h("li", "", ""));

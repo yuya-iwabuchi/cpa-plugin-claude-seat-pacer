@@ -20,8 +20,8 @@ const (
 	historyFineStep   = time.Minute
 	historyCoarseStep = 10 * time.Minute
 	historyMaxSamples = 2600
-	// HistoryPublishMax bounds the samples a status response carries per
-	// window: a month at one an hour.
+	// HistoryPublishMax is the samples a status response carries per window,
+	// within export's exceptions: a month at one an hour.
 	HistoryPublishMax = 768
 	// historyMaxLocks bounds the refusal spans a window keeps; past it the
 	// oldest go.
@@ -371,11 +371,13 @@ var publishSteps = []time.Duration{
 	0, 15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour,
 }
 
-// export copies the ring as a WindowHistory of at most max samples where the
-// coarsest publish step allows it; max <= 0 means the whole ring. The newest
-// cycle, which holds the present, takes the finest publish step that leaves
-// the older cycles room at the coarsest, and the older cycles take the finest
-// that fits what it leaves. A step keeps each cycle's first and last sample and
+// export copies the ring as a WindowHistory; max <= 0 means the whole ring.
+// The newest cycle, which holds the present, takes the finest publish step
+// that leaves the older cycles room within max at the coarsest, and none
+// coarser than 15 minutes where that step alone fits max; the older cycles
+// take the finest that fits what it leaves. The copy holds at most max samples
+// unless the coarsest step cannot bring it within max or the newest cycle
+// takes its 15-minute floor. A step keeps each cycle's first and last sample and
 // the last in each step. A cycle only rises, so a kept sample carries the rises
 // of those dropped before it in its step, and every rise lands at most a step
 // late. Every refusal span is copied whatever max is; an ongoing one whose
@@ -385,7 +387,11 @@ func (r *ring) export(kind model.WindowKind, scope string, max int, now time.Tim
 	var newest, older time.Duration
 	if n := len(r.cycles); max > 0 && n > 0 {
 		cur, past := r.cycles[n-1:], r.cycles[:n-1]
-		newest = finestStep(cur, max-keptCount(past, publishSteps[len(publishSteps)-1]))
+		room := max - keptCount(past, publishSteps[len(publishSteps)-1])
+		if floor := keptCount(cur, publishSteps[1]); room < floor && floor <= max {
+			room = floor
+		}
+		newest = finestStep(cur, room)
 		older = finestStep(past, max-keptCount(cur, newest))
 	}
 	for i, c := range r.cycles {
@@ -442,8 +448,8 @@ func thin(samples []model.Sample, step time.Duration) []model.Sample {
 	return kept
 }
 
-// keeps reports whether a step keeps samples[i]: every sample at zero, else
-// the first, the last, and the last in each step.
+// keeps reports whether a step keeps samples[i]: at a step of zero every
+// sample, else the first, the last, and the last in each step.
 func keeps(samples []model.Sample, i int, step time.Duration) bool {
 	return step == 0 || i == 0 || i == len(samples)-1 || !samples[i+1].At.Truncate(step).Equal(samples[i].At.Truncate(step))
 }

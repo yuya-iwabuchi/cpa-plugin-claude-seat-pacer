@@ -1001,3 +1001,29 @@ func TestThinKeepsEachStepsLevel(t *testing.T) {
 		}
 	}
 }
+
+// TestPublishedHistoryKeepsTheNewestCycleAtQuarterHours covers a 5-hour ring
+// whose older cycles exceed the bound even at the coarsest step: the newest
+// cycle still publishes at 15 minutes.
+func TestPublishedHistoryKeepsTheNewestCycleAtQuarterHours(t *testing.T) {
+	r := &ring{}
+	at := testNow
+	for range 420 {
+		cycle := model.Cycle{ResetsAt: at.Add(5 * time.Hour)}
+		for i := range 5 {
+			cycle.Samples = append(cycle.Samples, model.Sample{At: at.Add(time.Duration(i) * 50 * time.Minute), Utilization: float64(i+1) / 10})
+		}
+		r.cycles = append(r.cycles, cycle)
+		at = at.Add(5 * time.Hour)
+	}
+	cur := model.Cycle{ResetsAt: at.Add(5 * time.Hour)}
+	for i := range 40 {
+		cur.Samples = append(cur.Samples, model.Sample{At: at.Add(time.Duration(i) * 3 * time.Minute), Utilization: float64(i) / 100})
+	}
+	r.cycles = append(r.cycles, cur)
+
+	pub := r.export(model.WindowSession, "", HistoryPublishMax, testNow)
+	if got, want := pub.Cycles[len(pub.Cycles)-1].Samples, thin(cur.Samples, 15*time.Minute); !reflect.DeepEqual(got, want) {
+		t.Errorf("newest cycle published %d samples, want its %d at 15 minutes", len(got), len(want))
+	}
+}
