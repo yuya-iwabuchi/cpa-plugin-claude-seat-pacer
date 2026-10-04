@@ -345,7 +345,8 @@ func TestANewerHistoryFileWarnsOnceAndStaysUntouched(t *testing.T) {
 
 // TestTierWarningNamesTheSeatsAndTheChoice covers the one single-candidate
 // cause that is a layout choice: the warning names the seat the host offers,
-// its tier, the seats beneath it, and what one priority value would change.
+// its tier, the seats beneath it, and what a shared priority would change. A
+// top tier of several seats is not that layout, and its warning names none.
 func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
 	rows := []model.AuthStatus{
 		{AuthID: "claude-b.json", Provider: "claude", Priority: 10},
@@ -355,12 +356,16 @@ func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
 	}
 	got := singleCandidateWarning("claude", rows)
 	want := "provider claude: the host offers only claude-top.json (priority 11); the fallback tier (claude-a.json, claude-b.json) takes no new conversation until the top tier runs out. " +
-		"One priority value across the pool lets this plugin spread new conversations by pace instead"
+		"Give the seats you want paced together the same priority to spread new conversations across them by pace"
 	if got != want {
 		t.Errorf("tier warning =\n  %q\nwant\n  %q", got, want)
 	}
 	one := singleCandidateWarning("claude", rows[1:3])
 	if !strings.Contains(one, "the fallback tier (claude-a.json) takes") {
 		t.Errorf("a single lower seat is not named as the fallback tier: %q", one)
+	}
+	shared := singleCandidateWarning("claude", append(rows[:3:3], model.AuthStatus{AuthID: "claude-top2.json", Provider: "claude", Priority: 11}))
+	if strings.Contains(shared, "fallback tier") || !strings.Contains(shared, "top priority tier are unavailable") {
+		t.Errorf("a top tier of several seats is misread as a lone top seat: %q", shared)
 	}
 }

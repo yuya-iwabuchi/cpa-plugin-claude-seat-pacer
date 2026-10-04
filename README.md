@@ -166,8 +166,11 @@ plugins:
 - The status page reads through the management API, which the host serves only
   once `management.secret-key` is set (`remote-management.secret-key` before
   8.0).
-- Give every seat the same `priority`. The host offers the plugin only its top
-  tier, so a seat alone there takes every new conversation.
+- The host offers each request only to the highest-priority credentials it
+  can currently use, and the plugin paces conversations across the seats in
+  that tier. Give the seats you want paced together the same `priority`; a
+  seat on a lower priority takes requests only while no seat above it can
+  take them.
 - A seat is named by its credential's `note` (set on the auth-file card in the
   Management Center, or as a `note` key in the file), or else by its account
   email, masked to `y…@example.com`.
@@ -275,12 +278,18 @@ new conversation. A seat held off ranks below them.
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
   a weekly window of its own, or that no seat is eligible, with the reason
-  when the seats share one. It shows the count of eligible seats and the age
-  of the newest reading, and its Sync now button reads every seat at once.
+  when the seats on the tier taking requests, or every seat while no tier
+  can, share one. It shows how many seats are eligible on each family's tier
+  taking requests and the age of the newest reading, and its Sync now button
+  reads every seat at once.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
   showing each window's current cycle. A window holding its seat off, full or
   refused, is taped red and black, and that seat's other windows turn grey.
+  When seats differ in `priority`, the page groups them by tier, marks the
+  tier taking requests as serving, and ranks only its seats. A tier below it
+  is marked fallback, and a tier whose seats are all refused, full,
+  unavailable or disabled is skipped.
 - **Weekly window.** Every seat's use plotted against the target curve over
   its own week, and the seats ranked by cost, each with where it is headed at
   its last 24 hours' rate.
@@ -365,8 +374,10 @@ management API only once `management.secret-key` is set
 (`remote-management.secret-key` before 8.0). Set it, restart the host, and
 enter that key on the page.
 
-**Every new conversation lands on one seat.** That seat is alone on the top
-`priority` tier. The status page warns and names the seats.
+**Every new conversation lands on one seat.** Either that seat is alone on
+the top `priority` tier, or the other seats on its tier, or every seat on the
+tiers above it, are unavailable to the host or refused upstream. The status
+page warns which, and names the seats when it is the tier layout.
 
 **Seats show as ineligible.** Their reading is missing, older than
 `max-staleness`, or has never succeeded. The page names the reason per seat
