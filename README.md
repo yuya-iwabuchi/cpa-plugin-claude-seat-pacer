@@ -295,16 +295,17 @@ new conversation. A seat held off ranks below them.
   its last 24 hours' rate.
 - **5-hour window.** Where each seat stands against the limit that can make
   it ineligible.
-- **Over time.** One window across the recorded cycles, drawn two ways.
-  Lines shows each seat's use, with each refusal and what ended it. Stacked
-  piles the seats into the pool's total against what the pool holds, one full
-  window per seat in the pool, shades each seat's refused stretches grey, and
-  carries the total past now to show what comes back at each reset if no more
-  is used. Both mark the stretches in which every seat was refused at once.
-  Under a weekly window, brackets over the plot give the pool's use per day
-  from midnight local time, or per week from Monday, against what it renews.
-  Read on the premise that the seats share one plan, they answer whether the
-  pool has enough seats; while every seat is refused, use undercounts demand.
+- **Over time.** One window across the recorded cycles, drawn two ways, with
+  every priority tier in the pool. Lines shows each seat's use, with each
+  refusal and what ended it. Stacked piles the seats into the pool's total
+  against what the pool holds, one full window per seat in the pool, shades
+  each seat's refused stretches grey, and carries the total past now to show
+  what comes back at each reset if no more is used. Both mark the stretches in
+  which every seat was refused at once. Under a weekly window, brackets over
+  the plot give the pool's use per day from midnight local time, or per week
+  from Monday, against what it renews. Read on the premise that the seats
+  share one plan, they answer whether the pool has enough seats; while every
+  seat is refused, use undercounts demand.
 - **Bindings.** The conversations held on each seat.
 - **Routing log.** The recent decisions, newest first. Each new pick and each
   move opens to show every seat's cost at that moment.
@@ -313,7 +314,8 @@ A seat you hide with the eye beside its name leaves every view, the bindings
 and the routing log included, and stays hidden in that browser. A seat the host
 has disabled is hidden the same way and returns once the host enables it.
 `N hidden · show` under the seats draws every seat again, the disabled ones
-until the page reloads. Hiding changes only the page; routing is unchanged.
+until the page reloads; they leave Over time entirely.
+Hiding changes only the page; routing is unchanged.
 
 A warning banner names anything that leaves the plugin inert or degraded, such
 as a seat alone on the top priority tier, a seat not read yet, or a failing

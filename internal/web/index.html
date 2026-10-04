@@ -5473,6 +5473,10 @@ time[data-ts] { cursor: help; }
     var list = $("hist-rank");
     list.textContent = "";
     histGeo = null;
+    /* A seat the host disabled holds nothing the pool can use, and stays out
+       of the chart even while the hidden seats are shown. */
+    seats = seats.filter(function (a) { return !hostDisabled(a); });
+    $("sec-hist").hidden = !seats.length;
     if (!seats.length) return;
 
     var fams = scopedFamilies(st);
