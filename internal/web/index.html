@@ -607,9 +607,9 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    plot reads at the same size on every pool and every refresh: a seat named
    by its account address clips to its tooltip, and a head that has a sentence
    to say wraps it, rather than either taking the plot's room. Under 1000px
-   that column takes the plot below 600px, so there the list drops under the
-   plot and its families sit side by side where two fit. */
-.pace-body { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 14px; align-items: start; }
+   the list drops under the plot, and the ranking's families sit side by side
+   where two fit. */
+.pace-body { display: grid; grid-template-columns: minmax(0, 1fr) 14rem; gap: 14px; align-items: start; }
 .pace-body > :is(#pace-curve, #session-chart) { min-width: 0; }
 /* Beside the plot the list is out of flow, so the plot alone sets the row's
    height and a long pool scrolls inside the list's column; each family's
@@ -680,27 +680,27 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
   background: color-mix(in srgb, var(--info) 15%, var(--surface-1));
   border-color: color-mix(in srgb, var(--info) 42%, transparent);
 }
-/* A row reads rank, state, seat, cost. The lead row carries the tint the
-   timeline gives the same seat; a seat held off the family, or off its
-   serving tier, is greyed and carries the reason in the tooltip, because
-   the reasons run long. */
+/* A row reads rank, seat, cost. The lead row carries the tint the timeline
+   gives the same seat; a seat held off the family, or off its serving tier,
+   is greyed, has no rank, and carries the reason in the tooltip, because the
+   reasons run long. */
 .rank-row {
-  display: grid; grid-template-columns: 2.4em 24px minmax(0, 1fr) auto; align-items: center; gap: 6px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
 }
 .rank-row[data-lead] { background: var(--emph); }
 .rank-row[data-out] { color: var(--ink-3); }
 /* A seat held off a family recedes in its dot: the row is already set in
-   the dimmest ink, and an opacity over that takes the name and the state's
-   glyph under the ratio this page holds text to. */
+   the dimmest ink, and an opacity over that takes the name under the ratio
+   this page holds text to. */
 .rank-row[data-out] .seat-dot { opacity: .62; }
 .rank-row[data-tip] { cursor: help; }
 .rank-row:focus-visible { outline-offset: 0; }
-.rank-no { font: 600 11px/1 var(--mono); color: var(--ink-2); }
-.rank-row[data-out] .rank-no { color: var(--ink-3); }
-/* A state's mark: the legend's swatch then glyph, a rank row's glyph alone. */
+/* The rank column is as wide as the list's widest rank, "#" and its digits,
+   so every seat's dot starts at one point. */
+.rank-no { font: 600 11px/1 var(--mono); color: var(--ink-2); min-width: calc(var(--rank-ch, 2) * 1ch); }
+/* A state's mark in the legend: its swatch then its glyph. */
 .rank-state { display: inline-flex; align-items: center; gap: 7px; }
-.rank-row .rank-state { font: 700 13px/1 var(--mono); justify-content: center; }
 .rank-row .seat-mark { max-width: 100%; }
 /* The cost column is as wide as the widest figure it can print, so the two
    families' lists cut one seat's name at one point rather than two. */
@@ -712,9 +712,9 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    unrounded figures, and the mark says where to read that. */
 .rank-cost[data-tip] { border-bottom: 1px dotted var(--ink-3); cursor: help; }
 /* Under a ranked seat, its outlook on the window the ranking weighs, in the
-   seat lists' own form, set under the name; the Seats section carries when
-   the window resets. */
-.rank-detail { grid-column: 3 / -1; font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
+   seat lists' own form, across the row from its left edge as the seat lists
+   set it; the Seats section carries when the window resets. */
+.rank-detail { grid-column: 1 / -1; font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
 .rank-detail .ol-meter { margin: 1px 0 3px; }
 .rank-row[data-out] .rank-detail { color: var(--ink-3); }
 .pace-missing { margin: 8px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-3); }
@@ -749,10 +749,6 @@ svg.hist-tl path.hs-nav-line { fill: none; stroke-width: 1; opacity: .85; }
 svg.hist-tl rect.hs-nav-dim { fill: var(--surface-1); opacity: .62; }
 svg.hist-tl rect.hs-brush { fill: none; stroke: var(--ink-2); stroke-width: 1; }
 svg.hist-tl rect.hs-handle { fill: var(--ink-2); }
-/* A seat-outlook column is narrower than the ranking's, so the plot beside
-   it keeps the width. */
-.outlook-card .pace-body { grid-template-columns: minmax(0, 1fr) 14rem; }
-@media (max-width: 1000px) { .outlook-card .pace-body { grid-template-columns: minmax(0, 1fr); } }
 svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .7; }
 /* A seat's outlook sits at body size beside the chart: the seat and its use
    now on one line, a hairline meter, and two short lines under them. Only a
@@ -1186,7 +1182,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <span class="sec-sub" id="session-sub">a rate limit, not a budget &middot; a refusal, a bad reading or a full reading makes a seat ineligible</span>
         <span class="sec-line"></span>
       </div>
-      <div class="card pace-card outlook-card">
+      <div class="card pace-card">
         <div class="pace-body">
           <div id="session-chart"></div>
           <div class="pace-rank">
@@ -1211,7 +1207,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <span class="sec-sub" id="hist-sub">each seat's use of one window, across recorded cycles</span>
         <span class="sec-line"></span>
       </div>
-      <div class="card pace-card outlook-card">
+      <div class="card pace-card">
         <div class="hist-tools">
           <div class="pace-view" id="hist-view" role="group" aria-label="Window shown"></div>
           <div class="pace-view" id="hist-span" role="group" aria-label="Span shown"></div>
@@ -2490,7 +2486,7 @@ th[aria-sort] button { color: var(--ink-1); }
   var TIER_H = 22, TIER_LIFT = 4;
 
   /* The lane states are one list: the legend, the glyph, the tooltip, the
-     aria-label and the ranked list's icons all read STATE_META, so they
+     aria-label and the ranked list's spoken state all read STATE_META, so they
      cannot drift apart. States that share a pattern share a legend row, with
      both glyphs and both words. A held seat's other windows close the list,
      from HELD_META, shown while a seat is held. The sign key closes the
@@ -5774,14 +5770,6 @@ th[aria-sort] button { color: var(--ink-1); }
     return box;
   }
 
-  /* A seat's row names its state by the glyph alone, in the state's colour:
-     a swatch there would sit beside the seat's own dot and read as one mark. */
-  function stateGlyph(meta) {
-    var gl = h("span", "rank-state", meta.glyph);
-    gl.style.color = meta.color;
-    return gl;
-  }
-
   function rankList(st, seats, ranks, fam) {
     /* A family's cost weighs its cap only where the plot draws the cap's
        diamond, and there the list marks the seat with that diamond. */
@@ -5857,6 +5845,11 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     var ul = h("ul", "rank-list");
+    var shown = order.reduce(function (n, a) {
+      var sc = famScore(a, fam), rank = ranks.byFam[fam][a.auth_id];
+      return sc && sc.eligible && rank !== undefined ? Math.max(n, rank + 1) : n;
+    }, 1);
+    ul.style.setProperty("--rank-ch", String(1 + String(shown).length));
     ul.setAttribute("aria-label", rankLabel(fam) + (ranks.tier.multi
       ? " ranking by priority tier, the serving tier lowest cost first" : " ranking, lowest cost first"));
     var lastTier = null;
@@ -5879,14 +5872,11 @@ th[aria-sort] button { color: var(--ink-1); }
       var meta = STATE_META[seatState(a, fam)];
       li.setAttribute("data-fk", "rank:" + fam + ":" + a.auth_id);
       if (ranks.lead[fam] === a.auth_id) li.setAttribute("data-lead", "true");
-      li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : "—"));
+      li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : ""));
       var outside = offTier(a, fam, ranks);
-      var stateMark = stateGlyph(meta);
-      stateMark.setAttribute("role", "img");
-      stateMark.setAttribute("aria-label", meta.label);
-      li.appendChild(stateMark);
       var mark = seatMark(a);
       if (capMark) mark.querySelector(".seat-dot").classList.add("cap");
+      mark.appendChild(h("span", "sr-only", ", " + meta.label));
       li.appendChild(mark);
       var cost = h("span", "rank-cost", costText(sc));
       if (elig && outside) {
@@ -5922,7 +5912,7 @@ th[aria-sort] button { color: var(--ink-1); }
           cost.setAttribute("data-fk", "cost:" + fam + ":" + a.auth_id);
         }
       } else {
-        /* The icon says the seat is out; the tooltip says why, and when the
+        /* The grey says the seat is out; the tooltip says why, and when the
            work returns where the provider names an instant. */
         li.setAttribute("data-out", "true");
         tipOnly(li, verdict.text);
