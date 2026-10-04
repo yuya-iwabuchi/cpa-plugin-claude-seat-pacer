@@ -632,7 +632,7 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    rows. */
 .pace-rank > :is(#pace-rank, #session-rank, #hist-rank)[data-more~="down"] { --cut-down: inset 0 0 0 0 transparent; }
 .pace-rank::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; z-index: 2;
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; z-index: 4;
   pointer-events: none; border-radius: 0 0 6px 6px; box-shadow: inset 0 0 0 0 transparent;
 }
 .pace-rank:has(> [data-more~="down"])::after { box-shadow: inset 0 -32px 24px -24px var(--scroll-cut); }
@@ -2088,7 +2088,7 @@ th[aria-sort] button { color: var(--ink-1); }
      the words its heading and its seats' tooltips share. */
   function tierText(p, ranks, fams) {
     var t = ranks.tier, r = tierRoleOf(p, fams, t);
-    var n = (t.on[p] || []).filter(function (a) {
+    var n = tierServers(p, r.fams, t).filter(function (a) {
       return r.fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
     }).length;
     if (r.role === "serving") {
@@ -2858,7 +2858,8 @@ th[aria-sort] button { color: var(--ink-1); }
        centred between the seat stripes above and below it. The note is
        trimmed to the gutter and read whole in the tooltip. */
     function tierHead(th) {
-      var r = tierRoleOf(th.p, ranks.fams, tier), label = roleLabel(r, ranks.fams);
+      var r = tierRoleOf(th.p, ranks.fams, tier);
+      var label = roleLabel(r, ranks.fams.filter(function (f) { return ranks.known[f]; }));
       var ty = th.y + (padB - geo.gap + TIER_H - geo.inset) / 2 + 3.5;
       var note = tierText(th.p, ranks, ranks.fams);
       var g = svg("g", { "class": "tier-head" }, gRows);
@@ -6283,10 +6284,14 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     $("page-foot").hidden = !facts.childNodes.length;
 
-    /* Eligible for a family whose serving tier holds the seat: the count of
-       seats a new conversation of some kind can still land on. */
+    /* Eligible for a family whose serving tier holds the seat, on a seat the
+       host can offer: the count of seats a new conversation of some kind can
+       still land on. */
     var eligible = seats.filter(function (a) {
-      return ranks.fams.some(function (fam) { var sc = famScore(a, fam); return !offTier(a, fam, ranks) && !!(sc && sc.eligible); });
+      return !HOST_DOWN[a.host_status || ""] && ranks.fams.some(function (fam) {
+        var sc = famScore(a, fam);
+        return !offTier(a, fam, ranks) && !!(sc && sc.eligible);
+      });
     }).length;
     $("seat-total").textContent = seats.length
       ? seats.length + (seats.length === 1 ? " seat" : " seats")
@@ -6345,7 +6350,7 @@ th[aria-sort] button { color: var(--ink-1); }
      conversations still takes it: the scheduler picks past its own pace
      rather than refuse the request. */
   /* Why no seat can take this family, in the space of one narrow line. The
-     reason every seat on its serving tier shares is the fact worth reading:
+     reason every seat it is waiting on shares is the fact worth reading:
      a refusal says the provider is turning the work away and when it comes
      back, a window at full says the budget is gone and when it returns, and
      an unread credential says nothing about the cap at all. The plugin still
@@ -6354,7 +6359,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var reasons = Object.create(null), n = 0;
     stableAuths(st.auths).forEach(function (a) {
       var sc = famScore(a, fam);
-      if (!sc || sc.eligible || offTier(a, fam, ranks)) return;
+      if (!sc || sc.eligible || !holdsFamily(a, fam, ranks)) return;
       n++;
       reasons[sc.reason || ""] = true;
     });
@@ -6413,12 +6418,19 @@ th[aria-sort] button { color: var(--ink-1); }
     return unknown ? null : last;
   }
 
-  /* When the pool can serve this family again: the earliest of its serving
-     tier's seats' own returns. */
+  /* Whether a seat is one the family is waiting on: a seat on its serving
+     tier, or any seat while no tier can serve it, since the host takes the
+     first tier with a seat back. */
+  function holdsFamily(a, fam, ranks) {
+    return !!ranks.tier.none[fam] || !offTier(a, fam, ranks);
+  }
+
+  /* When the pool can serve this family again: the earliest return among
+     the seats the family is waiting on. */
   function returnsAt(st, fam, ranks) {
     var soonest = null;
     stableAuths(st.auths).forEach(function (a) {
-      if (offTier(a, fam, ranks)) return;
+      if (!holdsFamily(a, fam, ranks)) return;
       var back = seatReturnsAt(a, fam);
       if (back && (!soonest || back < soonest)) soonest = back;
     });
