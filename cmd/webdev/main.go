@@ -8,6 +8,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -28,10 +30,14 @@ import (
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/web"
 )
 
+// failoverNote is the note the scheduler records on a failover away from a
+// credential the host stopped offering.
+const failoverNote = "bound credential not offered"
+
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many, collide, cleared, exhausted, replay or empty")
+		"fixture scenario: full, single, stale, degraded, many, tiers, tiers-down, collide, cleared, exhausted, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
 		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
@@ -74,6 +80,11 @@ func main() {
 		// a roomy row: the naming collisions a real pool produces, and every
 		// lane state the page can draw, spread across the seats.
 		src.growTo(*seats)
+	case "tiers", "tiers-down":
+		// Four seats on the top priority tier and a personal seat one tier
+		// below, which the host offers only while no top-tier seat can serve;
+		// tiers-down has the provider refusing every top-tier seat.
+		src.tiered(*scenario == "tiers-down")
 	case "collide":
 		// Two seats a few hours apart in their weeks at near-equal utilization,
 		// so their four pace-curve labels contend for one patch of the plot;
@@ -531,7 +542,7 @@ func (f *fixture) buildDecisions() []model.Decision {
 		{ago: 70 * time.Second, kind: model.DecisionAffinityHit, key: "1de77a2b98c30541", modelID: modelSonnet, chosen: seatAID},
 		{ago: 96 * time.Second, kind: model.DecisionAffinityHit, key: "5f2c0b7d4a19e83c", modelID: modelFable, chosen: seatAID, subagent: true},
 		{ago: 2 * time.Minute, kind: model.DecisionFailover, key: "c4408b1ef6d92a70", modelID: modelOpus, chosen: seatAID, previous: seatBID,
-			note: "bound credential was not among the candidates the host offered", scored: true},
+			note: failoverNote, scored: true},
 		{ago: 3 * time.Minute, kind: model.DecisionAffinityHit, key: "a91d33e0c7b45f28", modelID: modelFable, chosen: seatAID},
 		{ago: 4 * time.Minute, kind: model.DecisionColdPick, key: "6c2a90f31be8d574", modelID: modelOpus, chosen: seatAID, scored: true},
 		{ago: 5 * time.Minute, kind: model.DecisionAffinityHit, key: "77b0fe4c1a8d6392", modelID: modelFable, chosen: seatBID},
@@ -669,6 +680,9 @@ type manySeat struct {
 	elapsedDays float64
 	// state picks the exceptional condition the seat carries, "" for none.
 	state string
+	// priority is the host's priority for the credential; 0 means 10, the
+	// pool's priority.
+	priority int
 }
 
 // The first three rows are the pool `many -seats 3` renders, and they are the
@@ -777,6 +791,50 @@ func (f *fixture) growTo(n int) {
 	f.decisions = f.manyDecisions(ids)
 }
 
+// tiered builds the tiers scenarios: the first four manySeats rows on
+// priority 10 and a personal seat on priority 9, nearly unused and so furthest
+// behind its plan, holding no conversation. With down set the provider
+// refuses every top-tier seat and the host reports two of them unavailable,
+// so it offers the personal seat alone: each conversation bound to a top-tier
+// seat fails over to it on its next request, and new ones land on it.
+func (f *fixture) tiered(down bool) {
+	f.growTo(4)
+	personal := manySeat{id: "claude-personal.json", label: "personal", name: "claude-personal.json",
+		session: 0.04, weekly: 0.06, scoped: 0.03, elapsedDays: 5.5, priority: 9}
+	f.addManySeat(len(f.auths), personal)
+	f.bindings = slices.DeleteFunc(f.bindings, func(b model.Binding) bool { return b.AuthID == personal.id })
+	f.auths[len(f.auths)-1].Bindings = 0
+	if !down {
+		return
+	}
+	for i := range f.auths[:4] {
+		id := f.auths[i].AuthID
+		snap := f.snapshots[id]
+		snap.Windows = append([]model.Window(nil), snap.Windows...)
+		snap.Windows[0].Utilization = 1
+		snap.Windows[0].Status, snap.Windows[0].Severity = model.StatusRejected, model.SeverityCritical
+		f.snapshots[id] = snap
+		if i < 2 {
+			f.auths[i].HostStatus = "unavailable"
+		}
+		f.auths[i].Bindings = 0
+	}
+	offered := []string{personal.id}
+	f.decisions = nil
+	for i := range f.bindings {
+		b := &f.bindings[i]
+		at := f.anchor.Add(-time.Duration(40+95*i) * time.Second)
+		f.decisions = append(f.decisions, model.Decision{
+			At: at, Provider: "claude", Kind: model.DecisionFailover, SessionKey: b.SessionKey, Model: b.Model,
+			ChosenAuthID: personal.id, PreviousAuthID: b.AuthID,
+			Note:   failoverNote,
+			Scores: f.rankAt(f.snapshots, offered, b.Model, at),
+		})
+		b.AuthID = personal.id
+	}
+	f.auths[len(f.auths)-1].Bindings = len(f.bindings)
+}
+
 func (f *fixture) addManySeat(i int, ms manySeat) {
 	label := ms.label
 	if label == "" {
@@ -787,7 +845,7 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 	}
 	a := model.AuthStatus{
 		AuthID: ms.id, Label: label, Name: ms.name, Email: ms.email,
-		Provider: "claude", Priority: 10, HostStatus: "active", Bindings: 1 + i%3,
+		Provider: "claude", Priority: cmp.Or(ms.priority, 10), HostStatus: "active", Bindings: 1 + i%3,
 		Cache: model.CacheStats{
 			Requests:            int64(120 + 90*i),
 			CacheReadTokens:     int64(800_000 + 400_000*i),
@@ -912,7 +970,7 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 			d.Subagent = i%5 == 3
 			if kind == model.DecisionFailover {
 				d.PreviousAuthID = ids[(i+1)%len(ids)]
-				d.Note = "bound credential was not among the candidates the host offered"
+				d.Note = failoverNote
 				d.Scores = f.rankAt(f.snapshots, ids, d.Model, at)
 			}
 		}

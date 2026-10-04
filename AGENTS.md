@@ -1,8 +1,9 @@
 # Agent brief
 
 Host line references are to CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit
-`2a6b87ac`). The host-driven tests pass against v7.3.10 and v7.3.15. The
-deployment target is 7.2.145+, a lower bound nothing in this repository tests.
+`2a6b87ac`). The host-driven tests pass against v7.3.10, v7.3.15 and v8.0.4.
+The deployment target is 7.2.145+, a lower bound nothing in this repository
+tests.
 
 ## What this plugin is
 
@@ -63,9 +64,10 @@ the run. Do not remove that test.
   access and never across a host callback.
 - **Candidates are pre-filtered and capped at the highest priority tier.**
   Disabled, cooling, model-incompatible and already-tried credentials are gone
-  before the plugin is asked, and lower tiers are never offered, so every seat
-  must share one `priority`. The status page warns while the pick sees a single
-  candidate.
+  before the plugin is asked, and lower tiers are never offered, so the plugin
+  paces only across the seats sharing the highest usable `priority`; a lower
+  tier is a fallback the host reaches on its own. The status page groups seats
+  by tier and warns while the pick sees a single candidate.
 - **The plugin owns affinity for what it routes.** The host asks the plugin
   before its own selector, and a plugin that answers `Handled: true` skips
   that selector, `SessionAffinitySelector` included, so
@@ -86,14 +88,14 @@ the run. Do not remove that test.
 - **Resource routes are served to anyone who can reach the host's port**, with
   no key and no loopback check, so the resource route carries the static page
   and nothing else. The page's data is the `page-status` management route,
-  which needs the key and, unless `remote-management.allow-remote` is set, a
-  loopback client. For a plugin declaring a schema below 6 the host
-  HTML-escapes every string in a management JSON body, and the page restores
-  the text once; raising it to 6 or above ends the escaping, and the page's
-  decode goes with it. The host bans a client address, loopback included, for
-  30 minutes after five failed key checks, a request with no key among them,
-  so the page never sends a request without a key and stops at the first
-  refusal.
+  which needs the key and, unless `management.allow-remote`
+  (`remote-management.allow-remote` before host 8.0) is set, a loopback
+  client. For a plugin declaring a schema below 6 the host HTML-escapes every
+  string in a management JSON body, and the page restores the text once;
+  raising it to 6 or above ends the escaping, and the page's decode goes with
+  it. The host bans a client address, loopback included, for 30 minutes after
+  five failed key checks, a request with no key among them, so the page never
+  sends a request without a key and stops at the first refusal.
 
 ## Wire format
 

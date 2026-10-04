@@ -174,10 +174,12 @@ func hostStatus(entry HostAuthFileEntry) string {
 // rest sit on a lower tier, or the rest are unavailable. A pool the plugin
 // cannot see claims no cause at all.
 //
-// The tier case names the seats: a lone top tier is a fallback layout the
-// host honours on its own, and it is also the one layout under which this
-// plugin has nothing to spread across, so the warning says what the host is
-// doing and what one priority value would change.
+// The tier case names the seats: a seat alone on the top tier is a fallback
+// layout the host honours on its own, and it is also the one layout under
+// which this plugin has nothing to spread across, so the warning says what
+// the host is doing and what a shared priority would change. When the top
+// tier holds several seats, the host has lost all but one of them, or all of
+// them and fallen to a lower tier.
 func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 	tiers := make(map[int][]string, len(rows))
 	pool, top := 0, 0
@@ -196,6 +198,8 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 		return fmt.Sprintf("provider %s offered a single candidate; the host filters candidates before the plugin sees them, so the rest are unavailable or on a lower priority tier", provider)
 	case pool == 1:
 		return fmt.Sprintf("provider %s offered a single candidate, which is the only credential in the pool", provider)
+	case len(tiers) > 1 && len(tiers[top]) > 1:
+		return fmt.Sprintf("provider %s offered a single candidate; some or all of the credentials on the top priority tier are unavailable to the host or already rejected upstream", provider)
 	case len(tiers) > 1:
 		lower := make([]string, 0, pool-len(tiers[top]))
 		for prio, ids := range tiers {
@@ -205,7 +209,7 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 		}
 		slices.Sort(lower)
 		return fmt.Sprintf("provider %s: the host offers only %s (priority %d); the fallback tier (%s) takes no new conversation until the top tier runs out. "+
-			"One priority value across the pool lets this plugin spread new conversations by pace instead",
+			"Give the seats you want paced together the same priority to spread new conversations across them by pace",
 			provider, strings.Join(tiers[top], ", "), top, strings.Join(lower, ", "))
 	default:
 		return fmt.Sprintf("provider %s offered a single candidate; the pool shares one priority tier, so the rest are unavailable to the host or already rejected upstream", provider)
