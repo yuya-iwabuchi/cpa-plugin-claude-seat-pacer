@@ -161,8 +161,8 @@ func TestHistoryCoarsensAndCaps(t *testing.T) {
 	if coarse == 0 {
 		t.Error("no coarse samples")
 	}
-	if got := r.export(model.WindowWeekly, "", HistoryPublishMax, testNow).Samples(); got > HistoryPublishMax+1 {
-		t.Errorf("published samples = %d, want at most %d plus the cycle's last", got, HistoryPublishMax)
+	if got := r.export(model.WindowWeekly, "", HistoryPublishMax, testNow).Samples(); got > HistoryPublishMax {
+		t.Errorf("published samples = %d, want at most %d", got, HistoryPublishMax)
 	}
 }
 
@@ -943,4 +943,87 @@ func TestAStoredResetFlapReplaysAsOneRoll(t *testing.T) {
 	r := &ring{}
 	r.replay(h, testNow)
 	wantOneRoll(t, r.export(h.Kind, h.Scope, 0, testNow), 2)
+}
+
+// TestPublishedHistoryKeepsTheNewestCycle covers a 5-hour ring of two months of
+// short cycles: it publishes within the bound, its newest cycle whole.
+func TestPublishedHistoryKeepsTheNewestCycle(t *testing.T) {
+	r := &ring{}
+	at := testNow
+	for c := range 300 {
+		cycle := model.Cycle{ResetsAt: at.Add(5 * time.Hour)}
+		for i := range 6 {
+			cycle.Samples = append(cycle.Samples, model.Sample{At: at.Add(time.Duration(i) * 40 * time.Minute), Utilization: float64(i+c%3) / 10})
+		}
+		r.cycles = append(r.cycles, cycle)
+		at = at.Add(5 * time.Hour)
+	}
+	cur := model.Cycle{ResetsAt: at.Add(5 * time.Hour)}
+	for i := range 91 {
+		cur.Samples = append(cur.Samples, model.Sample{At: at.Add(time.Duration(i) * 2 * time.Minute), Utilization: float64(i) / 100})
+	}
+	r.cycles = append(r.cycles, cur)
+
+	pub := r.export(model.WindowSession, "", HistoryPublishMax, testNow)
+	if got := pub.Samples(); got > HistoryPublishMax {
+		t.Fatalf("published samples = %d, want at most %d", got, HistoryPublishMax)
+	}
+	if got := pub.Cycles[len(pub.Cycles)-1].Samples; !reflect.DeepEqual(got, cur.Samples) {
+		t.Errorf("newest cycle published %d of its %d samples", len(got), len(cur.Samples))
+	}
+}
+
+// TestThinKeepsEachStepsLevel holds every publish step to its promise: each
+// step's last level in a cycle is the one recorded, so a total over any span
+// made of whole steps matches the unthinned cycle's.
+func TestThinKeepsEachStepsLevel(t *testing.T) {
+	var samples []model.Sample
+	for i := range 3000 {
+		samples = append(samples, model.Sample{At: testNow.Add(time.Duration(i*7) * time.Minute), Utilization: float64(i) / 3000})
+	}
+	lastByStep := func(s []model.Sample, step time.Duration) map[int64]float64 {
+		out := map[int64]float64{}
+		for _, x := range s {
+			out[x.At.Truncate(step).Unix()] = x.Utilization
+		}
+		return out
+	}
+	for _, step := range publishSteps[1:] {
+		kept := thin(samples, step)
+		if len(kept) != keptCount([]model.Cycle{{Samples: samples}}, step) {
+			t.Errorf("step %v: thin kept %d, keptCount says otherwise", step, len(kept))
+		}
+		if !reflect.DeepEqual(lastByStep(kept, step), lastByStep(samples, step)) {
+			t.Errorf("step %v: a step's last level differs from the recorded one", step)
+		}
+		if kept[0] != samples[0] || kept[len(kept)-1] != samples[len(samples)-1] {
+			t.Errorf("step %v: first or last sample dropped", step)
+		}
+	}
+}
+
+// TestPublishedHistoryKeepsTheNewestCycleAtQuarterHours covers a 5-hour ring
+// whose older cycles exceed the bound even at the coarsest step: the newest
+// cycle still publishes at 15 minutes.
+func TestPublishedHistoryKeepsTheNewestCycleAtQuarterHours(t *testing.T) {
+	r := &ring{}
+	at := testNow
+	for range 420 {
+		cycle := model.Cycle{ResetsAt: at.Add(5 * time.Hour)}
+		for i := range 5 {
+			cycle.Samples = append(cycle.Samples, model.Sample{At: at.Add(time.Duration(i) * 50 * time.Minute), Utilization: float64(i+1) / 10})
+		}
+		r.cycles = append(r.cycles, cycle)
+		at = at.Add(5 * time.Hour)
+	}
+	cur := model.Cycle{ResetsAt: at.Add(5 * time.Hour)}
+	for i := range 40 {
+		cur.Samples = append(cur.Samples, model.Sample{At: at.Add(time.Duration(i) * 3 * time.Minute), Utilization: float64(i) / 100})
+	}
+	r.cycles = append(r.cycles, cur)
+
+	pub := r.export(model.WindowSession, "", HistoryPublishMax, testNow)
+	if got, want := pub.Cycles[len(pub.Cycles)-1].Samples, thin(cur.Samples, 15*time.Minute); !reflect.DeepEqual(got, want) {
+		t.Errorf("newest cycle published %d samples, want its %d at 15 minutes", len(got), len(want))
+	}
 }

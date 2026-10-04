@@ -34,8 +34,8 @@ AGENTS.md says why.
 network: the usage client sends every request through an injected Doer, which
 tests stub. The two tests that drive a real CLIProxyAPI process skip unless
 `CPA_SOURCE_DIR` names a host checkout; `internal/runtime/WIRE.md` carries the
-invocation. The test that parses the status page's script skips where `node` is
-not installed.
+invocation. The tests that parse the status page's script and run its date and
+quota arithmetic skip where `node` is not installed.
 
 `go run ./cmd/webdev` serves the status page on `127.0.0.1:8377` from fixture
 seats, with `-scenario` choosing the pool it shows, so a page change can be

@@ -27,6 +27,7 @@
   --track:        #e6e5df;
   --track-edge:   #4f4e4a;
   --emph:         rgba(42,120,214,.07);
+  --refused:      rgba(140,138,130,.55);
 
   /* The four tones a chip can take carry the non-colour encoding — glyph, bar
      fill, meter fill — so each clears 3:1 against both the card and the
@@ -81,6 +82,7 @@
     --track-edge: #999892;
     --critical:   #e05050;
     --emph:       rgba(57,135,229,.12);
+    --refused:    rgba(58,58,58,.6);
     --good:       #0ca30c;
     --serious:    #ec835a;
     --info:       #3987e5;
@@ -116,6 +118,7 @@
   --track:      #2c2c2a;
   --track-edge: #999892;
   --emph:       rgba(57,135,229,.12);
+  --refused:    rgba(58,58,58,.6);
   --critical:   #e05050;
   --good:       #0ca30c;
   --serious:    #ec835a;
@@ -392,7 +395,7 @@ section { margin-top: 24px; border-radius: 12px; }
    one rule composes every combination and a shade fades in and out rather
    than switching. The slots carry no specificity, so an edge's token always
    fills its slot. */
-:where(#timeline, .pace-card, #pace-rank, #session-rank, #hist-rank, .tbl-card, .dec-body, .log) {
+:where(#timeline, .pace-card, .side-list, .tbl-card, .dec-body, .log) {
   --cut-up: inset 0 0 0 0 transparent; --cut-down: inset 0 0 0 0 transparent;
   --cut-left: inset 0 0 0 0 transparent; --cut-right: inset 0 0 0 0 transparent;
   box-shadow: var(--cut-up), var(--cut-down), var(--cut-left), var(--cut-right);
@@ -421,7 +424,7 @@ section { margin-top: 24px; border-radius: 12px; }
    so a row there scrolls clear of both. */
 .rank-list:has(> .rank-tier) .rank-row, .rank-list:has(> .rank-tier) .rank-row * { scroll-margin-top: 48px; }
 @media (prefers-reduced-motion: no-preference) {
-  :where(#timeline, .pace-card, #pace-rank, #session-rank, #hist-rank, .tbl-card, .dec-body, .log), .pace-rank::after { transition: box-shadow .2s ease-out; }
+  :where(#timeline, .pace-card, .side-list, .tbl-card, .dec-body, .log), .pace-rank::after { transition: box-shadow .2s ease-out; }
   .pin::after { transition: opacity .2s ease-out; }
 }
 
@@ -624,13 +627,14 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    no row shows above it. Under the plot the list scrolls inside the height
    the binding table keeps, and stays positioned so the visually hidden text
    in its rows is clipped with them. The inset leaves a focused row's ring
-   inside the scroller's clip. */
+   inside the scroller's clip. A row takes the column's width and never
+   sets it, so the list scrolls only downward. */
 .pace-rank { position: relative; align-self: stretch; min-width: 0; }
-.pace-rank > :is(#pace-rank, #session-rank, #hist-rank) { position: absolute; inset: 0; overflow-y: auto; padding: 2px; }
+.side-list { position: absolute; inset: 0; overflow-y: auto; padding: 2px; }
 /* A family head scrolling in at the bottom is opaque and would cover the
    box's shade there, so the list's bottom shade is an overlay above its
    rows. */
-.pace-rank > :is(#pace-rank, #session-rank, #hist-rank)[data-more~="down"] { --cut-down: inset 0 0 0 0 transparent; }
+.side-list[data-more~="down"] { --cut-down: inset 0 0 0 0 transparent; }
 .pace-rank::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 40px; z-index: 4;
   pointer-events: none; border-radius: 0 0 6px 6px; box-shadow: inset 0 0 0 0 transparent;
@@ -638,7 +642,7 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 .pace-rank:has(> [data-more~="down"])::after { box-shadow: inset 0 -32px 24px -24px var(--scroll-cut); }
 @media (max-width: 1000px) {
   .pace-body { grid-template-columns: minmax(0, 1fr); }
-  .pace-rank > :is(#pace-rank, #session-rank, #hist-rank) { position: relative; max-height: 380px; }
+  .side-list { position: relative; max-height: 380px; }
   .pace-rank > #pace-rank { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px; }
   .pace-rank > #pace-rank > .rank-fam + .rank-fam { margin-top: 0; }
 }
@@ -760,10 +764,13 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 /* A seat's outlook sits at body size beside the chart: the seat and its use
    now on one line, a hairline meter, and two short lines under them. Only a
    refusal, or a seat headed for its 5-hour limit, takes a colour. */
-.ol-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 1px; }
+.ol-list { margin: 0; padding: 0; list-style: none; }
+.ol-row + .ol-row { margin-top: 1px; }
 .ol-row { padding: 5px 8px 6px; border-radius: 6px; font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
-.ol-row:hover { background: var(--emph); }
-.ol-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ol-row:hover, .ol-row[data-focused] { background: var(--emph); }
+/* The name's track is minmax(0, 1fr), as on a rank row, so a long name
+   clips to its tooltip whatever lays out the rows around it. */
+.ol-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px; }
 .ol-head .seat-mark { font-weight: 600; font-size: 12px; color: var(--ink-1); }
 .ol-head .ol-now { font: 600 12px/1 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; }
 .ol-meter { position: relative; height: 3px; margin: 5px 0 4px; border-radius: 2px; background: var(--track); }
@@ -771,6 +778,27 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 .ol-meter .ol-fill { left: 0; border-radius: 2px; }
 .ol-meter .ol-proj { opacity: .35; }
 .ol-meter .ol-pace { top: -2px; bottom: -2px; width: 1.5px; margin-left: -.75px; background: var(--ink-2); }
+/* The stacked form's balance: what the pool has left, large, against what
+   it holds, then the schedule of what comes back: seat and time, then
+   amount and what the pool then has. */
+.bal { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px 10px; border-bottom: 1px solid var(--rule); }
+.bal-fig { font: 650 28px/1 var(--sans); color: var(--ink-1); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.bal-fig[data-tone="serious"] { color: var(--serious); }
+.bal-fig[data-tone="critical"] { color: var(--critical); }
+.bal-of { font: 500 12px/1.3 var(--sans); color: var(--ink-2); }
+.bal-off { margin: 6px 8px; font: 500 11.5px/1.4 var(--sans); color: var(--critical); }
+.bal-none { margin: 8px; font: 400 11.5px/1.4 var(--sans); color: var(--ink-3); }
+.bal-list { margin: 6px 0 0; padding: 0; list-style: none; }
+.bal-row { font: 400 12px/1.45 var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bal-row + .bal-row { margin-top: 1px; }
+/* A long seat name keeps its line and moves "resets in" under it, indented
+   past the seat's dot. */
+.bal-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 5px; min-width: 0; padding-left: 15px; }
+.bal-who .seat-mark { flex: 0 1 auto; margin-left: -15px; font-weight: 600; color: var(--ink-1); }
+.bal-when { flex: none; white-space: nowrap; }
+.bal-gain { padding-left: 15px; }
+.bal-gain b { font-weight: 650; color: var(--ink-1); }
+.bal-next .bal-who time { color: var(--ink-1); font-weight: 650; }
 .ol-line.ol-critical { color: var(--critical); }
 .ol-line.ol-serious { color: var(--serious); }
 .ol-line.ol-muted { color: var(--ink-3); }
@@ -783,6 +811,32 @@ svg.hist-tl path.hs-reset { fill: none; stroke-width: 1; stroke-dasharray: 1 3; 
 svg.hist-tl rect.hs-weekend, svg.tl rect.hs-weekend { fill: var(--ink-3); opacity: .09; }
 svg.hist-tl path.hs-target.hs-past { opacity: .28; }
 svg.hist-tl rect.hs-future { fill: var(--emph); }
+/* The stacked form: each seat's level on the ones before it, faint ahead
+   of now where it is only held until its reset, under the step of what the
+   pool holds, one window per seat on the roster. */
+svg.hist-tl path.hs-stack { stroke: none; opacity: .45; }
+svg.hist-tl path.hs-stack.hs-proj { opacity: .16; }
+svg.hist-tl path.hs-refused { fill: var(--refused); stroke: none; }
+svg.hist-tl path.hs-edge { fill: none; stroke-width: 1.5; stroke-linejoin: round; pointer-events: none; }
+svg.hist-tl path.hs-edge.hs-proj { stroke-dasharray: 4 3; opacity: .55; }
+svg.hist-tl path.hs-cap { fill: none; stroke: var(--ink-1); stroke-width: 1.5; opacity: .75; pointer-events: none; }
+svg.hist-tl rect.hs-hit { fill: transparent; }
+svg.hist-tl line.hs-cursor { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 2 2; pointer-events: none; }
+/* A weekly window's use per day or week, a bracket over the plot spanning
+   each, with the pool's total; stacked, each seat's share sits in its band. */
+svg.hist-tl path.rg-bracket { fill: none; stroke: var(--ink-3); stroke-width: 1; }
+svg.hist-tl g.rg-col rect.rg-hit { fill: transparent; }
+svg.hist-tl g.rg-col:hover rect.rg-hit { fill: var(--emph); }
+svg.hist-tl g.rg-col:hover path.rg-bracket { stroke: var(--ink-1); }
+svg.hist-tl g.rg-col:focus-visible { outline: none; }
+svg.hist-tl g.rg-col:focus-visible rect.rg-hit { fill: var(--emph); stroke: var(--focus); stroke-width: 2; }
+svg.hist-tl text.rg-total { fill: var(--ink-1); font-weight: 650; font-variant-numeric: tabular-nums; }
+svg.hist-tl text.rg-total.rg-part { fill: var(--ink-3); font-weight: 500; }
+svg.hist-tl text.rg-seat { pointer-events: none; fill: var(--ink-1); opacity: .78; font-weight: 600; font-variant-numeric: tabular-nums; }
+svg.hist-tl g.rs-mark circle { fill: var(--surface-1); stroke-width: 1.5; }
+svg.hist-tl g.rs-mark path.rs-arc { fill: none; stroke-width: 1.4; stroke-linecap: round; }
+svg.hist-tl g.rs-mark.rs-ahead { opacity: .6; }
+svg.hist-tl g.rs-mark:hover circle { stroke-width: 2.5; }
 
 /* -------------------------------------------------------------- decisions */
 /* About eight rows at default density, then the log scrolls inside its card;
@@ -970,6 +1024,19 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip .tip-arrow { color: var(--ink-3); font-weight: 400; margin: 0 5px; }
 #tooltip .tip-delta { margin-left: 9px; font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
 #tooltip .tip-line { margin-top: 5px; }
+/* A per-seat breakdown: dot, name, a muted note, the figure; the row of the
+   seat the pointer is on is lifted. */
+#tooltip .tip-rows { margin: 8px -4px 0; }
+#tooltip .tip-row + .tip-row { margin-top: 1px; }
+#tooltip .tip-row {
+  display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 7px;
+  padding: 2px 4px; border-radius: 4px; font-size: 11.5px;
+}
+#tooltip .tip-row[data-on] { background: var(--emph); color: var(--ink-1); font-weight: 600; }
+#tooltip .tip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tooltip .tip-note { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+#tooltip .tip-note[data-tone="critical"] { color: var(--critical); }
+#tooltip .tip-val { font: 600 11.5px/1.3 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; text-align: right; min-width: 4ch; }
 #tooltip .tip-line b { color: var(--ink-1); font-weight: 600; margin-right: 5px; }
 #tooltip .tip-alert { color: var(--critical); font-weight: 600; margin-left: 5px; }
 
@@ -987,6 +1054,8 @@ th[aria-sort] button { color: var(--ink-1); }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+/* A relative time names its exact instant on hover. */
+time[data-ts] { cursor: help; }
 /* Text a bounded column cuts to one line. The ellipsis says it is cut, and
    markClipped measures the cut and hangs the tooltip that carries the rest,
    so the two always arrive together. */
@@ -1167,7 +1236,7 @@ th[aria-sort] button { color: var(--ink-1); }
           <!-- The ranking the plot's gaps produce, beside the plot: one list
                per request family with every seat in cost order. -->
           <div class="pace-rank">
-            <div id="pace-rank"></div>
+            <div id="pace-rank" class="side-list"></div>
           </div>
         </div>
         <ul class="legend" id="pace-legend" aria-label="Legend"></ul>
@@ -1193,7 +1262,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <div class="pace-body">
           <div id="session-chart"></div>
           <div class="pace-rank">
-            <div id="session-rank"></div>
+            <div id="session-rank" class="side-list"></div>
           </div>
         </div>
         <ul class="legend" id="session-legend" aria-label="Legend"></ul>
@@ -1211,12 +1280,13 @@ th[aria-sort] button { color: var(--ink-1); }
         <a class="skip" href="#sec-bindings">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Over time</h2>
-        <span class="sec-sub" id="hist-sub">each seat's use of one window, across recorded cycles</span>
+        <span class="sec-sub" id="hist-sub">one window across recorded cycles, per seat or stacked into the pool</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
         <div class="hist-tools">
           <div class="pace-view" id="hist-view" role="group" aria-label="Window shown"></div>
+          <div class="pace-view" id="hist-form" role="group" aria-label="Drawn as"></div>
           <div class="pace-view" id="hist-span" role="group" aria-label="Span shown"></div>
           <button type="button" id="hist-live" hidden>Back to now</button>
           <span class="hist-range" id="hist-range"></span>
@@ -1224,7 +1294,7 @@ th[aria-sort] button { color: var(--ink-1); }
         <div class="pace-body">
           <div id="hist-chart"></div>
           <div class="pace-rank">
-            <div id="hist-rank"></div>
+            <div id="hist-rank" class="side-list"></div>
           </div>
         </div>
         <ul class="legend" id="hist-legend" aria-label="Plot marks"></ul>
@@ -1493,7 +1563,8 @@ th[aria-sort] button { color: var(--ink-1); }
 
   var STAMP_MODES = { rel: relText, reset: resetText, up: upText, sync: syncText };
 
-  /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts]. */
+  /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts].
+     Its tooltip names the exact instant. */
   function stamp(d, cls, mode) {
     var e = h("time", cls || "");
     if (!d) { e.textContent = "—"; return e; }
@@ -1501,7 +1572,7 @@ th[aria-sort] button { color: var(--ink-1); }
     e.dateTime = d.toISOString();
     e.setAttribute("data-ts", String(d.getTime()));
     if (mode) e.setAttribute("data-ts-mode", mode);
-    e.title = absTime(d);
+    e.setAttribute("data-tip", absTime(d));
     e.textContent = fmt(d, nowMs());
     return e;
   }
@@ -1908,9 +1979,9 @@ th[aria-sort] button { color: var(--ink-1); }
   /* A seat the host has disabled is hidden as well: the host never offers it
      and the plugin never reads it, so its row would hold nothing to act on.
      Showing every seat draws disabled seats until the page reloads, those the
-     host disables afterwards included, and is never saved the way a seat the
-     reader hid is. A disabled seat returns on its own once the host enables
-     it again. */
+     host disables afterwards included, everywhere but Over time, and is never
+     saved the way a seat the reader hid is. A disabled seat returns on its
+     own once the host enables it again. */
   var revealDisabled = false;
 
   function hostDisabled(a) { return (a.host_status || "") === "disabled"; }
@@ -2833,7 +2904,7 @@ th[aria-sort] button { color: var(--ink-1); }
       new Date(t1).toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
       ", one gridline per day, dated every " + (perLabel === 1 ? "day" : perLabel + " days"));
     weekendBands(gGrid, t0, t1, X, 0, plotH);
-    for (var d = day.getTime(), di = 0; d <= t1; d = midnightAfter(d), di++) {
+    for (var d = day.getTime(), di = 0; d <= t1; d = bucketAfter(d, "day"), di++) {
       var gx = X(d);
       svg("line", { x1: gx, x2: gx, y1: 0, y2: plotH, stroke: "var(--rule)", "stroke-width": 1 }, gGrid);
       if (di % perLabel) continue;
@@ -3576,6 +3647,8 @@ th[aria-sort] button { color: var(--ink-1); }
   var SW_LOCK = "height:4px;border-radius:2px;opacity:.8;" +
     "background:repeating-linear-gradient(133deg, var(--critical) 0 3.28px, #161616 3.28px 4.38px)";
   var LOCK_KEY = "refused";
+  var SW_SHADE = "height:10px;width:14px;border-radius:2px;background:linear-gradient(var(--refused),var(--refused)),var(--ink-3)";
+  var POOL_KEY = "under the axis: every seat refused";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
   var CURVE_KEY = "curve (window weighs nothing)";
@@ -3650,11 +3723,14 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* ------------------------------------------- line sections and tooltips */
 
-  /* An instant as a section reads it: with its weekday, or as a clock alone
-     where ref, the section's start, falls on the same day. */
+  /* An instant as a section reads it: with its weekday, as a clock alone
+     where ref, the section's start, falls on the same day, and with its date
+     where ref is six days or more away, so its weekday could be ref's. */
   function spanClock(ms, ref) {
     if (ref && new Date(ms).toDateString() === new Date(ref).toDateString()) return clockText(ms);
-    return new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+    var far = ref && Math.abs(ms - ref) >= 6 * H_DAY;
+    return new Date(ms).toLocaleString(undefined, far ? { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
+      : { weekday: "short", hour: "numeric", minute: "2-digit" });
   }
 
   /* The lock spans bearing on a mark whose window runs start to end, in ms:
@@ -3685,6 +3761,13 @@ th[aria-sort] button { color: var(--ink-1); }
       });
     });
     return out;
+  }
+
+  /* The stretches from start to end, up to now, in which the provider
+     refused seat a on ws's window or one bearing on it, as merged [start,
+     end] pairs. */
+  function refusedSpans(a, ws, start, end, now) {
+    return mergeSpans(lockSpans(a, ws, start, end, now).drawn.map(function (sp) { return [sp.t0, sp.t1]; }));
   }
 
   /* The drawn line as a time-ordered polyline of {t, u} vertices from the
@@ -3731,6 +3814,19 @@ th[aria-sort] button { color: var(--ink-1); }
     svg("rect", { "class": "tape-red", width: tw, height: hh }, pat);
     svg("path", { "class": "tape-black", d: "M0.75 4L4.5 0H6L2.25 4Z" }, pat);
     svg("rect", { "class": "lock-tape", x: x0, y: top, width: w, height: hh, rx: hh / 2, fill: "url(#" + id + ")" }, parent);
+  }
+
+  /* Draws each pool-wide refusal between t0 and t1 as tape at y, cut to the
+     plot's x0 to x1, with its stretch in the tooltip. */
+  function poolTape(parent, spans, t0, t1, xOf, y, x0, x1) {
+    spans.forEach(function (sp) {
+      if (sp[1] <= t0 || sp[0] >= t1) return;
+      var a = clamp(xOf(Math.max(sp[0], t0)), x0, x1), b = clamp(xOf(Math.min(sp[1], t1)), x0, x1);
+      var g = svg("g", {}, parent);
+      g.setAttribute("data-tip", "every seat refused\n" + absTime(new Date(sp[0])) + " – " + absTime(new Date(sp[1])) +
+        " (" + durText(Math.round((sp[1] - sp[0]) / 1000)) + ")");
+      tapeRun(g, a, b, y);
+    });
   }
 
   /* Draws spans as tape along the flat runs of a seat's line, in parent,
@@ -3980,6 +4076,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var out = [spec.seat + (spec.win ? " · " + spec.win : ""),
       spec.label + (spec.when ? " · " + spec.when : "") + (spec.dur ? " (" + spec.dur + ")" : "")];
     if (spec.big) out.push(spec.big.join(" → ") + (spec.delta ? " · " + spec.delta : ""));
+    (spec.rows || []).forEach(function (r) { out.push(r.name + " " + r.value + (r.note ? " · " + r.note : "")); });
     spec.lines.forEach(function (l) { out.push((l.b ? l.b + ": " : "") + l.t + (l.alert ? " · " + l.alert : "")); });
     return out.join("\n");
   }
@@ -3993,7 +4090,7 @@ th[aria-sort] button { color: var(--ink-1); }
     function row(cls) { var e = h("div", cls); rows.push(e); return e; }
     function put(parent, tag, cls, text) { return parent.appendChild(h(tag, cls, text)); }
     var top = row("tip-head");
-    put(top, "span", "tip-dot").style.background = spec.col;
+    if (spec.col) put(top, "span", "tip-dot").style.background = spec.col;
     put(top, "span", "tip-seat", spec.seat);
     put(top, "span", "tip-win", spec.win);
     var tag = row("tip-tag");
@@ -4009,6 +4106,18 @@ th[aria-sort] button { color: var(--ink-1); }
         put(big, "span", "", v);
       });
       if (spec.delta) put(big, "span", "tip-delta", spec.delta);
+    }
+    if (spec.rows && spec.rows.length) {
+      var table = row("tip-rows");
+      spec.rows.forEach(function (r) {
+        var tr = put(table, "div", "tip-row", null);
+        if (r.on) tr.setAttribute("data-on", "true");
+        put(tr, "span", "tip-dot").style.background = r.col;
+        put(tr, "span", "tip-name", r.name);
+        var note = put(tr, "span", "tip-note", r.note || "");
+        if (r.tone) note.setAttribute("data-tone", r.tone);
+        put(tr, "span", "tip-val", r.value);
+      });
     }
     spec.lines.forEach(function (l) {
       var line = row("tip-line");
@@ -4105,6 +4214,18 @@ th[aria-sort] button { color: var(--ink-1); }
      is refusing now. */
   function liveRing(g, cx, cy) {
     svg("circle", { cx: cx, cy: cy, r: PT_R - 1.65, fill: "none", stroke: "var(--critical)", "stroke-width": 1.3 }, g);
+  }
+
+  /* The stacked form's gridlines: a labelled line every half window up to
+     four and a half seats' worth, every window past that, and a faint one
+     between. */
+  function stackGrid(root, m, pw, Y, maxY) {
+    var step = maxY > 4.5 ? 1 : 0.5;
+    for (var v = 0; v <= maxY + 1e-9; v += step / 2) {
+      var major = Math.abs(v / step - Math.round(v / step)) < 1e-9;
+      svg("line", { x1: m.l, x2: m.l + pw, y1: Y(v), y2: Y(v), stroke: "var(--rule)", "stroke-width": 1, opacity: major ? 1 : .45 }, root);
+      if (major) svgText(root, m.l - 8, Y(v) + 3.5, pct(v, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+    }
   }
 
   /* The utilization gridlines both charts share: a labelled line every 20%,
@@ -4327,17 +4448,12 @@ th[aria-sort] button { color: var(--ink-1); }
     host.textContent = "";
     host.hidden = !capDrawn;
     if (!capDrawn) return;
-    [PACE_ALL, STANDARD].concat(fams).forEach(function (key) {
-      var b = h("button", "", key === PACE_ALL ? (fams.length > 1 ? "All" : "Both") : rankLabel(key));
-      b.type = "button";
-      b.setAttribute("aria-pressed", key === view ? "true" : "false");
-      b.setAttribute("data-fk", "view:" + key);
-      b.addEventListener("click", function () {
-        paceView = key;
-        savePaceView();
-        render();
-      });
-      host.appendChild(b);
+    switchBar(host, [PACE_ALL, STANDARD].concat(fams).map(function (key) {
+      return [key, key === PACE_ALL ? (fams.length > 1 ? "All" : "Both") : rankLabel(key)];
+    }), view, "view:", function (key) {
+      paceView = key;
+      savePaceView();
+      render();
     });
   }
 
@@ -4352,6 +4468,10 @@ th[aria-sort] button { color: var(--ink-1); }
       if (id && pts[i].getAttribute("data-seat") === id) pts[i].setAttribute("data-focused", "true");
       else pts[i].removeAttribute("data-focused");
     }
+    /* The seat list beside the chart marks the same seat's row. */
+    var body = root.closest ? root.closest(".pace-body") : null;
+    var rows = body ? body.querySelectorAll(".ol-row[data-seat]") : [];
+    for (var j = 0; j < rows.length; j++) rows[j].toggleAttribute("data-focused", !!id && rows[j].getAttribute("data-seat") === id);
   }
 
   /* The seat an element on the chart root belongs to, or null for one
@@ -5025,9 +5145,16 @@ th[aria-sort] button { color: var(--ink-1); }
   var histView = "seven_day";
   function loadHistView() { histView = loadPref(HIST_VIEW_KEY) || histView; }
   function saveHistView() { savePref(HIST_VIEW_KEY, histView); }
+  /* How the plot draws the seats: each its own line, or stacked into the
+     pool's total against what the pool holds. */
+  var HIST_FORM_KEY = "pacer-hist-form";
+  var histForm = "lines";
+  function loadHistForm() { histForm = loadPref(HIST_FORM_KEY) === "stacked" ? "stacked" : "lines"; }
+  function saveHistForm() { savePref(HIST_FORM_KEY, histForm); }
 
   /* The span each view shows and the instant it ends, kept across refreshes;
-     a span of Infinity is the whole history, and an end of null follows now. */
+     a span of Infinity is the whole history, and an end of null follows now:
+     by ahead past it where ahead is set, else by the lead liveEnd gives. */
   var histRange = {};
   /* What the last draw left for the pointer and key handlers: the plot's and
      the strip's boxes and time mappings, the range shown, and what moves it:
@@ -5039,10 +5166,27 @@ th[aria-sort] button { color: var(--ink-1); }
   /* A Monday, so ticks a week apart land on Mondays. */
   var H_WEEK0 = new Date(2024, 0, 1).getTime();
 
+  /* Each span the plot offers, and its lead past now. */
   function histPresets(weekly) {
     return weekly
-      ? [["3d", 3 * H_DAY], ["7d", 7 * H_DAY], ["14d", 14 * H_DAY], ["30d", 30 * H_DAY], ["All", Infinity]]
-      : [["6h", 6 * H_HOUR], ["12h", 12 * H_HOUR], ["1d", H_DAY], ["3d", 3 * H_DAY], ["All", Infinity]];
+      ? [["1d", H_DAY, 2 * H_HOUR], ["3d", 3 * H_DAY, 6 * H_HOUR], ["7d", 7 * H_DAY, 12 * H_HOUR],
+        ["14d", 14 * H_DAY, H_DAY], ["30d", 30 * H_DAY, 2 * H_DAY], ["All", Infinity]]
+      : [["6h", 6 * H_HOUR, H_HOUR / 2], ["12h", 12 * H_HOUR, H_HOUR], ["1d", H_DAY, 2 * H_HOUR],
+        ["3d", 3 * H_DAY, 6 * H_HOUR], ["7d", 7 * H_DAY, 12 * H_HOUR], ["All", Infinity]];
+  }
+
+  /* A span's lead past now: a preset's own at its span, interpolated
+     between presets, held beyond the first and the last, and never past half
+     the span. */
+  function histAhead(presets, span) {
+    var p = presets.filter(function (q) { return q[1] !== Infinity; });
+    var ahead = p[p.length - 1][2];
+    for (var i = 0; i < p.length; i++) {
+      if (span > p[i][1]) continue;
+      ahead = i ? p[i - 1][2] + (p[i][2] - p[i - 1][2]) * (span - p[i - 1][1]) / (p[i][1] - p[i - 1][1]) : p[0][2];
+      break;
+    }
+    return Math.min(ahead, span / 2);
   }
 
   /* Maps a window's elapsed fraction to x on a calendar axis, so curvePath
@@ -5051,15 +5195,13 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Saturdays and Sundays from t0 to t1, shaded from y down hgt. */
   function weekendBands(parent, t0, t1, X, y, hgt) {
-    for (var wd = new Date(t0).setHours(0, 0, 0, 0); wd < t1; wd = midnightAfter(wd)) {
+    for (var wd = bucketStart(t0, "day"); wd < t1; wd = bucketAfter(wd, "day")) {
       var dow = new Date(wd).getDay();
       if (dow !== 0 && dow !== 6) continue;
-      var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(midnightAfter(wd), t1));
+      var wx0 = X(Math.max(wd, t0)), wx1 = X(Math.min(bucketAfter(wd, "day"), t1));
       svg("rect", { "class": "hs-weekend", x: wx0, y: y, width: Math.max(0, wx1 - wx0), height: hgt }, parent);
     }
   }
-
-  function midnightAfter(d) { return new Date(d + 1.5 * H_DAY).setHours(0, 0, 0, 0); }
 
   function windowOf(a, kind, scope) {
     var list = (a && a.snapshot && a.snapshot.windows) || [];
@@ -5067,6 +5209,224 @@ th[aria-sort] button { color: var(--ink-1); }
       if (list[i].kind === kind && (list[i].scope || "") === (scope || "")) return list[i];
     }
     return null;
+  }
+
+  /* Seat a's use of the window a view names, read from its recorded
+     history: {a, col, dur, wins, cur, resets, first, rises}. Its cycles fall
+     into windows, one per reset: consecutive cycles whose resets agree
+     within RESET_TOLERANCE_MS are one window the provider cleared early and
+     ran on. A cycle that opens past its reset is the next window, still
+     stamped with the old instant, and takes the reset of the cycle after it.
+     first is its first reading on record, from which it counts as in the
+     pool, and rises every climb of its line, as seatRises lists them. */
+  function seatUse(a, view, now) {
+    var w = windowOf(a, view.kind, view.scope);
+    var hist = historyFor(a, view.kind, view.scope);
+    var dur = w && num(w.duration) && w.duration > 0 ? w.duration / 1e6 : (view.weekly ? PACE_DAYS * H_DAY : SESSION_MS);
+    var wins = [];
+    ((hist && hist.cycles) || []).forEach(function (c) {
+      var r = parseT(c.resets_at), at = r ? r.getTime() : null, last = wins[wins.length - 1];
+      var s0 = c.samples && c.samples[0];
+      if (at !== null && s0 && num(s0[0]) && s0[0] * 1000 > at + RESET_TOLERANCE_MS) {
+        wins.push({ at: null, stale: true, cycles: [c] });
+      } else if (last && last.stale && at !== null) {
+        last.cycles.push(c);
+        last.at = at;
+        last.stale = false;
+      } else if (last && last.at !== null && at !== null && Math.abs(last.at - at) <= RESET_TOLERANCE_MS) {
+        last.cycles.push(c);
+      } else {
+        wins.push({ at: at, cycles: [c] });
+      }
+    });
+    wins.forEach(function (win) { win.samples = drawnSamples(samplesOf(win.cycles)); });
+    wins = wins.filter(function (win) { return win.samples.length; });
+    var cur = w && num(w.utilization) ? w.utilization : null;
+    return {
+      a: a, col: seatColor(a), dur: dur, wins: wins, cur: cur, resets: w ? parseT(w.resets_at) : null,
+      first: wins.length ? wins[0].samples[0].t : null, rises: seatRises(wins, cur, now)
+    };
+  }
+
+  /* Every climb of a seat's line, oldest first, each {t, from, to, est}: a
+     reading over the one before it in its window, from zero for a window's
+     first reading and for the first after a clearing, and from the last
+     reading to the present one, cur, at now. The first reading on record
+     starts the count and adds nothing to it. */
+  function seatRises(wins, cur, now) {
+    var out = [];
+    wins.forEach(function (win, i) {
+      win.samples.forEach(function (s, j) {
+        if (!i && !j) return;
+        var from = !j || s.fresh ? 0 : win.samples[j - 1].u;
+        if (s.u > from) out.push({ t: s.t, from: from, to: s.u, est: !!s.est });
+      });
+    });
+    var lw = wins[wins.length - 1], lu = lw ? lw.samples[lw.samples.length - 1].u : null;
+    if (lw && num(cur) && cur > lu) out.push({ t: now, from: lu, to: cur, est: false });
+    return out;
+  }
+
+  /* A seat's level of a window as a step list, oldest first, each {t, u}
+     holding from t to the next: its readings, zero from each finished
+     window's end to the next window's first reading, the present reading
+     cur at now, and zero from its reset on, as the level a seat that uses
+     no more holds. A present reading whose reset has passed is spent: the
+     level falls to zero at that reset instead. A seat with no present
+     reading falls to zero at its last window's end; one with a present
+     reading and no history is on record from now. wins are seatUse's, each
+     with its end set. */
+  function levelSteps(wins, cur, resetsMs, now) {
+    var out = [];
+    wins.forEach(function (win, i) {
+      win.samples.forEach(function (s) { out.push({ t: s.t, u: s.u }); });
+      if (i < wins.length - 1 || !num(cur)) out.push({ t: Math.max(win.end, win.samples[win.samples.length - 1].t), u: 0 });
+    });
+    if (num(cur)) {
+      var last = out.length ? out[out.length - 1].t : now;
+      if (num(resetsMs) && resetsMs <= now) {
+        out.push({ t: Math.max(resetsMs, last), u: 0 });
+        return out;
+      }
+      out.push({ t: Math.max(now, last), u: cur });
+      if (num(resetsMs)) out.push({ t: resetsMs, u: 0 });
+    }
+    return out;
+  }
+
+  /* The level a step list holds at t, or null before its first step, when
+     the seat is not yet in the pool. */
+  function stepAt(steps, t) {
+    if (!steps.length || t < steps[0].t) return null;
+    var lo = 0, hi = steps.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi + 1) >> 1;
+      if (steps[mid].t <= t) lo = mid; else hi = mid - 1;
+    }
+    return steps[lo].u;
+  }
+
+  /* The step lists stacked from t0 to t1: ts, every instant at which any
+     of them or extra steps, and tops[k][i], the top of list k on the list
+     before it from ts[i] to ts[i + 1]. */
+  function stackSeries(lists, t0, t1, extra) {
+    var ts = [t0, t1];
+    lists.forEach(function (l) { l.forEach(function (s) { if (s.t > t0 && s.t < t1) ts.push(s.t); }); });
+    (extra || []).forEach(function (t) { if (t > t0 && t < t1) ts.push(t); });
+    ts.sort(function (x, y) { return x - y; });
+    ts = ts.filter(function (t, i) { return !i || t !== ts[i - 1]; });
+    var base = ts.map(function () { return 0; });
+    var tops = lists.map(function (l) {
+      base = base.map(function (b, i) { return b + (stepAt(l, ts[i]) || 0); });
+      return base;
+    });
+    return { ts: ts, tops: tops };
+  }
+
+  /* What comes back after now if no more is used: each seat holding use
+     with a reset ahead, as {t, u, a}, soonest first. */
+  function returnSchedule(uses, now) {
+    return uses.filter(function (u) { return num(u.cur) && u.cur > 0 && u.resets && u.resets.getTime() > now; })
+      .map(function (u) { return { t: u.resets.getTime(), u: u.cur, a: u.a }; })
+      .sort(function (x, y) { return x.t - y.t; });
+  }
+
+  /* The seats in the pool at t, on the roster or off it: each on record by
+     then, a seat with a present reading and no history from now. */
+  function poolSize(uses, t, now) {
+    return uses.filter(function (u) {
+      var from = u.first !== null ? u.first : num(u.cur) ? now : null;
+      return from !== null && from <= t;
+    }).length;
+  }
+
+  /* A step area from a to b on a stack's breakpoints ts: top over bot,
+     each holding from ts[i] to ts[i + 1]. */
+  function stepArea(ts, top, bot, X, Y, a, b) {
+    var idx = [];
+    for (var i = 0; i + 1 < ts.length; i++) if (ts[i] >= a && ts[i + 1] <= b) idx.push(i);
+    if (!idx.length) return "";
+    var d = "M" + X(ts[idx[0]]).toFixed(1) + " " + Y(bot[idx[0]]).toFixed(1);
+    idx.forEach(function (k) { d += "V" + Y(top[k]).toFixed(1) + "H" + X(ts[k + 1]).toFixed(1); });
+    for (var j = idx.length - 1; j >= 0; j--) d += "V" + Y(bot[idx[j]]).toFixed(1) + "H" + X(ts[idx[j]]).toFixed(1);
+    return d + "Z";
+  }
+
+  /* The top edge of a step area from a to b on a stack's breakpoints ts. */
+  function stepLine(ts, top, X, Y, a, b) {
+    var d = "";
+    for (var i = 0; i + 1 < ts.length; i++) {
+      if (ts[i] < a || ts[i + 1] > b) continue;
+      d += (d ? "V" : "M" + X(ts[i]).toFixed(1) + " ") + Y(top[i]).toFixed(1) + "H" + X(ts[i + 1]).toFixed(1);
+    }
+    return d;
+  }
+
+  /* A clockwise circular arrow centred on x, y in col: an arc of 300
+     degrees ending at the top, with its head there. */
+  function resetGlyph(parent, x, y, col) {
+    var r = 3.5, a0 = 50 * Math.PI / 180, a1 = 350 * Math.PI / 180;
+    var p = function (a, d) { return [x + (r + (d || 0)) * Math.sin(a), y - (r + (d || 0)) * Math.cos(a)]; };
+    var s0 = p(a0), s1 = p(a1), t = [Math.cos(a1), Math.sin(a1)];
+    svg("path", { "class": "rs-arc", stroke: col, d: "M" + s0[0].toFixed(2) + " " + s0[1].toFixed(2) +
+      "A" + r + " " + r + " 0 1 1 " + s1[0].toFixed(2) + " " + s1[1].toFixed(2) }, parent);
+    var tip = [s1[0] + t[0] * 2, s1[1] + t[1] * 2], o = p(a1, 1.75), i = p(a1, -1.75);
+    svg("path", { fill: col, d: "M" + tip.map(function (v) { return v.toFixed(2); }).join(" ") +
+      "L" + o.map(function (v) { return v.toFixed(2); }).join(" ") + "L" + i.map(function (v) { return v.toFixed(2); }).join(" ") + "Z" }, parent);
+  }
+
+  /* [from, to] spans sorted and merged where they meet. */
+  function mergeSpans(spans) {
+    var out = [];
+    spans.slice().sort(function (p, q) { return p[0] - q[0]; }).forEach(function (sp) {
+      var last = out[out.length - 1];
+      if (last && sp[0] <= last[1]) last[1] = Math.max(last[1], sp[1]);
+      else if (sp[1] > sp[0]) out.push(sp.slice());
+    });
+    return out;
+  }
+
+  /* Where two merged span lists overlap, merged. */
+  function intersectSpans(p, q) {
+    var out = [], i = 0, j = 0;
+    while (i < p.length && j < q.length) {
+      var lo = Math.max(p[i][0], q[j][0]), hi = Math.min(p[i][1], q[j][1]);
+      if (hi > lo) out.push([lo, hi]);
+      if (p[i][1] < q[j][1]) i++; else j++;
+    }
+    return out;
+  }
+
+  /* The time a merged span list covers between t0 and t1. */
+  function spanTime(spans, t0, t1) {
+    return spans.reduce(function (n, sp) { return n + Math.max(0, Math.min(sp[1], t1) - Math.max(sp[0], t0)); }, 0);
+  }
+
+  /* The stretches from t0 to now or t1, whichever is first, in which the
+     provider refused every seat in the pool on the view's window or one
+     bearing on it, as merged [from, to] spans: a seat is in the pool from
+     its first reading of the window on record, and no stretch before start,
+     the first seat's, counts. */
+  function poolRefusals(uses, view, start, t0, t1, now) {
+    if (start === null) return [];
+    var out = [[Math.max(t0, start), Math.min(t1, now)]];
+    if (!(out[0][1] > out[0][0])) return [];
+    uses.forEach(function (u) {
+      if (u.first === null) return;
+      var out1 = refusedSpans(u.a, view, t0, t1, now);
+      if (u.first > t0) out1.push([t0, u.first]);
+      out = intersectSpans(out, mergeSpans(out1));
+    });
+    return out;
+  }
+
+  /* How much of the view's window the pool renews from t0 to now or t1,
+     whichever is first, in windows: each seat renews one window per
+     window's length from its first reading on record. */
+  function poolRenewal(uses, t0, t1, now) {
+    return uses.reduce(function (n, u) {
+      return u.first === null ? n : n + Math.max(0, Math.min(t1, now) - Math.max(t0, u.first)) / u.dur;
+    }, 0);
   }
 
   /* A time axis whose tick is the finest from 30 minutes to four weeks
@@ -5084,8 +5444,8 @@ th[aria-sort] button { color: var(--ink-1); }
     var label = function (t, text, bold) {
       svgText(g, X(t), labelY, text, "t-muted", { "font-size": 10.5, "text-anchor": "middle", "font-weight": bold ? 600 : 400 });
     };
-    for (var d = new Date(t0).setHours(0, 0, 0, 0); d <= t1; d = midnightAfter(d)) {
-      var next = midnightAfter(d);
+    for (var d = bucketStart(t0, "day"); d <= t1; d = bucketAfter(d, "day")) {
+      var next = bucketAfter(d, "day");
       if (inside(d)) {
         if (ruled && H_DAY / per >= 5) svg("line", { "class": "hs-midnight", x1: X(d), x2: X(d), y1: top, y2: bottom }, g);
         if (step < H_DAY) label(d, new Date(d).toLocaleDateString(undefined, dayFmt), true);
@@ -5116,7 +5476,15 @@ th[aria-sort] button { color: var(--ink-1); }
     var list = $("hist-rank");
     list.textContent = "";
     histGeo = null;
-    if (!seats.length) return;
+    /* Over time neither draws nor counts a seat the host disabled, its past
+       use included, even while the hidden seats are shown. */
+    seats = seats.filter(function (a) { return !hostDisabled(a); });
+    if (!seats.length) {
+      ["hist-view", "hist-form", "hist-span", "hist-range"].forEach(function (id) { $(id).textContent = ""; });
+      $("hist-live").hidden = true;
+      host.appendChild(h("p", "card-none", "Every seat shown is disabled in the host, and Over time leaves disabled seats out."));
+      return;
+    }
 
     var fams = scopedFamilies(st);
     var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
@@ -5125,15 +5493,12 @@ th[aria-sort] button { color: var(--ink-1); }
     views.forEach(function (v) { v.label = windowShort(v); });
     var view = views.filter(function (v) { return v.id === histView; })[0] || views[0];
 
-    var bar = $("hist-view");
-    bar.textContent = "";
-    views.forEach(function (v) {
-      var b = h("button", "", v.label);
-      b.type = "button";
-      b.setAttribute("aria-pressed", v.id === view.id ? "true" : "false");
-      b.setAttribute("data-fk", "hist:" + v.id);
-      b.addEventListener("click", function () { histView = v.id; saveHistView(); render(); });
-      bar.appendChild(b);
+    switchBar($("hist-view"), views.map(function (v) { return [v.id, v.label]; }), view.id, "hist:", function (id) {
+      histView = id; saveHistView(); render();
+    });
+    var stacked = histForm === "stacked";
+    switchBar($("hist-form"), [["lines", "Lines"], ["stacked", "Stacked"]], histForm, "hist-form:", function (id) {
+      histForm = id; saveHistForm(); render();
     });
 
     var pace = (st.config && st.config.pace) || {};
@@ -5158,13 +5523,9 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     /* Everything a seat draws that does not depend on the range shown. A
-       seat's cycles fall into windows, one per reset: consecutive cycles
-       whose resets agree within RESET_TOLERANCE_MS are one window the provider
-       cleared early and ran on. A cycle that opens past its reset is the next
-       window, still stamped with the old instant, and takes the reset of the
-       cycle after it. A window whose reset has passed is finished, and its
-       last reading is what it spent; an estimated last reading names no
-       unused figure, since an estimate's level is not sound.
+       window whose reset has passed is finished, and its last reading is
+       what it spent; an estimated last reading names no unused figure,
+       since an estimate's level is not sound.
 
        Each window's line runs from its first reading to its end: the fall at
        its reset for a finished one, the present reading for the newest. Its
@@ -5173,29 +5534,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var anyEst = false, anyGap = false, anyLock = false;
     var idleMs = view.weekly ? PACE_IDLE_MS : SESSION_IDLE_MS;
     var data = seats.map(function (a) {
-      var w = windowOf(a, view.kind, view.scope);
-      var hist = historyFor(a, view.kind, view.scope);
-      var dur = w && num(w.duration) && w.duration > 0 ? w.duration / 1e6 : (view.weekly ? PACE_DAYS * H_DAY : SESSION_MS);
-      var wins = [];
-      ((hist && hist.cycles) || []).forEach(function (c) {
-        var r = parseT(c.resets_at), at = r ? r.getTime() : null, last = wins[wins.length - 1];
-        var s0 = c.samples && c.samples[0];
-        if (at !== null && s0 && num(s0[0]) && s0[0] * 1000 > at + RESET_TOLERANCE_MS) {
-          wins.push({ at: null, stale: true, cycles: [c] });
-        } else if (last && last.stale && at !== null) {
-          last.cycles.push(c);
-          last.at = at;
-          last.stale = false;
-        } else if (last && last.at !== null && at !== null && Math.abs(last.at - at) <= RESET_TOLERANCE_MS) {
-          last.cycles.push(c);
-        } else {
-          wins.push({ at: at, cycles: [c] });
-        }
-      });
-      wins.forEach(function (win) { win.samples = drawnSamples(samplesOf(win.cycles)); });
-      wins = wins.filter(function (win) { return win.samples.length; });
-      var cur = w && num(w.utilization) ? w.utilization : null;
-      var resets = w ? parseT(w.resets_at) : null;
+      var sd = seatUse(a, view, now), wins = sd.wins, cur = sd.cur, resets = sd.resets, dur = sd.dur;
       wins.forEach(function (win, i) {
         var next = wins[i + 1], last = win.samples[win.samples.length - 1];
         win.end = next ? fallAt(win, next) : cur === null ? last.t : Math.max(now, last.t);
@@ -5221,34 +5560,92 @@ th[aria-sort] button { color: var(--ink-1); }
           if (s.fresh && s.t - win.samples[j - 1].t >= UNRECORDED_MS) anyGap = true;
         });
       });
-      var done = wins.filter(function (win) { return win.at !== null && win.at <= now; }).map(function (win) {
+      sd.done = wins.filter(function (win) { return win.at !== null && win.at <= now; }).map(function (win) {
         var last = win.samples[win.samples.length - 1];
         return { at: win.at, u: last.u, est: !!last.est };
       });
-      return {
-        a: a, col: seatColor(a), dur: dur, done: done, wins: wins, resets: resets, cur: cur,
-        head: { seat: seatLabel(a), col: seatColor(a), win: view.label, kind: view.kind, scope: view.scope },
-        key: a.auth_id + ":hist:" + view.id
-      };
+      sd.head = { seat: seatLabel(a), col: sd.col, win: view.label, kind: view.kind, scope: view.scope };
+      sd.key = a.auth_id + ":hist:" + view.id;
+      return sd;
     });
 
-    /* The range the strip spans: from the earlier of the first recorded
-       sample and one default span back, to a day ahead of now for a weekly
-       window and an hour for the 5-hour one. */
-    var ahead = view.weekly ? H_DAY : H_HOUR;
+    var presets = histPresets(view.weekly);
     var defSpan = view.weekly ? 7 * H_DAY : 6 * H_HOUR;
     var minSpan = view.weekly ? 6 * H_HOUR : H_HOUR;
-    var tMax = now + ahead, tMin = tMax - defSpan;
+    /* The strip starts at the earlier of the first recorded sample and one
+       default span back. */
+    var tMin = now - defSpan;
     data.forEach(function (sd) { if (sd.wins.length) tMin = Math.min(tMin, sd.wins[0].samples[0].t); });
     tMin = Math.floor(tMin / H_HOUR) * H_HOUR;
-    var rg = histRange[view.id] || (histRange[view.id] = { span: defSpan, end: null });
-    /* Where a range that follows now ends: the strip's end, or half the span
-       ahead of now where that is less, so a short span centres on now. */
-    function liveEnd(span) { return now + Math.min(ahead, span / 2); }
+    /* On any window but 7d Standard, a seat the provider refuses on 7d
+       Standard, which gates every request, cannot spend this window: it is
+       off the roster, from the refusal to the weekly reset it expects.
+       offOf lists each seat's stretches off, merged. */
+    var offOf = data.map(function (sd) {
+      if (view.kind === "seven_day") return [];
+      var ls = lockSpans(sd.a, { kind: "seven_day", scope: "" }, 0, Infinity, now);
+      return mergeSpans(ls.drawn.concat(ls.live).filter(function (sp) { return sp.kind === "seven_day"; })
+        .map(function (sp) { return [sp.from, sp.to]; }));
+    });
+    var offAt = function (i, t) { return offOf[i].some(function (sp) { return t >= sp[0] && t < sp[1]; }); };
+    /* The windows the pool holds at t: one per seat on record by then and
+       on the roster at t. */
+    function heldAt(t) {
+      return data.filter(function (sd, i) { return poolSize([sd], t, now) && !offAt(i, t); }).length;
+    }
+    /* What comes back after now if no more is used, soonest first: each
+       seat on the roster now as its reset returns its spend; each seat off
+       it as its weekly reset brings it back, with what of its window it then
+       has, and as its own reset after that returns the rest. */
+    var schedule = returnSchedule(data.filter(function (sd, i) { return !offAt(i, now); }), now);
+    data.forEach(function (sd, i) {
+      var sp = offOf[i].filter(function (o) { return now >= o[0] && now < o[1]; })[0];
+      if (!sp || !isFinite(sp[1])) return;
+      var held = num(sd.cur) && sd.resets && sd.resets.getTime() > sp[1] ? sd.cur : 0;
+      schedule.push({ t: sp[1], u: 1 - held, a: sd.a, rejoin: true });
+      if (held > 0) schedule.push({ t: sd.resets.getTime(), u: held, a: sd.a });
+    });
+    schedule.sort(function (x, y) { return x.t - y.t; });
+    /* Stacked, how far past now the last seat holding use resets, where
+       every seat's band has fallen to nothing. */
+    var drops = stacked ? returnSchedule(data, now) : [];
+    var back = drops.length ? drops[drops.length - 1].t - now : 0;
+    /* The strip runs past now by the lead of a range spanning its past, or
+       to back where that is later. */
+    var tMax = now + Math.max(histAhead(presets, now - tMin), back);
+    var rg = histRange[view.id] || (histRange[view.id] = { span: defSpan, end: null, ahead: null });
+    var start = null;
+    data.forEach(function (sd) { if (sd.first !== null) start = start === null ? sd.first : Math.min(start, sd.first); });
+    var pool = poolRefusals(data, view, start, tMin, tMax, now);
+    var steps = data.map(function (sd) { return levelSteps(sd.wins, sd.cur, sd.resets ? sd.resets.getTime() : null, now); });
+    /* Stacked, the seats read top down in the Seats section's order, the
+       first on top, in the stack and its tooltip. order lists
+       data's indexes bottom first, and posOf maps an index to its place. */
+    var order = data.map(function (sd, i) { return i; }).reverse();
+    var posOf = [];
+    order.forEach(function (i, p) { posOf[i] = p; });
+    /* The instants at which what the roster holds changes: now, where a
+       seat read with no history joins it, each seat's first reading, and
+       either end of each stretch off. */
+    var heldEdges = [now];
+    data.forEach(function (sd, i) {
+      if (sd.first !== null) heldEdges.push(sd.first);
+      offOf[i].forEach(function (sp) { heldEdges.push(sp[0], sp[1]); });
+    });
+    /* The most the roster holds across the strip, which the stacked scale
+       reaches whatever range the plot shows. */
+    var capMax = heldAt(tMin);
+    heldEdges.forEach(function (t) { if (t >= tMin && t <= tMax) capMax = Math.max(capMax, heldAt(t)); });
+    /* Where a range that follows now ends: its span's lead past now, or,
+       stacked, back past now where that is later and within half the span;
+       and never past the strip's end. */
+    function liveEnd(span) {
+      return Math.min(tMax, now + Math.max(histAhead(presets, span), back <= span / 2 ? back : 0));
+    }
 
     var spanBar = $("hist-span");
     spanBar.textContent = "";
-    var presetButtons = histPresets(view.weekly).map(function (p) {
+    var presetButtons = presets.map(function (p) {
       var b = h("button", "", p[0]);
       b.type = "button";
       b.setAttribute("data-fk", "hist-span:" + p[0]);
@@ -5256,6 +5653,7 @@ th[aria-sort] button { color: var(--ink-1); }
         if (p[1] === Infinity) {
           rg.span = Infinity;
           rg.end = null;
+          rg.ahead = null;
           draw();
           return;
         }
@@ -5276,8 +5674,12 @@ th[aria-sort] button { color: var(--ink-1); }
     /* Moves the range, clamped to the strip: a move keeps its span, a resize
        keeps the edge it did not drag, and a zoom below the least span grows
        back about its middle. A range covering the strip is the whole history;
-       one ending where a live one would follows now. */
+       one that ends where a live one would follows now as a live one does;
+       one that ends past that, or that follows now and still ends after it
+       through a resize or zoom, follows by the lead it has. */
     function set(t0, t1, keep) {
+      var kept = !keep && rg.end === null && histGeo !== null && Math.abs(t1 - histGeo.t1) <= (t1 - t0) * 0.002;
+      if (kept) t1 = histGeo.t1;
       if (!keep) {
         t0 = Math.max(t0, tMin);
         t1 = Math.min(t1, tMax);
@@ -5291,13 +5693,17 @@ th[aria-sort] button { color: var(--ink-1); }
       if (span >= tMax - tMin - 1) {
         rg.span = Infinity;
         rg.end = null;
+        rg.ahead = null;
         draw();
         return;
       }
       if (t0 < tMin) { t0 = tMin; t1 = t0 + span; }
       if (t1 > tMax) { t1 = tMax; t0 = t1 - span; }
       rg.span = span;
-      rg.end = Math.abs(t1 - liveEnd(span)) <= span * 0.002 ? null : t1;
+      var atLive = Math.abs(t1 - liveEnd(span)) <= span * 0.002;
+      var follows = kept || atLive || t1 > liveEnd(span) || (!keep && rg.end === null && t1 > now);
+      rg.end = follows ? null : t1;
+      rg.ahead = follows && (kept || !atLive) ? t1 - now : null;
       draw();
     }
 
@@ -5306,24 +5712,16 @@ th[aria-sort] button { color: var(--ink-1); }
        estimate is in it; then, on a weekly window, the resets in the range
        and what they left unused, or on the 5-hour one how often it reached
        full; and how long the provider refused it there, on this window
-       or any other that bears on it, as the tape draws. The first
-       reading on record starts the count and adds nothing to it. */
+       or any other that bears on it, as the tape draws. */
     function rangeRow(sd, t0, t1) {
       var used = 0, est = false, hits = 0, resets = 0, lost = 0, lostKnown = true;
-      var rise = function (t, from, to, isEst) {
-        if (t < t0 || t > t1 || to <= from) return;
-        used += to - from;
-        if (isEst) est = true;
-        if (to >= 0.995 && from < 0.995) hits++;
-      };
-      sd.wins.forEach(function (win, i) {
-        win.samples.forEach(function (s, j) {
-          if (!i && !j) return;
-          rise(s.t, !j || s.fresh ? 0 : win.samples[j - 1].u, s.u, s.est);
-        });
+      sd.rises.forEach(function (r) {
+        if (r.t < t0 || r.t > t1) return;
+        used += r.to - r.from;
+        if (r.est) est = true;
+        if (r.to >= 0.995 && r.from < 0.995) hits++;
       });
       var lw = sd.wins[sd.wins.length - 1];
-      if (lw && sd.cur !== null) rise(now, lw.samples[lw.samples.length - 1].u, sd.cur, false);
       sd.done.forEach(function (c) {
         if (c.at < t0 || c.at > t1) return;
         resets++;
@@ -5333,14 +5731,7 @@ th[aria-sort] button { color: var(--ink-1); }
       /* A seat with no current reading's line, and its tape, end at its last
          window's end, and so does its refused time. */
       var until = sd.cur === null && lw ? Math.min(t1, lw.end) : t1;
-      var spans = until > t0 ? lockSpans(sd.a, view, t0, until, now).drawn.map(function (sp) { return [sp.t0, sp.t1]; }) : [];
-      spans.sort(function (x, y) { return x[0] - y[0]; });
-      var refused = 0, end = -Infinity;
-      spans.forEach(function (sp) {
-        if (sp[1] <= end) return;
-        refused += sp[1] - Math.max(sp[0], end);
-        end = sp[1];
-      });
+      var refused = until > t0 ? spanTime(refusedSpans(sd.a, view, t0, until, now), t0, until) : 0;
       var lines = [];
       if (view.weekly) {
         lines.push({ t: !resets ? "no reset in view" : (resets === 1 ? "1 reset" : resets + " resets") +
@@ -5350,42 +5741,299 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       if (refused >= 60000) lines.push({ t: "refused for " + durText(Math.round(refused / 1000)) });
       return { a: sd.a, figure: (est ? "~" : "") + pct(used, 0), meter: null, lines: lines,
-        sum: { used: used, est: est, hits: hits, resets: resets, lost: lost, lostKnown: lostKnown, refused: refused } };
+        sum: { used: used, est: est, hits: hits, resets: resets, lost: lost, lostKnown: lostKnown } };
     }
 
     /* The rows' figures summed over every seat: the budget used in the range,
        in seats' windows, and the resets and what they left unused, or the
-       times at full, and the refused time, each summed seat by seat. */
-    function rangeTotal(rows) {
-      var t = { used: 0, est: false, hits: 0, resets: 0, lost: 0, lostKnown: true, refused: 0 };
+       times at full; against them, what the pool renews over the range, and
+       how long the provider refused every seat at once. */
+    function rangeTotal(rows, t0, t1) {
+      var t = { used: 0, est: false, hits: 0, resets: 0, lost: 0, lostKnown: true };
       rows.forEach(function (r) {
         var x = r.sum;
         t.used += x.used; t.est = t.est || x.est; t.hits += x.hits; t.resets += x.resets;
-        t.lost += x.lost; t.lostKnown = t.lostKnown && x.lostKnown; t.refused += x.refused;
+        t.lost += x.lost; t.lostKnown = t.lostKnown && x.lostKnown;
       });
-      var lines = [];
+      var pooled = data.filter(function (sd) { return sd.first !== null && sd.first < Math.min(t1, now); }).length;
+      var renewed = poolRenewal(data, t0, t1, now);
+      var lines = [{ t: pooled + (pooled === 1 ? " seat renews " : " seats renew ") + pct(renewed, 0) + " in view" +
+        (renewed > 0 ? ", used " + pct(t.used / renewed, 0) + " of it" : "") }];
+      /* Use per week of time on record in view, in windows: how many seats'
+         worth of work the pool served. */
+      var onRecord = start === null ? 0 : Math.min(t1, now) - Math.max(t0, start);
+      if (view.weekly && onRecord >= H_DAY) {
+        lines.push({ t: (t.est ? "~" : "") + (t.used / (onRecord / (7 * H_DAY))).toFixed(1) + " seats' worth a week" });
+      }
       if (view.weekly) {
         lines.push({ t: !t.resets ? "no reset in view" : (t.resets === 1 ? "1 reset" : t.resets + " resets") +
           (t.lostKnown ? ", " + pct(t.lost, 0) + " unused" : "") });
       } else {
         lines.push({ t: t.hits ? "full " + t.hits + "\u00D7" : "never full" });
       }
-      if (t.refused >= 60000) lines.push({ t: "refused for " + durText(Math.round(t.refused / 1000)) + " across seats" });
+      var none = spanTime(pool, t0, t1);
+      if (none >= 60000) lines.push({ t: "every seat refused for " + durText(Math.round(none / 1000)), tone: "critical" });
       return { label: "All seats", figure: (t.est ? "~" : "") + pct(t.used, 0), lines: lines };
+    }
+
+    /* The stacked form: each seat's level on the ones before it, a band in
+       its colour edged by a solid line to now and a dashed one after it,
+       where it holds to its reset and drops; over them the step of what the
+       pool holds, one window per seat on the roster. Returns the stack.
+       Pointing anywhere in the plot shows the stack at that instant, and a
+       seat's band lifts that seat. */
+    function drawStack(root, layer, X, Y, t0, t1, m, pw, ph) {
+      /* Each seat's refusals, merged, bottom first; their ends are breakpoints
+         of the stack so a shade covers exactly its stretch. */
+      var refused = order.map(function (i) { return refusedSpans(data[i].a, view, t0, t1, now); });
+      var ends = [now];
+      refused.forEach(function (sps) { sps.forEach(function (sp) { ends.push(sp[0], sp[1]); }); });
+      var st = stackSeries(order.map(function (i) { return steps[i]; }), t0, t1, ends);
+      var zero = st.ts.map(function () { return 0; });
+      var g = svg("g", {}, layer);
+      svg("rect", { "class": "hs-hit", x: m.l, y: m.t, width: pw, height: ph }, g);
+      /* Three layers: every band's fill, then a grey shade over a band while
+         the provider refused its seat, then every band's edge over both. */
+      var gFill = svg("g", {}, g), gShade = svg("g", {}, g), gEdge = svg("g", {}, g);
+      order.forEach(function (i, k) {
+        var sd = data[i], top = st.tops[k], bot = k ? st.tops[k - 1] : zero;
+        var gs = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, gFill);
+        var ge = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, gEdge);
+        svg("path", { "class": "hs-stack", d: stepArea(st.ts, top, bot, X, Y, t0, Math.min(now, t1)), fill: sd.col }, gs);
+        svg("path", { "class": "hs-edge", d: stepLine(st.ts, top, X, Y, t0, Math.min(now, t1)), stroke: sd.col }, ge);
+        if (now < t1) {
+          svg("path", { "class": "hs-stack hs-proj", d: stepArea(st.ts, top, bot, X, Y, Math.max(now, t0), t1), fill: sd.col }, gs);
+          svg("path", { "class": "hs-edge hs-proj", d: stepLine(st.ts, top, X, Y, Math.max(now, t0), t1), stroke: sd.col }, ge);
+        }
+        if (!refused[k].length) return;
+        var gr = svg("g", { "class": "pt-tape", "data-seat": sd.a.auth_id }, gShade);
+        refused[k].forEach(function (sp) {
+          svg("path", { "class": "hs-refused", d: stepArea(st.ts, top, bot, X, Y, sp[0], sp[1]) }, gr);
+        });
+      });
+      var caps = [t0].concat(heldEdges.filter(function (t) { return t > t0 && t < t1; }).sort(function (x, y) { return x - y; }));
+      var d = "";
+      caps.forEach(function (t, i) {
+        var y = Y(heldAt(t)).toFixed(1);
+        d += (i ? "H" + X(t).toFixed(1) + "V" : "M" + X(t).toFixed(1) + " ") + y;
+      });
+      svg("path", { "class": "hs-cap", d: d + "H" + X(t1).toFixed(1) }, root);
+      var cursor = svg("line", { "class": "hs-cursor", x1: 0, x2: 0, y1: m.t, y2: m.t + ph, visibility: "hidden" }, root);
+      g.setAttribute("data-tip-visual", "true");
+      var at = function (ev) {
+        var r = root.getBoundingClientRect(), x = clamp(ev.clientX - r.left, m.l, m.l + pw);
+        return { x: x, t: t0 + (x - m.l) / pw * (t1 - t0) };
+      };
+      g.addEventListener("pointermove", function (ev) {
+        var p = at(ev);
+        setTip(g, stackTip(p.t, seatOn(root, ev.target)));
+        cursor.setAttribute("x1", p.x);
+        cursor.setAttribute("x2", p.x);
+        cursor.setAttribute("visibility", "visible");
+      });
+      g.addEventListener("pointerover", function (ev) { setTip(g, stackTip(at(ev).t, seatOn(root, ev.target))); });
+      g.addEventListener("pointerleave", function () { cursor.setAttribute("visibility", "hidden"); });
+      var spec = stackTip(clamp(now, t0, t1), null);
+      setTip(g, spec);
+      tipStop(g, spec, "stack:" + view.id);
+      resetMarks(root, st, X, Y, t0, t1);
+      return st;
+    }
+
+    /* Marks each cliff in the stack, where a seat's level falls by
+       CLIFF_DROP or to nothing, with a reset mark in its colour halfway down
+       the fall of its band's edge, faint ahead of now. Pointing at a mark
+       names the seat, when and how much came back. A mark meeting one
+       already set is left off. */
+    function resetMarks(root, st, X, Y, t0, t1) {
+      var cliffs = [];
+      steps.forEach(function (l, k) {
+        for (var i = 1; i < l.length; i++) {
+          var from = l[i - 1].u, to = l[i].u, t = l[i].t;
+          if (t <= t0 || t >= t1 || !(from - to >= CLIFF_DROP || (to === 0 && from >= 0.01))) continue;
+          cliffs.push({ t: t, k: k, from: from, to: to });
+        }
+      });
+      var g = svg("g", { "clip-path": "url(#hist-clip)" }, root), taken = [];
+      cliffs.sort(function (a, b) { return b.t - a.t; }).forEach(function (c) {
+        var p = posOf[c.k], jb = 0;
+        while (jb + 1 < st.ts.length && st.ts[jb + 1] < c.t) jb++;
+        var ja = Math.min(jb + 1, st.ts.length - 1);
+        var x = X(c.t), y = (Y(st.tops[p][jb]) + Y(st.tops[p][ja])) / 2;
+        var box = { x0: x - 8, x1: x + 8, y0: y - 8, y1: y + 8 };
+        if (taken.some(function (o) { return boxesMeet(box, o); })) return;
+        taken.push(box);
+        var sd = data[c.k], ahead = c.t > now;
+        var gs = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, g);
+        var mk = svg("g", { "class": "rs-mark" + (ahead ? " rs-ahead" : "") }, gs);
+        svg("circle", { cx: x, cy: y, r: 7, stroke: sd.col }, mk);
+        resetGlyph(mk, x, y, sd.col);
+        setTip(mk, {
+          seat: seatLabel(sd.a), col: sd.col, win: view.label, type: "reset", label: ahead ? "resets" : "reset",
+          when: absTime(new Date(c.t)), dur: relText(new Date(c.t), now), big: [pct(c.from, 0), pct(c.to, 0)], delta: "",
+          lines: ahead ? [{ t: "if no more is used" }] : []
+        });
+        mk.setAttribute("data-tip-visual", "true");
+      });
+    }
+
+    /* A weekly window's use per day, or per week where a day is narrower
+       than RANGE_MIN_PX: a bracket over the plot spanning each, labelled
+       with the pool's total where it is wide enough, and a keyboard stop
+       with the per-seat tooltip. Stacked, each seat's share of a bucket sits
+       in its band where the band is thick enough to hold it, at the middle
+       of the bucket's part in view and on record. A bucket still filling or
+       only partly on record is labelled faint. */
+    function drawRanges(root, X, Y, t0, t1, m, pw, st) {
+      if (start === null) return;
+      var per = (t1 - t0) / pw, unit = H_DAY / per >= RANGE_MIN_PX ? "day" : "week";
+      var bars = [];
+      for (var b0 = bucketStart(Math.min(t1, now), unit); bucketAfter(b0, unit) > Math.max(t0, start); b0 = bucketStart(b0 - 1, unit)) {
+        bars.unshift(bucketTally(data, view, pool, start, b0, bucketAfter(b0, unit), now));
+      }
+      var y = m.t - 24, g = svg("g", {}, root);
+      /* A seat's share yields to a reset mark it would meet. */
+      var marks = [].map.call(root.querySelectorAll("g.rs-mark"), function (t) {
+        var b = t.getBBox();
+        return { x0: b.x, x1: b.x + b.width, y0: b.y, y1: b.y + b.height };
+      });
+      bars.forEach(function (b) {
+        var x0 = clamp(X(b.t0), m.l, m.l + pw), x1 = clamp(X(b.t1), m.l, m.l + pw), w = x1 - x0;
+        if (w < 2) return;
+        var col = svg("g", { "class": "rg-col" }, g);
+        var spec = barTip(b, view, unit, now);
+        setTip(col, spec);
+        tipStop(col, spec, "range:" + view.id + ":" + unit + ":" + b.t0);
+        svg("rect", { "class": "rg-hit", x: x0, y: y - 12, width: w, height: 18, rx: 3 }, col);
+        svg("path", { "class": "rg-bracket", d: "M" + (x0 + 2).toFixed(1) + " " + (y + 5) + "V" + (y + 2) + "H" + (x1 - 2).toFixed(1) + "V" + (y + 5) }, col);
+        var faint = b.t1 > now || b.partial;
+        if (w >= RANGE_MIN_PX) {
+          svgText(col, x0 + w / 2, y - 2, (b.est ? "~" : "") + pct(b.used, 0), "rg-total" + (faint ? " rg-part" : ""),
+            { "font-size": 10, "text-anchor": "middle" });
+        }
+        if (!st || w < RANGE_MIN_PX || b.t0 >= now) return;
+        var tm = clamp((Math.max(b.t0, t0) + Math.min(b.t1, t1, now)) / 2, t0, Math.min(t1, now) - 1);
+        var i = 0;
+        while (i + 2 < st.ts.length && st.ts[i + 1] <= tm) i++;
+        b.seats.forEach(function (sx) {
+          var k = posOf[data.indexOf(sx.u)];
+          if (k === undefined || sx.used < 0.005) return;
+          var top = Y(st.tops[k][i]), bot = Y(k ? st.tops[k - 1][i] : 0);
+          if (bot - top < 13) return;
+          var el = svgText(root, X(tm), (top + bot) / 2 + 3.5, "+" + pct(sx.used, 0), "rg-seat",
+            { "font-size": 9.5, "text-anchor": "middle" });
+          var eb = el.getBBox(), box = { x0: eb.x, x1: eb.x + eb.width, y0: eb.y, y1: eb.y + eb.height };
+          if (marks.some(function (o) { return boxesMeet(box, o); })) root.removeChild(el);
+        });
+      });
+    }
+
+    /* The side list of the stacked form: what the seats on the roster have
+       left now, in a tone that rises as the share left falls, against what
+       they hold, and how many seats are off it; then the schedule of what
+       comes back if no more is used, soonest first and the next's time in
+       bold: each reset returning a seat's spend and each weekly reset
+       bringing a seat back on the roster, with what the pool then has left,
+       "full" once every seat is back with nothing spent. Each seat's own
+       level, reset and refusals are the Seats section's; pointing at a row
+       lifts its seat on the chart. */
+    function balanceList() {
+      var size = heldAt(now), spent = 0, off = 0, full = poolSize(data, now, now);
+      data.forEach(function (sd, i) {
+        if (offAt(i, now)) off++;
+        else spent += stepAt(steps[i], now) || 0;
+      });
+      var left = Math.max(0, size - spent), share = size > 0 ? left / size : 0;
+      var top = list.scrollTop;
+      list.textContent = "";
+      var fam = list.appendChild(h("div", "rank-fam", ""));
+      var head = fam.appendChild(h("p", "rank-fam-head pin", ""));
+      head.appendChild(h("span", "rank-fam-name", view.label));
+      head.appendChild(h("span", "rank-fam-note", "left now · what each reset brings back if no more is used; 100% is one full window"));
+      var bal = fam.appendChild(h("div", "bal", ""));
+      var fig = bal.appendChild(h("span", "bal-fig", pct(left, 0)));
+      if (share < BAL_LOW) fig.setAttribute("data-tone", share < BAL_LOW / 2 ? "critical" : "serious");
+      bal.appendChild(h("span", "bal-of", "left of " + pct(size, 0)));
+      if (off) fam.appendChild(h("p", "bal-off", off + (off === 1 ? " seat" : " seats") + " off, refused on " + WEEKLY_SHORT));
+      if (!schedule.length) {
+        fam.appendChild(h("p", "bal-none", spent > 0.005 ? "no reset ahead on record" : "nothing spent"));
+        list.scrollTop = top;
+        markMore(list);
+        return;
+      }
+      var ol = fam.appendChild(h("ol", "bal-list", ""));
+      var then = left, root = function () { return histGeo && histGeo.root; };
+      schedule.forEach(function (r, i) {
+        then += r.u;
+        var li = ol.appendChild(h("li", "ol-row bal-row" + (i ? "" : " bal-next"), ""));
+        li.setAttribute("data-seat", r.a.auth_id);
+        var who = li.appendChild(h("div", "bal-who", ""));
+        who.appendChild(seatMark(r.a));
+        var when = who.appendChild(h("span", "bal-when", (r.rejoin ? "rejoins" : "resets") + " "));
+        when.appendChild(stamp(new Date(r.t), ""));
+        var gain = li.appendChild(h("div", "bal-gain", ""));
+        gain.appendChild(h("b", "", "+" + pct(r.u, 0)));
+        gain.appendChild(document.createTextNode(then >= full - 0.005 ? " \u2192 full" : " \u2192 " + pct(then, 0) + " total"));
+        li.addEventListener("pointerenter", function () { var cr = root(); if (cr) focusSeat(cr, r.a.auth_id); });
+        li.addEventListener("pointerleave", function () { var cr = root(); if (cr) focusSeat(cr, seatOn(cr, document.activeElement)); });
+      });
+      list.scrollTop = top;
+      markMore(list);
+    }
+
+    /* The stacked form's tooltip at t, in the stack's order from the top:
+       the pool's share left then against what it holds, and each seat's
+       level, the one on marked; ahead of now, when each seat's spend comes
+       back and what comes back next. */
+    function stackTip(t, on) {
+      var future = t > now + 30000, past = t < now - 30000;
+      var size = heldAt(t), spent = 0, rows = [];
+      order.slice().reverse().forEach(function (i) {
+        var sd = data[i], u = stepAt(steps[i], t), out = offAt(i, t);
+        if (u === null) return;
+        if (!out) spent += u;
+        var due = future && u > 0 && sd.resets && sd.resets.getTime() > t ? sd.resets.getTime() : null;
+        rows.push({ col: sd.col, name: seatLabel(sd.a), on: sd.a.auth_id === on, value: out ? "off" : pct(u, 0),
+          note: out ? "refused on " + WEEKLY_SHORT : due ? "↻ " + spanClock(due, now) : "", tone: out ? "critical" : "" });
+      });
+      var lines = [];
+      if (future) {
+        var next = schedule.filter(function (r) { return r.t > t; });
+        if (next.length) lines.push({ b: "next back", t: "+" + pct(next[0].u, 0) + " " + spanClock(next[0].t, now) + ", " + seatLabel(next[0].a) });
+        else lines.push({ t: "everything spent so far is back" });
+        lines.push({ t: "if no more is used; an early reset brings it back sooner" });
+      }
+      return {
+        seat: "All seats", win: view.label, type: future ? "reset" : past ? "usage" : "now",
+        label: future ? "ahead" : past ? "past" : "now", when: absTime(new Date(t)), dur: past || future ? relText(new Date(t), now) : "",
+        big: [pct(Math.max(0, size - spent), 0) + " left"], delta: "of " + pct(size, 0) + " held, " + pct(spent, 0) + " spent",
+        rows: rows, lines: lines
+      };
     }
 
     function draw() {
       var hadFocus = host.contains(document.activeElement);
       host.textContent = "";
       var span = Math.min(rg.span, tMax - tMin);
-      var t1 = rg.end === null ? liveEnd(span) : clamp(rg.end, tMin + span, tMax), t0 = t1 - span;
+      var t1 = rg.end !== null ? rg.end : rg.ahead !== null ? now + rg.ahead : liveEnd(span);
+      t1 = clamp(t1, tMin + span, tMax);
+      var t0 = t1 - span;
 
       var W = Math.max(280, host.clientWidth || 480);
       var H = Math.round(clamp(W * 0.34, 260, 440));
-      var m = { l: 46, r: 16, t: 18, b: 30 };
+      /* The NOW label sits over the plot, and a weekly window's day or week
+         brackets over that. */
+      var m = { l: 46, r: 16, t: view.weekly ? 52 : 18, b: 30 };
       var pw = W - m.l - m.r, ph = H - m.t - m.b;
       var NAV_TOP = H + 6, NAV_H = 40, TOTAL = NAV_TOP + NAV_H + 22;
-      var maxY = 1.05;
+      /* Stacked, the scale also fits the stack's peak in the range, which
+         seats off the roster can carry over what the roster holds. */
+      var peak = 0;
+      if (stacked && data.length) {
+        stackSeries(order.map(function (i) { return steps[i]; }), t0, t1, [now]).tops[order.length - 1]
+          .forEach(function (v) { peak = Math.max(peak, v); });
+      }
+      var maxY = stacked ? Math.max(1, capMax, peak) * 1.05 : 1.05;
       var X = function (t) { return m.l + (t - t0) / (t1 - t0) * pw; };
       var Y = function (u) { return m.t + ph - clamp(u, 0, maxY) / maxY * ph; };
       var XN = function (t) { return m.l + (t - tMin) / (tMax - tMin) * pw; };
@@ -5395,7 +6043,8 @@ th[aria-sort] button { color: var(--ink-1); }
       var root = svg("svg", {
         "class": "pace hist-tl", width: W, height: TOTAL, viewBox: "0 0 " + W + " " + TOTAL,
         role: "group", tabindex: 0, "data-fk": "hist-chart:" + view.id,
-        "aria-label": view.label + " use over time with its " + (reference ? "curve" : "target") + ", " +
+        "aria-label": view.label + (stacked ? " use stacked by seat against what the pool holds, "
+          : " use over time with its " + (reference ? "curve" : "target") + ", ") +
           absTime(new Date(t0)) + " to " + absTime(new Date(t1)) +
           ". Drag the plot or the strip below to pan; arrow keys step, plus and minus zoom, End returns to now."
       }, host);
@@ -5403,14 +6052,15 @@ th[aria-sort] button { color: var(--ink-1); }
       var clip = svg("clipPath", { id: "hist-clip" }, defs);
       svg("rect", { x: m.l, y: 0, width: pw, height: m.t + ph + 1 }, clip);
       var nclip = svg("clipPath", { id: "hist-nclip" }, defs);
-      svg("rect", { x: m.l, y: NAV_TOP, width: pw, height: NAV_H }, nclip);
+      svg("rect", { x: m.l, y: NAV_TOP, width: pw, height: NAV_H, rx: 4 }, nclip);
 
-      /* Ahead of now nothing is recorded; only the targets run on into it. */
+      /* Ahead of now nothing is recorded; only targets and held levels run on
+         into it. */
       var fx = clamp(X(now), m.l, m.l + pw);
       svg("rect", { "class": "hs-future", x: fx, y: m.t, width: m.l + pw - fx, height: ph }, root);
 
       weekendBands(root, t0, t1, X, m.t, ph);
-      yGrid(root, m, pw, Y);
+      if (stacked) stackGrid(root, m, pw, Y, maxY); else yGrid(root, m, pw, Y);
       timeAxis(root, t0, t1, X, pw, m.t, Y(0), Y(0) + 20, true);
       svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0) + 0.5, y2: Y(0) + 0.5, stroke: "var(--axis)", "stroke-width": 1 }, root);
       svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
@@ -5422,7 +6072,8 @@ th[aria-sort] button { color: var(--ink-1); }
       var gMarks = svg("g", { "clip-path": "url(#hist-clip)" }, root);
       dimOnHover(root);
       var inView = function (a, b) { return b >= t0 && a <= t1; }, labels = [];
-      data.forEach(function (sd) {
+      var st = stacked ? drawStack(root, gPlot, X, Y, t0, t1, m, pw, ph) : null;
+      (stacked ? [] : data).forEach(function (sd) {
         var gt = svg("g", { "class": "pt-tape", "data-seat": sd.a.auth_id }, gTape);
         var gl = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, gPlot);
         var gm = svg("g", { "class": "pt", "data-seat": sd.a.auth_id }, gMarks);
@@ -5472,20 +6123,28 @@ th[aria-sort] button { color: var(--ink-1); }
           svg("circle", { cx: X(now), cy: Y(sd.cur), r: 4, fill: sd.col, stroke: "var(--surface-1)", "stroke-width": 1.5 }, gm);
         }
       });
+      if (view.weekly) drawRanges(root, X, Y, t0, t1, m, pw, st);
       clearResetLabels(root, labels);
       if (now >= t0 && now <= t1) {
         var nx = X(now);
-        svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2" }, root);
+        svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2",
+          "pointer-events": "none" }, root);
         /* Set left of the line where it would run past the chart's edge. */
         var nearEdge = nx + 34 > m.l + pw + m.r;
-        svgText(root, nearEdge ? nx - 5 : nx + 5, m.t - 4, "NOW", "t-mono",
+        svgText(root, nearEdge ? nx - 5 : nx + 5, m.t - 4, "NOW", "t-mono gap-label",
           { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600, "text-anchor": nearEdge ? "end" : "start" });
       }
+
+      /* Under the axis, each stretch in which no seat could take the view's
+         requests, on the plot and on the strip. */
+      poolTape(root, pool, t0, t1, X, Y(0) + 6, m.l, m.l + pw);
+      poolTape(root, pool, tMin, tMax, XN, NAV_TOP + NAV_H + 4, m.l, m.l + pw);
 
       /* The strip: every recorded line over the whole history, with the
          range the plot shows as a window over it. */
       svg("rect", { "class": "hs-nav-bg", x: m.l, y: NAV_TOP, width: pw, height: NAV_H, rx: 4 }, root);
       var gNav = svg("g", { "clip-path": "url(#hist-nclip)" }, root);
+      weekendBands(gNav, tMin, tMax, XN, NAV_TOP, NAV_H);
       data.forEach(function (sd) {
         if (!sd.wins.length) return;
         var tail = sd.cur !== null ? tailTo(XN(now), YN(sd.cur)) : "";
@@ -5508,9 +6167,12 @@ th[aria-sort] button { color: var(--ink-1); }
       });
       timeAxis(root, tMin, tMax, XN, pw, NAV_TOP, NAV_TOP + NAV_H, NAV_TOP + NAV_H + 15, false);
 
-      var rangeRows = data.map(function (sd) { return rangeRow(sd, t0, t1); });
-      seatList(list, view.label, "use in view, summed across resets; 100% is one full window",
-        rangeRows, function () { return histGeo && histGeo.root; }, rangeTotal(rangeRows));
+      if (stacked) balanceList();
+      else {
+        var rangeRows = data.map(function (sd) { return rangeRow(sd, t0, t1); });
+        seatList(list, view.label, "use in view, summed across resets; 100% is one full window",
+          rangeRows, function () { return histGeo && histGeo.root; }, rangeTotal(rangeRows, t0, t1));
+      }
 
       histGeo = {
         t0: t0, t1: t1, liveEnd: liveEnd, minSpan: minSpan, set: set, root: root,
@@ -5531,22 +6193,37 @@ th[aria-sort] button { color: var(--ink-1); }
       if (hadFocus) root.focus({ preventScroll: true });
     }
 
-    [
+    (stacked ? [
+      ["█", "use, stacked by seat"],
+      ["░", "held until its reset, if no more is used"],
+      ["↻", "reset"],
+      ["━", "what the pool holds"],
+      ["│", "midnight"],
+      ["▒", "weekend"]
+    ] : [
       ["━", "recorded"],
       ["╌", reference ? CURVE_KEY : "target"],
       ["○", "reset"],
       ["│", "midnight"],
       ["▒", "weekend"],
       ["●", "now"]
-    ].forEach(function (it) {
+    ]).forEach(function (it) {
       var li = h("li", "", "");
       li.appendChild(h("span", "gl", it[0]));
       li.appendChild(document.createTextNode(" " + it[1]));
       legend.appendChild(li);
     });
-    if (anyEst) legendRow(legend, SW_EST, "estimated from token spend");
-    if (anyGap) legendRow(legend, SW_GAP, UNRECORDED_KEY);
-    if (anyLock) legendRow(legend, SW_LOCK, LOCK_KEY);
+    if (anyEst && !stacked) legendRow(legend, SW_EST, "estimated from token spend");
+    if (anyGap && !stacked) legendRow(legend, SW_GAP, UNRECORDED_KEY);
+    if (stacked ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
+      legendRow(legend, stacked ? SW_SHADE : SW_LOCK, LOCK_KEY);
+    }
+    if (pool.length) legendRow(legend, SW_LOCK, POOL_KEY);
+    if (view.weekly) {
+      var li = legend.appendChild(h("li", "", ""));
+      li.appendChild(h("span", "gl", "\u2310\u00AC"));
+      li.appendChild(document.createTextNode(" use per day or per week" + (stacked ? "; +N% is a seat's share" : "")));
+    }
 
     bindHistPointer(host);
     draw();
@@ -5608,7 +6285,7 @@ th[aria-sort] button { color: var(--ink-1); }
       }
       var dn = dx * g.nav.per;
       if (drag.kind === "move") g.set(drag.t0 + dn, drag.t1 + dn, true);
-      else if (drag.kind === "left") g.set(Math.min(drag.t0 + dn, drag.t1 - g.minSpan), drag.t1, false);
+      else if (drag.kind === "left") g.set(Math.min(drag.t0 + dn, g.t1 - g.minSpan), g.t1, false);
       else g.set(drag.t0, Math.max(drag.t1 + dn, drag.t0 + g.minSpan), false);
     });
     function end() {
@@ -5650,6 +6327,99 @@ th[aria-sort] button { color: var(--ink-1); }
         return;
       }
       ev.preventDefault();
+    });
+  }
+
+  /* -------------------------------------------------------------- totals */
+
+  /* The narrowest a bracket draws its total and shares in; days narrower
+     than this bracket by week. */
+  var RANGE_MIN_PX = 34;
+  /* The least fall in a seat's level the stacked form marks as a reset. */
+  var CLIFF_DROP = 0.05;
+  /* The share of what the pool holds left below which the stacked form's
+     figure takes a serious tone, and critical below half of it. */
+  var BAL_LOW = 0.25;
+
+  /* The start of the day or week holding t, and from a bucket's start the
+     start of the one after: a day opens at the first instant of its local
+     date, which is 1 AM where a daylight-saving change skips midnight, and a
+     week at its Monday's, so each bucket's edges are the plot's midnight
+     lines. */
+  function bucketStart(t, unit) {
+    var d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (unit === "week" ? (d.getDay() + 6) % 7 : 0)).getTime();
+  }
+  function bucketAfter(t, unit) {
+    var d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + (unit === "week" ? 7 : 1)).getTime();
+  }
+
+  /* What the seats in uses did on view's window from t0 to t1, up to now:
+     each seat's use and how long the provider refused it, the pool's use,
+     what the pool renews there in full and so far, and how long no seat
+     could take a request, from pool, poolRefusals' spans. A bucket opening
+     before start, the first reading on record, is partial. */
+  function bucketTally(uses, view, pool, start, t0, t1, now) {
+    var t = {
+      t0: t0, t1: t1, seats: [], used: 0, est: false, partial: t0 < start, none: spanTime(pool, t0, t1),
+      renews: poolRenewal(uses, t0, t1, Infinity), renewed: poolRenewal(uses, t0, t1, now)
+    };
+    uses.forEach(function (u) {
+      var x = { u: u, used: 0, est: false };
+      u.rises.forEach(function (r) {
+        if (r.t < t0 || r.t >= t1) return;
+        x.used += r.to - r.from;
+        if (r.est) x.est = true;
+      });
+      x.refused = u.first === null ? 0
+        : spanTime(refusedSpans(u.a, view, t0, t1, now), t0, t1);
+      t.seats.push(x);
+      t.used += x.used;
+      t.est = t.est || x.est;
+    });
+    return t;
+  }
+
+  /* A bracket's tooltip: the day or week it covers, the pool's use against
+     what it renewed, and for the current bucket what it renews in full,
+     each seat's use and refused time, top of the stack first, and how long
+     no seat could take a request. */
+  function barTip(b, view, unit, now) {
+    var live = b.t1 > now;
+    var when = unit === "week"
+      ? new Date(b.t0).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " – " +
+        new Date(b.t1 - H_DAY).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+      : new Date(b.t0).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    var lines = [];
+    if (b.none >= 60000) lines.push({ t: "every seat refused", alert: durText(Math.round(b.none / 1000)) });
+    return {
+      seat: "All seats", win: view.label, type: "usage", label: unit, when: when,
+      dur: live ? "so far" : b.partial ? "since the first reading" : "",
+      big: [(b.est ? "~" : "") + pct(b.used, 0)],
+      delta: live ? "of " + pct(b.renewed, 0) + " renewed so far, " + pct(b.renews, 0) + " by the " + unit + "'s end" : "of " + pct(b.renews, 0) + " renewed",
+      rows: b.seats.filter(function (s) { return s.used > 0 || s.refused >= 60000; }).map(function (s) {
+        return {
+          col: s.u.col, name: seatLabel(s.u.a),
+          note: s.refused >= 60000 ? "refused " + durText(Math.round(s.refused / 1000)) : "", tone: s.refused >= 60000 ? "critical" : "",
+          value: (s.est ? "~" : "") + pct(s.used, 0)
+        };
+      }),
+      lines: lines
+    };
+  }
+
+  /* One row of joined buttons in bar, one per [id, label] of items, the one
+     whose id is on pressed; a press calls pick with its id. */
+  function switchBar(bar, items, on, fk, pick) {
+    bar.textContent = "";
+    items.forEach(function (it) {
+      var b = h("button", "", it[1]);
+      b.type = "button";
+      b.setAttribute("aria-pressed", it[0] === on ? "true" : "false");
+      b.setAttribute("data-fk", fk + it[0]);
+      b.addEventListener("click", function () { pick(it[0]); });
+      bar.appendChild(b);
     });
   }
 
@@ -6613,7 +7383,7 @@ th[aria-sort] button { color: var(--ink-1); }
 
   /* Marks every region that scrolls with the edges more of it lies past, and
      the head pinned over its top edge, read on render and on its own scroll. */
-  var SCROLLERS = "#timeline, .pace-card, #pace-rank, #session-rank, #hist-rank, .tbl-card, .dec-body, .log";
+  var SCROLLERS = "#timeline, .pace-card, .side-list, .tbl-card, .dec-body, .log";
   function markMore(el) {
     var more = [];
     var top = el.getBoundingClientRect().top + el.clientTop, pinned = false;
@@ -7146,6 +7916,7 @@ th[aria-sort] button { color: var(--ink-1); }
   loadHidden();
   loadPaceView();
   loadHistView();
+  loadHistForm();
 
   var themeBtn = $("theme-toggle");
   var THEMES = ["auto", "light", "dark"];
