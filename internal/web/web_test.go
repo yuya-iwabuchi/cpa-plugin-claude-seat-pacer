@@ -360,6 +360,20 @@ func TestPageScriptParses(t *testing.T) {
 	}
 }
 
+// TestPageFunctionNamesAreUnique holds each top-level function of the page's
+// script to one declaration: a second one silently replaces the first.
+func TestPageFunctionNamesAreUnique(t *testing.T) {
+	t.Parallel()
+	seen := map[string]bool{}
+	for _, m := range regexp.MustCompile(`\n  function (\w+)\(`).FindAllSubmatch(indexHTML, -1) {
+		name := string(m[1])
+		if seen[name] {
+			t.Errorf("page declares function %s twice", name)
+		}
+		seen[name] = true
+	}
+}
+
 func TestPageIsOffline(t *testing.T) {
 	t.Parallel()
 	page := get(t, testHandler(&stubSource{status: richStatus()}), "/").Body.String()
@@ -401,7 +415,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"sec-pace", "pace-sub", "pace-curve", "pace-legend", "pace-missing", "pace-note",
 		"pace-formula", "pace-rank", "pace-view",
 		"sec-session", "session-sub", "session-chart", "session-legend", "session-missing", "session-focus", "session-note", "session-rank",
-		"sec-hist", "hist-sub", "hist-view", "hist-span", "hist-live", "hist-range", "hist-chart", "hist-rank", "hist-legend",
+		"sec-hist", "hist-sub", "hist-view", "hist-form", "hist-span", "hist-live", "hist-range", "hist-chart", "hist-rank", "hist-legend",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
 	}

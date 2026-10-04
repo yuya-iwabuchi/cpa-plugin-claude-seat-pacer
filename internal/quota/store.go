@@ -421,8 +421,8 @@ func (s *Store) Prune(keep map[string]struct{}) {
 }
 
 // History reports a credential's recorded utilization as of now, one entry
-// per window in the order the windows were first seen, thinned to at most max
-// samples per window. Every refusal span is kept whatever max is, and an
+// per window in the order the windows were first seen, each thinned as export
+// thins it to max. Every refusal span is kept whatever max is, and an
 // ongoing one whose expected reset is not after now reads as ended by it.
 // Nil for an unknown credential.
 func (s *Store) History(authID string, max int, now time.Time) []model.WindowHistory {

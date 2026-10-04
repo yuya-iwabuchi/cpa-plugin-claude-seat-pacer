@@ -281,8 +281,16 @@ new conversation. A seat held off ranks below them.
   its last 24 hours' rate.
 - **5-hour window.** Where each seat stands against the limit that can make
   it ineligible.
-- **Over time.** Each seat's use of one window across the recorded cycles,
-  with each refusal and what ended it.
+- **Over time.** One window across the recorded cycles, drawn two ways.
+  Lines shows each seat's use, with each refusal and what ended it. Stacked
+  piles the seats into the pool's total against what the pool holds, one full
+  window per seat in the pool, shades each seat's refused stretches grey, and
+  carries the total past now to show what comes back at each reset if no more
+  is used. Both mark the stretches in which every seat was refused at once.
+  Under a weekly window, brackets over the plot give the pool's use per day
+  from midnight local time, or per week from Monday, against what it renews.
+  Read on the premise that the seats share one plan, they answer whether the
+  pool has enough seats; while every seat is refused, use undercounts demand.
 - **Bindings.** The conversations held on each seat.
 - **Routing log.** The recent decisions, newest first. Each new pick and each
   move opens to show every seat's cost at that moment.
