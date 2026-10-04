@@ -2088,7 +2088,7 @@ th[aria-sort] button { color: var(--ink-1); }
      the words its heading and its seats' tooltips share. */
   function tierText(p, ranks, fams) {
     var t = ranks.tier, r = tierRoleOf(p, fams, t);
-    var n = tierServers(p, r.fams, t).filter(function (a) {
+    var n = (t.on[p] || []).filter(function (a) {
       return r.fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
     }).length;
     if (r.role === "serving") {
@@ -6284,14 +6284,11 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     $("page-foot").hidden = !facts.childNodes.length;
 
-    /* Eligible for a family whose serving tier holds the seat, on a seat the
-       host can offer: the count of seats a new conversation of some kind can
-       still land on. */
+    /* Eligible for a family whose serving tier holds the seat: the count of
+       seats a new conversation of some kind can still land on, by the same
+       test as the ranks and a tier heading's count. */
     var eligible = seats.filter(function (a) {
-      return !HOST_DOWN[a.host_status || ""] && ranks.fams.some(function (fam) {
-        var sc = famScore(a, fam);
-        return !offTier(a, fam, ranks) && !!(sc && sc.eligible);
-      });
+      return ranks.fams.some(function (fam) { var sc = famScore(a, fam); return !offTier(a, fam, ranks) && !!(sc && sc.eligible); });
     }).length;
     $("seat-total").textContent = seats.length
       ? seats.length + (seats.length === 1 ? " seat" : " seats")
@@ -6359,7 +6356,7 @@ th[aria-sort] button { color: var(--ink-1); }
     var reasons = Object.create(null), n = 0;
     stableAuths(st.auths).forEach(function (a) {
       var sc = famScore(a, fam);
-      if (!sc || sc.eligible || !holdsFamily(a, fam, ranks)) return;
+      if (!sc || sc.eligible || !waitsOn(a, fam, ranks)) return;
       n++;
       reasons[sc.reason || ""] = true;
     });
@@ -6418,10 +6415,10 @@ th[aria-sort] button { color: var(--ink-1); }
     return unknown ? null : last;
   }
 
-  /* Whether a seat is one the family is waiting on: a seat on its serving
-     tier, or any seat while no tier can serve it, since the host takes the
-     first tier with a seat back. */
-  function holdsFamily(a, fam, ranks) {
+  /* Whether a family is waiting on a seat: a seat on its serving tier, or
+     any seat while no tier can serve it, since the host takes the first tier
+     with a seat back. */
+  function waitsOn(a, fam, ranks) {
     return !!ranks.tier.none[fam] || !offTier(a, fam, ranks);
   }
 
@@ -6430,7 +6427,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function returnsAt(st, fam, ranks) {
     var soonest = null;
     stableAuths(st.auths).forEach(function (a) {
-      if (!holdsFamily(a, fam, ranks)) return;
+      if (!waitsOn(a, fam, ranks)) return;
       var back = seatReturnsAt(a, fam);
       if (back && (!soonest || back < soonest)) soonest = back;
     });
