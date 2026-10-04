@@ -308,6 +308,11 @@ new conversation. A seat held off ranks below them.
   and splits it by seat. If every seat is on the same plan, these figures show
   whether the pool has enough seats, though use understates demand while every
   seat is refused.
+
+  <img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has left and what each reset brings back.">
+
+  <img src="docs/over-time-lines.png" width="900" alt="The same chart in its Lines form: each seat's use of 7d Standard against its target over two weeks, with day brackets above and a side list giving the pool's total use, what it renewed and its seats' worth a week, then each seat's total.">
+
 - **Bindings.** The conversations held on each seat.
 - **Routing log.** The recent decisions, newest first. Each new pick and each
   move opens to show every seat's cost at that moment.
