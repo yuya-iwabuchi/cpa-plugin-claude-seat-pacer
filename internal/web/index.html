@@ -1243,7 +1243,7 @@ th[aria-sort] button { color: var(--ink-1); }
      built, so it is allowed longer than a fetch of what the poller already
      holds. */
   var SYNC_TIMEOUT_MS = 30000;
-  var STALE_CUE_MS = 250;    /* a round trip faster than this is never marked */
+  var STALE_CUE_MS = 5000;   /* a round trip faster than this is never marked */
   var PACE_BAND = 0.02;      /* a gap inside this band reads as "on pace" */
   var MAX_DECISIONS = 120;
   var MAX_BINDINGS = 200;
