@@ -417,6 +417,9 @@ section { margin-top: 24px; border-radius: 12px; }
    head. The margin sits on the rows, not the scroller, so a head's own
    controls never count as covered and focusing one never moves the list. */
 :is(.rank-row, .ol-row, .dec, .tbl-card tbody tr), :is(.rank-row, .ol-row, .dec, .tbl-card tbody tr) * { scroll-margin-top: 28px; }
+/* In a ranking on several tiers a tier heading pins under the family head,
+   so a row there scrolls clear of both. */
+.rank-list:has(> .rank-tier) .rank-row, .rank-list:has(> .rank-tier) .rank-row * { scroll-margin-top: 48px; }
 @media (prefers-reduced-motion: no-preference) {
   :where(#timeline, .pace-card, #pace-rank, #session-rank, #hist-rank, .tbl-card, .dec-body, .log), .pace-rank::after { transition: box-shadow .2s ease-out; }
   .pin::after { transition: opacity .2s ease-out; }
@@ -655,7 +658,7 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 .rank-fam + .rank-fam { margin-top: 14px; }
 .rank-fam-head {
   margin: 0 0 4px; padding: 4px 0 2px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
-  position: sticky; top: -2px; z-index: 1; background: var(--surface-1);
+  position: sticky; top: -2px; z-index: 3; background: var(--surface-1);
 }
 .rank-fam-name { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); flex: none; }
 /* The note is a sentence in a column sized for the rows, so it wraps to as
@@ -2013,15 +2016,17 @@ th[aria-sort] button { color: var(--ink-1); }
      A seat the host disables or reports unavailable cannot serve, nor can one
      the provider refuses or reports full for the family, so each family's
      serving tier is the highest priority holding a seat that can serve it,
-     else the top one. The host decides availability only after a refusal, so
-     this is the page's reading of it, not the host's. Tiers are read from the
+     else the top one. The host takes a seat out only after a request to it
+     fails, so this is the page's reading of the host's choice, not the
+     host's own. A seat with no score for the family, as when that family's
+     fetch failed, is not counted as serving it. Tiers are read from the
      seats on screen, as the ranks are. */
   var HOST_DOWN = { disabled: true, unavailable: true };
 
   function servesFamily(a, fam) {
     if (HOST_DOWN[a.host_status || ""]) return false;
     var sc = famScore(a, fam);
-    return !sc || (sc.reason !== "provider-rejected" && sc.reason !== "spent");
+    return !!sc && sc.reason !== "provider-rejected" && sc.reason !== "spent";
   }
 
   function tiersOf(seats, fams) {
@@ -2083,7 +2088,7 @@ th[aria-sort] button { color: var(--ink-1); }
      the words its heading and its seats' tooltips share. */
   function tierText(p, ranks, fams) {
     var t = ranks.tier, r = tierRoleOf(p, fams, t);
-    var n = tierServers(p, r.fams, t).filter(function (a) {
+    var n = (t.on[p] || []).filter(function (a) {
       return r.fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
     }).length;
     if (r.role === "serving") {
@@ -6340,11 +6345,11 @@ th[aria-sort] button { color: var(--ink-1); }
      conversations still takes it: the scheduler picks past its own pace
      rather than refuse the request. */
   /* Why no seat can take this family, in the space of one narrow line. The
-     reason every seat on its serving tier shares is the fact worth reading: a refusal says the
-     provider is turning the work away and when it comes back, a window at full
-     says the budget is gone and when it returns, and an unread credential says
-     nothing about the cap at all. The plugin still forwards the request; the
-     routing log is where that is recorded. */
+     reason every seat on its serving tier shares is the fact worth reading:
+     a refusal says the provider is turning the work away and when it comes
+     back, a window at full says the budget is gone and when it returns, and
+     an unread credential says nothing about the cap at all. The plugin still
+     forwards the request; the routing log is where that is recorded. */
   function blockedText(st, fam, ranks) {
     var reasons = Object.create(null), n = 0;
     stableAuths(st.auths).forEach(function (a) {
@@ -6355,7 +6360,7 @@ th[aria-sort] button { color: var(--ink-1); }
     });
     var only = Object.keys(reasons);
     if (!n || only.length !== 1) return "no seat eligible";
-    return holdText(only[0], returnsAt(st, fam), nowMs());
+    return holdText(only[0], returnsAt(st, fam, ranks), nowMs());
   }
 
   /* A hold in the page's words, with the instant it lifts where one is known
@@ -6408,11 +6413,12 @@ th[aria-sort] button { color: var(--ink-1); }
     return unknown ? null : last;
   }
 
-  /* When the pool can serve this family again: the earliest of the seats'
-     own returns. */
-  function returnsAt(st, fam) {
+  /* When the pool can serve this family again: the earliest of its serving
+     tier's seats' own returns. */
+  function returnsAt(st, fam, ranks) {
     var soonest = null;
     stableAuths(st.auths).forEach(function (a) {
+      if (offTier(a, fam, ranks)) return;
       var back = seatReturnsAt(a, fam);
       if (back && (!soonest || back < soonest)) soonest = back;
     });
@@ -7070,15 +7076,15 @@ th[aria-sort] button { color: var(--ink-1); }
   /* What the embedding page paints over the live bar, as the padding each
      side of its content needs to clear it. The frame is always same-origin
      (frame-ancestors 'self'), so the parent can be hit-tested, in rows 12px
-     apart from the bar's top and columns 24px apart. A cover is the largest
-     element over the bar no wider than half the frame. One inside a wider
-     element that takes the pointer belongs to a bar across the frame, which
-     no padding clears, and is skipped. Clearance that would take more than
-     half the bar is dropped, since the content reads better whole than
-     squeezed. Rows step from the bar's top, so a taller bar samples every
-     point a shorter one did and keeps every cover; the cut-off counts only
-     the covers hit in the rows the bar spans at its shortest at this width,
-     rows padding cannot change, so the bar settles at one height. */
+     apart from the bar's top and columns 24px apart, over the band the bar
+     spans at its shortest at this width. Padding only makes the bar taller,
+     so that band, and with it the padding, settles; a cover below it may
+     sit over a wrapped row, which beats a bar wrapped round every cover it
+     grows into. A cover is the largest element over the bar no wider than
+     half the frame. One inside a wider element that takes the pointer
+     belongs to a bar across the frame, which no padding clears, and is
+     skipped. Clearance that would take more than half the bar is dropped,
+     since the content reads better whole than squeezed. */
   var clearKey = "", shortest = { w: -1, h: 0 };
   function clearOverlays() {
     var fe = window.frameElement;
@@ -7088,12 +7094,12 @@ th[aria-sort] button { color: var(--ink-1); }
     clearKey = key;
     if (shortest.w !== bar.width) shortest = { w: bar.width, h: bar.height };
     else shortest.h = Math.min(shortest.h, bar.height);
-    var l = 0, r = 0, l0 = 0, r0 = 0, half = window.innerWidth / 2;
+    var l = 0, r = 0, half = window.innerWidth / 2;
     if (fe) {
       var pd = fe.ownerDocument, fr = fe.getBoundingClientRect();
       var x0 = fr.left + fe.clientLeft, y0 = fr.top + fe.clientTop;
-      var covers = [], near = [];
-      for (var y = bar.top + 2; y < bar.bottom; y += 12) {
+      var covers = [];
+      for (var y = bar.top + 2; y < bar.top + shortest.h; y += 12) {
         for (var x = Math.max(1, bar.left); x < bar.right; x += 24) {
           var hits = pd.elementsFromPoint(x0 + x, y0 + y), at = hits.indexOf(fe);
           for (var i = 0; i < at; i++) {
@@ -7101,7 +7107,6 @@ th[aria-sort] button { color: var(--ink-1); }
             while (el.parentElement && !el.parentElement.contains(fe) &&
               el.parentElement.getBoundingClientRect().width <= half) el = el.parentElement;
             if (covers.indexOf(el) < 0) covers.push(el);
-            if (y < bar.top + shortest.h && near.indexOf(el) < 0) near.push(el);
           }
         }
       }
@@ -7109,16 +7114,11 @@ th[aria-sort] button { color: var(--ink-1); }
         var o = el.getBoundingClientRect(), up = el.parentElement;
         if (o.width > half) return;
         if (up && !up.contains(fe) && pd.defaultView.getComputedStyle(up).pointerEvents !== "none") return;
-        var left = o.left - x0, right = o.right - x0, isNear = near.indexOf(el) >= 0;
-        if (left + right > window.innerWidth) {
-          r = Math.max(r, bar.right - left + 12);
-          if (isNear) r0 = Math.max(r0, bar.right - left + 12);
-        } else {
-          l = Math.max(l, right - bar.left + 12);
-          if (isNear) l0 = Math.max(l0, right - bar.left + 12);
-        }
+        var left = o.left - x0, right = o.right - x0;
+        if (left + right > window.innerWidth) r = Math.max(r, bar.right - left + 12);
+        else l = Math.max(l, right - bar.left + 12);
       });
-      if (l0 + r0 > bar.width / 2) l = r = 0;
+      if (l + r > bar.width / 2) l = r = 0;
     }
     document.documentElement.style.setProperty("--lb-clear-l", Math.ceil(l) + "px");
     document.documentElement.style.setProperty("--lb-clear-r", Math.ceil(r) + "px");

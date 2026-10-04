@@ -278,9 +278,9 @@ new conversation. A seat held off ranks below them.
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
   a weekly window of its own, or that no seat is eligible, with the reason
-  when the seats share one. It shows the count of eligible seats on the tier
-  taking requests and the age of the newest reading, and its Sync now button
-  reads every seat at once.
+  when the seats on the tier taking requests share one. It shows how many of
+  those seats are eligible and the age of the newest reading, and its Sync now
+  button reads every seat at once.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
   showing each window's current cycle. A window holding its seat off, full or
