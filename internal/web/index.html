@@ -474,6 +474,12 @@ td .seat-mark { max-width: 22ch; }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
 svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+svg.tl .tier-label { font-family: var(--mono); font-weight: 600; letter-spacing: .14em; fill: var(--ink-2); }
+svg.tl .tier-rule { stroke: var(--ink-3); stroke-opacity: .6; stroke-width: 1; }
+svg.tl g.tier-head { cursor: default; }
+svg.tl g.tier-head:focus-visible { outline: none; }
+svg.tl g.tier-head:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
+svg.tl g.tier-head:hover rect.hit { fill: var(--surface-2); }
 svg.tl .t-muted { fill: var(--ink-3); }
 svg.tl .t-sec { fill: var(--ink-2); }
 svg.tl g.lane { cursor: default; }
@@ -627,10 +633,11 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
   .pace-body { grid-template-columns: minmax(0, 1fr); }
   .pace-rank > :is(#pace-rank, #session-rank, #hist-rank) { position: relative; max-height: 380px; }
   .pace-rank > #pace-rank { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px; }
+  .pace-rank > #pace-rank > .rank-fam + .rank-fam { margin-top: 0; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
    can check a figure against the marks' labels by. It runs the width of the
-   card: in the list's own column the same sentence wraps to five lines. */
+   card: in the list's own column the same sentence wraps to several lines. */
 .rank-formula { margin: 0 0 8px; font: 500 11px/1.45 var(--mono); color: var(--ink-2); }
 /* The view switch: one row of joined buttons, the pressed one the view. */
 .pace-view { display: inline-flex; margin: 0 0 10px; }
@@ -638,8 +645,9 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 .pace-view button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .pace-view button:last-child { border-radius: 0 6px 6px 0; }
 .rank-formula b { font-weight: 600; color: var(--ink-1); }
-/* One list per request family, every seat ordered by cost, lowest first: the
-   top row is the seat that family's next new conversation lands on. */
+/* One list per request family: its serving tier's seats by cost, lowest
+   first, and every other tier's seats unranked under their own heading. The
+   lead row is the seat that family's next new conversation lands on. */
 .rank-fam + .rank-fam { margin-top: 14px; }
 .rank-fam-head {
   margin: 0 0 4px; padding: 4px 0 2px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
@@ -650,10 +658,32 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
    many lines as it needs rather than widening anything. */
 .rank-fam-note { font: 400 11px/1.4 var(--sans); color: var(--ink-2); min-width: 0; }
 .rank-list { margin: 0; padding: 0; list-style: none; }
+/* A tier's heading pins under its family's head, so a row scrolled up under
+   it still reads its tier. The family block carries its head's measured
+   height in --fam-head-h. */
+.rank-tier {
+  display: flex; align-items: baseline; gap: 9px; min-height: 14px; cursor: help;
+  margin: 6px 0 2px; padding: 6px 0 4px; border-top: 1px dashed var(--axis);
+  position: sticky; top: var(--fam-head-h, 18px); z-index: 2; background: var(--surface-1);
+}
+.rank-tier:focus-visible { outline-offset: 0; }
+.rank-tier:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.rank-tier-name { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+/* A tier's role reads as the timeline's seat chips do: a plate, tinted
+   where the tier is serving, around ink text. */
+.rank-tier-word {
+  font: 600 9.5px/11.5px var(--mono); letter-spacing: .04em; color: var(--ink-2);
+  border: 1px solid var(--axis); border-radius: 3.5px; padding: 0 6px;
+}
+.rank-tier[data-role="serving"] .rank-tier-word {
+  color: var(--ink-1);
+  background: color-mix(in srgb, var(--info) 15%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--info) 42%, transparent);
+}
 /* A row reads rank, state, seat, cost. The lead row carries the tint the
-   timeline gives the same seat; a seat held off the family is greyed and
-   carries its hold in the tooltip, because the icon already says it is out
-   and the reasons run long. */
+   timeline gives the same seat; a seat held off the family, or off its
+   serving tier, is greyed and carries the reason in the tooltip, because
+   the reasons run long. */
 .rank-row {
   display: grid; grid-template-columns: 2.4em 24px minmax(0, 1fr) auto; align-items: center; gap: 6px;
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
@@ -1609,11 +1639,11 @@ th[aria-sort] button { color: var(--ink-1); }
     "bad-reading": "bad reading"
   };
 
-  /* Where the traffic goes with no seat left to take it, and what that
-     fallback credential is. The live bar, the ranking's head and the routing
-     log all print these, so the page has one voice for the state and defines
-     the term in every place it uses it. */
-  var OVERFLOW_TEXT = "no seat eligible · using fallback credential";
+  /* Where the traffic goes with no seat left to take it, another credential,
+     and what that credential is. The live bar, the ranking's head and the
+     routing log all print these, so the page has one voice for the state and
+     defines the term in every place it uses it. */
+  var OVERFLOW_TEXT = "no seat eligible · using another credential";
   var OVERFLOW_TIP = "A credential outside this plugin, usually an API key in the host's next " +
     "priority tier. The host sends requests to it when no seat can take them. It is not ranked here.";
 
@@ -1818,12 +1848,12 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* A credential the host routed to that this plugin does not govern: the
-     poller reads only credentials with a backing file, so a fallback
+     poller reads only credentials with a backing file, so such a
      credential has no seat row, no snapshot and no score, and there is
      nothing to rank. Its published id is the tooltip; the row says what it
      is. */
   function overflowMark(id) {
-    var m = h("span", "ungoverned", "fallback credential");
+    var m = h("span", "ungoverned", "other credential");
     return tipOnly(m, OVERFLOW_TIP + (id ? "\n" + id : ""));
   }
 
@@ -1945,15 +1975,16 @@ th[aria-sort] button { color: var(--ink-1); }
 
   function shows(view, fam) { return view === PACE_ALL || view === fam; }
 
-  /* Seats in name order, numbers within a name read as numbers, then by id
-     where two names match, minus the hidden ones: the order every
-     per-seat view keeps, so a change of ranking moves badges, not rows. Every
-     seat list on the page comes through here, which is what makes one filter
-     reach all of them. */
+  /* Seats by priority, highest first, then in name order, numbers within a
+     name read as numbers, then by id where two names match, minus the hidden
+     ones: the order every per-seat view keeps, so a change of ranking moves
+     badges, not rows. Every seat list on the page comes through here, which
+     is what makes one filter reach all of them. */
   function stableAuths(auths) {
     return (auths || []).filter(function (a) { return !seatHidden(a); })
       .sort(function (x, y) {
-        return seatLabel(x).localeCompare(seatLabel(y), undefined, { numeric: true, sensitivity: "base" }) ||
+        return (y.priority || 0) - (x.priority || 0) ||
+          seatLabel(x).localeCompare(seatLabel(y), undefined, { numeric: true, sensitivity: "base" }) ||
           String(x.auth_id).localeCompare(String(y.auth_id));
       });
   }
@@ -1977,20 +2008,111 @@ th[aria-sort] button { color: var(--ink-1); }
     return ranked.filter(function (a) { var sc = famScore(a, fam); return sc && sc.eligible; })[0] || null;
   }
 
+  /* The host offers a request only to the highest-priority credentials it
+     can use for the requested model, and the plugin paces across those alone.
+     A seat the host disables or reports unavailable cannot serve, nor can one
+     the provider refuses or reports full for the family, so each family's
+     serving tier is the highest priority holding a seat that can serve it,
+     else the top one. The host decides availability only after a refusal, so
+     this is the page's reading of it, not the host's. Tiers are read from the
+     seats on screen, as the ranks are. */
+  var HOST_DOWN = { disabled: true, unavailable: true };
+
+  function servesFamily(a, fam) {
+    if (HOST_DOWN[a.host_status || ""]) return false;
+    var sc = famScore(a, fam);
+    return !sc || (sc.reason !== "provider-rejected" && sc.reason !== "spent");
+  }
+
+  function tiersOf(seats, fams) {
+    var list = [], on = Object.create(null), serving = Object.create(null);
+    seats.forEach(function (a) {
+      var p = a.priority || 0;
+      if (!on[p]) { list.push(p); on[p] = []; }
+      on[p].push(a);
+      fams.forEach(function (fam) {
+        if (servesFamily(a, fam) && (!(fam in serving) || p > serving[fam])) serving[fam] = p;
+      });
+    });
+    list.sort(function (x, y) { return y - x; });
+    var none = Object.create(null);
+    fams.forEach(function (fam) { if (!(fam in serving)) { none[fam] = true; serving[fam] = list[0] || 0; } });
+    return { list: list, multi: list.length > 1, serving: serving, none: none, on: on };
+  }
+
+  /* The seats on a tier that can serve any of some families. */
+  function tierServers(p, fams, t) {
+    return (t.on[p] || []).filter(function (a) {
+      return fams.some(function (fam) { return servesFamily(a, fam); });
+    });
+  }
+
+  /* A tier's role for some families: "serving" with the families it is the
+     serving tier of; else "fallback" where it sits below a family's serving
+     tier and holds a seat that can serve that family; else "skipped"; "" in a
+     pool of one tier or for a priority no seat on screen holds. A family no
+     seat can serve has no serving tier, so every tier is skipped for it; its
+     ranking still lists the top tier's seats. */
+  function tierRoleOf(p, fams, t) {
+    if (!t.multi || !t.on[p]) return { role: "", fams: [] };
+    var live = fams.filter(function (fam) { return !t.none[fam]; });
+    var served = live.filter(function (fam) { return t.serving[fam] === p; });
+    if (served.length) return { role: "serving", fams: served };
+    var below = live.some(function (fam) { return p < t.serving[fam] && tierServers(p, [fam], t).length; });
+    return { role: below ? "fallback" : "skipped", fams: [] };
+  }
+
+  function tierRole(a, ranks) {
+    return hostDisabled(a) ? "" : tierRoleOf(a.priority || 0, ranks.fams, ranks.tier).role;
+  }
+
+  /* Whether a seat sits outside the tier serving a family, so it takes no
+     rank there. */
+  function offTier(a, fam, ranks) {
+    return ranks.tier.multi && (a.priority || 0) !== ranks.tier.serving[fam];
+  }
+
+  /* A role as its pill reads: a tier serving only some families names them. */
+  function roleLabel(r, fams) {
+    return r.role === "serving" && r.fams.length < fams.length ? andList(r.fams.map(rankLabel)) + " serving" : r.role;
+  }
+
+  function priorityWord(p) { return "priority " + p; }
+
+  /* What a tier is doing for some families, short enough for the gutter, in
+     the words its heading and its seats' tooltips share. */
+  function tierText(p, ranks, fams) {
+    var t = ranks.tier, r = tierRoleOf(p, fams, t);
+    var n = tierServers(p, r.fams, t).filter(function (a) {
+      return r.fams.some(function (fam) { var sc = famScore(a, fam); return !!(sc && sc.eligible); });
+    }).length;
+    if (r.role === "serving") {
+      var some = r.fams.length < fams.filter(function (fam) { return !t.none[fam]; }).length;
+      if (t.list[0] !== p) return "no higher tier can take " + (some ? andList(r.fams.map(rankLabel)) + " " : "") + "requests";
+      return n > 1 ? "paced across " + n + " seats" : n ? "one seat takes every new conversation" : "no seat eligible";
+    }
+    if (r.role === "fallback") return "takes requests when no higher tier can";
+    return "every seat refused, full, unavailable or disabled";
+  }
+
   /* Every seat's rank per family, by id, and the seat each family's next new
-     conversation lands on. A family whose ranking is unknown ranks no one. */
+     conversation lands on, both within that family's serving tier. A family
+     whose ranking is unknown ranks no one. */
   function rankSeats(st) {
-    var fams = familiesOf(st), byFam = Object.create(null), lead = Object.create(null);
+    var fams = familiesOf(st), byFam = Object.create(null), lead = Object.create(null), known = Object.create(null);
+    var seats = stableAuths(st.auths);
+    var tier = tiersOf(seats, fams);
     fams.forEach(function (fam) {
       byFam[fam] = Object.create(null);
-      var known = stableAuths(st.auths).some(function (a) { return famScore(a, fam) !== null; });
-      if (!known) return;
-      var ranked = rankAuths(stableAuths(st.auths), fam);
+      var pool = seats.filter(function (a) { return !tier.multi || (a.priority || 0) === tier.serving[fam]; });
+      known[fam] = pool.some(function (a) { return famScore(a, fam) !== null; });
+      if (!known[fam]) return;
+      var ranked = rankAuths(pool, fam);
       ranked.forEach(function (a, i) { byFam[fam][a.auth_id] = i; });
       var first = firstEligible(ranked, fam);
       if (first) lead[fam] = first.auth_id;
     });
-    return { fams: fams, byFam: byFam, lead: lead };
+    return { fams: fams, byFam: byFam, lead: lead, known: known, tier: tier };
   }
 
   /* The families whose next new conversation this seat takes. */
@@ -2020,7 +2142,7 @@ th[aria-sort] button { color: var(--ink-1); }
   function rankText(a, ranks) {
     var fams = ranks.fams.filter(function (fam) {
       var sc = famScore(a, fam);
-      return !sc || sc.eligible;
+      return !offTier(a, fam, ranks) && (!sc || sc.eligible);
     });
     function textOf(fam) {
       var r = ranks.byFam[fam][a.auth_id];
@@ -2181,11 +2303,12 @@ th[aria-sort] button { color: var(--ink-1); }
   }
 
   /* Behind a seat's row in the timeline gutter, as a rich tooltip: its rank,
-     and whether it takes the next new conversation, or why it is
-     ineligible and when that lifts; its cost large, with the terms that make
-     it per family; then its live load, and a failing read, a host status or
-     a missing reading where there is one. The name is here whole because
-     the row trims it to the measured space. */
+     or that its tier is a fallback, and whether it takes the next new
+     conversation, or why it is ineligible and when that lifts; a seat off the
+     serving tier carries what its tier is doing; its cost large, with the
+     terms that make it per family; then its live load, and a failing read, a
+     host status or a missing reading where there is one. The name is here
+     whole because the row trims it to the measured space. */
   function seatTip(a, ranks) {
     var now = nowMs();
     var snap = a.snapshot || {};
@@ -2197,15 +2320,21 @@ th[aria-sort] button { color: var(--ink-1); }
     var spec = { seat: seatLabel(a), col: seatColor(a), win: maskedName(a) ? "address masked" : "", lines: [] };
     /* A family held off an eligible seat says so on its cost line. */
     var held = {};
-    if (rank) {
+    var role = tierRole(a, ranks), p = a.priority || 0;
+    if (role === "fallback" && anyEligible(a, fams)) {
+      Object.assign(spec, { type: "rank", tone: "var(--ink-2)", label: "fallback", when: "" });
+    } else if (rank) {
       Object.assign(spec, { type: "rank", tone: lead ? "var(--info)" : "var(--ink-2)", label: rank, when: lead });
+    } else {
+      Object.assign(spec, { type: "limit", label: "ineligible", when: holdsText(a, ranks) || (hs !== "active" ? "host " + hs : "") });
+    }
+    if (spec.type === "rank") {
       fams.forEach(function (fam) {
         var sc = famScore(a, fam);
         if (sc && !sc.eligible) held[fam] = famVerdict(a, fam, now).text;
       });
-    } else {
-      Object.assign(spec, { type: "limit", label: "ineligible", when: holdsText(a, ranks) });
     }
+    if (role && role !== "serving") spec.lines.push({ b: priorityWord(p), t: tierText(p, ranks, fams) });
     var std = famScore(a, fams[0]);
     spec.big = [costText(std)];
     spec.delta = fams.length > 1 ? rankLabel(fams[0]) + " cost" : "cost";
@@ -2238,7 +2367,9 @@ th[aria-sort] button { color: var(--ink-1); }
     var sc = a.score || {}, snap = a.snapshot || {}, now = nowMs();
     var hs = a.host_status || "unknown";
     var lead = leadText(leadsOf(a, ranks), ranks.fams);
-    return seatLabel(a) + ", rank " + (rankText(a, ranks) || "unranked") + (lead ? ", " + lead : "") +
+    var role = tierRole(a, ranks);
+    return seatLabel(a) + (role ? ", " + priorityWord(a.priority || 0) + ", " + role : "") +
+      ", rank " + (rankText(a, ranks) || "unranked") + (lead ? ", " + lead : "") +
       ", " + (holdsText(a, ranks) || "eligible") +
       ", " + WEEKLY_SHORT + " " + weeklyGapText(sc) +
       ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
@@ -2350,9 +2481,13 @@ th[aria-sort] button { color: var(--ink-1); }
   var TL_REACH = 7 * 86400000, TL_FADE = 7;
   /* Row geometry, at the two densities the timeline draws. */
   var TL_GEO = {
-    roomy:   { head: 28, lane: 21, gap: 10, name: 13.5 },
-    compact: { head: 26, lane: 21, gap: 8,  name: 12.5 }
+    roomy:   { head: 28, lane: 21, bar: 13, inset: 6, gap: 12, name: 13.5 },
+    compact: { head: 26, lane: 21, bar: 11, inset: 4, gap: 11, name: 12.5 }
   };
+
+  /* A priority tier's heading band, and how far a pool on several tiers
+     starts below the top, so the first tier's rule clears the NOW label. */
+  var TIER_H = 22, TIER_LIFT = 4;
 
   /* The lane states are one list: the legend, the glyph, the tooltip, the
      aria-label and the ranked list's icons all read STATE_META, so they
@@ -2401,8 +2536,9 @@ th[aria-sort] button { color: var(--ink-1); }
     return { ok: false, word: word, text: text, lift: text.indexOf(word + " · ") === 0 ? text.slice(word.length + 3) : "" };
   }
 
-  /* The chips a seat's header row carries: its rank in each family it can
-     serve, then a cross for each hold. Ranking puts every eligible seat
+  /* The chips a seat's header row carries: "fallback" where its tier is a
+     fallback, its rank in each family it can serve on that family's serving
+     tier, then a cross for each hold. Ranking puts every eligible seat
      first, so a #1 is the seat that takes that family's next new
      conversation, and its chip is the one tinted. Ranks that agree across
      every family collapse to one chip with no family named, which is also
@@ -2420,6 +2556,7 @@ th[aria-sort] button { color: var(--ink-1); }
     fams.forEach(function (fam) {
       var v = famVerdict(a, fam, now);
       if (v.ok) {
+        if (offTier(a, fam, ranks)) return;
         var r = ranks.byFam[fam][a.auth_id];
         ranked.push({ ok: true, text: r === undefined ? "#?" : "#" + (r + 1), lead: leads.indexOf(fam) >= 0, fam: fam });
         return;
@@ -2430,12 +2567,13 @@ th[aria-sort] button { color: var(--ink-1); }
         else { hc.fams = [fam]; holds.push(hc); }
       });
     });
-    var agree = !holds.length && ranked.every(function (p) {
+    var agree = !holds.length && ranked.length === fams.length && ranked.every(function (p) {
       return p.text === ranked[0].text && !!p.lead === !!ranked[0].lead;
     });
-    var chips = agree
-      ? [{ ok: true, lead: ranked[0].lead, label: ranked[0].text }]
+    var chips = !ranked.length ? []
+      : agree ? [{ ok: true, lead: ranked[0].lead, label: ranked[0].text }]
       : ranked.map(function (p) { return { ok: true, lead: p.lead, label: rankLabel(p.fam) + " " + p.text }; });
+    if (tierRole(a, ranks) === "fallback") chips.unshift({ ok: true, label: "fallback" });
     holds.forEach(function (hc) {
       var some = fams.length > 1 && hc.fams.length < fams.length;
       var label = some && !hc.window ? andList(hc.fams.map(rankLabel)) + " " + hc.label : hc.label;
@@ -2623,12 +2761,20 @@ th[aria-sort] button { color: var(--ink-1); }
     var groups = seats.map(function (a) {
       return { a: a, wins: sortedWindows(a.snapshot && a.snapshot.windows) };
     });
-    var y = TOP, layout = [];
-    groups.forEach(function (g) {
+    /* A pool on more than one priority tier opens each tier with its
+       heading, so the rows read as the host's order before the plugin's. */
+    var tier = ranks.tier;
+    var y = TOP + (tier.multi ? TIER_LIFT : 0), layout = [];
+    groups.forEach(function (g, i) {
+      var p = g.a.priority || 0, head = null;
+      if (tier.multi && (!i || (groups[i - 1].a.priority || 0) !== p)) {
+        head = { y: y, p: p };
+        y += TIER_H;
+      }
       var top = y;
       y += geo.head;
       var lanes = g.wins.map(function (w) { var ly = y; y += geo.lane; return { w: w, y: ly }; });
-      layout.push({ g: g, top: top, bottom: y, lanes: lanes });
+      layout.push({ g: g, top: top, bottom: y, lanes: lanes, tierHead: head });
       y += geo.gap;
     });
     var plotH = y - geo.gap + 6;
@@ -2699,7 +2845,43 @@ th[aria-sort] button { color: var(--ink-1); }
     /* Rows. The legend names a cut end only where a bar has one, and a held
        seat's other windows only while a seat is held. */
     var anyCut = false, anyHeld = false;
+    /* A seat's stripe and highlight end one bar gap below its last bar. */
+    var padB = (geo.lane - geo.bar) / 2;
+
+    /* A tier's heading: its priority, its role, unless skipped, as a chip in
+       the seat chips' style, what it is doing, and a rule across the plot,
+       centred between the seat stripes above and below it. The note is
+       trimmed to the gutter and read whole in the tooltip. */
+    function tierHead(th) {
+      var r = tierRoleOf(th.p, ranks.fams, tier), label = roleLabel(r, ranks.fams);
+      var ty = th.y + (padB - geo.gap + TIER_H - geo.inset) / 2 + 3.5;
+      var note = tierText(th.p, ranks, ranks.fams);
+      var g = svg("g", { "class": "tier-head" }, gRows);
+      setTip(g, { seat: priorityWord(th.p), col: "var(--ink-3)", win: "", type: "rank",
+        tone: r.role === "serving" ? "var(--info)" : "var(--ink-2)", label: label, when: "",
+        lines: [{ t: note }] });
+      tipStop(g, g.tipSpec, "tier:" + th.p);
+      var hit = svg("rect", { "class": "hit", x: 10, y: ty - 12, height: 17, rx: 4, fill: "transparent" }, g);
+      var lt = svgText(g, 14, ty, priorityWord(th.p).toUpperCase(), "tier-label", { "font-size": 10.5 });
+      var nx = 14 + lt.getComputedTextLength() + 9;
+      if (r.role !== "skipped") {
+        var chip = svg("g", { "class": "fam" }, g);
+        chip.setAttribute(r.role === "serving" ? "data-lead" : "data-quiet", "true");
+        var ct = svgText(chip, nx + 7, ty, label, "fam-text", { "font-size": 9.5 });
+        var cw = ct.getComputedTextLength() + 14;
+        chip.insertBefore(svg("rect", { "class": "fam-plate", x: nx, y: ty - 9.5, width: cw, height: 13.5, rx: 3.5 }, chip), ct);
+        nx += cw + 9;
+      }
+      var nt = svgText(g, nx, ty, note, "t-muted", { "font-size": 11 });
+      fitText(nt, gut - 12 - nx);
+      hit.setAttribute("width", nx + nt.getComputedTextLength() + 4 - 10);
+      var rule = { x1: gut, x2: gut + plotW, y1: ty - 3.5, y2: ty - 3.5, "class": "tier-rule" };
+      if (r.role !== "serving") rule["stroke-dasharray"] = "4 3";
+      svg("line", rule, g);
+    }
+
     layout.forEach(function (row) {
+      if (row.tierHead) tierHead(row.tierHead);
       var a = row.g.a;
       var fams = ranks.fams;
       var eligible = anyEligible(a, fams);
@@ -2710,11 +2892,11 @@ th[aria-sort] button { color: var(--ink-1); }
 
       if (lead) {
         svg("rect", {
-          x: 6, y: row.top - 6, width: width - 12, height: row.bottom - row.top + 8,
+          x: 6, y: row.top - geo.inset, width: width - 12, height: row.bottom - row.top + geo.inset + padB,
           rx: 8, fill: "var(--emph)"
         }, gBack);
       }
-      svg("rect", { x: 6, y: row.top - 6, width: 3, height: row.bottom - row.top + 8, rx: 1.5, fill: col }, gBack);
+      svg("rect", { x: 6, y: row.top - geo.inset, width: 3, height: row.bottom - row.top + geo.inset + padB, rx: 1.5, fill: col }, gBack);
 
       /* The seat's row: identity, then its rank per family and a cross per hold, with
          the whole record in the tooltip. Every name starts at NAME_X, so the
@@ -2798,7 +2980,7 @@ th[aria-sort] button { color: var(--ink-1); }
         g.setAttribute("aria-label", laneAria(a, w, ws, stt));
         setTip(g, laneTip(a, w, ws, stt, cutL, cutR));
 
-        var barH = compact ? 11 : 13, by = cy - barH / 2;
+        var barH = geo.bar, by = cy - barH / 2;
 
         svg("rect", {
           "class": "hit", x: bx0 - 6, y: lane.y, width: (bx1 - bx0) + 12, height: geo.lane,
@@ -5605,12 +5787,12 @@ th[aria-sort] button { color: var(--ink-1); }
        diamond, and there the list marks the seat with that diamond. */
     var capMark = fam !== STANDARD && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     var now = nowMs(), pace = (st.config && st.config.pace) || {};
-    var known = seats.some(function (a) { return famScore(a, fam) !== null; });
+    var known = ranks.known[fam];
     var block = h("div", "rank-fam");
     var head = h("p", "rank-fam-head pin");
     head.appendChild(h("span", "rank-fam-name", rankLabel(fam)));
     /* With no seat left to take the family the head says where the work
-       goes, in the live bar's own words: the fallback credential where the
+       goes, in the live bar's own words: the other credential where the
        log shows traffic on one, else the seat the scheduler's least-bound
        pick takes. */
     if (!known) head.appendChild(h("span", "rank-fam-note", "ranking unknown · fetch failed"));
@@ -5623,7 +5805,12 @@ th[aria-sort] button { color: var(--ink-1); }
     block.appendChild(head);
     if (!known) return block;
 
-    var order = seats.slice().sort(function (x, y) { return ranks.byFam[fam][x.auth_id] - ranks.byFam[fam][y.auth_id]; });
+    /* Tiers by priority, as the timeline draws them: the serving tier in rank
+       order, every other tier unranked in the page's seat order. */
+    var order = seats.slice().sort(function (x, y) {
+      var rx = ranks.byFam[fam][x.auth_id], ry = ranks.byFam[fam][y.auth_id];
+      return (y.priority || 0) - (x.priority || 0) || (rx !== undefined && ry !== undefined ? rx - ry : 0);
+    });
 
     /* Where the printed costs cannot be trusted to order the seats, so the
        figure carries the neighbour it cannot be read against.
@@ -5641,6 +5828,7 @@ th[aria-sort] button { color: var(--ink-1); }
     order.forEach(function (a) {
       var sc = famScore(a, fam);
       if (!sc || !sc.eligible || !scored(sc) || !num(sc.cost)) return;
+      if (ranks.byFam[fam][a.auth_id] === undefined) return;
       var key = costText(sc);
       (printing[key] = printing[key] || []).push(a);
       byRank.push(a);
@@ -5669,8 +5857,21 @@ th[aria-sort] button { color: var(--ink-1); }
     }
 
     var ul = h("ul", "rank-list");
-    ul.setAttribute("aria-label", rankLabel(fam) + " ranking, lowest cost first");
+    ul.setAttribute("aria-label", rankLabel(fam) + (ranks.tier.multi
+      ? " ranking by priority tier, the serving tier lowest cost first" : " ranking, lowest cost first"));
+    var lastTier = null;
     order.forEach(function (a) {
+      var p = a.priority || 0, role = tierRoleOf(p, [fam], ranks.tier).role;
+      if (role && p !== lastTier) {
+        var tierLi = h("li", "rank-tier pin");
+        tierLi.setAttribute("data-role", role);
+        tierLi.setAttribute("data-fk", "tier:" + fam + ":" + p);
+        tierLi.appendChild(h("span", "rank-tier-name", priorityWord(p)));
+        if (role !== "skipped") tierLi.appendChild(h("span", "rank-tier-word", role));
+        tipOnly(tierLi, tierText(p, ranks, [fam]));
+        ul.appendChild(tierLi);
+        lastTier = p;
+      }
       var sc = famScore(a, fam), li = h("li", "rank-row");
       var rank = ranks.byFam[fam][a.auth_id];
       var elig = !!(sc && sc.eligible);
@@ -5679,6 +5880,7 @@ th[aria-sort] button { color: var(--ink-1); }
       li.setAttribute("data-fk", "rank:" + fam + ":" + a.auth_id);
       if (ranks.lead[fam] === a.auth_id) li.setAttribute("data-lead", "true");
       li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : "—"));
+      var outside = offTier(a, fam, ranks);
       var stateMark = stateGlyph(meta);
       stateMark.setAttribute("role", "img");
       stateMark.setAttribute("aria-label", meta.label);
@@ -5687,7 +5889,10 @@ th[aria-sort] button { color: var(--ink-1); }
       if (capMark) mark.querySelector(".seat-dot").classList.add("cap");
       li.appendChild(mark);
       var cost = h("span", "rank-cost", costText(sc));
-      if (elig) {
+      if (elig && outside) {
+        li.setAttribute("data-out", "true");
+        tipOnly(li, priorityWord(p) + " · " + tierText(p, ranks, [fam]));
+      } else if (elig) {
         var same = (printing[costText(sc)] || []).filter(function (o) { return o !== a; });
         var near = nearNeighbours(a).filter(function (o) { return same.indexOf(o) < 0; });
         if (same.length || near.length) {
@@ -5739,6 +5944,12 @@ th[aria-sort] button { color: var(--ink-1); }
     host.setAttribute("data-view", String(view));
     host.textContent = "";
     ranks.fams.forEach(function (fam) { if (shows(view, fam)) host.appendChild(rankList(st, seats, ranks, fam)); });
+    /* Each family's tier headings pin just under its head, whose height
+       follows its note's wrapping; a resize renders again. */
+    Array.prototype.forEach.call(host.querySelectorAll(".rank-fam"), function (block) {
+      var head = block.querySelector(".rank-fam-head");
+      if (head) block.style.setProperty("--fam-head-h", (head.offsetHeight - 2) + "px");
+    });
     host.scrollTop = scrollTop;
   }
 
@@ -6073,9 +6284,11 @@ th[aria-sort] button { color: var(--ink-1); }
     }
     $("page-foot").hidden = !facts.childNodes.length;
 
-    /* Eligible for any family: the count of seats a new conversation of
-       some kind can still land on. */
-    var eligible = seats.filter(function (a) { return anyEligible(a, ranks.fams); }).length;
+    /* Eligible for a family whose serving tier holds the seat: the count of
+       seats a new conversation of some kind can still land on. */
+    var eligible = seats.filter(function (a) {
+      return ranks.fams.some(function (fam) { var sc = famScore(a, fam); return !offTier(a, fam, ranks) && !!(sc && sc.eligible); });
+    }).length;
     $("seat-total").textContent = seats.length
       ? seats.length + (seats.length === 1 ? " seat" : " seats")
       : "—";
@@ -6118,9 +6331,8 @@ th[aria-sort] button { color: var(--ink-1); }
     /* Scoring is per request family, so with a family cap in the pool each
        seat carries one rank per family. */
     var fams = scopedFamilies(st);
-    $("seats-sub").textContent = fams.length
-      ? "seats by name · each family's #1 takes its next new conversation"
-      : "seats by name · #1 takes the next new conversation";
+    $("seats-sub").textContent = (ranks.tier.multi ? "seats by priority, then name · " : "seats by name · ") +
+      (fams.length ? "each family's #1 takes its next new conversation" : "#1 takes the next new conversation");
   }
 
   /* Where the next new conversation lands, one line per request family and
@@ -6128,22 +6340,22 @@ th[aria-sort] button { color: var(--ink-1); }
      leave the reader to work out which ranking it won. A family whose ranking
      is unknown this refresh reads as unknown, never as the last answer. With
      no seat left to take the family and the log showing traffic on an
-     ungoverned credential, the requests are landing on that fallback
+     ungoverned credential, the requests are landing on that other
      credential rather than failing, and the line says so. With no eligible
-     seat and no fallback credential the seat carrying the fewest live
+     seat and no other credential the seat carrying the fewest live
      conversations still takes it: the scheduler picks past its own pace
      rather than refuse the request. */
   /* Why no seat can take this family, in the space of one narrow line. The
-     reason every seat shares is the fact worth reading: a refusal says the
+     reason every seat on its serving tier shares is the fact worth reading: a refusal says the
      provider is turning the work away and when it comes back, a window at full
      says the budget is gone and when it returns, and an unread credential says
      nothing about the cap at all. The plugin still forwards the request; the
      routing log is where that is recorded. */
-  function blockedText(st, fam) {
+  function blockedText(st, fam, ranks) {
     var reasons = Object.create(null), n = 0;
     stableAuths(st.auths).forEach(function (a) {
       var sc = famScore(a, fam);
-      if (!sc || sc.eligible) return;
+      if (!sc || sc.eligible || offTier(a, fam, ranks)) return;
       n++;
       reasons[sc.reason || ""] = true;
     });
@@ -6232,7 +6444,7 @@ th[aria-sort] button { color: var(--ink-1); }
     ranks.fams.forEach(function (fam) {
       var span = h("span", "pick");
       span.appendChild(h("span", "pick-fam", rankLabel(fam)));
-      var known = stableAuths(st.auths).some(function (a) { return famScore(a, fam) !== null; });
+      var known = ranks.known[fam];
       if (off) span.appendChild(tipOnly(h("span", "pick-none pick-wrap", DISABLED_TEXT), DISABLED_TIP));
       else if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
@@ -6240,7 +6452,7 @@ th[aria-sort] button { color: var(--ink-1); }
         span.appendChild(tipOnly(h("span", "pick-none pick-wrap", OVERFLOW_TEXT), OVERFLOW_TIP));
       } else {
         span.appendChild(h("span", "pick-none pick-wrap",
-          seats ? blockedText(st, fam) : "—"));
+          seats ? blockedText(st, fam, ranks) : "—"));
       }
       next.appendChild(span);
     });
@@ -6402,7 +6614,8 @@ th[aria-sort] button { color: var(--ink-1); }
       var r = pins[i].getBoundingClientRect();
       /* A head within a few pixels of the edge already covers the box's
          shade there, so it takes the shade over before it pins. */
-      var stuck = el.scrollTop > 1 && r.top <= top + 4 && r.bottom > top + 4;
+      var at = top + (parseFloat(getComputedStyle(pins[i]).top) || 0);
+      var stuck = el.scrollTop > 1 && r.top <= at + 4 && r.bottom > at + 4;
       pins[i].toggleAttribute("data-stuck", stuck);
       pinned = pinned || stuck;
     }

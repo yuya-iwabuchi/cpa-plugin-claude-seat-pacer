@@ -64,9 +64,10 @@ the run. Do not remove that test.
   access and never across a host callback.
 - **Candidates are pre-filtered and capped at the highest priority tier.**
   Disabled, cooling, model-incompatible and already-tried credentials are gone
-  before the plugin is asked, and lower tiers are never offered, so every seat
-  must share one `priority`. The status page warns while the pick sees a single
-  candidate.
+  before the plugin is asked, and lower tiers are never offered, so the plugin
+  paces only across the seats sharing the highest usable `priority`; a lower
+  tier is a fallback the host reaches on its own. The status page groups seats
+  by tier and warns while the pick sees a single candidate.
 - **The plugin owns affinity for what it routes.** The host asks the plugin
   before its own selector, and a plugin that answers `Handled: true` skips
   that selector, `SessionAffinitySelector` included, so

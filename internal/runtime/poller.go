@@ -487,9 +487,9 @@ func (p *Plugin) wait(ctx context.Context, d time.Duration) bool {
 }
 
 // warnSingleCandidate logs once per provider that spreading cannot work: the
-// host offers only the highest priority tier, so a pool whose credentials do
-// not share one priority value collapses to a single candidate. A provider
-// that starts offering more again is logged afresh the next time it collapses.
+// host offers only the highest priority tier it can use, so a seat alone on
+// that tier is the single candidate. A provider that starts offering more
+// again is logged afresh the next time it collapses.
 // The pick that observes the condition only records it, because a host call on
 // the pick path has no timeout and would park the request's goroutine for
 // good.
@@ -511,7 +511,7 @@ func (p *Plugin) warnSingleCandidate() {
 	for _, provider := range pending {
 		p.host.log("warn", "claude-seat-pacer: a single candidate was offered; spreading cannot work", map[string]any{
 			"provider": provider,
-			"hint":     "every credential in the pool must share one priority value",
+			"hint":     "give the seats you want paced together the same priority",
 		})
 	}
 }
