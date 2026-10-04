@@ -180,11 +180,6 @@ a { color: inherit; }
   padding: 26px 28px 18px;
   max-width: 1360px; margin: 0 auto;
 }
-/* The Management Center floats its own toolbar over the top-right corner of
-   the frame it embeds this page in, so a framed document keeps that corner
-   empty. The sticky bar is the only band that reaches it: the masthead holds
-   a left-aligned title and scrolls away. */
-:root[data-framed] .livebar-inner { padding-right: max(28px, min(250px, 38vw)); }
 .brand-name {
   font-family: var(--cond);
   font-size: clamp(30px, 4.4vw, 46px);
@@ -212,6 +207,15 @@ a { color: inherit; }
 .livebar-inner {
   max-width: 1360px; margin: 0 auto; padding: 8px 28px;
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px;
+}
+/* A page embedding this one may float its own controls over the frame; the
+   Management Center pins its toolbar to its window's top-right corner. The
+   bar's content keeps clear of whatever clearOverlays finds over it and
+   never comes nearer an edge than the page's 28px gutter. The doubled class
+   outranks the phone layout's padding shorthand. */
+.livebar .livebar-inner {
+  padding-left: max(28px, var(--lb-clear-l, 0px));
+  padding-right: max(28px, var(--lb-clear-r, 0px));
 }
 /* One readout: its name beside its value rather than above it, because the
    bar is on screen at every scroll depth and a row of labels of its own would
@@ -7063,9 +7067,72 @@ th[aria-sort] button { color: var(--ink-1); }
     if (!state.paused) refresh(true);
   });
 
-  /* Framed by the Management Center, the page keeps its top-right corner
-     clear of the console's floating toolbar. */
-  if (window.self !== window.top) document.documentElement.setAttribute("data-framed", "");
+  /* What the embedding page paints over the live bar, as the padding each
+     side of its content needs to clear it. The frame is always same-origin
+     (frame-ancestors 'self'), so the parent can be hit-tested, in rows 12px
+     apart from the bar's top and columns 24px apart. A cover is the largest
+     element over the bar no wider than half the frame. One inside a wider
+     element that takes the pointer belongs to a bar across the frame, which
+     no padding clears, and is skipped. Clearance that would take more than
+     half the bar is dropped, since the content reads better whole than
+     squeezed. Rows step from the bar's top, so a taller bar samples every
+     point a shorter one did and keeps every cover; the cut-off counts only
+     the covers hit in the rows the bar spans at its shortest at this width,
+     rows padding cannot change, so the bar settles at one height. */
+  var clearKey = "", shortest = { w: -1, h: 0 };
+  function clearOverlays() {
+    var fe = window.frameElement;
+    var bar = document.querySelector(".livebar-inner").getBoundingClientRect();
+    var key = [bar.top, bar.height, bar.width, window.innerWidth].join(",");
+    if (key === clearKey) return;
+    clearKey = key;
+    if (shortest.w !== bar.width) shortest = { w: bar.width, h: bar.height };
+    else shortest.h = Math.min(shortest.h, bar.height);
+    var l = 0, r = 0, l0 = 0, r0 = 0, half = window.innerWidth / 2;
+    if (fe) {
+      var pd = fe.ownerDocument, fr = fe.getBoundingClientRect();
+      var x0 = fr.left + fe.clientLeft, y0 = fr.top + fe.clientTop;
+      var covers = [], near = [];
+      for (var y = bar.top + 2; y < bar.bottom; y += 12) {
+        for (var x = Math.max(1, bar.left); x < bar.right; x += 24) {
+          var hits = pd.elementsFromPoint(x0 + x, y0 + y), at = hits.indexOf(fe);
+          for (var i = 0; i < at; i++) {
+            var el = hits[i];
+            while (el.parentElement && !el.parentElement.contains(fe) &&
+              el.parentElement.getBoundingClientRect().width <= half) el = el.parentElement;
+            if (covers.indexOf(el) < 0) covers.push(el);
+            if (y < bar.top + shortest.h && near.indexOf(el) < 0) near.push(el);
+          }
+        }
+      }
+      covers.forEach(function (el) {
+        var o = el.getBoundingClientRect(), up = el.parentElement;
+        if (o.width > half) return;
+        if (up && !up.contains(fe) && pd.defaultView.getComputedStyle(up).pointerEvents !== "none") return;
+        var left = o.left - x0, right = o.right - x0, isNear = near.indexOf(el) >= 0;
+        if (left + right > window.innerWidth) {
+          r = Math.max(r, bar.right - left + 12);
+          if (isNear) r0 = Math.max(r0, bar.right - left + 12);
+        } else {
+          l = Math.max(l, right - bar.left + 12);
+          if (isNear) l0 = Math.max(l0, right - bar.left + 12);
+        }
+      });
+      if (l0 + r0 > bar.width / 2) l = r = 0;
+    }
+    document.documentElement.style.setProperty("--lb-clear-l", Math.ceil(l) + "px");
+    document.documentElement.style.setProperty("--lb-clear-r", Math.ceil(r) + "px");
+  }
+  var clearPending = false;
+  function scheduleClear() {
+    if (clearPending) return;
+    clearPending = true;
+    window.requestAnimationFrame(function () { clearPending = false; clearOverlays(); });
+  }
+  window.addEventListener("scroll", scheduleClear, { passive: true });
+  window.addEventListener("resize", scheduleClear);
+  new ResizeObserver(scheduleClear).observe(document.querySelector(".livebar-inner"));
+  scheduleClear();
 
   loadHidden();
   loadPaceView();
@@ -7100,7 +7167,9 @@ th[aria-sort] button { color: var(--ink-1); }
   });
 
   window.setInterval(function () { if (!state.paused) refresh(false); }, REFRESH_MS);
-  window.setInterval(function () { tickStamps(); setLive(); }, 1000);
+  /* The embedding page can move its covers with no event reaching this one,
+     so the bar's clearance is measured again on every tick. */
+  window.setInterval(function () { tickStamps(); setLive(); clearKey = ""; scheduleClear(); }, 1000);
 
   refresh(false);
 })();
