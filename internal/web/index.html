@@ -1280,7 +1280,7 @@ time[data-ts] { cursor: help; }
         <a class="skip" href="#sec-bindings">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Over time</h2>
-        <span class="sec-sub" id="hist-sub">one window across recorded cycles, by seat or pooled</span>
+        <span class="sec-sub" id="hist-sub">one window across recorded cycles, per seat or stacked into the pool</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -5482,7 +5482,7 @@ time[data-ts] { cursor: help; }
     if (!seats.length) {
       ["hist-view", "hist-form", "hist-span", "hist-range"].forEach(function (id) { $(id).textContent = ""; });
       $("hist-live").hidden = true;
-      host.appendChild(h("p", "card-none", "Every seat shown is one the host has disabled, and Over time leaves those out."));
+      host.appendChild(h("p", "card-none", "Every seat shown is disabled in the host, and Over time leaves disabled seats out."));
       return;
     }
 
@@ -5949,12 +5949,12 @@ time[data-ts] { cursor: help; }
       var fam = list.appendChild(h("div", "rank-fam", ""));
       var head = fam.appendChild(h("p", "rank-fam-head pin", ""));
       head.appendChild(h("span", "rank-fam-name", view.label));
-      head.appendChild(h("span", "rank-fam-note", "left now, and what comes back at each reset if no more is used"));
+      head.appendChild(h("span", "rank-fam-note", "left now · what each reset brings back if no more is used; 100% is one full window"));
       var bal = fam.appendChild(h("div", "bal", ""));
       var fig = bal.appendChild(h("span", "bal-fig", pct(left, 0)));
       if (share < BAL_LOW) fig.setAttribute("data-tone", share < BAL_LOW / 2 ? "critical" : "serious");
       bal.appendChild(h("span", "bal-of", "left of " + pct(size, 0)));
-      if (off) fam.appendChild(h("p", "bal-off", off + (off === 1 ? " seat" : " seats") + " off for the 7d Standard limit"));
+      if (off) fam.appendChild(h("p", "bal-off", off + (off === 1 ? " seat" : " seats") + " off, refused on " + WEEKLY_SHORT));
       if (!schedule.length) {
         fam.appendChild(h("p", "bal-none", spent > 0.005 ? "no reset ahead on record" : "nothing spent"));
         list.scrollTop = top;
@@ -5994,7 +5994,7 @@ time[data-ts] { cursor: help; }
         if (!out) spent += u;
         var due = future && u > 0 && sd.resets && sd.resets.getTime() > t ? sd.resets.getTime() : null;
         rows.push({ col: sd.col, name: seatLabel(sd.a), on: sd.a.auth_id === on, value: out ? "off" : pct(u, 0),
-          note: out ? "7d Standard limit" : due ? "↻ " + spanClock(due, now) : "", tone: out ? "critical" : "" });
+          note: out ? "refused on " + WEEKLY_SHORT : due ? "↻ " + spanClock(due, now) : "", tone: out ? "critical" : "" });
       });
       var lines = [];
       if (future) {
@@ -6006,7 +6006,7 @@ time[data-ts] { cursor: help; }
       return {
         seat: "All seats", win: view.label, type: future ? "reset" : past ? "usage" : "now",
         label: future ? "ahead" : past ? "past" : "now", when: absTime(new Date(t)), dur: past || future ? relText(new Date(t), now) : "",
-        big: [pct(Math.max(0, size - spent), 0) + " left"], delta: "of " + pct(size, 0) + ", " + pct(spent, 0) + " spent",
+        big: [pct(Math.max(0, size - spent), 0) + " left"], delta: "of " + pct(size, 0) + " held, " + pct(spent, 0) + " spent",
         rows: rows, lines: lines
       };
     }
@@ -6043,7 +6043,7 @@ time[data-ts] { cursor: help; }
       var root = svg("svg", {
         "class": "pace hist-tl", width: W, height: TOTAL, viewBox: "0 0 " + W + " " + TOTAL,
         role: "group", tabindex: 0, "data-fk": "hist-chart:" + view.id,
-        "aria-label": view.label + (stacked ? " levels stacked by seat against what the pool holds, "
+        "aria-label": view.label + (stacked ? " use stacked by seat against what the pool holds, "
           : " use over time with its " + (reference ? "curve" : "target") + ", ") +
           absTime(new Date(t0)) + " to " + absTime(new Date(t1)) +
           ". Drag the plot or the strip below to pan; arrow keys step, plus and minus zoom, End returns to now."
@@ -6194,7 +6194,7 @@ time[data-ts] { cursor: help; }
     }
 
     (stacked ? [
-      ["█", "level, stacked by seat"],
+      ["█", "use, stacked by seat"],
       ["░", "held until its reset, if no more is used"],
       ["↻", "reset"],
       ["━", "what the pool holds"],
@@ -6222,7 +6222,7 @@ time[data-ts] { cursor: help; }
     if (view.weekly) {
       var li = legend.appendChild(h("li", "", ""));
       li.appendChild(h("span", "gl", "\u2310\u00AC"));
-      li.appendChild(document.createTextNode(" use per day or per week" + (stacked ? "; +N% each seat's share" : "")));
+      li.appendChild(document.createTextNode(" use per day or per week" + (stacked ? "; +N% is a seat's share" : "")));
     }
 
     bindHistPointer(host);
@@ -6395,9 +6395,9 @@ time[data-ts] { cursor: help; }
     if (b.none >= 60000) lines.push({ t: "every seat refused", alert: durText(Math.round(b.none / 1000)) });
     return {
       seat: "All seats", win: view.label, type: "usage", label: unit, when: when,
-      dur: live ? "so far" : b.partial ? "from the first reading" : "",
+      dur: live ? "so far" : b.partial ? "since the first reading" : "",
       big: [(b.est ? "~" : "") + pct(b.used, 0)],
-      delta: live ? "of " + pct(b.renewed, 0) + " renewed so far, " + pct(b.renews, 0) + " in full" : "of " + pct(b.renews, 0) + " renewed",
+      delta: live ? "of " + pct(b.renewed, 0) + " renewed so far, " + pct(b.renews, 0) + " by the " + unit + "'s end" : "of " + pct(b.renews, 0) + " renewed",
       rows: b.seats.filter(function (s) { return s.used > 0 || s.refused >= 60000; }).map(function (s) {
         return {
           col: s.u.col, name: seatLabel(s.u.a),

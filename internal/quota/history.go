@@ -20,8 +20,8 @@ const (
 	historyFineStep   = time.Minute
 	historyCoarseStep = 10 * time.Minute
 	historyMaxSamples = 2600
-	// HistoryPublishMax is the samples a status response carries per window,
-	// within export's exceptions: a month at one an hour.
+	// HistoryPublishMax is the most samples a status response carries per
+	// window, a month at one an hour; export says when a copy exceeds it.
 	HistoryPublishMax = 768
 	// historyMaxLocks bounds the refusal spans a window keeps; past it the
 	// oldest go.
@@ -364,8 +364,8 @@ func coarsen(samples []model.Sample, edge time.Time) []model.Sample {
 
 // publishSteps are the widths export thins a cycle to, finest first; zero
 // keeps every sample. Every zone's midnight falls on a quarter hour of UTC, so
-// a step of 15 minutes moves no rise out of the local day the ring holds it
-// in; a coarser step keeps them there only in zones whose offsets from UTC it
+// a step of 15 minutes or finer keeps each rise in the local day the ring
+// holds it in; a coarser step does so only in zones whose UTC offsets it
 // divides.
 var publishSteps = []time.Duration{
 	0, 15 * time.Minute, 30 * time.Minute, time.Hour, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour, 24 * time.Hour,
@@ -373,13 +373,13 @@ var publishSteps = []time.Duration{
 
 // export copies the ring as a WindowHistory; max <= 0 means the whole ring.
 // The newest cycle, which holds the present, takes the finest publish step
-// that leaves the older cycles room within max at the coarsest, and none
+// that leaves the older cycles room within max at the coarsest step, but none
 // coarser than 15 minutes where that step alone fits max; the older cycles
-// take the finest that fits what it leaves. The copy holds at most max samples
-// unless the coarsest step cannot bring it within max or the newest cycle
-// takes its 15-minute floor. A step keeps each cycle's first and last sample and
-// the last in each step. A cycle only rises, so a kept sample carries the rises
-// of those dropped before it in its step, and every rise lands at most a step
+// take the finest step that fits what remains. The copy exceeds max only when
+// the coarsest step cannot meet it or the newest cycle holds its 15-minute
+// floor. A step keeps each cycle's first and last sample and the last sample
+// in each step. A cycle only rises, so a kept sample carries the rises of the
+// samples dropped before it in its step, and every rise lands at most a step
 // late. Every refusal span is copied whatever max is; an ongoing one whose
 // expected reset is not after now is copied as ended there by the reset.
 func (r *ring) export(kind model.WindowKind, scope string, max int, now time.Time) model.WindowHistory {

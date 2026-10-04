@@ -154,6 +154,11 @@ and unit-testable without the host.
   `.github/scripts/`, and the plugin store registry `id` stay equal: the host
   derives the plugin id from the library filename, and the config block, the
   management routes and the history directory all carry that id.
+- `TestPageMath` lifts the functions it names out of `internal/web/index.html`
+  by their two-space-indented `function name(` line and the `}` that closes them
+  at that indent, and runs them under node with only `H_HOUR`, `H_DAY` and `num`
+  defined, so each stays a top-level function of that shape that calls only the
+  functions the test names.
 - `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
   script from the file's bytes, and the HTML tokenizer rewrites both
   (`TestPageHoldsNoRewrittenByte`).

@@ -40,9 +40,9 @@ Uses up each Claude seat's weekly quota before it resets by sending every new co
   made through the host's HTTP client. Everything else comes from the
   responses your own requests already get.
 - **Shows its work.** A [status page](#status-page) in the Management Center
-  charts every seat against its plan, the ranking, each window's history with
-  its refusals, the live bindings and the routing log. Email addresses show
-  only their first letter and domain.
+  charts every seat against its plan, the ranking, each window's history per
+  seat and pooled, with its refusals, the live bindings and the routing log.
+  Email addresses show only their first letter and domain.
 - **Declines rather than breaks.** The pick reads memory only, every entry
   point recovers from a panic, and the pick never answers with an error that
   would fail a request. When the plugin declines, the host's own selector
@@ -295,17 +295,19 @@ new conversation. A seat held off ranks below them.
   its last 24 hours' rate.
 - **5-hour window.** Where each seat stands against the limit that can make
   it ineligible.
-- **Over time.** One window across the recorded cycles, drawn two ways, with
-  every priority tier in the pool. Lines shows each seat's use, with each
-  refusal and what ended it. Stacked piles the seats into the pool's total
-  against what the pool holds, one full window per seat able to spend it,
-  shades each seat's refused stretches grey, and carries the total past now to
-  show what comes back at each reset if no more is used. Both mark the
-  stretches in which every seat was refused at once. Under a weekly window,
-  brackets over the plot give the pool's use per day from midnight local time,
-  or per week from Monday, against what it renews. Read on the premise that
-  the seats share one plan, they answer whether the pool has enough seats;
-  while every seat is refused, use undercounts demand.
+- **Over time.** One window across the recorded cycles, counting every seat in
+  the pool whatever its priority tier. Lines draws each seat's use, with each
+  refusal and what ended it, and its side list totals the pool's use in seats'
+  worth a week. Stacked piles the seats' use into the pool's total against
+  what the pool holds, one full window per seat able to spend it, shades each
+  seat's refused stretches grey, and runs past now to show what comes back at
+  each reset if no more is used. Both mark the stretches in which every seat
+  was refused at once. On a weekly window, brackets over the plot give the
+  pool's use per local day, or per week from Monday once days are too narrow
+  to label, and each bracket's tooltip sets that against what the pool renews
+  and splits it by seat. If every seat is on the same plan, these figures show
+  whether the pool has enough seats, though use understates demand while every
+  seat is refused.
 - **Bindings.** The conversations held on each seat.
 - **Routing log.** The recent decisions, newest first. Each new pick and each
   move opens to show every seat's cost at that moment.
@@ -313,9 +315,9 @@ new conversation. A seat held off ranks below them.
 A seat you hide with the eye beside its name leaves every view, the bindings
 and the routing log included, and stays hidden in that browser. A seat the host
 has disabled is hidden the same way and returns once the host enables it.
-`N hidden · show` under the seats draws every seat again, the disabled ones
-until the page reloads and never in Over time. Hiding changes only the page;
-routing is unchanged.
+`N hidden · show` under the seats draws every seat again. It shows the
+disabled ones only until the page reloads, and never in Over time. Hiding
+changes only the page; routing is unchanged.
 
 A warning banner names anything that leaves the plugin inert or degraded, such
 as a seat alone on the top priority tier, a seat not read yet, or a failing
