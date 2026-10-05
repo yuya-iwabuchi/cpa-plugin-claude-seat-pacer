@@ -1132,3 +1132,23 @@ func TestUnencodableReadingDoesNotFailTheSave(t *testing.T) {
 		t.Errorf("Restore = %v, want auth-2 alone", restored)
 	}
 }
+
+// A reading stamped after the load instant came from a clock since set back,
+// and is not restored.
+func TestFutureReadingIsNotRestored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow.Add(time.Hour), sessionWindow(0.9)))
+	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.3)))
+	if err := s.SaveHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	restored := fresh.Restore(map[string]struct{}{"auth-1": {}, "auth-2": {}})
+	if _, ok := restored["auth-1"]; ok || len(restored) != 1 {
+		t.Errorf("Restore = %v, want auth-2 alone", restored)
+	}
+}

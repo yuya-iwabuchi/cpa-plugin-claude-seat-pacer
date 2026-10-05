@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -770,7 +771,7 @@ func TestSeatNameComesFromTheNoteBeforeTheLabel(t *testing.T) {
 // first poll after a load lists the credentials, restores their readings and
 // reads only the seats whose reading is older, so a restart or an update does
 // not send a sweep seconds behind the previous run's.
-func TestPollAfterALoadSkipsReadingsYoungerThanAnInterval(t *testing.T) {
+func TestFirstPollSkipsRestoredReadingsYoungerThanAnInterval(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
 	path := filepath.Join(t.TempDir(), "history.json")
@@ -846,21 +847,54 @@ func TestAThrottleEndsTheSweep(t *testing.T) {
 	}
 }
 
-// A loop poll that waited behind a forced read reads nothing: the forced read
-// was its sweep, and it sleeps to the wake SyncNow set.
-func TestALoopPollBehindAForcedReadReadsNothing(t *testing.T) {
+// A loop poll that finds the next wake still ahead was overtaken by a forced
+// read: that read was its sweep, and it sleeps to the wake SyncNow set.
+func TestALoopPollOvertakenByAForcedReadReadsNothing(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
 	tp.mu.Lock()
-	tp.forcedReads = 1
 	tp.nextPollAt = testNow.Add(90 * time.Second)
 	tp.mu.Unlock()
 
-	if wait := tp.pollAfter(context.Background(), 0); wait != 90*time.Second {
+	if wait := tp.pollAndSchedule(context.Background()); wait != 90*time.Second {
 		t.Errorf("wait = %v, want the 90s to the wake SyncNow set", wait)
 	}
 	if n := tp.host.count(MethodHostAuthList); n != 0 {
 		t.Errorf("host.auth.list called %d times, want none", n)
+	}
+}
+
+// A loop poll that wakes while a forced read is still reading waits for it and
+// then reads nothing, however the two meet.
+func TestALoopPollWaitingOnAForcedReadReadsNothing(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 8)
+	var reads atomic.Int32
+	inner := tp.host.http
+	tp.host.http = func(req HostHTTPRequest) (HostHTTPResponse, error) {
+		reads.Add(1)
+		entered <- struct{}{}
+		<-gate
+		return inner(req)
+	}
+
+	synced := make(chan bool)
+	go func() { synced <- tp.SyncNow(context.Background()) }()
+	<-entered
+	polled := make(chan struct{})
+	go func() {
+		tp.pollAndSchedule(context.Background())
+		close(polled)
+	}()
+	close(gate)
+	if !<-synced {
+		t.Fatal("the forced read was refused")
+	}
+	<-polled
+	if n := reads.Load(); n != 2 {
+		t.Errorf("usage reads = %d, want the forced read's two and none from the loop", n)
 	}
 }
 

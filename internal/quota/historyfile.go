@@ -90,12 +90,15 @@ func (s *Store) exportReadings() map[string]savedReading {
 // importReadings holds saved readings as pending, for Restore to make live
 // once the host lists their credentials. A credential with an entry already
 // has a newer reading, and a pending reading newer than the saved one stands.
-func (s *Store) importReadings(saved map[string]savedReading) {
+// A reading stamped after now was taken under a clock since set back: its
+// windows would read as seen after every fresh reading until the clock caught
+// up, so it is dropped.
+func (s *Store) importReadings(saved map[string]savedReading, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for id, r := range saved {
-		if id == "" || r.ObservedAt.IsZero() || len(r.Windows) == 0 {
+		if id == "" || r.ObservedAt.IsZero() || r.ObservedAt.After(now) || len(r.Windows) == 0 {
 			continue
 		}
 		if _, live := s.entries[id]; live {
@@ -149,10 +152,11 @@ func (s *Store) SaveHistory(path string, now time.Time) error {
 }
 
 // LoadHistory reads a file SaveHistory wrote and imports it as loaded at now,
-// its readings held for Restore. A missing file is not an error. A file of a newer version is left in place
-// and reported as ErrHistoryVersion. A file that does not parse, or names a
-// version no build writes, is renamed to path.corrupt-<unix seconds at now>
-// and reported as a CorruptHistoryError; the store is left alone either way.
+// its readings held for Restore. A missing file is not an error. A file of a
+// newer version is left in place and reported as ErrHistoryVersion. A file
+// that does not parse, or names a version no build writes, is renamed to
+// path.corrupt-<unix seconds at now> and reported as a CorruptHistoryError;
+// the store is left alone either way.
 func (s *Store) LoadHistory(path string, now time.Time) error {
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -166,7 +170,7 @@ func (s *Store) LoadHistory(path string, now time.Time) error {
 	switch {
 	case parseErr == nil && f.Version == historyFileVersion:
 		s.ImportHistory(f.Auths, now)
-		s.importReadings(f.Readings)
+		s.importReadings(f.Readings, now)
 		return nil
 	case parseErr == nil && f.Version > historyFileVersion:
 		return ErrHistoryVersion

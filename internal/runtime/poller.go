@@ -106,7 +106,8 @@ func defaultHistoryFile() string {
 }
 
 // loadHistory reads the history file once, ahead of the first poll, so the
-// charts show the previous run's samples from the first status response. It
+// charts show the previous run's samples from the first status response and
+// its readings are restored at the first listing. It
 // runs under pollMu on the poll goroutine or a management request, never on
 // the pick path.
 //
@@ -284,29 +285,19 @@ func (p *Plugin) guard(what string, fn func()) (panicked bool) {
 // one the loop takes, so nextPollAt names it and the status view's "next in"
 // counts down to the poll that actually happens.
 //
-// A forced read that ran while this poll waited for pollMu was its sweep: the
-// poll then reads nothing and sleeps to the wake SyncNow set. The read time is
-// recorded under pollMu, so SyncNow's MinForcedPollGap check sees it as soon
-// as the lock is free.
+// The loop's timer fires only once nextPollAt has passed, and only SyncNow
+// moves nextPollAt later, so a poll that finds it still ahead holding pollMu
+// was overtaken by a forced read: that read was its sweep, and it reads
+// nothing and sleeps to the wake SyncNow set. The read time is recorded under
+// pollMu, so SyncNow's MinForcedPollGap check sees it as soon as the lock is
+// free.
 func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
-	p.mu.Lock()
-	forced := p.forcedReads
-	p.mu.Unlock()
-	return p.pollAfter(ctx, forced)
-}
-
-// pollAfter is pollAndSchedule for a loop that woke when SyncNow had run
-// forced reads.
-func (p *Plugin) pollAfter(ctx context.Context, forced uint64) time.Duration {
 	ctx, cancel := context.WithTimeout(ctx, pollBudget)
 	defer cancel()
 	p.pollMu.Lock()
 	defer p.pollMu.Unlock()
-	p.mu.Lock()
-	superseded := p.forcedReads != forced
-	p.mu.Unlock()
-	if superseded {
-		return p.untilNextPoll()
+	if wait := p.untilNextPoll(); wait > 0 {
+		return wait
 	}
 
 	wait := p.pollLocked(ctx)

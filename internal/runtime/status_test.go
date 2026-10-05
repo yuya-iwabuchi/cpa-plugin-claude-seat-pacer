@@ -393,4 +393,11 @@ func TestAThrottleRaisesOneWarning(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("warnings = %q, want %q", got, want)
 	}
+
+	// With no seat keeping a reading there is nothing for ThrottleWarning to
+	// describe, and the throttled seat warns by name alone.
+	got = Warnings(true, nil, "", nil, rows[3:], seats)
+	if want := []string{"quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
+		t.Errorf("warnings with no reading kept = %q, want %q", got, want)
+	}
 }

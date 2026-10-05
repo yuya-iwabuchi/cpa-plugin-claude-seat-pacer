@@ -7274,7 +7274,7 @@ time[data-ts] { cursor: help; }
     if (/^usage endpoint throttled;/.test(m)) {
       var oldest = null;
       (st.auths || []).forEach(function (a) {
-        var obs = throttledReading(a);
+        var obs = a.host_status !== "disabled" && throttledReading(a);
         if (obs && (!oldest || obs < oldest)) oldest = obs;
       });
       if (oldest) li.appendChild(document.createTextNode(" · oldest reading " + relText(oldest, nowMs())));

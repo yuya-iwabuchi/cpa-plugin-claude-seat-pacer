@@ -266,9 +266,9 @@ func jsonResponse(status int, body any) ManagementResponse {
 
 // SyncNow re-reads every governed credential's usage unless a poll is already
 // running or the last one is more recent than MinForcedPollGap, and reports
-// whether it read. A seat whose reading a previous run took under an interval
-// ago is read with the next poll instead, as the loop's own poll would. It runs inline on the caller's goroutine, so a status
-// response built after it carries the fresh reading.
+// whether it read. A seat whose restored reading still stands is left to the
+// next poll, as the loop's own poll leaves it. It runs inline on the caller's
+// goroutine, so a status response built after it carries the fresh reading.
 //
 // A running poll is the read the caller asked for, so SyncNow never queues
 // behind one: it answers false at once, and the response carries what that
@@ -292,7 +292,6 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 		return false
 	}
 	p.polledAt = now
-	p.forcedReads++
 	p.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())

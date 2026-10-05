@@ -314,7 +314,7 @@ func TestManagementStatusKeepsRealIDs(t *testing.T) {
 
 // A forced read moves the schedule the page counts down to, and one the
 // throttle refuses leaves it alone.
-func TestSyncNowIsThrottledAndLeavesTheScheduleAlone(t *testing.T) {
+func TestSyncNowMovesTheScheduleUnlessThrottled(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
 
