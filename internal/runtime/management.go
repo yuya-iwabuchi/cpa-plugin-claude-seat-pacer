@@ -298,8 +298,8 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
 	defer cancel()
-	wait := p.pollLocked(ctx)
-	if ctx.Err() != nil {
+	wait, cutShort := p.pollLocked(ctx)
+	if cutShort {
 		return true
 	}
 	now = p.now()

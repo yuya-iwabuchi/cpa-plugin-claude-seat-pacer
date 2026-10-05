@@ -304,7 +304,7 @@ func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
 		return wait
 	}
 
-	wait := p.pollLocked(ctx)
+	wait, _ := p.pollLocked(ctx)
 	now := p.now()
 	p.bindingStore().Sweep(now)
 	wait = nextPollWait(p.quota.All(), now, wait)
@@ -382,17 +382,21 @@ func (e errPoll) Error() string { return string(e) }
 func (p *Plugin) poll(ctx context.Context) time.Duration {
 	p.pollMu.Lock()
 	defer p.pollMu.Unlock()
-	return p.pollLocked(ctx)
+	wait, _ := p.pollLocked(ctx)
+	return wait
 }
 
-// pollLocked is poll for a caller already holding pollMu.
-func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
+// pollLocked is poll for a caller already holding pollMu, and also reports
+// whether its context cut the sweep short. That is decided before the
+// listing is published, so a deadline that lapses afterwards, during the
+// history save, does not count.
+func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort bool) {
 	cfg := p.config()
 	if !cfg.Enabled {
 		p.mu.Lock()
 		p.listErr, p.fetchErr = "", ""
 		p.mu.Unlock()
-		return cfg.Quota.PollInterval
+		return cfg.Quota.PollInterval, false
 	}
 	p.loadHistory(cfg)
 	defer p.saveHistory(cfg)
@@ -404,7 +408,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		p.listErr = err.Error()
 		p.mu.Unlock()
 		p.host.log("warn", "claude-seat-pacer could not list credentials", map[string]any{"error": err.Error()})
-		return listRetryWait
+		return listRetryWait, false
 	}
 
 	governed := make([]HostAuthFileEntry, 0, len(entries))
@@ -423,7 +427,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		p.listErr = errNoGovernedCredential
 		p.mu.Unlock()
 		p.host.log("warn", "claude-seat-pacer: "+errNoGovernedCredential, map[string]any{"listed": len(entries)})
-		return listRetryWait
+		return listRetryWait, false
 	}
 
 	// A disabled credential is never read, so a reading restored for it would
@@ -506,7 +510,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		p.mu.Lock()
 		p.listErr, p.fetchErr = "", ""
 		p.mu.Unlock()
-		return cfg.Quota.PollInterval
+		return cfg.Quota.PollInterval, true
 	}
 	// Snapshots follow the host's listing rather than the fetch set: a
 	// credential that is disabled, runtime-only or carries no access token is
@@ -532,7 +536,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		}
 	}
 	p.mu.Unlock()
-	return cfg.Quota.PollInterval
+	return cfg.Quota.PollInterval, false
 }
 
 // standing reports whether a restored reading still describes its seat: taken
