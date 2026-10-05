@@ -227,10 +227,16 @@ type SeatWarningState struct {
 	PollCategory string
 }
 
+// ThrottleWarning is the one warning a throttled usage endpoint raises. The
+// endpoint throttles the caller rather than a credential, so the condition is
+// the pool's and not any one seat's; the status page appends the age of the
+// readings the seats keep and when the next read is due.
+const ThrottleWarning = "usage endpoint throttled; seats keep their last readings until a read succeeds"
+
 // Warnings is the operator warning list a status view carries: the plugin
 // being off, each setting Normalize raised to fit another, a failing
-// credential listing, a provider the host offered one candidate for, and per
-// credential a failing poll or a missing reading. A
+// credential listing, a throttled usage endpoint, a provider the host offered
+// one candidate for, and per credential a failing poll or a missing reading. A
 // credential the host no longer lists, or has disabled, warns about neither:
 // the poller skips it, so it holds no reading by design.
 //
@@ -244,6 +250,12 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 	if listErr != "" {
 		warnings = append(warnings, "credential listing is failing: "+listErr)
 	}
+	for _, row := range rows {
+		if seat := seats[row.AuthID]; seat.Listed && !seat.Disabled && seat.PollCategory == string(quota.CategoryRateLimited) {
+			warnings = append(warnings, ThrottleWarning)
+			break
+		}
+	}
 	for _, provider := range singleCandidateProviders {
 		warnings = append(warnings, singleCandidateWarning(provider, rows))
 	}
@@ -252,7 +264,7 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 		if !seat.Listed || seat.Disabled {
 			continue
 		}
-		if seat.PollErr != "" {
+		if seat.PollErr != "" && seat.PollCategory != string(quota.CategoryRateLimited) {
 			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", row.AuthID, seat.PollCategory, seat.PollErr))
 		}
 		if !seat.HasSnapshot {

@@ -37,7 +37,7 @@ const failoverNote = "bound credential not offered"
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many, tiers, tiers-down, collide, cleared, exhausted, replay or empty")
+		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, cleared, exhausted, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
 		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
@@ -75,6 +75,15 @@ func main() {
 			AuthID: seatCID, Label: "Seat C", Provider: "claude",
 			Priority: 10, HostStatus: "active",
 		})
+	case "throttled":
+		// The usage endpoint refusing the poller: every seat keeps a reading
+		// a few minutes old and carries the throttle.
+		for id, snap := range src.snapshots {
+			snap.Err = "quota: rate-limited (http 429): usage endpoint throttled"
+			snap.ErrCategory = "rate-limited"
+			src.snapshots[id] = snap
+			src.observedAge[id] = 3 * time.Minute
+		}
 	case "many":
 		// A pool the operator has grown past the point where every seat gets
 		// a roomy row: the naming collisions a real pool produces, and every

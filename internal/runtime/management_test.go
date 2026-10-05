@@ -312,8 +312,8 @@ func TestManagementStatusKeepsRealIDs(t *testing.T) {
 	}
 }
 
-// A forced read is throttled, and it moves only the read time: the loop's
-// timer is untouched, so the schedule the page counts down to stays honest.
+// A forced read is throttled, and one the throttle refuses leaves the schedule
+// the page counts down to alone.
 func TestSyncNowIsThrottledAndLeavesTheScheduleAlone(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)

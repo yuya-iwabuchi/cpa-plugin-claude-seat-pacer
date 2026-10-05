@@ -2422,7 +2422,9 @@ time[data-ts] { cursor: help; }
     spec.lines.push({ t: intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits") });
     if (maskedName(a)) spec.lines.push({ t: "set a note on the credential to name it" });
-    if (snap.err || snap.err_category) {
+    if (snap.err_category === "rate-limited" && obs) {
+      spec.lines.push({ b: "read throttled", t: "the usage endpoint is throttling reads; this reading is from " + relText(obs, now) });
+    } else if (snap.err || snap.err_category) {
       spec.lines.push({ b: "read failing", t: [snap.err_category, snap.err].filter(Boolean).join(": ") });
     }
     if (hs === "disabled" && !obs) {
@@ -2451,7 +2453,8 @@ time[data-ts] { cursor: help; }
       ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
       ", " + intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       (hs !== "active" ? ", host " + hs : "") +
-      (snap.err || snap.err_category ? ", read failing" + (snap.err_category ? " " + snap.err_category : "") : "");
+      (snap.err_category === "rate-limited" && parseT(snap.observed_at) ? ", read throttled" :
+        snap.err || snap.err_category ? ", read failing" + (snap.err_category ? " " + snap.err_category : "") : "");
   }
 
   /* Whether a window carries the usage endpoint's critical-headroom advisory
@@ -7249,15 +7252,17 @@ time[data-ts] { cursor: help; }
     var head = h("h2", "", msgs.length === 1 ? "Warning" : msgs.length + " warnings");
     box.appendChild(head);
     var ul = h("ul", "");
-    msgs.forEach(function (m) { ul.appendChild(warningRow(nameIDs(m))); });
+    msgs.forEach(function (m) { ul.appendChild(warningRow(nameIDs(m), st)); });
     box.appendChild(ul);
     host.appendChild(box);
   }
 
   /* One warning as a line: the condition and its category in prose, with the
      raw error the plugin quoted behind a mark rather than in the line. The
-     poll and listing warnings quote one; the rest are whole sentences. */
-  function warningRow(m) {
+     poll and listing warnings quote one; the rest are whole sentences. The
+     throttle warning carries the age of the oldest reading a seat keeps and
+     the next read, both ticking. */
+  function warningRow(m, st) {
     var li = h("li", "");
     var poll = /^(quota poll failing for .+?) \(([^)]+)\): (.+)$/.exec(m);
     var listing = /^(credential listing is failing): (.+)$/.exec(m);
@@ -7265,8 +7270,27 @@ time[data-ts] { cursor: help; }
     var raw = poll ? poll[3] : listing ? listing[2] : "";
     li.appendChild(document.createTextNode(head));
     if (raw) li.appendChild(tipOnly(h("span", "warn-detail", "detail"), raw));
+    if (m === THROTTLE_WARNING) {
+      var oldest = null;
+      (st.auths || []).forEach(function (a) {
+        var obs = a.host_status !== "disabled" && parseT(a.snapshot && a.snapshot.observed_at);
+        if (obs && (!oldest || obs < oldest)) oldest = obs;
+      });
+      if (oldest) {
+        li.appendChild(document.createTextNode(" · oldest reading "));
+        li.appendChild(stamp(oldest, ""));
+      }
+      var next = parseT(st.next_poll_at);
+      if (next) {
+        li.appendChild(document.createTextNode(" · "));
+        li.appendChild(stamp(next, "", "sync"));
+      }
+    }
     return li;
   }
+
+  /* The plugin's warning for a throttled usage endpoint, runtime.ThrottleWarning. */
+  var THROTTLE_WARNING = "usage endpoint throttled; seats keep their last readings until a read succeeds";
 
   /* ------------------------------------------------------- request families */
 

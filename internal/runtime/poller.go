@@ -67,7 +67,29 @@ func (p *Plugin) startPoller() {
 	}
 	pl := &poller{stop: make(chan struct{}), done: make(chan struct{})}
 	p.poller = pl
+	select {
+	case <-p.rearm:
+	default:
+	}
 	go p.runPoller(pl)
+}
+
+// rearmPoller tells the poll loop that nextPollAt moved, so it sleeps until
+// then instead of to the wake it last set. The signal never blocks and never
+// takes a lock: SyncNow raises it holding pollMu, which a stopping loop may be
+// waiting on.
+func (p *Plugin) rearmPoller() {
+	select {
+	case p.rearm <- struct{}{}:
+	default:
+	}
+}
+
+// untilNextPoll is the wait to nextPollAt, zero once it has passed.
+func (p *Plugin) untilNextPoll() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return max(p.nextPollAt.Sub(p.now()), 0)
 }
 
 // defaultHistoryFile is the history file's location when the config names
@@ -213,6 +235,9 @@ func (p *Plugin) runPoller(pl *poller) {
 		select {
 		case <-pl.stop:
 			return
+		case <-p.rearm:
+			timer.Reset(p.untilNextPoll())
+			continue
 		case <-timer.C:
 		}
 		timer.Reset(p.guardedPoll(ctx))
@@ -388,21 +413,34 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 	}
 
 	listed := make(map[string]struct{}, len(governed))
+	for _, entry := range governed {
+		if id := authID(entry); id != "" {
+			listed[id] = struct{}{}
+		}
+	}
+	restored := p.quota.Restore(listed)
+
 	keep := make(map[string]struct{}, len(governed))
 	fetchErr := ""
 	fetched := 0
+	throttled := false
+	now := p.now()
 	client := quota.NewClient(hostDoer{h: p.host}, cfg.Quota.UsageURL, cfg.Quota.RequestTimeout)
 	for _, entry := range governed {
 		id := authID(entry)
-		if id != "" {
-			listed[id] = struct{}{}
-		}
 		if entry.Disabled || entry.RuntimeOnly {
 			// The host never offers a disabled credential, and a runtime-only
 			// one has no file for host.auth.get to read.
 			continue
 		}
 		if id == "" || entry.AuthIndex == "" {
+			continue
+		}
+		// A reading the previous run took less than an interval ago stands
+		// until the next poll, and a throttle answers every seat the sweep
+		// has not reached yet: each keeps the outcome it already had.
+		if at, ok := restored[id]; throttled || ok && now.Sub(at) < cfg.Quota.PollInterval {
+			keep[id] = struct{}{}
 			continue
 		}
 		if ctx.Err() != nil {
@@ -430,6 +468,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		}
 		p.polls[id] = state
 		p.mu.Unlock()
+		throttled = quota.Category(err) == quota.CategoryRateLimited
 	}
 	if ctx.Err() != nil {
 		// The credential list was read only in part. Publishing it would drop

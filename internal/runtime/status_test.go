@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -367,5 +368,22 @@ func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
 	shared := singleCandidateWarning("claude", append(rows[:3:3], model.AuthStatus{AuthID: "claude-top2.json", Provider: "claude", Priority: 11}))
 	if strings.Contains(shared, "fallback tier") || !strings.Contains(shared, "top priority tier are unavailable") {
 		t.Errorf("a top tier of several seats is misread as a lone top seat: %q", shared)
+	}
+}
+
+// A throttle is the endpoint's answer to the caller, so it raises one warning
+// however many seats it reached, and a seat's own failure still warns by name.
+func TestAThrottleRaisesOneWarning(t *testing.T) {
+	throttle := "quota: rate-limited (http 429): usage endpoint throttled"
+	rows := []model.AuthStatus{{AuthID: "a"}, {AuthID: "b"}, {AuthID: "c"}}
+	seats := map[string]SeatWarningState{
+		"a": {Listed: true, HasSnapshot: true, PollErr: throttle, PollCategory: "rate-limited"},
+		"b": {Listed: true, HasSnapshot: true, PollErr: throttle, PollCategory: "rate-limited"},
+		"c": {Listed: true, HasSnapshot: true, PollErr: "quota: auth (http 401): credential rejected", PollCategory: "auth"},
+	}
+	got := Warnings(true, nil, "", nil, rows, seats)
+	want := []string{ThrottleWarning, "quota poll failing for c (auth): quota: auth (http 401): credential rejected"}
+	if !slices.Equal(got, want) {
+		t.Errorf("warnings = %q, want %q", got, want)
 	}
 }

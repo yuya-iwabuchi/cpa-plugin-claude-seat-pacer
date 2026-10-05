@@ -12,7 +12,8 @@ new conversation. A seat held off ranks below them.
   when the seats on the tier taking requests, or every seat while no tier
   can, share one. It shows how many seats are eligible on each family's tier
   taking requests and the age of the newest reading, and its Sync now button
-  reads every seat at once.
+  reads every seat at once; the next scheduled read then waits a full poll
+  interval.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
   showing each window's current cycle. A window holding its seat off, full or

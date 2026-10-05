@@ -136,8 +136,8 @@ func TestPollRecordsFailuresAndPrunesRemovedCredentials(t *testing.T) {
 	}
 	status := tp.Status(testNow, "")
 	joined := strings.Join(status.Warnings, "\n")
-	if !strings.Contains(joined, "quota poll failing for claude-a.json (rate-limited)") {
-		t.Errorf("warnings = %v, want the poll failure with its category", status.Warnings)
+	if !strings.Contains(joined, ThrottleWarning) || strings.Contains(joined, "quota poll failing") {
+		t.Errorf("warnings = %v, want the throttle warning in place of a per-seat failure", status.Warnings)
 	}
 
 	// A failing auth.list is reported and keeps the previous state.
@@ -763,5 +763,131 @@ func TestSeatNameComesFromTheNoteBeforeTheLabel(t *testing.T) {
 		if got := authLabel(tc.entry); got != tc.want {
 			t.Errorf("%s: authLabel = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// A reading the previous run took less than a poll interval ago stands: the
+// first poll after a load lists the credentials, restores their readings and
+// reads only the seats whose reading is older, so a restart or an update does
+// not send a sweep seconds behind the previous run's.
+func TestPollAfterALoadSkipsReadingsYoungerThanAnInterval(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	path := filepath.Join(t.TempDir(), "history.json")
+	saved := quota.NewStore()
+	saved.Put(seat("claude-a.json", testNow.Add(-30*time.Second), seatA(t).Windows...))
+	saved.Put(seat("claude-b.json", testNow.Add(-3*time.Minute), seatB(t).Windows...))
+	if err := saved.SaveHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	tp.mu.Lock()
+	tp.historyLoaded = false
+	tp.mu.Unlock()
+	tp.opts.HistoryFile = path
+
+	var read []string
+	inner := tp.host.http
+	tp.host.http = func(req HostHTTPRequest) (HostHTTPResponse, error) {
+		read = append(read, req.Headers.Get("Authorization"))
+		return inner(req)
+	}
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if len(read) != 1 || read[0] != "Bearer "+secretToken+"-b" {
+		t.Fatalf("usage reads = %q, want claude-b's alone", read)
+	}
+	if a, ok := tp.quota.Get("claude-a.json"); !ok || !a.ObservedAt.Equal(testNow.Add(-30*time.Second)) || len(a.Windows) != 3 {
+		t.Errorf("claude-a = %+v, want its restored reading", a)
+	}
+	for _, w := range tp.Status(testNow, "").Warnings {
+		if strings.Contains(w, "claude-a.json") {
+			t.Errorf("warning about a restored seat: %q", w)
+		}
+	}
+
+	read = nil
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+	if len(read) != 2 {
+		t.Errorf("usage reads on the next poll = %d, want both seats", len(read))
+	}
+}
+
+// The endpoint throttles the caller, so a 429 answers for every seat the
+// sweep has not reached: the sweep stops there, and those seats keep the
+// outcome they had.
+func TestAThrottleEndsTheSweep(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	tp.host.http = func(HostHTTPRequest) (HostHTTPResponse, error) {
+		calls++
+		return HostHTTPResponse{StatusCode: 429}, nil
+	}
+	if err := tp.refresh(context.Background()); err == nil {
+		t.Error("refresh reported success through a throttle")
+	}
+	if calls != 2 {
+		t.Errorf("usage requests = %d, want the first seat's read and its one retry", calls)
+	}
+	a, _ := tp.quota.Get("claude-a.json")
+	b, _ := tp.quota.Get("claude-b.json")
+	if a.ErrCategory != string(quota.CategoryRateLimited) || len(a.Windows) == 0 {
+		t.Errorf("claude-a = category %q windows %d, want the throttle over its kept reading", a.ErrCategory, len(a.Windows))
+	}
+	if b.Err != "" || len(b.Windows) == 0 {
+		t.Errorf("claude-b = err %q windows %d, want its reading untouched", b.Err, len(b.Windows))
+	}
+	warned := 0
+	for _, w := range tp.Status(testNow, "").Warnings {
+		if w == ThrottleWarning {
+			warned++
+		}
+	}
+	if warned != 1 {
+		t.Errorf("throttle warnings = %d, want one", warned)
+	}
+}
+
+// A forced read takes the place of the loop's next poll, which falls due an
+// interval after it, or at the reset that interval would cross.
+func TestSyncNowMovesTheNextPoll(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if !tp.SyncNow(context.Background()) {
+		t.Fatal("the forced read was refused")
+	}
+	want := testNow.Add(nextPollWait(tp.quota.All(), testNow, tp.config().Quota.PollInterval))
+	tp.mu.Lock()
+	next := tp.nextPollAt
+	tp.mu.Unlock()
+	if !next.Equal(want) {
+		t.Errorf("nextPollAt = %v, want %v", next, want)
+	}
+}
+
+// The loop sleeps to nextPollAt when it is rearmed, rather than to the wake it
+// last set.
+func TestARearmedLoopPollsAtTheNewSchedule(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	before := tp.host.count(MethodHostAuthList)
+	tp.mu.Lock()
+	tp.nextPollAt = testNow
+	tp.mu.Unlock()
+	tp.rearmPoller()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for tp.host.count(MethodHostAuthList) == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the rearmed loop did not poll at a schedule already due")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

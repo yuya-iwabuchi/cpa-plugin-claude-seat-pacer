@@ -272,6 +272,10 @@ func jsonResponse(status int, body any) ManagementResponse {
 // A running poll is the read the caller asked for, so SyncNow never queues
 // behind one: it answers false at once, and the response carries what that
 // poll has published so far.
+//
+// A forced read takes the place of the loop's next poll: the loop waits a
+// full interval from it, as it would from its own, so the usage endpoint never
+// sees a sweep land seconds behind another, and nextPollAt names that wake.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
 	if !p.pollMu.TryLock() {
 		return false
@@ -279,9 +283,7 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 	defer p.pollMu.Unlock()
 
 	// The slot is claimed before the poll runs, so callers inside one window
-	// share a single read. Only the read time moves: the loop's timer is
-	// untouched by a forced read, so nextPollAt still names the wake it will
-	// actually take.
+	// share a single read.
 	p.mu.Lock()
 	now := p.now()
 	if !p.polledAt.IsZero() && now.Sub(p.polledAt) < MinForcedPollGap {
@@ -293,6 +295,12 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
 	defer cancel()
-	p.pollLocked(ctx)
+	wait := p.pollLocked(ctx)
+	now = p.now()
+	wait = nextPollWait(p.quota.All(), now, wait)
+	p.mu.Lock()
+	p.nextPollAt = now.Add(wait)
+	p.mu.Unlock()
+	p.rearmPoller()
 	return true
 }
