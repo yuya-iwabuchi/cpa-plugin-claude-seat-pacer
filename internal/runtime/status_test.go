@@ -400,4 +400,12 @@ func TestAThrottleRaisesOneWarning(t *testing.T) {
 	if want := []string{"quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
 		t.Errorf("warnings with no reading kept = %q, want %q", got, want)
 	}
+
+	// A throttle on a seat with no reading still holds back the seats that
+	// keep one, so the pool's warning stands beside the seat's own.
+	seats["e"] = SeatWarningState{Listed: true, HasSnapshot: true, HasReading: true}
+	got = Warnings(true, nil, "", nil, []model.AuthStatus{{AuthID: "d"}, {AuthID: "e"}}, seats)
+	if want := []string{ThrottleWarning, "quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
+		t.Errorf("warnings with another seat keeping a reading = %q, want %q", got, want)
+	}
 }

@@ -67,8 +67,12 @@ func (p *Plugin) startPoller() {
 	}
 	pl := &poller{stop: make(chan struct{}), done: make(chan struct{})}
 	p.poller = pl
-	// A signal left by a forced read with no loop running would cut the new
-	// loop's startup grace short.
+	// A new loop's first poll falls due at its start delay: a wake a previous
+	// loop left, or a signal a forced read raised with no loop running, would
+	// move it.
+	p.mu.Lock()
+	p.nextPollAt = time.Time{}
+	p.mu.Unlock()
 	select {
 	case <-p.rearm:
 	default:

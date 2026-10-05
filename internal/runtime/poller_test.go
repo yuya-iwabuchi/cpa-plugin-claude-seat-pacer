@@ -955,3 +955,49 @@ func TestARearmedLoopPollsAtTheNewSchedule(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// A forced read cut short leaves the schedule alone, so the seats it did not
+// reach are read when the loop was due to read them.
+func TestACutShortForcedReadLeavesTheSchedule(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.fetchStagger = time.Hour
+	scheduled := testNow.Add(30 * time.Second)
+	tp.mu.Lock()
+	tp.nextPollAt = scheduled
+	tp.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if !tp.SyncNow(ctx) {
+		t.Fatal("the forced read was refused")
+	}
+	tp.mu.Lock()
+	next := tp.nextPollAt
+	tp.mu.Unlock()
+	if !next.Equal(scheduled) {
+		t.Errorf("nextPollAt = %v, want the loop's own %v", next, scheduled)
+	}
+}
+
+// A new loop polls at its start delay, whatever wake an earlier loop on the
+// same instance left behind.
+func TestARestartedLoopPollsAtItsStartDelay(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.stopPoller()
+	tp.mu.Lock()
+	tp.nextPollAt = testNow.Add(time.Hour)
+	tp.mu.Unlock()
+	tp.startDelay = time.Millisecond
+	before := tp.host.count(MethodHostAuthList)
+	tp.startPoller()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for tp.host.count(MethodHostAuthList) == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the restarted loop did not poll at its start delay")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

@@ -274,9 +274,11 @@ func jsonResponse(status int, body any) ManagementResponse {
 // behind one: it answers false at once, and the response carries what that
 // poll has published so far.
 //
-// A forced read takes the place of the loop's next poll: the loop's next wake
-// is timed from it as from one of its own, a loop poll waiting behind it reads
-// nothing, and nextPollAt names that wake.
+// A forced read that finishes its sweep takes the place of the loop's next
+// poll: the loop's next wake is timed from it as from one of its own, a loop
+// poll waiting behind it reads nothing, and nextPollAt names that wake. One
+// cut short leaves the schedule alone, so the seats it did not reach are read
+// on time.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
 	if !p.pollMu.TryLock() {
 		return false
@@ -297,6 +299,9 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
 	defer cancel()
 	wait := p.pollLocked(ctx)
+	if ctx.Err() != nil {
+		return true
+	}
 	now = p.now()
 	wait = nextPollWait(p.quota.All(), now, wait)
 	p.mu.Lock()

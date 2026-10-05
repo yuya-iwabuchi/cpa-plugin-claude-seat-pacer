@@ -231,7 +231,7 @@ type SeatWarningState struct {
 // ThrottleWarning is the one warning a throttled usage endpoint raises. The
 // endpoint throttles the caller rather than a credential, so the condition is
 // the pool's and not any one seat's; the status page appends the age of the
-// oldest reading a throttled seat keeps.
+// oldest reading a seat keeps that no failure of its own explains.
 const ThrottleWarning = "usage endpoint throttled; seats keep their last readings until a read succeeds"
 
 // Warnings is the operator warning list a status view carries: the plugin
@@ -251,11 +251,15 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 	if listErr != "" {
 		warnings = append(warnings, "credential listing is failing: "+listErr)
 	}
+	throttled, kept := false, false
 	for _, row := range rows {
-		if seat := seats[row.AuthID]; seat.Listed && !seat.Disabled && seat.HasReading && seat.PollCategory == string(quota.CategoryRateLimited) {
-			warnings = append(warnings, ThrottleWarning)
-			break
+		if seat := seats[row.AuthID]; seat.Listed && !seat.Disabled {
+			throttled = throttled || seat.PollCategory == string(quota.CategoryRateLimited)
+			kept = kept || seat.HasReading
 		}
+	}
+	if throttled && kept {
+		warnings = append(warnings, ThrottleWarning)
 	}
 	for _, provider := range singleCandidateProviders {
 		warnings = append(warnings, singleCandidateWarning(provider, rows))
