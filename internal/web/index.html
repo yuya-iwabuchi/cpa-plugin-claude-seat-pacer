@@ -2422,8 +2422,8 @@ time[data-ts] { cursor: help; }
     spec.lines.push({ t: intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       " · " + (hr === null ? "no traffic" : pct(hr, 0) + " cache hits") });
     if (maskedName(a)) spec.lines.push({ t: "set a note on the credential to name it" });
-    if (snap.err_category === "rate-limited" && obs) {
-      spec.lines.push({ b: "read throttled", t: "the usage endpoint is throttling reads; this reading is from " + relText(obs, now) });
+    if (throttledReading(a)) {
+      spec.lines.push({ b: "read throttled", t: "the usage endpoint is throttling reads; the seat keeps its last reading" });
     } else if (snap.err || snap.err_category) {
       spec.lines.push({ b: "read failing", t: [snap.err_category, snap.err].filter(Boolean).join(": ") });
     }
@@ -2453,7 +2453,7 @@ time[data-ts] { cursor: help; }
       ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
       ", " + intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
       (hs !== "active" ? ", host " + hs : "") +
-      (snap.err_category === "rate-limited" && parseT(snap.observed_at) ? ", read throttled" :
+      (throttledReading(a) ? ", read throttled" :
         snap.err || snap.err_category ? ", read failing" + (snap.err_category ? " " + snap.err_category : "") : "");
   }
 
@@ -7260,8 +7260,9 @@ time[data-ts] { cursor: help; }
   /* One warning as a line: the condition and its category in prose, with the
      raw error the plugin quoted behind a mark rather than in the line. The
      poll and listing warnings quote one; the rest are whole sentences. The
-     throttle warning carries the age of the oldest reading a seat keeps and
-     the next read, both ticking. */
+     throttle warning carries the age of the oldest reading a throttled seat
+     keeps, as text fixed at the reply: the list is a live region, and a
+     ticking stamp would have it announced again every second. */
   function warningRow(m, st) {
     var li = h("li", "");
     var poll = /^(quota poll failing for .+?) \(([^)]+)\): (.+)$/.exec(m);
@@ -7270,27 +7271,24 @@ time[data-ts] { cursor: help; }
     var raw = poll ? poll[3] : listing ? listing[2] : "";
     li.appendChild(document.createTextNode(head));
     if (raw) li.appendChild(tipOnly(h("span", "warn-detail", "detail"), raw));
-    if (m === THROTTLE_WARNING) {
+    if (/^usage endpoint throttled;/.test(m)) {
       var oldest = null;
       (st.auths || []).forEach(function (a) {
-        var obs = a.host_status !== "disabled" && parseT(a.snapshot && a.snapshot.observed_at);
+        var obs = throttledReading(a);
         if (obs && (!oldest || obs < oldest)) oldest = obs;
       });
-      if (oldest) {
-        li.appendChild(document.createTextNode(" · oldest reading "));
-        li.appendChild(stamp(oldest, ""));
-      }
-      var next = parseT(st.next_poll_at);
-      if (next) {
-        li.appendChild(document.createTextNode(" · "));
-        li.appendChild(stamp(next, "", "sync"));
-      }
+      if (oldest) li.appendChild(document.createTextNode(" · oldest reading " + relText(oldest, nowMs())));
     }
     return li;
   }
 
-  /* The plugin's warning for a throttled usage endpoint, runtime.ThrottleWarning. */
-  var THROTTLE_WARNING = "usage endpoint throttled; seats keep their last readings until a read succeeds";
+  /* When a seat whose last read the usage endpoint throttled took the
+     reading it keeps, or null when it was not throttled or keeps none. */
+  function throttledReading(a) {
+    var snap = a.snapshot || {};
+    if (snap.err_category !== "rate-limited" || !(snap.windows || []).length) return null;
+    return parseT(snap.observed_at);
+  }
 
   /* ------------------------------------------------------- request families */
 

@@ -245,8 +245,8 @@ type fixture struct {
 	// render as of a recorded instant; moveClock sets it.
 	shift time.Duration
 	// forcedAt is when the last forced read landed, in Unix nanoseconds, as
-	// SyncNow moves it. The polling loop's own schedule is untouched by one,
-	// the way the plugin leaves its timer alone.
+	// SyncNow moves it. The polling loop's schedule restarts from it, the way
+	// the plugin times its next wake from a forced read.
 	forcedAt atomic.Int64
 	// idKeyFile is the published-id key file, empty for a key of the
 	// process's own.
@@ -277,20 +277,20 @@ func (f *fixture) moveClock(d time.Duration) {
 }
 
 // pollTimes is the poller's schedule as the harness keeps it: scheduled reads
-// land on quota.poll-interval from process start, so a page left open watches
-// a countdown that wraps for real. A forced read moves the last-read stamp
-// without moving the next wake.
+// land on quota.poll-interval from process start, or from the last forced
+// read once there is one, so a page left open watches a countdown that wraps
+// for real.
 func (f *fixture) pollTimes(now time.Time) (polled, next time.Time) {
 	every := f.cfg.Quota.PollInterval
 	if every <= 0 {
 		return now, time.Time{}
 	}
-	polled = now.Add(-(now.Sub(f.anchor) % every))
-	next = polled.Add(every)
-	if forced := f.forcedAt.Load(); forced != 0 && time.Unix(0, forced).After(polled) {
-		polled = time.Unix(0, forced)
+	base := f.anchor
+	if forced := f.forcedAt.Load(); forced != 0 && time.Unix(0, forced).After(base) {
+		base = time.Unix(0, forced)
 	}
-	return polled, next
+	polled = now.Add(-(now.Sub(base) % every))
+	return polled, polled.Add(every)
 }
 
 func newFixture(anchor time.Time) *fixture {
@@ -456,6 +456,7 @@ func (f *fixture) rebuildWarnings() {
 			Listed:       true,
 			Disabled:     row.HostStatus == "disabled",
 			HasSnapshot:  ok,
+			HasReading:   len(snap.Windows) > 0,
 			PollErr:      snap.Err,
 			PollCategory: snap.ErrCategory,
 		}

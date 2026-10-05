@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
-	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/runtime"
 )
 
 // stubSource records what the handler asked for and returns a canned status.
@@ -473,16 +472,6 @@ func TestFaviconIsTheLogo(t *testing.T) {
 	want := `<link rel="icon" href="data:image/svg+xml;base64,` + base64.StdEncoding.EncodeToString(logo) + `">`
 	if !bytes.Contains(indexHTML, []byte(want)) {
 		t.Errorf("index.html does not carry docs/logo.svg as its favicon; want the line\n%s", want)
-	}
-}
-
-// The page recognises the throttle warning by its exact text, to add the
-// readings' age and the next read to it.
-func TestPageKnowsTheThrottleWarning(t *testing.T) {
-	t.Parallel()
-	page := get(t, testHandler(&stubSource{}), "/index.html").Body.String()
-	if want := "var THROTTLE_WARNING = " + strconv.Quote(runtime.ThrottleWarning) + ";"; !strings.Contains(page, want) {
-		t.Errorf("page does not carry %s", want)
 	}
 }
 

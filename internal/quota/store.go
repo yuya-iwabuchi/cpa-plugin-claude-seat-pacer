@@ -130,31 +130,28 @@ func (s *Store) restore(id string) *entry {
 			p.seenAt[keyOf(w)] = p.snap.ObservedAt
 		}
 	}
-	if p.history == nil {
-		p.history = make(map[windowKey]*ring)
-	}
 	s.entries[id] = p
 	return p
 }
 
 // Restore makes the last reading of every credential in listed that holds
-// one only as pending live, at the age it was taken, so a credential the
-// previous run read is routed on and shown before this run reads it. It
-// reports when each restored reading was taken.
-func (s *Store) Restore(listed map[string]struct{}) map[string]time.Time {
+// one only as pending live, at the age it was taken, so a credential is routed
+// on and shown before a poll reads it again: one a previous run read, or one a
+// prune dropped and the host lists again. It reports each restored snapshot.
+func (s *Store) Restore(listed map[string]struct{}) map[string]model.AuthSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var out map[string]time.Time
+	var out map[string]model.AuthSnapshot
 	for id := range s.pending {
 		if _, ok := listed[id]; !ok {
 			continue
 		}
 		if e := s.restore(id); e != nil {
 			if out == nil {
-				out = make(map[string]time.Time)
+				out = make(map[string]model.AuthSnapshot)
 			}
-			out[id] = e.snap.ObservedAt
+			out[id] = e.copy()
 		}
 	}
 	return out
@@ -450,9 +447,8 @@ func (s *Store) All() []model.AuthSnapshot {
 // with its entry, so a credential absent from one listing and back in the next
 // adopts the history it already had, refusal and served admissions included,
 // and Restore can bring back its last reading, instead of restarting from
-// empty. A pending history whose credential the
-// following prune does not keep is forgotten, which bounds what a departed
-// credential holds.
+// empty. A pending history whose credential the following prune does not keep
+// is forgotten, which bounds what a departed credential holds.
 func (s *Store) Prune(keep map[string]struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -526,9 +522,10 @@ func (s *Store) ExportHistory(now time.Time) map[string][]model.WindowHistory {
 // still to come. A credential whose history the store already holds, listed
 // or pending, keeps its samples and gains the stored ones behind them; one
 // the store holds nothing for adopts its history when its first reading
-// arrives, so an import never opens a row the host has not listed. Every
-// replayed sample passes through the same spacing, tiering and cap a live
-// reading does, and live refusal spans merge into the stored ones. A request admitted after `loaded` is after every stored
+// arrives or Restore makes it live, so an import never opens a row the host
+// has not listed. Every replayed sample passes through the same spacing,
+// tiering and cap a live reading does, and live refusal spans merge into the
+// stored ones. A request admitted after `loaded` is after every stored
 // refusal, so it ends a stored span still ongoing.
 func (s *Store) ImportHistory(saved map[string][]model.WindowHistory, loaded time.Time) {
 	s.mu.Lock()

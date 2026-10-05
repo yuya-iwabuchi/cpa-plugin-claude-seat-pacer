@@ -844,31 +844,61 @@ func TestAThrottleEndsTheSweep(t *testing.T) {
 	if b.Err != "" || len(b.Windows) == 0 {
 		t.Errorf("claude-b = err %q windows %d, want its reading untouched", b.Err, len(b.Windows))
 	}
-	warned := 0
-	for _, w := range tp.Status(testNow, "").Warnings {
-		if w == ThrottleWarning {
-			warned++
-		}
+}
+
+// A loop poll that waited behind a forced read reads nothing: the forced read
+// was its sweep, and it sleeps to the wake SyncNow set.
+func TestALoopPollBehindAForcedReadReadsNothing(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.mu.Lock()
+	tp.forcedReads = 1
+	tp.nextPollAt = testNow.Add(90 * time.Second)
+	tp.mu.Unlock()
+
+	if wait := tp.pollAfter(context.Background(), 0); wait != 90*time.Second {
+		t.Errorf("wait = %v, want the 90s to the wake SyncNow set", wait)
 	}
-	if warned != 1 {
-		t.Errorf("throttle warnings = %d, want one", warned)
+	if n := tp.host.count(MethodHostAuthList); n != 0 {
+		t.Errorf("host.auth.list called %d times, want none", n)
 	}
 }
 
-// A forced read takes the place of the loop's next poll, which falls due an
-// interval after it, or at the reset that interval would cross.
-func TestSyncNowMovesTheNextPoll(t *testing.T) {
+// A restored reading whose window reset while the host was down no longer
+// describes its seat, however young it is, and a disabled seat's reading is
+// not restored at all: the poller never reads it to refresh it.
+func TestPollReadsARestoredSeatWhoseWindowReset(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
-	if !tp.SyncNow(context.Background()) {
-		t.Fatal("the forced read was refused")
+	path := filepath.Join(t.TempDir(), "history.json")
+	saved := quota.NewStore()
+	reset := seatA(t).Windows
+	reset[0].ResetsAt = testNow.Add(-10 * time.Second)
+	saved.Put(seat("claude-a.json", testNow.Add(-30*time.Second), reset...))
+	saved.Put(seat("claude-b.json", testNow.Add(-30*time.Second), seatB(t).Windows...))
+	saved.Put(seat("claude-off.json", testNow.Add(-30*time.Second), seatB(t).Windows...))
+	if err := saved.SaveHistory(path, testNow); err != nil {
+		t.Fatal(err)
 	}
-	want := testNow.Add(nextPollWait(tp.quota.All(), testNow, tp.config().Quota.PollInterval))
 	tp.mu.Lock()
-	next := tp.nextPollAt
+	tp.historyLoaded = false
 	tp.mu.Unlock()
-	if !next.Equal(want) {
-		t.Errorf("nextPollAt = %v, want %v", next, want)
+	tp.opts.HistoryFile = path
+
+	var read []string
+	inner := tp.host.http
+	tp.host.http = func(req HostHTTPRequest) (HostHTTPResponse, error) {
+		read = append(read, req.Headers.Get("Authorization"))
+		return inner(req)
+	}
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if len(read) != 1 || read[0] != "Bearer "+secretToken {
+		t.Errorf("usage reads = %q, want claude-a's alone", read)
+	}
+	if _, ok := tp.quota.Get("claude-off.json"); ok {
+		t.Error("a disabled seat's reading was restored")
 	}
 }
 

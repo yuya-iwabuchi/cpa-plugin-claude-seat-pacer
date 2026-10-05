@@ -1048,7 +1048,7 @@ func TestLastReadingSurvivesSaveAndLoad(t *testing.T) {
 		t.Fatal("a loaded reading opened a row before the host listed its credential")
 	}
 	restored := fresh.Restore(map[string]struct{}{"auth-1": {}})
-	if len(restored) != 1 || !restored["auth-1"].Equal(testNow) {
+	if len(restored) != 1 || !restored["auth-1"].ObservedAt.Equal(testNow) {
 		t.Fatalf("Restore = %v, want auth-1 at %v", restored, testNow)
 	}
 	got, ok := fresh.Get("auth-1")

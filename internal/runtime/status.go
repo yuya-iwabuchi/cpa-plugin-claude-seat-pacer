@@ -126,8 +126,8 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	seats := make(map[string]SeatWarningState, len(ordered))
 	for _, id := range ordered {
 		entry, listed := entries[id]
-		_, hasSnap := snapshots[id]
-		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap}
+		snap, hasSnap := snapshots[id]
+		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap, HasReading: len(snap.Windows) > 0}
 		if poll, ok := polls[id]; ok {
 			state.PollErr, state.PollCategory = poll.err, poll.category
 		}
@@ -217,12 +217,13 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 }
 
 // SeatWarningState is what Warnings needs about one credential beyond its
-// status row: whether the host still lists it, whether a reading exists for
-// it, and the outcome of its last poll.
+// status row: whether the host still lists it, whether a snapshot exists for
+// it and holds any window, and the outcome of its last poll.
 type SeatWarningState struct {
 	Listed       bool
 	Disabled     bool
 	HasSnapshot  bool
+	HasReading   bool
 	PollErr      string
 	PollCategory string
 }
@@ -230,7 +231,7 @@ type SeatWarningState struct {
 // ThrottleWarning is the one warning a throttled usage endpoint raises. The
 // endpoint throttles the caller rather than a credential, so the condition is
 // the pool's and not any one seat's; the status page appends the age of the
-// readings the seats keep and when the next read is due.
+// readings the throttled seats keep.
 const ThrottleWarning = "usage endpoint throttled; seats keep their last readings until a read succeeds"
 
 // Warnings is the operator warning list a status view carries: the plugin
@@ -264,7 +265,9 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 		if !seat.Listed || seat.Disabled {
 			continue
 		}
-		if seat.PollErr != "" && seat.PollCategory != string(quota.CategoryRateLimited) {
+		// A throttled seat that keeps a reading is covered by ThrottleWarning;
+		// one with nothing to keep is failing on its own account.
+		if seat.PollErr != "" && (seat.PollCategory != string(quota.CategoryRateLimited) || !seat.HasReading) {
 			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", row.AuthID, seat.PollCategory, seat.PollErr))
 		}
 		if !seat.HasSnapshot {

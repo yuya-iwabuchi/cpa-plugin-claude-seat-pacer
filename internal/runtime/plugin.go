@@ -77,6 +77,9 @@ type Plugin struct {
 	// does not schedule. Both are zero until the first poll returns.
 	polledAt   time.Time
 	nextPollAt time.Time
+	// forcedReads counts the reads SyncNow ran, so a loop poll that waited
+	// behind one knows its sweep already happened.
+	forcedReads uint64
 	// singleCandidates is the candidate count each provider was last offered,
 	// and singleLogged the providers already warned about.
 	singleCandidates map[string]int

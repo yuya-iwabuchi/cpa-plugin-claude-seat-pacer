@@ -67,6 +67,8 @@ func (p *Plugin) startPoller() {
 	}
 	pl := &poller{stop: make(chan struct{}), done: make(chan struct{})}
 	p.poller = pl
+	// A signal left by a forced read with no loop running would cut the new
+	// loop's startup grace short.
 	select {
 	case <-p.rearm:
 	default:
@@ -281,8 +283,33 @@ func (p *Plugin) guard(what string, fn func()) (panicked bool) {
 // TTL, and records when the next poll falls due. The wake it returns is the
 // one the loop takes, so nextPollAt names it and the status view's "next in"
 // counts down to the poll that actually happens.
+//
+// A forced read that ran while this poll waited for pollMu was its sweep: the
+// poll then reads nothing and sleeps to the wake SyncNow set. The read time is
+// recorded under pollMu, so SyncNow's MinForcedPollGap check sees it as soon
+// as the lock is free.
 func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
-	wait := p.pollOnce(ctx)
+	p.mu.Lock()
+	forced := p.forcedReads
+	p.mu.Unlock()
+	return p.pollAfter(ctx, forced)
+}
+
+// pollAfter is pollAndSchedule for a loop that woke when SyncNow had run
+// forced reads.
+func (p *Plugin) pollAfter(ctx context.Context, forced uint64) time.Duration {
+	ctx, cancel := context.WithTimeout(ctx, pollBudget)
+	defer cancel()
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
+	p.mu.Lock()
+	superseded := p.forcedReads != forced
+	p.mu.Unlock()
+	if superseded {
+		return p.untilNextPoll()
+	}
+
+	wait := p.pollLocked(ctx)
 	now := p.now()
 	p.bindingStore().Sweep(now)
 	wait = nextPollWait(p.quota.All(), now, wait)
@@ -327,14 +354,6 @@ func nextPollWait(snaps []model.AuthSnapshot, now time.Time, interval time.Durat
 		return interval
 	}
 	return min(max(earliest.Sub(now)+resetSettle, resetWakeFloor), interval)
-}
-
-// pollOnce runs one background poll under the deadline a manual refresh uses,
-// so a host callback that never returns costs one poll rather than the loop.
-func (p *Plugin) pollOnce(ctx context.Context) time.Duration {
-	ctx, cancel := context.WithTimeout(ctx, pollBudget)
-	defer cancel()
-	return p.poll(ctx)
 }
 
 // refresh polls every governed credential now and reports the first failure:
@@ -412,13 +431,25 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		return listRetryWait
 	}
 
+	// A disabled credential is never read, so a reading restored for it would
+	// stand unrefreshed for as long as the host lists it.
 	listed := make(map[string]struct{}, len(governed))
+	restorable := make(map[string]struct{}, len(governed))
 	for _, entry := range governed {
 		if id := authID(entry); id != "" {
 			listed[id] = struct{}{}
+			if !entry.Disabled {
+				restorable[id] = struct{}{}
+			}
 		}
 	}
-	restored := p.quota.Restore(listed)
+	restored := p.quota.Restore(restorable)
+	p.mu.Lock()
+	if len(p.auths) == 0 {
+		// The first listing names the restored rows while this poll reads.
+		p.auths = governed
+	}
+	p.mu.Unlock()
 
 	keep := make(map[string]struct{}, len(governed))
 	fetchErr := ""
@@ -436,10 +467,10 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		if id == "" || entry.AuthIndex == "" {
 			continue
 		}
-		// A reading the previous run took less than an interval ago stands
-		// until the next poll, and a throttle answers every seat the sweep
-		// has not reached yet: each keeps the outcome it already had.
-		if at, ok := restored[id]; throttled || ok && now.Sub(at) < cfg.Quota.PollInterval {
+		// A restored reading that still describes its seat stands until the
+		// next poll, and a throttle answers every seat the sweep has not
+		// reached yet: each keeps the outcome it already had.
+		if snap, ok := restored[id]; throttled || ok && standing(snap, now, cfg.Quota.PollInterval) {
 			keep[id] = struct{}{}
 			continue
 		}
@@ -507,6 +538,20 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 	}
 	p.mu.Unlock()
 	return cfg.Quota.PollInterval
+}
+
+// standing reports whether a restored reading still describes its seat: taken
+// less than interval before now, with no window reset in between.
+func standing(snap model.AuthSnapshot, now time.Time, interval time.Duration) bool {
+	if now.Sub(snap.ObservedAt) >= interval {
+		return false
+	}
+	for _, w := range snap.Windows {
+		if w.ResetsAt.After(snap.ObservedAt) && !w.ResetsAt.After(now) {
+			return false
+		}
+	}
+	return true
 }
 
 // wait pauses for d and reports whether it elapsed. A cancelled context ends

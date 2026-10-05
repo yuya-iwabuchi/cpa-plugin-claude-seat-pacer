@@ -115,10 +115,10 @@ func (s *Store) importReadings(saved map[string]savedReading) {
 }
 
 // SaveHistory writes the store's whole history as of now, and every
-// credential's last reading, to path, by writing
-// and syncing a temporary file of its own in the same directory and renaming
-// it into place, so a reader never sees a partial file and two writers never
-// share a temporary one. The directory is created as needed.
+// credential's last reading, to path, by writing and syncing a temporary file
+// of its own in the same directory and renaming it into place, so a reader
+// never sees a partial file and two writers never share a temporary one. The
+// directory is created as needed.
 func (s *Store) SaveHistory(path string, now time.Time) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

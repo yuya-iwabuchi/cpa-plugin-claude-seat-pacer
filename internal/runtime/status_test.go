@@ -372,17 +372,24 @@ func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
 }
 
 // A throttle is the endpoint's answer to the caller, so it raises one warning
-// however many seats it reached, and a seat's own failure still warns by name.
+// however many seats it reached; a seat's own failure, or a throttle on a seat
+// with no reading to keep, still warns by name.
 func TestAThrottleRaisesOneWarning(t *testing.T) {
 	throttle := "quota: rate-limited (http 429): usage endpoint throttled"
-	rows := []model.AuthStatus{{AuthID: "a"}, {AuthID: "b"}, {AuthID: "c"}}
+	rows := []model.AuthStatus{{AuthID: "a"}, {AuthID: "b"}, {AuthID: "c"}, {AuthID: "d"}}
 	seats := map[string]SeatWarningState{
-		"a": {Listed: true, HasSnapshot: true, PollErr: throttle, PollCategory: "rate-limited"},
-		"b": {Listed: true, HasSnapshot: true, PollErr: throttle, PollCategory: "rate-limited"},
-		"c": {Listed: true, HasSnapshot: true, PollErr: "quota: auth (http 401): credential rejected", PollCategory: "auth"},
+		"a": {Listed: true, HasSnapshot: true, HasReading: true, PollErr: throttle, PollCategory: "rate-limited"},
+		"b": {Listed: true, HasSnapshot: true, HasReading: true, PollErr: throttle, PollCategory: "rate-limited"},
+		"c": {Listed: true, HasSnapshot: true, HasReading: true, PollErr: "quota: auth (http 401): credential rejected", PollCategory: "auth"},
+		// Throttled before its first reading, so it has none to keep.
+		"d": {Listed: true, HasSnapshot: true, PollErr: throttle, PollCategory: "rate-limited"},
 	}
 	got := Warnings(true, nil, "", nil, rows, seats)
-	want := []string{ThrottleWarning, "quota poll failing for c (auth): quota: auth (http 401): credential rejected"}
+	want := []string{
+		ThrottleWarning,
+		"quota poll failing for c (auth): quota: auth (http 401): credential rejected",
+		"quota poll failing for d (rate-limited): " + throttle,
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("warnings = %q, want %q", got, want)
 	}
