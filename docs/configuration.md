@@ -66,7 +66,7 @@ open conversation one prompt-cache miss.
         poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
         request-timeout: 10s    # one usage read; at most 1m
         max-staleness: 15m      # a reading older than this makes the seat ineligible; at least twice poll-interval
-        persist-history: true   # keep utilization history across host restarts
+        persist-history: true   # keep utilization history and last readings across host restarts
         usage-url: https://api.anthropic.com/api/oauth/usage
       web:
         enabled: true           # serve the status page

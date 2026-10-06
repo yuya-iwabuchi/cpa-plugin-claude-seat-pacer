@@ -93,6 +93,8 @@ type Plugin struct {
 	// startDelay is the wait before the first poll; tests push it out so a
 	// poll cannot race their assertions.
 	startDelay time.Duration
+	// rearm carries rearmPoller's signal to the poll loop.
+	rearm chan struct{}
 	// historyLoaded marks the one-time read of the history file, and
 	// historySaved the store version the file last held. historyRefused marks
 	// a file of a newer version, which this run neither reads nor writes.
@@ -134,6 +136,7 @@ func New(opts Options) *Plugin {
 		singleLogged:     make(map[string]bool),
 		fetchStagger:     fetchStagger,
 		startDelay:       startupGrace,
+		rearm:            make(chan struct{}, 1),
 	}
 	if p.opts.HistoryFile == "" {
 		p.opts.HistoryFile = defaultHistoryFile()

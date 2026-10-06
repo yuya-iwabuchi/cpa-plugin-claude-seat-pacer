@@ -37,7 +37,7 @@ const failoverNote = "bound credential not offered"
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, many, tiers, tiers-down, collide, cleared, exhausted, replay or empty")
+		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, cleared, exhausted, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
 		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
@@ -75,6 +75,15 @@ func main() {
 			AuthID: seatCID, Label: "Seat C", Provider: "claude",
 			Priority: 10, HostStatus: "active",
 		})
+	case "throttled":
+		// The usage endpoint refusing the poller: every seat keeps a reading
+		// a few minutes old and carries the throttle.
+		for id, snap := range src.snapshots {
+			snap.Err = "quota: rate-limited (http 429): usage endpoint throttled"
+			snap.ErrCategory = "rate-limited"
+			src.snapshots[id] = snap
+			src.observedAge[id] = 3 * time.Minute
+		}
 	case "many":
 		// A pool the operator has grown past the point where every seat gets
 		// a roomy row: the naming collisions a real pool produces, and every
@@ -236,8 +245,8 @@ type fixture struct {
 	// render as of a recorded instant; moveClock sets it.
 	shift time.Duration
 	// forcedAt is when the last forced read landed, in Unix nanoseconds, as
-	// SyncNow moves it. The polling loop's own schedule is untouched by one,
-	// the way the plugin leaves its timer alone.
+	// SyncNow moves it. The polling loop's schedule restarts from it, the way
+	// the plugin times its next wake from a forced read.
 	forcedAt atomic.Int64
 	// idKeyFile is the published-id key file, empty for a key of the
 	// process's own.
@@ -268,20 +277,20 @@ func (f *fixture) moveClock(d time.Duration) {
 }
 
 // pollTimes is the poller's schedule as the harness keeps it: scheduled reads
-// land on quota.poll-interval from process start, so a page left open watches
-// a countdown that wraps for real. A forced read moves the last-read stamp
-// without moving the next wake.
+// land on quota.poll-interval from process start, or from the last forced
+// read once there is one, so a page left open watches a countdown that wraps
+// for real.
 func (f *fixture) pollTimes(now time.Time) (polled, next time.Time) {
 	every := f.cfg.Quota.PollInterval
 	if every <= 0 {
 		return now, time.Time{}
 	}
-	polled = now.Add(-(now.Sub(f.anchor) % every))
-	next = polled.Add(every)
-	if forced := f.forcedAt.Load(); forced != 0 && time.Unix(0, forced).After(polled) {
-		polled = time.Unix(0, forced)
+	base := f.anchor
+	if forced := f.forcedAt.Load(); forced != 0 && time.Unix(0, forced).After(base) {
+		base = time.Unix(0, forced)
 	}
-	return polled, next
+	polled = now.Add(-(now.Sub(base) % every))
+	return polled, polled.Add(every)
 }
 
 func newFixture(anchor time.Time) *fixture {
@@ -447,6 +456,7 @@ func (f *fixture) rebuildWarnings() {
 			Listed:       true,
 			Disabled:     row.HostStatus == "disabled",
 			HasSnapshot:  ok,
+			HasReading:   len(snap.Windows) > 0,
 			PollErr:      snap.Err,
 			PollCategory: snap.ErrCategory,
 		}

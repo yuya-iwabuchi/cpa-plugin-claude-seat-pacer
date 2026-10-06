@@ -3,6 +3,7 @@ package quota
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1025,5 +1026,129 @@ func TestPublishedHistoryKeepsTheNewestCycleAtQuarterHours(t *testing.T) {
 	pub := r.export(model.WindowSession, "", HistoryPublishMax, testNow)
 	if got, want := pub.Cycles[len(pub.Cycles)-1].Samples, thin(cur.Samples, 15*time.Minute); !reflect.DeepEqual(got, want) {
 		t.Errorf("newest cycle published %d samples, want its %d at 15 minutes", len(got), len(want))
+	}
+}
+
+// A credential's last reading survives a restart at its own age, and becomes
+// live only once the host lists the credential.
+func TestLastReadingSurvivesSaveAndLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.4), weeklyWindow(0.2)))
+	s.Put(endpointSnapshot("auth-2", testNow.Add(-time.Minute), sessionWindow(0.1)))
+	if err := s.SaveHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path, testNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh.All()) != 0 {
+		t.Fatal("a loaded reading opened a row before the host listed its credential")
+	}
+	restored := fresh.Restore(map[string]struct{}{"auth-1": {}})
+	if len(restored) != 1 || !restored["auth-1"].ObservedAt.Equal(testNow) {
+		t.Fatalf("Restore = %v, want auth-1 at %v", restored, testNow)
+	}
+	got, ok := fresh.Get("auth-1")
+	if !ok || !got.ObservedAt.Equal(testNow) || got.Source != model.SourceUsageEndpoint {
+		t.Fatalf("restored snapshot = %+v", got)
+	}
+	want := []model.Window{sessionWindow(0.4), weeklyWindow(0.2)}
+	if len(got.Windows) != len(want) {
+		t.Fatalf("restored windows = %+v, want %+v", got.Windows, want)
+	}
+	for i := range want {
+		if !got.Windows[i].ResetsAt.Equal(want[i].ResetsAt) || got.Windows[i].Utilization != want[i].Utilization ||
+			got.Windows[i].Kind != want[i].Kind || got.Windows[i].Duration != want[i].Duration {
+			t.Errorf("restored window %d = %+v, want %+v", i, got.Windows[i], want[i])
+		}
+	}
+	if fresh.Restore(map[string]struct{}{"auth-1": {}}) != nil {
+		t.Error("a reading was restored twice")
+	}
+
+	// A fresher reading replaces the restored one, and its history extends
+	// the saved samples.
+	fresh.Put(endpointSnapshot("auth-1", testNow.Add(3*time.Minute), sessionWindow(0.5), weeklyWindow(0.21)))
+	if got, _ := fresh.Get("auth-1"); got.Windows[0].Utilization != 0.5 {
+		t.Errorf("live reading after restore = %+v", got.Windows)
+	}
+	if h := historyOf(t, fresh, "auth-1", model.WindowSession); h.Samples() != 2 {
+		t.Errorf("session samples = %d, want the saved one plus the live one", h.Samples())
+	}
+
+	// A credential the host stops listing loses its pending reading at the
+	// next prune.
+	fresh.Prune(map[string]struct{}{"auth-1": {}})
+	if fresh.Restore(map[string]struct{}{"auth-2": {}}) != nil {
+		t.Error("a pruned pending reading was restored")
+	}
+}
+
+// A header reading for a credential with a pending reading merges into it,
+// so the windows the headers do not carry keep their saved values.
+func TestHeaderReadingResumesAPendingReading(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.4), weeklyWindow(0.2)))
+	if err := s.SaveHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	fresh.MergeHeaders("auth-1", []model.Window{sessionWindow(0.45)}, testNow.Add(time.Minute))
+	got, ok := fresh.Get("auth-1")
+	if !ok || len(got.Windows) != 2 {
+		t.Fatalf("merged snapshot = %+v, want both windows", got)
+	}
+	if got.Windows[0].Utilization != 0.45 || got.Windows[1].Utilization != 0.2 {
+		t.Errorf("merged windows = %+v, want the header session over the saved weekly", got.Windows)
+	}
+	if !got.ObservedAt.Equal(testNow.Add(time.Minute)) || got.Source != model.SourceUsageEndpoint {
+		t.Errorf("merged snapshot observed %v source %q", got.ObservedAt, got.Source)
+	}
+}
+
+// A reading JSON cannot carry is left out of the file, and the rest of the
+// file is still written.
+func TestUnencodableReadingDoesNotFailTheSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(math.NaN())))
+	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.3)))
+	if err := s.SaveHistory(path, testNow); err != nil {
+		t.Fatalf("SaveHistory with a NaN reading: %v", err)
+	}
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	restored := fresh.Restore(map[string]struct{}{"auth-1": {}, "auth-2": {}})
+	if _, ok := restored["auth-1"]; ok || len(restored) != 1 {
+		t.Errorf("Restore = %v, want auth-2 alone", restored)
+	}
+}
+
+// A reading stamped after the load instant came from a clock since set back,
+// and is not restored.
+func TestFutureReadingIsNotRestored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewStore()
+	s.Put(endpointSnapshot("auth-1", testNow.Add(time.Hour), sessionWindow(0.9)))
+	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.3)))
+	if err := s.SaveHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore()
+	if err := fresh.LoadHistory(path, testNow); err != nil {
+		t.Fatal(err)
+	}
+	restored := fresh.Restore(map[string]struct{}{"auth-1": {}, "auth-2": {}})
+	if _, ok := restored["auth-1"]; ok || len(restored) != 1 {
+		t.Errorf("Restore = %v, want auth-2 alone", restored)
 	}
 }

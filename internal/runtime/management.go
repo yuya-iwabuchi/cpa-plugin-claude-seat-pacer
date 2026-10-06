@@ -266,12 +266,19 @@ func jsonResponse(status int, body any) ManagementResponse {
 
 // SyncNow re-reads every governed credential's usage unless a poll is already
 // running or the last one is more recent than MinForcedPollGap, and reports
-// whether it read. It runs inline on the caller's goroutine, so a status
-// response built after it carries the fresh reading.
+// whether it read. A seat whose restored reading still stands is left to the
+// next poll, as the loop's own poll leaves it. It runs inline on the caller's
+// goroutine, so a status response built after it carries the fresh reading.
 //
 // A running poll is the read the caller asked for, so SyncNow never queues
 // behind one: it answers false at once, and the response carries what that
 // poll has published so far.
+//
+// A forced read that finishes its sweep takes the place of the loop's next
+// poll: the loop's next wake is timed from it as from one of its own, a loop
+// poll waiting behind it reads nothing, and nextPollAt names that wake. One
+// cut short leaves the schedule alone, so the seats it did not reach are read
+// on time.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
 	if !p.pollMu.TryLock() {
 		return false
@@ -279,9 +286,7 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 	defer p.pollMu.Unlock()
 
 	// The slot is claimed before the poll runs, so callers inside one window
-	// share a single read. Only the read time moves: the loop's timer is
-	// untouched by a forced read, so nextPollAt still names the wake it will
-	// actually take.
+	// share a single read.
 	p.mu.Lock()
 	now := p.now()
 	if !p.polledAt.IsZero() && now.Sub(p.polledAt) < MinForcedPollGap {
@@ -293,6 +298,15 @@ func (p *Plugin) SyncNow(ctx context.Context) bool {
 
 	ctx, cancel := context.WithTimeout(ctx, p.refreshTimeout())
 	defer cancel()
-	p.pollLocked(ctx)
+	wait, cutShort := p.pollLocked(ctx)
+	if cutShort {
+		return true
+	}
+	now = p.now()
+	wait = nextPollWait(p.quota.All(), now, wait)
+	p.mu.Lock()
+	p.nextPollAt = now.Add(wait)
+	p.mu.Unlock()
+	p.rearmPoller()
 	return true
 }

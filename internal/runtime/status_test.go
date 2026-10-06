@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -367,5 +368,44 @@ func TestTierWarningNamesTheSeatsAndTheChoice(t *testing.T) {
 	shared := singleCandidateWarning("claude", append(rows[:3:3], model.AuthStatus{AuthID: "claude-top2.json", Provider: "claude", Priority: 11}))
 	if strings.Contains(shared, "fallback tier") || !strings.Contains(shared, "top priority tier are unavailable") {
 		t.Errorf("a top tier of several seats is misread as a lone top seat: %q", shared)
+	}
+}
+
+// A throttle is the endpoint's answer to the caller, so it raises one warning
+// however many seats it reached; a seat's own failure, or a throttle on a seat
+// with no reading to keep, still warns by name.
+func TestAThrottleRaisesOneWarning(t *testing.T) {
+	throttle := "quota: rate-limited (http 429): usage endpoint throttled"
+	rows := []model.AuthStatus{{AuthID: "a"}, {AuthID: "b"}, {AuthID: "c"}, {AuthID: "d"}}
+	seats := map[string]SeatWarningState{
+		"a": {Listed: true, HasSnapshot: true, HasReading: true, PollErr: throttle, PollCategory: "rate-limited"},
+		"b": {Listed: true, HasSnapshot: true, HasReading: true, PollErr: throttle, PollCategory: "rate-limited"},
+		"c": {Listed: true, HasSnapshot: true, HasReading: true, PollErr: "quota: auth (http 401): credential rejected", PollCategory: "auth"},
+		// Throttled before its first reading, so it has none to keep.
+		"d": {Listed: true, HasSnapshot: true, PollErr: throttle, PollCategory: "rate-limited"},
+	}
+	got := Warnings(true, nil, "", nil, rows, seats)
+	want := []string{
+		ThrottleWarning,
+		"quota poll failing for c (auth): quota: auth (http 401): credential rejected",
+		"quota poll failing for d (rate-limited): " + throttle,
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("warnings = %q, want %q", got, want)
+	}
+
+	// With no seat keeping a reading there is nothing for ThrottleWarning to
+	// describe, and the throttled seat warns by name alone.
+	got = Warnings(true, nil, "", nil, rows[3:], seats)
+	if want := []string{"quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
+		t.Errorf("warnings with no reading kept = %q, want %q", got, want)
+	}
+
+	// A throttle on a seat with no reading still holds back the seats that
+	// keep one, so the pool's warning stands beside the seat's own.
+	seats["e"] = SeatWarningState{Listed: true, HasSnapshot: true, HasReading: true}
+	got = Warnings(true, nil, "", nil, []model.AuthStatus{{AuthID: "d"}, {AuthID: "e"}}, seats)
+	if want := []string{ThrottleWarning, "quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
+		t.Errorf("warnings with another seat keeping a reading = %q, want %q", got, want)
 	}
 }

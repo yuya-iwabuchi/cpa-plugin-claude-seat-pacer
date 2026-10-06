@@ -34,6 +34,13 @@ page warns which, and names the seats when it is the tier layout.
 and carries the poll error; wait one `poll-interval` or click Sync now on the
 status page.
 
+**The page warns that the usage endpoint is throttled.** The endpoint limits
+how often one caller reads it, across every seat at once, so a sweep that
+lands soon after another is refused. Each seat keeps its last reading, and
+routes on it until it is older than `max-staleness`; the next poll reads
+again. A `poll-interval` shorter than the default, or Sync now pressed
+repeatedly, makes this more likely.
+
 **The config block seems ignored.** A block that does not parse loads the
 plugin disabled with defaults, and the page warns that the plugin is disabled.
 Fix the YAML; the host applies the fix live, without a restart.
