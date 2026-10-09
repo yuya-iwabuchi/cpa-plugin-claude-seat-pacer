@@ -3446,7 +3446,7 @@ time[data-ts] { cursor: help; }
   var PACE_IDLE_MS = 4 * 3600000;
   var PT_R = 2.5;            /* a present circle's dot; the cap's diamond matches its area */
   var PT_D = 3.2;
-  var PT_RING = 3.2;         /* how far a present mark's ring stands off its dot */
+  var PT_RING = 3.75;        /* how far a present mark's ring stands off its dot: a 3px gap and half its 1.5px stroke */
   var MARK_R = PT_D + PT_RING + 2; /* the square a mark holds against labels: the diamond's reach plus its ring */
   /* Gap labels: a 10px monospace line and its box. A label crowding moved
      more than half a line from its place over or under its mark draws a
