@@ -1219,16 +1219,18 @@ time[data-ts] { cursor: help; }
 
     <section id="sec-pace" hidden tabindex="-1">
       <div class="sec-head">
-        <a class="skip" href="#sec-session">skip to next section</a>
+        <a class="skip" href="#sec-hist">skip to next section</a>
         <span class="sec-idx"></span>
-        <h2>Weekly window</h2>
-        <span class="sec-sub" id="pace-sub">each seat's use against the target curve, ranked by cost</span>
+        <h2>Current window pace</h2>
+        <span class="sec-sub" id="pace-sub">each seat's use of its current window against the curve</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
-        <!-- Which rankings the card draws. The script fills it, and hides it
-             where the plot has only one kind of mark to draw. -->
-        <div class="pace-view" id="pace-view" role="group" aria-label="Ranking view" hidden></div>
+        <!-- Which window the card draws: a weekly window with its family's
+             ranking, or the 5-hour window with each seat's outlook. The
+             script fills it and shows the body of the window pressed. -->
+        <div class="pace-view" id="pace-view" role="group" aria-label="Window shown"></div>
+        <div id="pace-week">
         <!-- The sum a cost is, from the running weights, across the card: it
              reads over the plot and the list it explains, and the list's
              column keeps its height for the ranking alone. -->
@@ -1249,18 +1251,8 @@ time[data-ts] { cursor: help; }
           <summary>How to read this chart</summary>
           <div class="pace-note" id="pace-note"></div>
         </details>
-      </div>
-    </section>
-
-    <section id="sec-session" hidden tabindex="-1">
-      <div class="sec-head">
-        <a class="skip" href="#sec-hist">skip to next section</a>
-        <span class="sec-idx"></span>
-        <h2>5-hour window</h2>
-        <span class="sec-sub" id="session-sub">a rate limit, not a budget &middot; a refusal, a bad reading or a full reading makes a seat ineligible</span>
-        <span class="sec-line"></span>
-      </div>
-      <div class="card pace-card">
+        </div>
+        <div id="pace-five" hidden>
         <div class="pace-body">
           <div id="session-chart"></div>
           <div class="pace-rank">
@@ -1274,6 +1266,7 @@ time[data-ts] { cursor: help; }
           <summary>How to read this chart</summary>
           <div class="pace-note" id="session-note"></div>
         </details>
+        </div>
       </div>
     </section>
 
@@ -2024,14 +2017,14 @@ time[data-ts] { cursor: help; }
     catch (e) { /* storage may be blocked; the filter still holds for this page */ }
   }
 
-  /* The weekly card's view: PACE_ALL draws every ranking, and a family's name
-     (STANDARD for Standard) draws that ranking alone, its marks, its list and
-     its formula clause. Like hiddenSeats it is this browser's and nothing
-     else, and a saved family the payload no longer carries shows every
-     ranking without being forgotten. */
-  var PACE_ALL = "*";
+  /* The Current window pace card's view: a family's name (STANDARD for
+     Standard) draws that family's weekly window, its marks, its ranking and
+     its formula clause, and PACE_SESSION draws the 5-hour window. Like
+     hiddenSeats it is this browser's and nothing else, and a saved family
+     the payload no longer carries shows Standard without being forgotten. */
+  var PACE_SESSION = "five_hour";
   var PACE_VIEW_KEY = "pacer-pace-view";
-  var paceView = PACE_ALL;
+  var paceView = "";
 
   /* A saved view choice, or null for none or a store the browser blocks. */
   function loadPref(key) {
@@ -2048,14 +2041,14 @@ time[data-ts] { cursor: help; }
   function loadPaceView() { paceView = loadPref(PACE_VIEW_KEY) || paceView; }
   function savePaceView() { savePref(PACE_VIEW_KEY, paceView); }
 
-  /* The view in force. A pool whose plot draws no cap has one ranking to
-     show and no choice. */
+  /* The view in force. A family cap the cost does not weigh draws no mark,
+     so it has no view. */
   function paceViewOf(fams, capDrawn) {
-    if (!capDrawn) return PACE_ALL;
-    return paceView === STANDARD || fams.indexOf(paceView) >= 0 ? paceView : PACE_ALL;
+    if (paceView === PACE_SESSION) return paceView;
+    return capDrawn && fams.indexOf(paceView) >= 0 ? paceView : STANDARD;
   }
 
-  function shows(view, fam) { return view === PACE_ALL || view === fam; }
+  function shows(view, fam) { return view === fam; }
 
   /* Seats by priority, highest first, then in name order, numbers within a
      name read as numbers, then by id where two names match, minus the hidden
@@ -4311,8 +4304,11 @@ time[data-ts] { cursor: help; }
     var capDrawn = fams.length && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     var view = paceViewOf(fams, capDrawn);
     renderPaceView(fams, view, capDrawn);
-    $("pace-sub").textContent = "each seat's " + (shows(view, STANDARD) ? "" : capShort(view) + " ") +
-      "use against the target curve, ranked by cost";
+    $("pace-week").hidden = view === PACE_SESSION;
+    $("pace-five").hidden = view !== PACE_SESSION;
+    if (view === PACE_SESSION) { renderSession(st, seats); return; }
+    $("pace-sub").textContent = "each seat's " + (view === STANDARD ? WEEKLY_SHORT : capShort(view)) +
+      " use against the target curve, ranked by cost";
     var pace = (st.config && st.config.pace) || {};
 
     /* The plot takes the card's width and a height that follows it, bounded so
@@ -4356,8 +4352,7 @@ time[data-ts] { cursor: help; }
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
       "aria-label": (shows(view, STANDARD) ? "Weekly" : capShort(view)) +
-        " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it" +
-        (view === PACE_ALL && capDrawn ? ", plus one per seat for its " + andList(fams.map(capShort)) + " window when the cost weighs it" : "")
+        " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it"
     }, host);
 
     yGrid(root, m, pw, Y);
@@ -4503,16 +4498,17 @@ time[data-ts] { cursor: help; }
     renderPaceNote(st);
   }
 
-  /* One button per ranking and one for all of them, the view's pressed. A
-     press rebuilds the page from the payload it holds, fetching nothing. */
+  /* One button per window, named as Over time names it, the view's pressed:
+     the weekly window, each family cap the cost weighs, and the 5-hour
+     window. A press rebuilds the page from the payload it holds, fetching
+     nothing. */
   function renderPaceView(fams, view, capDrawn) {
     var host = $("pace-view");
     host.textContent = "";
-    host.hidden = !capDrawn;
-    if (!capDrawn) return;
-    switchBar(host, [PACE_ALL, STANDARD].concat(fams).map(function (key) {
-      return [key, key === PACE_ALL ? (fams.length > 1 ? "All" : "Both") : rankLabel(key)];
-    }), view, "view:", function (key) {
+    var items = [[STANDARD, WEEKLY_SHORT]];
+    if (capDrawn) fams.forEach(function (fam) { items.push([fam, capShort(fam)]); });
+    items.push([PACE_SESSION, SESSION_SHORT]);
+    switchBar(host, items, view, "view:", function (key) {
       paceView = key;
       savePaceView();
       render();
@@ -4810,7 +4806,7 @@ time[data-ts] { cursor: help; }
        the way the seats and weekly subheads do. */
     var wt = paceCfg.session_weight, counts = termShown(wt);
     var weightClause = !num(wt) ? "" : wt === 0 ? "weighs nothing in the cost" : "counts" + weightTag(wt) + " in the cost";
-    $("session-sub").textContent = ["a rate limit, not a budget", weightClause, SESSION_GATES]
+    $("pace-sub").textContent = ["each seat's " + SESSION_SHORT + " use, a rate limit and not a budget", weightClause, SESSION_GATES]
       .filter(Boolean).join(" · ");
 
     /* As tall for its width as the Over time plot, so the seat list beside
@@ -5052,7 +5048,7 @@ time[data-ts] { cursor: help; }
           "weekly gaps tie."
         : " It weighs nothing in the cost.") +
       " It still makes a seat ineligible while the provider refuses it, reports it full or sends a reading that " +
-      "is not a number. When a pick went elsewhere for no reason the weekly chart shows, look here."));
+      "is not a number. When a pick went elsewhere for no reason the 7-day views show, look here."));
     var sec = def(dl, "stretches, refusals and resets");
     sec.appendChild(document.createTextNode(sectionsText(SESSION_IDLE_MS / 60000 + " minutes") +
       " Usage stretches, reset dots and refused stretches take keyboard focus."));
@@ -7518,7 +7514,6 @@ time[data-ts] { cursor: help; }
       off + " of them " + (off === 1 ? "is" : "are") + " disabled in the host. ";
     $("sec-seats").hidden = empty;
     $("sec-pace").hidden = empty;
-    $("sec-session").hidden = empty;
     $("sec-hist").hidden = empty;
     $("sec-decisions").hidden = false;
     $("sec-bindings").hidden = false;
@@ -7526,7 +7521,6 @@ time[data-ts] { cursor: help; }
     if (!empty) {
       renderTimeline(st, seats, ranks);
       renderPace(st, seats, ranks);
-      renderSession(st, seats);
       renderHistory(st, seats);
     }
     renderDecisions(st);

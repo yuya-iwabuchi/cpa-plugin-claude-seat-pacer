@@ -19,13 +19,14 @@ new conversation. A seat held off ranks below them.
   refused, is taped red and black, and that seat's other windows turn grey.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
-  is marked fallback, and a tier whose seats are all refused, full,
-  unavailable or disabled is skipped.
-- **Weekly window.** Every seat's use plotted against the target curve over
-  its own week, and the seats ranked by cost, each with where it is headed at
-  its last 24 hours' rate.
-- **5-hour window.** Where each seat stands against the limit that can make
-  it ineligible.
+  is marked fallback, and a tier none of whose seats can take
+  requests is skipped, with the reason: disabled or unavailable in the host,
+  refused by the provider, full, or not scored.
+- **Current window pace.** Each seat's use of its current window against the
+  curve, one window at a time, switched as Over time switches them. A 7-day
+  view ranks the seats by its family's cost, each with where it is headed at
+  its last 24 hours' rate; the 5-hour view shows where each seat stands
+  against the limit that can make it ineligible.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Lines draws each seat's use, with each
   refusal and what ended it, and its side list totals the pool's use in seats'
