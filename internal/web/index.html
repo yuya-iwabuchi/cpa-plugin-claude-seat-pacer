@@ -2176,7 +2176,32 @@ time[data-ts] { cursor: help; }
       return n > 1 ? "paced across " + n + " seats" : n ? "one seat takes every new conversation" : "no seat eligible";
     }
     if (r.role === "fallback") return "takes requests when no higher tier can";
-    return "every seat refused, full, unavailable or disabled";
+    return skipText(t.on[p] || [], fams);
+  }
+
+  /* Why no seat on a skipped tier takes requests, by the cause each seat
+     carries: the host's disabled or unavailable state first, then the
+     first family's refusal, full window or missing score. One cause names
+     itself; several are counted. */
+  var SKIP_CAUSES = [["disabled", "disabled in the host"], ["unavailable", "unavailable in the host"],
+    ["refused", "refused by the provider"], ["full", "full"], ["unscored", "not scored"]];
+  function skipCause(a, fams) {
+    var hs = a.host_status || "";
+    if (HOST_DOWN[hs]) return hs;
+    for (var i = 0; i < fams.length; i++) {
+      var sc = famScore(a, fams[i]);
+      if (!sc) return "unscored";
+      if (sc.reason === "provider-rejected") return "refused";
+      if (sc.reason === "spent") return "full";
+    }
+    return "unscored";
+  }
+  function skipText(seats, fams) {
+    var n = Object.create(null);
+    seats.forEach(function (a) { var c = skipCause(a, fams); n[c] = (n[c] || 0) + 1; });
+    var hit = SKIP_CAUSES.filter(function (c) { return n[c[0]]; });
+    if (hit.length === 1) return (seats.length > 1 ? "every seat " : "") + hit[0][1];
+    return hit.map(function (c) { return n[c[0]] + " " + c[0]; }).join(", ");
   }
 
   /* Every seat's rank per family, by id, and the seat each family's next new
