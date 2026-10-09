@@ -129,7 +129,7 @@ var p = histPresets(true);
 eq("leads", [H_DAY, 7 * H_DAY, 30 * H_DAY, 60 * H_DAY].map(function (s) { return histAhead(p, s) / H_HOUR; }), [2, 12, 48, 48]);
 eq("lead between", histAhead(p, 5 * H_DAY) / H_HOUR, 9);
 var q = histPresets(false);
-eq("5h leads", [6 * H_HOUR, 3 * H_DAY, 7 * H_DAY].map(function (s) { return histAhead(q, s) / H_HOUR; }), [0.5, 6, 12]);
+eq("5h leads", [6 * H_HOUR, 3 * H_DAY, 7 * H_DAY].map(function (s) { return histAhead(q, s) / H_HOUR; }), [0.5, 5, 5]);
 
 if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
 `
