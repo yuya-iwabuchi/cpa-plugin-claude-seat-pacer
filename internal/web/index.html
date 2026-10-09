@@ -5202,28 +5202,16 @@ time[data-ts] { cursor: help; }
   /* A Monday, so ticks a week apart land on Mondays. */
   var H_WEEK0 = new Date(2024, 0, 1).getTime();
 
-  /* Each span the plot offers, and its lead past now. */
+  /* Each span the plot offers. */
   function histPresets(weekly) {
     return weekly
-      ? [["1d", H_DAY, 2 * H_HOUR], ["3d", 3 * H_DAY, 6 * H_HOUR], ["7d", 7 * H_DAY, 12 * H_HOUR],
-        ["14d", 14 * H_DAY, H_DAY], ["30d", 30 * H_DAY, 2 * H_DAY], ["All", Infinity]]
-      : [["6h", 6 * H_HOUR, H_HOUR / 2], ["12h", 12 * H_HOUR, H_HOUR], ["1d", H_DAY, 2 * H_HOUR],
-        ["3d", 3 * H_DAY, 5 * H_HOUR], ["7d", 7 * H_DAY, 5 * H_HOUR], ["All", Infinity]];
+      ? [["1d", H_DAY], ["3d", 3 * H_DAY], ["7d", 7 * H_DAY], ["14d", 14 * H_DAY], ["30d", 30 * H_DAY], ["All", Infinity]]
+      : [["6h", 6 * H_HOUR], ["12h", 12 * H_HOUR], ["1d", H_DAY], ["3d", 3 * H_DAY], ["7d", 7 * H_DAY], ["All", Infinity]];
   }
 
-  /* A span's lead past now: a preset's own at its span, interpolated
-     between presets, held beyond the first and the last, and never past half
-     the span. */
-  function histAhead(presets, span) {
-    var p = presets.filter(function (q) { return q[1] !== Infinity; });
-    var ahead = p[p.length - 1][2];
-    for (var i = 0; i < p.length; i++) {
-      if (span > p[i][1]) continue;
-      ahead = i ? p[i - 1][2] + (p[i][2] - p[i - 1][2]) * (span - p[i - 1][1]) / (p[i][1] - p[i - 1][1]) : p[0][2];
-      break;
-    }
-    return Math.min(ahead, span / 2);
-  }
+  /* A span's lead past now: the same share of every span, so a range that
+     follows now always gives the future the same part of the plot. */
+  function histAhead(span) { return span * 0.15; }
 
   /* Maps a window's elapsed fraction to x on a calendar axis, so curvePath
      lays a cycle's target from the instant the window opened to its reset. */
@@ -5672,15 +5660,14 @@ time[data-ts] { cursor: help; }
        reaches whatever range the plot shows. */
     var capMax = heldAt(tMin);
     heldEdges.forEach(function (t) { if (t >= tMin && t <= tMax) capMax = Math.max(capMax, heldAt(t)); });
-    /* Where a range that follows now ends: its span's lead past now, or,
-       stacked, back past now where that is later and within half the span;
-       and never past the strip's end. */
+    /* Where a range that follows now ends: its span's lead past now, and
+       never past the strip's end. */
     function liveEnd(span) {
-      return Math.min(tMax, now + Math.max(histAhead(presets, span), back <= span / 2 ? back : 0));
+      return Math.min(tMax, now + histAhead(span));
     }
     /* All is every recorded reading, from the strip's start to where a range
-       that long that follows now ends. */
-    var allEnd = liveEnd(now - tMin), allSpan = allEnd - tMin;
+       that starts there and follows now ends. */
+    var allEnd = liveEnd((now - tMin) / (1 - histAhead(1))), allSpan = allEnd - tMin;
 
     var spanBar = $("hist-span");
     spanBar.textContent = "";

@@ -124,12 +124,9 @@ eq("pool size", [poolSize(uses, 10, 100), poolSize(uses, 60, 100)], [3, 4]);
 // A seat read now with no history is in the pool from now.
 eq("pool size of a new seat", [poolSize([{ first: null, cur: 0.2 }], 50, 100), poolSize([{ first: null, cur: 0.2 }], 100, 100)], [0, 1]);
 
-// Each preset leads by its own amount; spans between interpolate.
-var p = histPresets(true);
-eq("leads", [H_DAY, 7 * H_DAY, 30 * H_DAY, 60 * H_DAY].map(function (s) { return histAhead(p, s) / H_HOUR; }), [2, 12, 48, 48]);
-eq("lead between", histAhead(p, 5 * H_DAY) / H_HOUR, 9);
-var q = histPresets(false);
-eq("5h leads", [6 * H_HOUR, 3 * H_DAY, 7 * H_DAY].map(function (s) { return histAhead(q, s) / H_HOUR; }), [0.5, 5, 5]);
+// Every span leads by one share of itself.
+eq("leads", histPresets(true).concat(histPresets(false)).filter(function (p) { return p[1] !== Infinity; })
+  .map(function (p) { return Math.round(histAhead(p[1]) / p[1] * 100); }), [15, 15, 15, 15, 15, 15, 15, 15, 15, 15]);
 
 if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
 `
