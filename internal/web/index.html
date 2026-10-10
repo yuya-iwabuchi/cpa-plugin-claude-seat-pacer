@@ -470,15 +470,15 @@ td .seat-mark { max-width: 22ch; }
     transparent 0 4.92px, #161616 4.92px 6.57px);
 }
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
-/* The timeline's legend sits inside its card under the chart, the same 8px
-   below it and 6px above the card's edge as a pace card's does, in short
-   lists rather than one long one. The chart alone scrolls sideways, so the
-   lists wrap to the card's width rather than to the timeline's. */
-.tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; }
+/* The timeline's legend sits inside its card under the chart, 8px below it,
+   in short lists rather than one long one, inset to the line the other
+   cards' content starts on. The chart alone scrolls sideways, so the lists
+   wrap to the card's width rather than to the timeline's. */
+.tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0 8px; }
 .tl-legend .legend { margin: 0; }
 /* The timeline's SVG draws its own gutter at the left, so the card keeps
-   less padding than the rest: more would double that gutter. */
-.tl-card { padding: 8px 8px 6px; }
+   less padding at its sides than the rest: more would double that gutter. */
+.tl-card { padding: 8px; }
 #timeline { overflow-x: auto; }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
@@ -602,10 +602,9 @@ svg.pace g.reset-mark { cursor: default; }
 svg.pace g.reset-mark:focus-visible { outline: none; }
 svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width: 2; }
 svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-.sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
-.sess-focus b { font-weight: 600; color: var(--ink-1); }
 .pace-card { overflow-x: auto; }
 .pace-card .legend { margin: 8px 0 0; }
+.pace-card .legend.tools-legend { margin: 0 0 0 auto; }
 /* The plot and the ranking it produces, side by side: the plot carries the
    inputs, the list the answer. The list's column is one fixed width, so the
    plot reads at the same size on every pool and every refresh: a seat named
@@ -1220,7 +1219,13 @@ time[data-ts] { cursor: help; }
         <!-- Which window the card draws: a weekly window with its family's
              ranking, or the 5-hour window with each seat's outlook. The
              script fills it and shows the body of the window pressed. -->
-        <div class="pace-view" id="pace-view" role="group" aria-label="Window shown"></div>
+        <!-- The switch, and at the row's far end the line styles the view
+             draws, so the legend takes no row of its own and the card keeps
+             one height across views. -->
+        <div class="hist-tools">
+          <div class="pace-view" id="pace-view" role="group" aria-label="Window shown"></div>
+          <ul class="legend tools-legend" id="pace-legend" aria-label="Legend"></ul>
+        </div>
         <div id="pace-week">
         <!-- The sum a cost is, from the running weights, across the card: it
              reads over the plot and the list it explains, and the list's
@@ -1234,10 +1239,6 @@ time[data-ts] { cursor: help; }
             <div id="pace-rank" class="side-list"></div>
           </div>
         </div>
-        <ul class="legend" id="pace-legend" aria-label="Legend"></ul>
-        <!-- The 5-hour view's status line keeps its place in every view, so
-             switching windows keeps the card one height. -->
-        <p class="sess-focus" aria-hidden="true"></p>
         <!-- Static, so the fold's open state and a focused summary outlive the
              refresh; only the note inside is rebuilt. -->
         <details class="pace-more">
@@ -1255,8 +1256,6 @@ time[data-ts] { cursor: help; }
             <div id="session-rank" class="side-list"></div>
           </div>
         </div>
-        <ul class="legend" id="session-legend" aria-label="Legend"></ul>
-        <p class="sess-focus" id="session-focus" role="status" aria-live="polite"></p>
         <details class="pace-more">
           <summary>How to read this chart</summary>
           <div class="pace-note" id="session-note"></div>
@@ -1500,10 +1499,6 @@ time[data-ts] { cursor: help; }
   /* The one sentence on the page that says what the sign means. Every legend
      carrying a signed figure prints it, so no two can disagree. */
   var SIGN_KEY = "+ over target · − under target";
-  /* The present mark's key, drawn to the mark's own measures: a 5px dot, a
-     3px gap and a 1.5px ring. */
-  var SW_NOW = "box-sizing:border-box;width:14px;height:14px;padding:3px;border:1.5px solid var(--ink-2);" +
-    "border-radius:50%;background:var(--ink-2);background-clip:content-box";
 
   function absTime(d) {
     return d.toLocaleString(undefined, {
@@ -3677,17 +3672,12 @@ time[data-ts] { cursor: help; }
   var SW_SHADE = "height:10px;width:14px;border-radius:2px;background:linear-gradient(var(--refused),var(--refused)),var(--ink-3)";
   var POOL_KEY = "every seat refused (under the axis)";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
-  var GAP_KEY = "gap to target on hover: + over, − under";
   var EST_KEY = "estimated from token spend";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
   var CURVE_KEY = "reference curve, not paced";
   /* Over time's keys. */
-  var SW_RECORDED = "height:0;border-top:1.5px solid var(--ink-2)";
   var SW_TARGET = "height:0;border-top:1.5px dashed var(--ink-2);opacity:.7";
   var SW_RESET = "box-sizing:border-box;width:7px;height:7px;margin:0 3.5px;border:1.4px solid var(--ink-2);border-radius:50%";
-  var SW_MIDNIGHT = "width:0;height:12px;margin:0 7px;border-left:1px solid var(--ink-3)";
-  var SW_WEEKEND = "height:10px;background:var(--ink-3);opacity:.25";
-  var SW_STACK = "height:10px;background:var(--ink-3);opacity:.7";
   var SW_HELD = "height:10px;background:var(--ink-3);opacity:.3";
   var SW_POOL = "height:0;border-top:1.5px solid var(--ink-1)";
   var SW_BRACKET = "box-sizing:border-box;height:5px;border:1.5px solid var(--ink-3);border-bottom:0;border-radius:1px 1px 0 0";
@@ -4536,13 +4526,19 @@ time[data-ts] { cursor: help; }
   /* The marks and lines the chart draws. The list beside the chart names
      every seat by its colour, and a seat with no mark carries the reason. */
   function renderPaceLegend(anyEst, anyUnrec, anyLock) {
-    var leg = $("pace-legend");
+    lineLegend($("pace-legend"), anyEst, anyUnrec, anyLock);
+  }
+
+  /* The line styles a recorded line can take past the plain one, each only
+     where the chart draws it. The curve names itself on the plot, a mark is
+     a seat's reading now, and its gap shows on pointing at it, which the
+     note says; a legend with nothing to name is hidden. */
+  function lineLegend(leg, anyEst, anyUnrec, anyLock) {
     leg.textContent = "";
-    legendRow(leg, SW_NOW, "now");
-    legendRow(leg, SW_SIGN, GAP_KEY);
     if (anyEst) legendRow(leg, SW_EST, EST_KEY);
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
+    leg.hidden = !leg.childNodes.length;
   }
 
   /* What both charts' notes say about a line's stretches, given the pause,
@@ -4669,7 +4665,6 @@ time[data-ts] { cursor: help; }
   /* The sections of a 5-hour line that are keyboard stops besides any
      holding a limit: a usage section carries its conversations. */
   var SESSION_STOPS = ["usage"];
-  var SESSION_IDLE = "point at or focus a usage stretch to list its conversations";
   /* Everything that gates on this window, in the order internal/pace tests
      them. All three are readings the provider hands over. A reading at full
      and a reading that is not a number leave a conversation already bound to
@@ -4724,8 +4719,6 @@ time[data-ts] { cursor: help; }
   function renderSession(st, seats) {
     var host = $("session-chart");
     host.textContent = "";
-    var focusEl = $("session-focus");
-    focusEl.textContent = SESSION_IDLE;
     var paceCfg = (st.config && st.config.pace) || {};
     /* The subhead carries the two facts the chart cannot draw: what this
        window's headroom is worth in the cost, which the running weight
@@ -4807,8 +4800,8 @@ time[data-ts] { cursor: help; }
       fill: "none", stroke: "var(--ink-1)", "stroke-width": counts ? 2 : 1.4, "stroke-linecap": "round",
       "stroke-dasharray": counts ? null : "5 4", opacity: counts ? .78 : .5
     }, root);
-    var curveLabel = svgText(root, X(SESSION_HOURS) - 4, counts ? curveLabelY(paceCfg, Y, m.t) : m.t - 6,
-      counts ? curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }) : "curve",
+    var curveLabel = svgText(root, X(SESSION_HOURS) - 4, counts ? curveLabelY(paceCfg, Y, m.t) : Math.max(m.t + 1, Y(1)) - 5,
+      counts ? curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }) : "reference curve, not paced",
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
     var plotted = 0, labels = [], anyEst = false, anyUnrec = false, anyLock = false;
@@ -4854,37 +4847,16 @@ time[data-ts] { cursor: help; }
         anyEst = anyEst || estCur > 0;
         anyUnrec = anyUnrec || drawnCur.unrecorded.length > 0;
         resetTips(drawnCur.resets, sHead, key, gMarks, a.auth_id);
-        /* One pointer target per section of the line; a usage section also
-           lists the conversations the routing log shows on the seat in it,
-           in its tooltip and in the line under the chart. */
+        /* One pointer target per section of the line; a usage section's
+           tooltip also lists the conversations the routing log shows on the
+           seat in it. */
         var isStop = function (sec) { return SESSION_STOPS.indexOf(sec.type) >= 0 || !!(sec.spans && sec.spans.length); };
-        var secs = sectionHits(gSeat, lineSections(s.cur, start, now, s.w.utilization, locks5.drawn, SESSION_IDLE_MS),
+        sectionHits(gSeat, lineSections(s.cur, start, now, s.w.utilization, locks5.drawn, SESSION_IDLE_MS),
           v5, xOf, Y, col, function (sec) {
             var spec = sectionTip(sHead, sec, s.cur, now, s.w.utilization, now);
             if (sec.type === "usage") spec.lines = spec.lines.concat(conversationRows(activeOn(st, a.auth_id, sec.a, sec.b)));
             return spec;
           }, isStop, key);
-        /* Blink makes an SVG element with a focus listener a stop, so only the
-           stops listen for focus. */
-        secs.forEach(function (hit) {
-          var sec = hit.sec;
-          var summary = function () {
-            if (sec.type !== "usage") { focusEl.textContent = SESSION_IDLE; return; }
-            var act = activeOn(st, a.auth_id, sec.a, sec.b);
-            focusEl.textContent = "";
-            focusEl.appendChild(h("b", "", seatLabel(a) + " " + clockText(sec.a) + "–" + clockText(Math.min(sec.b, now))));
-            focusEl.appendChild(document.createTextNode(" · " +
-              (act.list.length
-                ? "requests: " + act.list.map(function (c) { return c.key.slice(0, 8) + " ×" + c.n; }).join(" · ")
-                : (act.covered ? "no requests routed to this seat" : "the routing log does not reach back this far"))));
-          };
-          var idle = function () { focusEl.textContent = SESSION_IDLE; };
-          hit.el.addEventListener("pointerenter", summary);
-          hit.el.addEventListener("pointerleave", idle);
-          if (!isStop(sec)) return;
-          hit.el.addEventListener("focus", summary);
-          hit.el.addEventListener("blur", idle);
-        });
       }
       var hg = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gMarks);
       hg.setAttribute("data-seat", a.auth_id);
@@ -4911,7 +4883,7 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(anyEst, anyUnrec, anyLock, counts);
+    renderSessionLegend(anyEst, anyUnrec, anyLock);
     sessionList($("session-rank"), series.map(function (s) {
       var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
       if (!o) return Object.assign({ a: s.auth }, blankDetail(s.gap || "no reading"));
@@ -4923,15 +4895,8 @@ time[data-ts] { cursor: help; }
     renderSessionNote(st);
   }
 
-  function renderSessionLegend(anyEst, anyUnrec, anyLock, counts) {
-    var leg = $("session-legend");
-    leg.textContent = "";
-    legendRow(leg, SW_NOW, "now");
-    if (counts) legendRow(leg, SW_SIGN, GAP_KEY);
-    else legendRow(leg, SW_CURVE, CURVE_KEY);
-    if (anyEst) legendRow(leg, SW_EST, EST_KEY);
-    if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
-    if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
+  function renderSessionLegend(anyEst, anyUnrec, anyLock) {
+    lineLegend($("pace-legend"), anyEst, anyUnrec, anyLock);
   }
 
   function renderSessionNote(st) {
@@ -6216,19 +6181,14 @@ time[data-ts] { cursor: help; }
       if (hadFocus) root.focus({ preventScroll: true });
     }
 
+    /* What the plot draws that does not name itself: the line, NOW, the
+       day lines and the weekend shade read on their own. */
     (stacked ? [
-      [SW_STACK, "use, stacked by seat"],
       [SW_HELD, "held until its reset, if no more is used"],
-      [SW_POOL, "what the pool holds"],
-      [SW_MIDNIGHT, "midnight"],
-      [SW_WEEKEND, "weekend"]
+      [SW_POOL, "what the pool holds"]
     ] : [
-      [SW_RECORDED, "recorded use"],
       [reference ? SW_CURVE : SW_TARGET, reference ? CURVE_KEY : "target"],
-      [SW_NOW, "now"],
-      [SW_RESET, "reset"],
-      [SW_MIDNIGHT, "midnight"],
-      [SW_WEEKEND, "weekend"]
+      [SW_RESET, "reset"]
     ]).forEach(function (it) { legendRow(legend, it[0], it[1]); });
     /* A stacked reset is the glyph the plot draws. */
     if (stacked) {

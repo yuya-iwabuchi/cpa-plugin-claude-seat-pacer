@@ -414,7 +414,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"timeline", "timeline-legend", "tl-cut-key",
 		"sec-pace", "pace-curve", "pace-legend", "pace-note",
 		"pace-formula", "pace-rank", "pace-view",
-		"pace-week", "pace-five", "session-sub", "session-chart", "session-legend", "session-focus", "session-note", "session-rank",
+		"pace-week", "pace-five", "session-sub", "session-chart", "session-note", "session-rank",
 		"sec-hist", "hist-sub", "hist-view", "hist-form", "hist-span", "hist-live", "hist-range", "hist-chart", "hist-rank", "hist-legend",
 		"sec-decisions", "decisions",
 		"sec-bindings", "bindings",
