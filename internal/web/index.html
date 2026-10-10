@@ -432,7 +432,6 @@ section { margin-top: 24px; border-radius: 12px; }
 .seat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--seat-color); flex: none; }
 .seat-mark { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
 .seat-mark .seat-dot { width: 8px; height: 8px; }
-.seat-mark .seat-dot.cap { width: 7px; height: 7px; border-radius: 1px; transform: rotate(45deg); }
 /* A table names a seat in a bounded column, so a long name clips there rather
    than widening the row; the clip is measured and hover recovers the rest. */
 td .seat-mark { max-width: 22ch; }
@@ -603,10 +602,6 @@ svg.pace g.reset-mark { cursor: default; }
 svg.pace g.reset-mark:focus-visible { outline: none; }
 svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width: 2; }
 svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
-/* A weighted mark's label yields to the full-weight one beside it: it is set
-   smaller, and holds its ink, because a figure behind an alpha reads under the
-   ratio this page holds text to. */
-svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 .sess-focus { margin: 10px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-2); min-height: 17px; }
 .sess-focus b { font-weight: 600; color: var(--ink-1); }
 .pace-card { overflow-x: auto; }
@@ -728,8 +723,6 @@ svg.pace text.gap-label.gap-label-half { font-size: 9px; }
 .rank-detail { grid-column: 1 / -1; font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
 .rank-detail .ol-meter { margin: 1px 0 3px; }
 .rank-row[data-out] .rank-detail { color: var(--ink-3); }
-.pace-missing { margin: 8px 0 0; font: 500 11px/1.5 var(--mono); color: var(--ink-3); }
-.pace-missing b { font-weight: 600; color: var(--ink-2); }
 /* The explainer folds so prose never sets the card's height; the chart does. */
 .pace-more { margin-top: 8px; border-top: 1px solid var(--rule); }
 .pace-more > summary {
@@ -1003,8 +996,6 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip.rich { white-space: normal; max-width: 300px; padding: 10px 12px 11px; font: 400 12px/1.45 var(--sans); color: var(--ink-2); }
 #tooltip .tip-head { display: flex; align-items: center; gap: 6px; }
 #tooltip .tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-/* A family cap's mark is a diamond, and so is its swatch. */
-#tooltip .tip-dot.tip-dot-cap { width: 7px; height: 7px; border-radius: 1px; transform: rotate(45deg); }
 #tooltip .tip-seat { font-weight: 650; font-size: 12.5px; color: var(--ink-1); }
 #tooltip .tip-win { color: var(--ink-3); font-size: 11.5px; }
 #tooltip .tip-tag { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; margin-top: 8px; font-size: 11.5px; }
@@ -1244,7 +1235,9 @@ time[data-ts] { cursor: help; }
           </div>
         </div>
         <ul class="legend" id="pace-legend" aria-label="Legend"></ul>
-        <p class="pace-missing" id="pace-missing" hidden></p>
+        <!-- The 5-hour view's status line keeps its place in every view, so
+             switching windows keeps the card one height. -->
+        <p class="sess-focus" aria-hidden="true"></p>
         <!-- Static, so the fold's open state and a focused summary outlive the
              refresh; only the note inside is rebuilt. -->
         <details class="pace-more">
@@ -1263,7 +1256,6 @@ time[data-ts] { cursor: help; }
           </div>
         </div>
         <ul class="legend" id="session-legend" aria-label="Legend"></ul>
-        <p class="pace-missing" id="session-missing" hidden></p>
         <p class="sess-focus" id="session-focus" role="status" aria-live="polite"></p>
         <details class="pace-more">
           <summary>How to read this chart</summary>
@@ -1508,12 +1500,10 @@ time[data-ts] { cursor: help; }
   /* The one sentence on the page that says what the sign means. Every legend
      carrying a signed figure prints it, so no two can disagree. */
   var SIGN_KEY = "+ over target · − under target";
-  /* The present mark's keys: a dot inside a ring, round for a weekly
-     window and a diamond for a family cap. */
-  var SW_NOW = "box-sizing:border-box;width:12px;height:12px;padding:2.5px;border:1.5px solid var(--ink-2);" +
+  /* The present mark's key, drawn to the mark's own measures: a 5px dot, a
+     3px gap and a 1.5px ring. */
+  var SW_NOW = "box-sizing:border-box;width:14px;height:14px;padding:3px;border:1.5px solid var(--ink-2);" +
     "border-radius:50%;background:var(--ink-2);background-clip:content-box";
-  var SW_NOW_CAP = "box-sizing:border-box;width:10px;height:10px;padding:2px;border:1.5px solid var(--ink-2);" +
-    "border-radius:1px;transform:rotate(45deg);margin:0 2px;background:var(--ink-2);background-clip:content-box";
 
   function absTime(d) {
     return d.toLocaleString(undefined, {
@@ -3455,20 +3445,17 @@ time[data-ts] { cursor: help; }
   }
 
   /* The weekly all-models window is the budget the plugin paces against and
-     the one whose unused capacity is lost at reset, so it is the series every
-     seat draws as a circle: the Standard ranking. A family cap is a second
-     7-day window with a pace target on the same axes, drawn as a diamond at
-     its own weight: that family's ranking. The session window has no pace
-     target and never draws. */
+     the one whose unused capacity is lost at reset: the Standard ranking's.
+     A family cap is a second 7-day window with a pace target on the same
+     axes, counted at its own weight: that family's ranking. */
   var PACE_KIND = "seven_day";
   var PACE_DAYS = 7;
   var PACE_MS = PACE_DAYS * 86400000;
   /* A weekly line's usage splits into sections across a pause this long. */
   var PACE_IDLE_MS = 4 * 3600000;
-  var PT_R = 2.5;            /* a present circle's dot; the cap's diamond matches its area */
-  var PT_D = 3.2;
+  var PT_R = 2.5;            /* a present mark's dot */
   var PT_RING = 3.75;        /* how far a present mark's ring stands off its dot: a 3px gap and half its 1.5px stroke */
-  var MARK_R = PT_D + PT_RING + 2; /* the square a mark holds against labels: the diamond's reach plus its ring */
+  var MARK_R = PT_R + PT_RING + 2; /* the square a mark holds against labels: the dot's reach plus its ring */
   /* Gap labels: a 10px monospace line and its box. A label crowding moved
      more than half a line from its place over or under its mark draws a
      tick back to the mark. */
@@ -3688,10 +3675,22 @@ time[data-ts] { cursor: help; }
     "background:repeating-linear-gradient(133deg, var(--critical) 0 3.28px, #161616 3.28px 4.38px)";
   var LOCK_KEY = "refused";
   var SW_SHADE = "height:10px;width:14px;border-radius:2px;background:linear-gradient(var(--refused),var(--refused)),var(--ink-3)";
-  var POOL_KEY = "under the axis: every seat refused";
+  var POOL_KEY = "every seat refused (under the axis)";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
+  var GAP_KEY = "gap to target on hover: + over, − under";
+  var EST_KEY = "estimated from token spend";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
-  var CURVE_KEY = "curve (window weighs nothing)";
+  var CURVE_KEY = "reference curve, not paced";
+  /* Over time's keys. */
+  var SW_RECORDED = "height:0;border-top:1.5px solid var(--ink-2)";
+  var SW_TARGET = "height:0;border-top:1.5px dashed var(--ink-2);opacity:.7";
+  var SW_RESET = "box-sizing:border-box;width:7px;height:7px;margin:0 3.5px;border:1.4px solid var(--ink-2);border-radius:50%";
+  var SW_MIDNIGHT = "width:0;height:12px;margin:0 7px;border-left:1px solid var(--ink-3)";
+  var SW_WEEKEND = "height:10px;background:var(--ink-3);opacity:.25";
+  var SW_STACK = "height:10px;background:var(--ink-3);opacity:.7";
+  var SW_HELD = "height:10px;background:var(--ink-3);opacity:.3";
+  var SW_POOL = "height:0;border-top:1.5px solid var(--ink-1)";
+  var SW_BRACKET = "box-sizing:border-box;height:5px;border:1.5px solid var(--ink-3);border-bottom:0;border-radius:1px 1px 0 0";
 
   function dayText(elapsed) {
     return (clamp(elapsed, 0, 1) * PACE_DAYS).toFixed(1) + " of " + PACE_DAYS;
@@ -4135,7 +4134,7 @@ time[data-ts] { cursor: help; }
     function row(cls) { var e = h("div", cls); rows.push(e); return e; }
     function put(parent, tag, cls, text) { return parent.appendChild(h(tag, cls, text)); }
     var top = row("tip-head");
-    if (spec.col) put(top, "span", spec.kind === "weekly_scoped" ? "tip-dot tip-dot-cap" : "tip-dot").style.background = spec.col;
+    if (spec.col) put(top, "span", "tip-dot").style.background = spec.col;
     put(top, "span", "tip-seat", spec.seat);
     put(top, "span", "tip-win", spec.win);
     var tag = row("tip-tag");
@@ -4255,24 +4254,15 @@ time[data-ts] { cursor: help; }
     }).join("");
   }
 
-  /* A present mark in the seat's colour at cx, cy: a dot of radius PT_R, or
-     a diamond reaching PT_D for a family cap, inside a ring of the same
-     shape PT_RING further out, with the card's colour between them. The gap
-     parts the mark from any line under it, its own seat's included, and the
-     ring is in the seat's colour, or the critical tone while the provider
-     refuses the seat. */
-  function presentMark(g, cx, cy, col, cap, live) {
-    var put = function (k, attrs) {
-      if (!cap) return svg("circle", Object.assign({ cx: cx, cy: cy, r: PT_R + k }, attrs), g);
-      var d = PT_D + k;
-      return svg("path", Object.assign({
-        d: "M" + cx + " " + (cy - d) + "L" + (cx + d) + " " + cy + "L" + cx + " " + (cy + d) + "L" + (cx - d) + " " + cy + "Z",
-        "stroke-linejoin": "round"
-      }, attrs), g);
-    };
-    put(PT_RING, { "class": live ? "mark-ring mark-live" : "mark-ring", fill: "var(--surface-1)",
-      stroke: live ? "var(--critical)" : col, "stroke-width": live ? 2 : 1.5 });
-    put(0, { fill: col });
+  /* A present mark in the seat's colour at cx, cy: a dot of radius PT_R
+     inside a ring PT_RING further out, with the card's colour between them.
+     The gap parts the mark from any line under it, its own seat's included,
+     and the ring is in the seat's colour, or the critical tone while the
+     provider refuses the seat. */
+  function presentMark(g, cx, cy, col, live) {
+    svg("circle", { cx: cx, cy: cy, r: PT_R + PT_RING, fill: "var(--surface-1)",
+      stroke: live ? "var(--critical)" : col, "stroke-width": live ? 2 : 1.5 }, g);
+    svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col }, g);
   }
 
   /* The stacked form's gridlines: a labelled line every half window up to
@@ -4301,7 +4291,7 @@ time[data-ts] { cursor: help; }
     var host = $("pace-curve");
     host.textContent = "";
     var fams = scopedFamilies(st);
-    /* The cap is named only where a diamond is drawn for it: a weight of zero
+    /* A cap has a view only where the cost weighs it: a weight of zero
        retires the cap from the cost, and the plot draws no mark for a window
        the cost does not weigh. */
     var capDrawn = fams.length && termShown(((st.config && st.config.pace) || {}).scoped_weight);
@@ -4381,8 +4371,7 @@ time[data-ts] { cursor: help; }
       curveLabelText(pace, "target", function (e) { return "day " + (e * PACE_DAYS).toFixed(1); }),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    /* One point: a dot in a ring for the weekly window, a diamond in a
-       diamond for a family cap, in the seat's colour. The dotted line under
+    /* One point: a dot in a ring, in the seat's colour. The dotted line under
        it, shown with its label while the seat is pointed at, is the gap
        itself: the vertical distance at this seat's own elapsed between its
        point and the scorer's target, never the shortest distance to the
@@ -4402,12 +4391,9 @@ time[data-ts] { cursor: help; }
     var gTape = svg("g", {}, root);
     var gPts = svg("g", {}, root);
     dimOnHover(root);
-    /* weighted marks a family cap's mark; ownStops, that the seat's 7-day line
-       is drawn as well, so the 5-hour and 7-day limits are stops there and
-       the cap's line stops only at its own; weekly, the seat's weekly mark
-       group where one is drawn. It returns the mark's group and whether it
-       drew the line, which takes two samples in the window. */
-    function point(a, ws, weighted, ownStops, weekly) {
+    /* weighted marks a family cap's mark. A limit on any window bearing on
+       the mark is a stop on its line. */
+    function point(a, ws, weighted) {
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gPts);
       /* The line's own group, carrying the mark's identity: it sits in the
@@ -4443,13 +4429,11 @@ time[data-ts] { cursor: help; }
           resetTips(drawn.resets, tipHead, key, gPts, a.auth_id);
           sectionHits(gl, lineSections(line, start, tNow, ws.utilization, locks.drawn, PACE_IDLE_MS), v, xOf, Y, col,
             function (sec) { return sectionTip(tipHead, sec, line, tNow, ws.utilization, now); },
-            function (sec) {
-              return (sec.spans || []).some(function (sp) { return !ownStops || sp.kind === "weekly_scoped"; });
-            }, key);
+            function (sec) { return !!(sec.spans && sec.spans.length); }, key);
         }
       }
       if (num(ws.slack) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND) {
-        head(g, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), weighted ? "gap-label-half" : null);
+        head(g, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), null);
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + key);
@@ -4459,28 +4443,16 @@ time[data-ts] { cursor: help; }
         liveAria(locks.live, now));
       setTip(g, markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now));
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
-      var live = locks.live.length > 0;
-      if (live) g.setAttribute("data-live", "true");
-      presentMark(g, cx, cy, col, weighted, live);
-      /* The diamond is drawn after the seat's weekly circle and is the
-         larger mark, so where the two meet a copy of the circle goes on
-         top: the diamond's corners still show around it. */
-      var wc = weighted && weekly && weekly.querySelector("circle.hit");
-      if (wc && Math.abs(+wc.getAttribute("cx") - cx) < 2 * (PT_D + PT_RING) && Math.abs(+wc.getAttribute("cy") - cy) < 2 * (PT_D + PT_RING)) {
-        presentMark(svg("g", { "class": "mark-over" }, g), +wc.getAttribute("cx"), +wc.getAttribute("cy"), col, false, weekly.hasAttribute("data-live"));
-      }
-      return { g: g, line: drewLine };
+      presentMark(g, cx, cy, col, locks.live.length > 0);
     }
 
-    /* A view of one cap counts its diamonds; any other counts the circles. */
     var plotted = 0;
     series.forEach(function (s) {
-      var weekly = null;
-      if (!s.gap && shows(view, STANDARD)) { plotted++; weekly = point(s.auth, s.ws, false, false, null); }
+      if (!s.gap && shows(view, STANDARD)) { plotted++; point(s.auth, s.ws, false); }
       s.caps.forEach(function (c) {
         if (c.gap || !shows(view, c.fam)) return;
-        if (view === c.fam) plotted++;
-        point(s.auth, c.ws, true, !!(weekly && weekly.line), weekly && weekly.g);
+        plotted++;
+        point(s.auth, c.ws, true);
       });
     });
 
@@ -4494,7 +4466,7 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock);
+    renderPaceLegend(anyEst, anyUnrec, anyLock);
     renderRank(st, seats, ranks, view);
     renderPaceNote(st);
   }
@@ -4561,40 +4533,16 @@ time[data-ts] { cursor: help; }
     });
   }
 
-  /* The marks and lines the chart draws, and every seat it cannot plot with
-     the reason, so a seat never vanishes from the chart unexplained. The
-     list beside the chart names each plotted seat by its colour. */
-  function renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock) {
+  /* The marks and lines the chart draws. The list beside the chart names
+     every seat by its colour, and a seat with no mark carries the reason. */
+  function renderPaceLegend(anyEst, anyUnrec, anyLock) {
     var leg = $("pace-legend");
     leg.textContent = "";
-    legendRow(leg, shows(view, STANDARD) ? SW_NOW : SW_NOW_CAP, "now");
-    legendRow(leg, SW_SIGN, SIGN_KEY);
-    if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
+    legendRow(leg, SW_NOW, "now");
+    legendRow(leg, SW_SIGN, GAP_KEY);
+    if (anyEst) legendRow(leg, SW_EST, EST_KEY);
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
-    var missing = [];
-    series.forEach(function (s) {
-      var a = s.auth;
-      if (shows(view, STANDARD)) {
-        if (s.gap) { missing.push(seatLabel(a) + ": " + s.gap); return; }
-        s.caps.forEach(function (c) { if (c.gap && shows(view, c.fam)) missing.push(seatLabel(a) + " (" + c.fam + "): " + c.gap); });
-      } else {
-        /* A view of one cap names a seat by that cap's mark alone; a seat the
-           scorer never evaluated carries no cap entry and keeps its one reason. */
-        var cap = s.caps.filter(function (c) { return c.fam === view; })[0];
-        var why = cap ? cap.gap : s.gap || view + " ranking unknown";
-        if (why) { missing.push(seatLabel(a) + ": " + why); return; }
-      }
-    });
-    leg.hidden = !leg.childNodes.length;
-
-    var gap = $("pace-missing");
-    gap.textContent = "";
-    gap.hidden = !missing.length;
-    if (missing.length) {
-      gap.appendChild(h("b", "", "not plotted  "));
-      gap.appendChild(document.createTextNode(missing.join(" · ")));
-    }
   }
 
   /* What both charts' notes say about a line's stretches, given the pause,
@@ -4625,15 +4573,16 @@ time[data-ts] { cursor: help; }
     note.appendChild(dl);
 
     var p = def(dl, "the marks");
-    /* A cap draws a diamond only where its weight puts it in a cost, which is
-       the same test the formula line gives it a clause on, so the note claims
-       a mark the chart drew and a term the list carries. */
-    p.appendChild(document.createTextNode("Each circle is a seat's " + WEEKLY_SHORT + " window." +
+    /* A cap has a view only where its weight puts it in a cost, which is the
+       same test the formula line gives it a clause on, so the note claims a
+       view the switch offers and a term the list carries. */
+    p.appendChild(document.createTextNode("Each mark is a seat's reading now on the window the view shows: " +
+      WEEKLY_SHORT + ", or a family's cap." +
       (!fams.length ? ""
         : termShown(wts.scoped_weight)
-          ? " Each diamond is the seat's " + fams.map(capShort).join(" or ") + " window, on the same target " +
-            "curve, counted" + weightTag(wts.scoped_weight) + " in its own family's cost and not in Standard's."
-          : " The " + fams.map(capShort).join(" or ") + " window weighs nothing, so it has no diamond; refused or full, it " +
+          ? " The " + fams.map(capShort).join(" or ") + " window is on the same target curve, counted" +
+            weightTag(wts.scoped_weight) + " in its own family's cost and not in Standard's."
+          : " The " + fams.map(capShort).join(" or ") + " window weighs nothing, so it has no view; refused or full, it " +
             "still makes a seat ineligible for that family's requests.") +
       " Point at a seat, on the chart or in the list, or focus its mark, to see its gaps: a dotted line from " +
       "each mark to a ring on the curve, labelled in points over the mark."));
@@ -4950,7 +4899,7 @@ time[data-ts] { cursor: help; }
         head(hg, labels, a, cx, cy, Y(ws.target), overPts(ws.slack), null);
       }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
-      presentMark(hg, cx, cy, col, false, locks5.live.length > 0);
+      presentMark(hg, cx, cy, col, locks5.live.length > 0);
     });
 
     settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
@@ -4962,38 +4911,27 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    renderSessionLegend(series, root, anyEst, anyUnrec, anyLock, counts);
-    seatList($("session-rank"), SESSION_SHORT, "used now · outlook at the last hour's rate",
-      series.map(function (s) {
-        var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
-        return Object.assign({ a: s.auth }, o ? outlookDetail(o) : { figure: "\u2014", meter: null, lines: [] });
-      }), function () { return root; });
+    renderSessionLegend(anyEst, anyUnrec, anyLock, counts);
+    sessionList($("session-rank"), series.map(function (s) {
+      var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
+      if (!o) return Object.assign({ a: s.auth }, blankDetail(s.gap || "no reading"));
+      /* Where it is headed and when it resets, on one line. */
+      var d = outlookDetail(o);
+      d.lines = [{ t: d.lines.map(function (l) { return l.t; }).join(" \u00b7 "), tone: d.lines.length ? d.lines[0].tone : "" }];
+      return Object.assign({ a: s.auth }, d);
+    }), root);
     renderSessionNote(st);
   }
 
-  function renderSessionLegend(series, root, anyEst, anyUnrec, anyLock, counts) {
+  function renderSessionLegend(anyEst, anyUnrec, anyLock, counts) {
     var leg = $("session-legend");
     leg.textContent = "";
     legendRow(leg, SW_NOW, "now");
-    if (counts) legendRow(leg, SW_SIGN, SIGN_KEY);
+    if (counts) legendRow(leg, SW_SIGN, GAP_KEY);
     else legendRow(leg, SW_CURVE, CURVE_KEY);
-    if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
+    if (anyEst) legendRow(leg, SW_EST, EST_KEY);
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
-    var missing = [];
-    series.forEach(function (s) {
-      var a = s.auth;
-      if (s.gap) missing.push(seatLabel(a) + ": " + s.gap);
-    });
-    leg.hidden = !leg.childNodes.length;
-
-    var gap = $("session-missing");
-    gap.textContent = "";
-    gap.hidden = !missing.length;
-    if (missing.length) {
-      gap.appendChild(h("b", "", "not plotted  "));
-      gap.appendChild(document.createTextNode(missing.join(" · ")));
-    }
   }
 
   function renderSessionNote(st) {
@@ -5014,6 +4952,10 @@ time[data-ts] { cursor: help; }
       p.appendChild(document.createTextNode("No seat is paced against this window, so the curve is a straight " +
         "reference line from 0% to 100% across the five hours, with no gaps."));
     }
+    var l = def(dl, "the list");
+    l.appendChild(document.createTextNode("Each row is a seat's use of the window now. The meter runs solid to that " +
+      "and faint to where the seat's last hour's rate takes it by the reset, which the line under it gives with " +
+      "the time left."));
     var r = def(dl, "a rate limit, not a budget");
     r.appendChild(document.createTextNode("The " + SESSION_SHORT + " window resets several times a day, so unused " +
       "capacity is gone at each reset and there is no budget to pace." +
@@ -5086,6 +5028,37 @@ time[data-ts] { cursor: help; }
       figure: pct(o.cur, 0), lines: lines,
       meter: { from: o.cur, to: out ? out.at : o.cur, tick: o.weekly && num(o.target) ? o.target : null }
     };
+  }
+
+  /* A row's detail where a seat has no reading on the window: an empty meter
+     and why, so every row of a list keeps one height. */
+  function blankDetail(why) {
+    return { figure: "\u2014", meter: { from: 0, to: 0, tick: null }, lines: [{ t: why, tone: "muted" }] };
+  }
+
+  /* The 5-hour list, in the rankings' own rows: no rank, the seat, its use
+     now, and under them its meter and one line, where it is headed by its
+     reset and when that is. Pointing at a row lifts its seat on the chart. */
+  function sessionList(host, rows, root) {
+    var top = host.getAttribute("data-view") === PACE_SESSION ? host.scrollTop : 0;
+    host.setAttribute("data-view", PACE_SESSION);
+    host.textContent = "";
+    var block = host.appendChild(h("div", "rank-fam", ""));
+    var head = block.appendChild(h("p", "rank-fam-head pin", ""));
+    head.appendChild(h("span", "rank-fam-name", SESSION_SHORT));
+    var ul = block.appendChild(h("ul", "rank-list", ""));
+    ul.setAttribute("aria-label", SESSION_SHORT + " use now, by seat");
+    rows.forEach(function (r) {
+      var li = ul.appendChild(h("li", "rank-row", ""));
+      li.setAttribute("data-seat", r.a.auth_id);
+      li.appendChild(h("span", "rank-no", ""));
+      li.appendChild(seatMark(r.a));
+      li.appendChild(h("span", "rank-cost", r.figure));
+      seatDetail(li.appendChild(h("div", "rank-detail", "")), r.a, r);
+      li.addEventListener("pointerenter", function () { focusSeat(root, r.a.auth_id); });
+      li.addEventListener("pointerleave", function () { focusSeat(root, seatOn(root, document.activeElement)); });
+    });
+    host.scrollTop = top;
   }
 
   /* The outlook of seat a on the window of kind and scope it is in now, from
@@ -6167,7 +6140,7 @@ time[data-ts] { cursor: help; }
         });
         lockTape(gt, tapeParts, X, Y);
         if (sd.cur !== null && now >= t0 && now <= t1) {
-          presentMark(gm, X(now), Y(sd.cur), sd.col, false, false);
+          presentMark(gm, X(now), Y(sd.cur), sd.col, false);
         }
       });
       if (view.weekly) drawRanges(root, X, Y, t0, t1, m, pw, st);
@@ -6244,36 +6217,32 @@ time[data-ts] { cursor: help; }
     }
 
     (stacked ? [
-      ["█", "use, stacked by seat"],
-      ["░", "held until its reset, if no more is used"],
-      ["↻", "reset"],
-      ["━", "what the pool holds"],
-      ["│", "midnight"],
-      ["▒", "weekend"]
+      [SW_STACK, "use, stacked by seat"],
+      [SW_HELD, "held until its reset, if no more is used"],
+      [SW_POOL, "what the pool holds"],
+      [SW_MIDNIGHT, "midnight"],
+      [SW_WEEKEND, "weekend"]
     ] : [
-      ["━", "recorded"],
-      ["╌", reference ? CURVE_KEY : "target"],
-      ["○", "reset"],
-      ["│", "midnight"],
-      ["▒", "weekend"],
-      ["◉", "now"]
-    ]).forEach(function (it) {
-      var li = h("li", "", "");
-      li.appendChild(h("span", "gl", it[0]));
-      li.appendChild(document.createTextNode(" " + it[1]));
-      legend.appendChild(li);
-    });
-    if (anyEst && !stacked) legendRow(legend, SW_EST, "estimated from token spend");
+      [SW_RECORDED, "recorded use"],
+      [reference ? SW_CURVE : SW_TARGET, reference ? CURVE_KEY : "target"],
+      [SW_NOW, "now"],
+      [SW_RESET, "reset"],
+      [SW_MIDNIGHT, "midnight"],
+      [SW_WEEKEND, "weekend"]
+    ]).forEach(function (it) { legendRow(legend, it[0], it[1]); });
+    /* A stacked reset is the glyph the plot draws. */
+    if (stacked) {
+      var rs = legend.appendChild(h("li", "", ""));
+      rs.appendChild(h("span", "gl", "\u21bb"));
+      rs.appendChild(document.createTextNode(" reset"));
+    }
+    if (anyEst && !stacked) legendRow(legend, SW_EST, EST_KEY);
     if (anyGap && !stacked) legendRow(legend, SW_GAP, UNRECORDED_KEY);
     if (stacked ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
       legendRow(legend, stacked ? SW_SHADE : SW_LOCK, LOCK_KEY);
     }
     if (pool.length) legendRow(legend, SW_LOCK, POOL_KEY);
-    if (view.weekly) {
-      var li = legend.appendChild(h("li", "", ""));
-      li.appendChild(h("span", "gl", "\u2310\u00AC"));
-      li.appendChild(document.createTextNode(" use per day or per week" + (stacked ? "; +N% is a seat's share" : "")));
-    }
+    if (view.weekly) legendRow(legend, SW_BRACKET, "use per day or week" + (stacked ? "; +N% is a seat's share" : ""));
 
     bindHistPointer(host);
     draw();
@@ -6601,9 +6570,6 @@ time[data-ts] { cursor: help; }
   }
 
   function rankList(st, seats, ranks, fam) {
-    /* A family's cost weighs its cap only where the plot draws the cap's
-       diamond, and there the list marks the seat with that diamond. */
-    var capMark = fam !== STANDARD && termShown(((st.config && st.config.pace) || {}).scoped_weight);
     var now = nowMs(), pace = (st.config && st.config.pace) || {};
     var known = ranks.known[fam];
     var block = h("div", "rank-fam");
@@ -6711,7 +6677,6 @@ time[data-ts] { cursor: help; }
       li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : ""));
       var outside = offTier(a, fam, ranks);
       var mark = seatMark(a);
-      if (capMark) mark.querySelector(".seat-dot").classList.add("cap");
       mark.appendChild(h("span", "sr-only", ", " + meta.label));
       li.appendChild(mark);
       var cost = h("span", "rank-cost", costText(sc));
@@ -6755,7 +6720,8 @@ time[data-ts] { cursor: help; }
       }
       li.appendChild(cost);
       var o = currentOutlook(a, fam === STANDARD ? "seven_day" : "weekly_scoped", fam, pace, now);
-      if (o) seatDetail(li.appendChild(h("div", "rank-detail", "")), a, outlookDetail(o, true));
+      seatDetail(li.appendChild(h("div", "rank-detail", "")), a,
+        o ? outlookDetail(o, true) : blankDetail(verdict.ok ? "no reading" : verdict.word));
       ul.appendChild(li);
     });
     block.appendChild(ul);
