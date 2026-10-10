@@ -1154,6 +1154,10 @@ func TestPublicTextDropsHostsAndPaths(t *testing.T) {
 		{`x509: certificate is not valid for any names, but wanted to match usage.corp.internal`, `x509: certificate is not valid for any names, but wanted to match …`},
 		{`host error host_call_failed: auth not found for auth_index 3f9a1c2b4d5e6f70`, `host error host_call_failed: auth not found for auth_index …`},
 		{`reset failed auth_index="3f9a1c2b4d5e6f70"`, `reset failed auth_index="…"`},
+		{`invalid auth file for auth_index 3f9a1c2b: invalid character 'x'`, `invalid auth file for auth_index …: invalid character 'x'`},
+		{`{"auth_index":"3f9a1c2b"}`, `{"auth_index":"…"}`},
+		{`AuthIndex:3f9a1c2b selected_auth_index=3f9a1c2b`, `AuthIndex:… selected_auth_index=…`},
+		{`auth_index is required`, `auth_index is required`},
 	}
 	for _, c := range cases {
 		if got := publicText(c.in, ids); got != c.want {

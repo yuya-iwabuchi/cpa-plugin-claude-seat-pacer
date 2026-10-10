@@ -113,9 +113,10 @@ func explains(history []model.WindowHistory, c model.Lock, until time.Time) bool
 //   - That span ended more than holdMargin before the cooldown does, and
 //     before the read.
 //   - No family cap's span began after it ended and expected the reset the
-//     cooldown ends at: a later 429 that refused that cap with the 5-hour
-//     window cooled the credential to the cap's reset. A later 5-hour or
-//     weekly span either is ongoing, has not reopened, or is the cause.
+//     cooldown ends at: the host cools the whole credential to the cap's
+//     reset for a refusal of that cap alone when the 429 does not show the
+//     5-hour and weekly windows allowed. A later 5-hour or weekly span
+//     either is ongoing, has not reopened, or is the cause.
 //
 // A family cap still full does not hold the reset back: the host's reset
 // lifts that family's cooldown too, but the pick sends the family nowhere
@@ -253,7 +254,7 @@ const resetUnsupportedProblem = "this host cannot clear a cooldown for a plugin 
 func (p *Plugin) resetHold(ctx context.Context, id, authIndex string, hold staleHold) string {
 	fields := map[string]any{
 		"auth_id":    id,
-		"released":   hold.released.Format(time.RFC3339),
+		"released":   hold.released.UTC().Format(time.RFC3339),
 		"held_until": hold.until.Format(time.RFC3339),
 	}
 	err := p.host.resetCooldown(ctx, authIndex)
