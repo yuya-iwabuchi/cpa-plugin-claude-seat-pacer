@@ -5,7 +5,7 @@ A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for pooling
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png">
-  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats with their rank and cost, the one taking the next conversation highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
+  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats with their rank and cost, the one taking the next conversation highlighted, and the Current window pace plot of 7d Standard with the cost-ordered seat list beside it.">
 </picture>
 
 ## Why
