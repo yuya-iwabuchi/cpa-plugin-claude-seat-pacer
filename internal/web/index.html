@@ -282,7 +282,8 @@ button {
 .btn-row button { padding: 5px 11px; }
 button { white-space: nowrap; }
 button:hover { background: var(--surface-2); }
-/* A forced sync holds the button for the round trip; nothing else disables one. */
+/* A forced sync holds its button for the round trip, and a span preset
+   longer than the history is marked disabled. */
 button:is(:disabled, [aria-disabled="true"]) { color: var(--ink-3); background: var(--surface-1); cursor: default; }
 button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); }
 .spacer { flex: 1 1 auto; }
@@ -684,8 +685,8 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
 }
 /* A row reads rank, seat, cost. The lead row carries the tint the timeline
    gives the same seat; a seat held off the family, or off its serving tier,
-   is greyed, has no rank, and carries the reason in the tooltip, because the
-   reasons run long. */
+   is greyed, has no rank, and carries the reason's word under its meter and
+   the whole reason, with when it lifts, in the tooltip. */
 .rank-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
@@ -2511,7 +2512,7 @@ time[data-ts] { cursor: help; }
   }
 
   /* Where a window that the cost does not weigh stands on its curve now: the
-     5-hour chart's straight line, elapsed over the window, for the session
+     5-hour view's straight line, elapsed over the window, for the session
      window, and the scorer's curve for any other. */
   function curveAt(w, ws, now) {
     if (w.kind === "five_hour" && openWindow(w)) {
@@ -2575,7 +2576,8 @@ time[data-ts] { cursor: help; }
      aria-label and the ranked list's spoken state all read STATE_META, so they
      cannot drift apart. States that share a pattern share a legend row, with
      both glyphs and both words. A held seat's other windows close the list,
-     from HELD_META. renderTimeline shows only the rows of states it drew. */
+     from HELD_META. renderTimeline shows only the rows of states it drew, a
+     held seat's grey glyph included. */
   function renderStateLegend() {
     var host = $("timeline-states");
     host.textContent = "";
@@ -3031,8 +3033,8 @@ time[data-ts] { cursor: help; }
         /* A full or refused window is what holds a seat off; every other
            window of a held seat takes the neutral. */
         var drawn = eligible || holdsBack(w) ? meta : HELD_META;
-        if (drawn === meta) drawnStates[stt] = true;
-        anyCurve = anyCurve || (!(counted(ws) && num(ws.target)) && gatedOnly(w, ws) && openWindow(w));
+        drawnStates[stt] = true;
+        anyCurve = anyCurve || curveTicked(w, ws);
         var cy = lane.y + geo.lane / 2;
 
         var g = svg("g", { "class": "lane", tabindex: 0, role: "img" }, gRow);
@@ -3155,6 +3157,12 @@ time[data-ts] { cursor: help; }
     svg("rect", { x: 0, y: 0, width: 1.65, height: 6.6, fill: "#161616" }, tape);
   }
 
+  /* Whether a window's meter carries a curve tick in place of a target: the
+     cost does not weigh it, and it is open and on a curve now. */
+  function curveTicked(w, ws) {
+    return !(counted(ws) && num(ws.target)) && gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs()));
+  }
+
   /* Whether a window's meter carries a gap connector: the cost weighs it, so
      it has a target, and the gap is outside the on-pace band, where the
      dotted run would sit under the tick. A gated session window and a window
@@ -3196,7 +3204,7 @@ time[data-ts] { cursor: help; }
         svgText(parent, GAP_X, cy + 3.5, overPts(ws.slack),
           eligible ? "gap-label t-mono" : "gap-label t-mono t-muted", { "font-size": 10 });
       }
-    } else if (gatedOnly(w, ws) && openWindow(w) && num(curveAt(w, ws, nowMs()))) {
+    } else if (curveTicked(w, ws)) {
       /* A window the cost does not weigh still sits somewhere on the curve,
          and the tooltip quotes that figure, so the meter shows where: a paler
          dashed tick rather than the target's solid one, because nothing holds
@@ -3724,8 +3732,8 @@ time[data-ts] { cursor: help; }
      from the curve, above a mark over target and under one under it, so
      the gap line it labels runs clear of it. A label that meets something
      takes the nearest clear place among those further out, slid sideways at
-     that height, and on the mark's other side, which counts a few pixels
-     further than the rest. Each label records its centre x, its centre y yc
+     that height, and on the mark's other side, further out or slid sideways
+     there, which counts a few pixels further than the rest. Each label records its centre x, its centre y yc
      and off, how far it lies from its home. marks are the boxes every mark
      on the chart holds, placed before any label. */
   function placeLabels(labels, plot, marks) {
@@ -3757,7 +3765,7 @@ time[data-ts] { cursor: help; }
       var best = null;
       for (var d = 0; d <= MAX && !best; d += 2) {
         var tries = [[0, near + out * d, d], [-d, near, d], [d, near, d]];
-        if (d >= UNDER) tries.push([0, far - out * (d - UNDER), d - UNDER]);
+        if (d >= UNDER) tries.push([0, far - out * (d - UNDER), d - UNDER], [-(d - UNDER), far, d - UNDER], [d - UNDER, far, d - UNDER]);
         for (var k = 0; k < tries.length; k++) {
           var b = boxAt(l, l.cx + tries[k][0], tries[k][1]);
           if (clear(b)) { best = { x: l.cx + tries[k][0], yc: tries[k][1], off: tries[k][2], b: b }; break; }
@@ -4746,7 +4754,7 @@ time[data-ts] { cursor: help; }
       .filter(Boolean).join(" · ")));
 
     var W = Math.max(280, host.clientWidth || 480);
-    /* Sized as the weekly plot, so switching windows keeps the card still. */
+    /* Sized as the 7-day views' plot, so switching windows keeps the card still. */
     var H = Math.round(clamp(W * 0.375, 294, 510));
     var m = { l: 46, r: 22, t: 16, b: 40 };
     var pw = W - m.l - m.r, ph = H - m.t - m.b;
