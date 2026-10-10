@@ -49,12 +49,11 @@ type staleHold struct {
 }
 
 // capsEveryRequest reports whether a window caps requests for every model. A
-// refusal on one of these cools the whole credential, and it is the only
-// refusal findStaleHold ties a cooldown to. The host also cools the whole
-// credential for a family cap's refusal, except a Fable or overage refusal
-// while the 5-hour and weekly windows report allowed, and cools just the
-// refused model for every refusal when upstream.claude.model-level-cooling is
-// on.
+// refusal on one of these cools the whole credential unless
+// upstream.claude.model-level-cooling is on, and it is the only refusal
+// findStaleHold ties a cooldown to. Whether a family cap's refusal cools the
+// whole credential too depends on the 429's headers
+// (internal/runtime/executor/helps/claude_ratelimit.go in v8.0.12).
 func capsEveryRequest(kind model.WindowKind) bool {
 	return kind == model.WindowSession || kind == model.WindowWeekly
 }

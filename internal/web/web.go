@@ -403,7 +403,7 @@ var networkAddress = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\
 // authIndexValue is the credential index a host error quotes, such as "auth
 // not found for auth_index 3f9a…". The index is a digest of the credential
 // file's path that the page withholds everywhere else.
-var authIndexValue = regexp.MustCompile(`(?i)(auth_?index"?[\s:=]+"?)[0-9a-f][^\s",;:()]*`)
+var authIndexValue = regexp.MustCompile(`(?i)(auth_?index"?[\s:=]+"?)[0-9a-f][^\s",;:().}\]/&]*`)
 
 // lookupHost is the host a failed name resolution names, which carries no
 // port: "lookup usage.corp.internal on 192.168.1.1:53" or "lookup
