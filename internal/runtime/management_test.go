@@ -312,14 +312,23 @@ func TestManagementStatusKeepsRealIDs(t *testing.T) {
 	}
 }
 
-// A forced read is throttled, and it moves only the read time: the loop's
-// timer is untouched, so the schedule the page counts down to stays honest.
-func TestSyncNowIsThrottledAndLeavesTheScheduleAlone(t *testing.T) {
+// A forced read moves the schedule the page counts down to, and one the
+// throttle refuses leaves it alone.
+func TestSyncNowMovesTheScheduleUnlessThrottled(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	pollFixture(t, tp)
 
 	if !tp.SyncNow(context.Background()) {
 		t.Fatal("the first forced read was refused with no prior poll")
+	}
+	// The read takes the place of the loop's next poll, which falls due an
+	// interval after it, or at the reset that interval would cross.
+	want := testNow.Add(nextPollWait(tp.quota.All(), testNow, tp.config().Quota.PollInterval))
+	tp.mu.Lock()
+	next := tp.nextPollAt
+	tp.mu.Unlock()
+	if !next.Equal(want) {
+		t.Errorf("next poll after a forced read = %v, want %v", next, want)
 	}
 	scheduled := testNow.Add(90 * time.Second)
 	tp.mu.Lock()
@@ -330,7 +339,7 @@ func TestSyncNowIsThrottledAndLeavesTheScheduleAlone(t *testing.T) {
 		t.Error("a second forced read ran inside the throttle window")
 	}
 	tp.mu.Lock()
-	next := tp.nextPollAt
+	next = tp.nextPollAt
 	tp.mu.Unlock()
 	if !next.Equal(scheduled) {
 		t.Errorf("next poll = %v, want the loop's own schedule %v", next, scheduled)

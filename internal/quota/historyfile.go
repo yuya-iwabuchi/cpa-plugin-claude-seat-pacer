@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -37,25 +39,95 @@ func (e *CorruptHistoryError) Unwrap() error { return e.Err }
 
 // historyFile is the on-disk form of every credential's recorded utilization.
 // It carries credential ids, which are file names or account addresses,
-// utilization fractions, and the spans in which the provider refused each
-// window with what ended each: nothing else, and no token.
+// utilization fractions, the spans in which the provider refused each window
+// with what ended each, and each credential's last reading: nothing else, and
+// no token.
 type historyFile struct {
 	Version int `json:"version"`
 	// Auths is keyed by credential id. The JSON key is "seats", the name the
 	// format shipped with.
 	Auths map[string][]model.WindowHistory `json:"seats"`
+	// Readings is each credential's last reading, keyed by credential id. A
+	// build that does not know the key ignores it.
+	Readings map[string]savedReading `json:"readings,omitempty"`
 }
 
-// SaveHistory writes the store's whole history as of now to path, by writing
-// and syncing a temporary file of its own in the same directory and renaming
-// it into place, so a reader never sees a partial file and two writers never
-// share a temporary one. The directory is created as needed.
+// savedReading is a credential's last reading as the history file holds it.
+type savedReading struct {
+	ObservedAt time.Time      `json:"observed_at"`
+	Source     string         `json:"source,omitempty"`
+	Windows    []model.Window `json:"windows"`
+}
+
+// exportReadings copies every credential's last reading, pending ones
+// included. A reading with a utilization JSON cannot carry is left out rather
+// than failing the whole file.
+func (s *Store) exportReadings() map[string]savedReading {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make(map[string]savedReading, len(s.entries)+len(s.pending))
+	add := func(id string, e *entry) {
+		if e.snap.ObservedAt.IsZero() || len(e.snap.Windows) == 0 {
+			return
+		}
+		for _, w := range e.snap.Windows {
+			if math.IsNaN(w.Utilization) || math.IsInf(w.Utilization, 0) {
+				return
+			}
+		}
+		out[id] = savedReading{ObservedAt: e.snap.ObservedAt, Source: e.snap.Source, Windows: slices.Clone(e.snap.Windows)}
+	}
+	for id, e := range s.pending {
+		add(id, e)
+	}
+	for id, e := range s.entries {
+		add(id, e)
+	}
+	return out
+}
+
+// importReadings holds saved readings as pending, for Restore to make live
+// once the host lists their credentials. A credential with an entry already
+// has a newer reading, and a pending reading newer than the saved one stands.
+// A reading stamped after now was taken under a clock since set back: its
+// windows would read as seen after every fresh reading until the clock caught
+// up, so it is dropped.
+func (s *Store) importReadings(saved map[string]savedReading, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, r := range saved {
+		if id == "" || r.ObservedAt.IsZero() || r.ObservedAt.After(now) || len(r.Windows) == 0 {
+			continue
+		}
+		if _, live := s.entries[id]; live {
+			continue
+		}
+		p := s.pending[id]
+		if p == nil {
+			p = &entry{history: make(map[windowKey]*ring)}
+			s.pending[id] = p
+		}
+		if !p.snap.ObservedAt.Before(r.ObservedAt) {
+			continue
+		}
+		p.snap = model.AuthSnapshot{AuthID: id, Windows: slices.Clone(r.Windows), ObservedAt: r.ObservedAt, Source: r.Source}
+		p.seenAt = nil
+	}
+}
+
+// SaveHistory writes the store's whole history as of now, and every
+// credential's last reading, to path, by writing and syncing a temporary file
+// of its own in the same directory and renaming it into place, so a reader
+// never sees a partial file and two writers never share a temporary one. The
+// directory is created as needed.
 func (s *Store) SaveHistory(path string, now time.Time) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now)})
+	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now), Readings: s.exportReadings()})
 	if err != nil {
 		return err
 	}
@@ -79,11 +151,12 @@ func (s *Store) SaveHistory(path string, now time.Time) error {
 	return err
 }
 
-// LoadHistory reads a file SaveHistory wrote and imports it as loaded at now.
-// A missing file is not an error. A file of a newer version is left in place
-// and reported as ErrHistoryVersion. A file that does not parse, or names a
-// version no build writes, is renamed to path.corrupt-<unix seconds at now>
-// and reported as a CorruptHistoryError; the store is left alone either way.
+// LoadHistory reads a file SaveHistory wrote and imports it as loaded at now,
+// its readings held for Restore. A missing file is not an error. A file of a
+// newer version is left in place and reported as ErrHistoryVersion. A file
+// that does not parse, or names a version no build writes, is renamed to
+// path.corrupt-<unix seconds at now> and reported as a CorruptHistoryError;
+// the store is left alone either way.
 func (s *Store) LoadHistory(path string, now time.Time) error {
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -97,6 +170,7 @@ func (s *Store) LoadHistory(path string, now time.Time) error {
 	switch {
 	case parseErr == nil && f.Version == historyFileVersion:
 		s.ImportHistory(f.Auths, now)
+		s.importReadings(f.Readings, now)
 		return nil
 	case parseErr == nil && f.Version > historyFileVersion:
 		return ErrHistoryVersion

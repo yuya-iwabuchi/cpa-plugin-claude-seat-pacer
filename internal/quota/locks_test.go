@@ -67,9 +67,14 @@ func span(from, to time.Time) model.Lock {
 	return model.Lock{From: from.Unix(), To: to.Unix()}
 }
 
-// ended is a refusal span as a history publishes it once end has ended it.
-func ended(from, to time.Time, end model.LockEnd) model.Lock {
-	return model.Lock{From: from.Unix(), To: to.Unix(), End: end}
+// ended is a refusal span as a history publishes it once end has ended it,
+// with the reset it expected when it ended before that reset.
+func ended(from, to time.Time, end model.LockEnd, expected ...time.Time) model.Lock {
+	l := model.Lock{From: from.Unix(), To: to.Unix(), End: end}
+	if len(expected) > 0 {
+		l.Expected = expected[0].Unix()
+	}
+	return l
 }
 
 // locksOf collects the refusal spans a credential's history publishes, keyed
@@ -138,7 +143,7 @@ func TestRefusalSpans(t *testing.T) {
 				served(model.FamilySonnet, t0.Add(5*time.Minute)),
 				refused(t0.Add(10*time.Minute), weeklyRefusal(r7)),
 			},
-			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(5*time.Minute), model.LockEndServed), span(t0.Add(10*time.Minute), r7)}},
+			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(5*time.Minute), model.LockEndServed, r7), span(t0.Add(10*time.Minute), r7)}},
 		},
 		{
 			name: "a served request on any model ends a 5-hour span",
@@ -146,7 +151,7 @@ func TestRefusalSpans(t *testing.T) {
 				refused(t0, sessionRefusal(r5)),
 				served(model.FamilySonnet, t0.Add(20*time.Minute)),
 			},
-			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(20*time.Minute), model.LockEndServed)}},
+			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(20*time.Minute), model.LockEndServed, r5)}},
 		},
 		{
 			name: "a served Sonnet request leaves a Fable cap span running",
@@ -163,7 +168,7 @@ func TestRefusalSpans(t *testing.T) {
 				served(model.FamilySonnet, t0.Add(5*time.Minute)),
 				served(model.FamilyFable, t0.Add(9*time.Minute)),
 			},
-			want: map[windowKey][]model.Lock{fable: {ended(t0, t0.Add(9*time.Minute), model.LockEndServed)}},
+			want: map[windowKey][]model.Lock{fable: {ended(t0, t0.Add(9*time.Minute), model.LockEndServed, r7)}},
 		},
 		{
 			name: "a span ends at the reset, and nothing after the reset moves it",
@@ -182,7 +187,7 @@ func TestRefusalSpans(t *testing.T) {
 				polled(t0.Add(30*time.Minute), weeklyWindow(0.02)),
 				polled(t0.Add(37*time.Minute), weeklyWindow(0.03)),
 			},
-			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(30*time.Minute), model.LockEndCleared)}},
+			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(30*time.Minute), model.LockEndCleared, r7)}},
 		},
 		{
 			name: "an early clearing confirmed lower still ends the span at its first fallen reading",
@@ -192,7 +197,7 @@ func TestRefusalSpans(t *testing.T) {
 				polled(t0.Add(30*time.Minute), weeklyWindow(0.30)),
 				polled(t0.Add(37*time.Minute), weeklyWindow(0.02)),
 			},
-			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(30*time.Minute), model.LockEndCleared)}},
+			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(30*time.Minute), model.LockEndCleared, r7)}},
 		},
 		{
 			name: "a cycle rolling onto a new reset ends the span as reset",
@@ -200,7 +205,7 @@ func TestRefusalSpans(t *testing.T) {
 				refused(t0, sessionRefusal(r5)),
 				read(t0.Add(time.Hour), unified("5h-utilization", "0.01", "5h-reset", unix(r5.Add(-time.Hour)))),
 			},
-			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(time.Hour), model.LockEndReset)}},
+			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(time.Hour), model.LockEndReset, r5)}},
 		},
 		{
 			name: "a refusal admitted before a served request that ended the span reopens nothing",
@@ -209,7 +214,7 @@ func TestRefusalSpans(t *testing.T) {
 				servedAdmitted(model.FamilySonnet, t0.Add(30*time.Minute+500*time.Millisecond), t0.Add(30*time.Minute+1500*time.Millisecond)),
 				refusedAdmitted(t0.Add(30*time.Minute), t0.Add(30*time.Minute+3*time.Second), sessionRefusal(r5)),
 			},
-			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(30*time.Minute+time.Second), model.LockEndServed)}},
+			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(30*time.Minute+time.Second), model.LockEndServed, r5)}},
 		},
 		{
 			name: "a refusal admitted before a served request opens no span after the one it ended",
@@ -218,7 +223,7 @@ func TestRefusalSpans(t *testing.T) {
 				served(model.FamilySonnet, t0.Add(5*time.Minute)),
 				refusedAdmitted(t0.Add(4*time.Minute), t0.Add(10*time.Minute), sessionRefusal(r5)),
 			},
-			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(5*time.Minute), model.LockEndServed)}},
+			want: map[windowKey][]model.Lock{session: {ended(t0, t0.Add(5*time.Minute), model.LockEndServed, r5)}},
 		},
 		{
 			name: "a refusal admitted after a served request reopens the span it ended",
@@ -288,7 +293,7 @@ func TestRefusalSpans(t *testing.T) {
 				servedAdmitted(model.FamilySonnet, t0.Add(5*time.Minute), t0.Add(11*time.Minute)),
 				servedAdmitted(model.FamilySonnet, t0.Add(10*time.Minute), t0.Add(12*time.Minute)),
 			},
-			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(12*time.Minute), model.LockEndServed)}},
+			want: map[windowKey][]model.Lock{weekly: {ended(t0, t0.Add(12*time.Minute), model.LockEndServed, r7)}},
 		},
 		{
 			name: "a request admitted after the refusal and answered in its second drops the span",
@@ -380,7 +385,7 @@ func TestRefusalSpansPublishWhole(t *testing.T) {
 	session := windowKey{kind: model.WindowSession}
 	fable := windowKey{kind: model.WindowWeeklyScoped, scope: model.FamilyFable}
 	want := map[windowKey][]model.Lock{
-		session: {ended(testNow, testNow.Add(3*time.Minute), model.LockEndServed)},
+		session: {ended(testNow, testNow.Add(3*time.Minute), model.LockEndServed, at(21, 0))},
 		fable:   {span(testNow.Add(4*time.Minute), day(10, 14))},
 	}
 	for _, h := range got {
@@ -413,14 +418,14 @@ func TestRefusalSpansSurviveSaveAndLoad(t *testing.T) {
 	session := windowKey{kind: model.WindowSession}
 	fable := windowKey{kind: model.WindowWeeklyScoped, scope: model.FamilyFable}
 	want := map[windowKey][]model.Lock{
-		session: {ended(testNow, testNow.Add(10*time.Minute), model.LockEndServed)},
+		session: {ended(testNow, testNow.Add(10*time.Minute), model.LockEndServed, at(21, 0))},
 		fable:   {span(fableAt, day(10, 14))},
 	}
 	if got := locksOf(fresh, "auth-1"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("locks after load = %v, want %v", got, want)
 	}
 	fresh.MarkServed("auth-1", model.FamilyFable, testNow.Add(40*time.Minute), testNow.Add(40*time.Minute))
-	want[fable] = []model.Lock{ended(fableAt, testNow.Add(40*time.Minute), model.LockEndServed)}
+	want[fable] = []model.Lock{ended(fableAt, testNow.Add(40*time.Minute), model.LockEndServed, day(10, 14))}
 	if got := locksOf(fresh, "auth-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("locks after a served Fable request = %v, want the loaded span ended there: %v", got, want)
 	}
@@ -513,7 +518,7 @@ func TestAReturningCredentialKeepsItsAdmissions(t *testing.T) {
 	s.MarkServed("auth-1", model.FamilySonnet, testNow.Add(50*time.Second), testNow.Add(55*time.Second))
 	readopt(s, testNow.Add(58*time.Second))
 	s.RecordRefusals("auth-1", ParseResponseHeaders(sessionRefusal(reset), testNow.Add(time.Minute)), testNow.Add(45*time.Second), testNow.Add(time.Minute))
-	want[session] = []model.Lock{ended(testNow.Add(5*time.Second), testNow.Add(55*time.Second), model.LockEndServed)}
+	want[session] = []model.Lock{ended(testNow.Add(5*time.Second), testNow.Add(55*time.Second), model.LockEndServed, reset)}
 	if got := locksOf(s, "auth-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("locks after a refusal admitted before the served request = %v, want %v", got, want)
 	}
@@ -550,7 +555,7 @@ func TestImportTakesTheLiveEndOfAnOverlappingSpan(t *testing.T) {
 	refuse(live, "auth-1", weeklyRefusal(day(10, 14)), testNow.Add(time.Minute), testNow.Add(time.Minute))
 	live.MarkServed("auth-1", model.FamilySonnet, testNow.Add(2*time.Hour), testNow.Add(2*time.Hour))
 	live.ImportHistory(saved.ExportHistory(testNow), testNow.Add(3*time.Hour))
-	want := map[windowKey][]model.Lock{weekly: {ended(testNow, testNow.Add(2*time.Hour), model.LockEndServed)}}
+	want := map[windowKey][]model.Lock{weekly: {ended(testNow, testNow.Add(2*time.Hour), model.LockEndServed, day(10, 14))}}
 	if got := locksOf(live, "auth-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("locks = %v, want the stored start and the live end %v", got, want)
 	}
@@ -564,7 +569,7 @@ func TestImportTakesTheLiveEndOfAnOverlappingSpan(t *testing.T) {
 		t.Errorf("locks after a request admitted before the live refusal = %v, want %v", got, want)
 	}
 	ongoing.MarkServed("auth-1", model.FamilySonnet, testNow.Add(2*time.Minute), testNow.Add(3*time.Hour))
-	want[weekly] = []model.Lock{ended(testNow, testNow.Add(3*time.Hour), model.LockEndServed)}
+	want[weekly] = []model.Lock{ended(testNow, testNow.Add(3*time.Hour), model.LockEndServed, day(10, 14))}
 	if got := locksOf(ongoing, "auth-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("locks after a request admitted after it = %v, want %v", got, want)
 	}
@@ -630,7 +635,7 @@ func TestALoadedSpanEndsOnlyAtARequestAdmittedAfterTheLoad(t *testing.T) {
 		t.Errorf("locks after a request admitted before the load = %v, want the span running %v", got, want)
 	}
 	fresh.MarkServed("auth-1", model.FamilySonnet, loaded.Add(time.Second), loaded.Add(3*time.Second))
-	want[session] = []model.Lock{ended(testNow, loaded.Add(3*time.Second), model.LockEndServed)}
+	want[session] = []model.Lock{ended(testNow, loaded.Add(3*time.Second), model.LockEndServed, reset)}
 	if got := locksOf(fresh, "auth-1"); !reflect.DeepEqual(got, want) {
 		t.Errorf("locks after a request admitted after the load = %v, want %v", got, want)
 	}

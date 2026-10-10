@@ -47,6 +47,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	polledAt, nextPollAt := p.polledAt, p.nextPollAt
 	listErr := p.listErr
 	configWarnings := p.configWarnings
+	holds := p.holds
 	// Only providers whose latest pick was still down to one candidate, so the
 	// warning clears once the pool's priority values are fixed.
 	single := make([]string, 0, len(p.singleCandidates))
@@ -126,10 +127,13 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	seats := make(map[string]SeatWarningState, len(ordered))
 	for _, id := range ordered {
 		entry, listed := entries[id]
-		_, hasSnap := snapshots[id]
-		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap}
+		snap, hasSnap := snapshots[id]
+		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap, HasReading: len(snap.Windows) > 0}
 		if poll, ok := polls[id]; ok {
 			state.PollErr, state.PollCategory = poll.err, poll.category
+		}
+		if hold, ok := holds[id]; ok && hold.until.After(now) {
+			state.Hold = &HoldWarning{Released: now.Sub(hold.released), Remaining: hold.until.Sub(now), Problem: hold.problem}
 		}
 		seats[id] = state
 	}
@@ -217,21 +221,41 @@ func singleCandidateWarning(provider string, rows []model.AuthStatus) string {
 }
 
 // SeatWarningState is what Warnings needs about one credential beyond its
-// status row: whether the host still lists it, whether a reading exists for
-// it, and the outcome of its last poll.
+// status row: whether the host still lists it, whether a snapshot exists for
+// it and holds any window, and the outcome of its last poll.
 type SeatWarningState struct {
 	Listed       bool
 	Disabled     bool
 	HasSnapshot  bool
+	HasReading   bool
 	PollErr      string
 	PollCategory string
+	// Hold is a host cooldown still standing on a credential whose quota the
+	// provider has given back; nil when there is none.
+	Hold *HoldWarning
 }
+
+// HoldWarning describes a stale host cooldown as of the status view's now.
+type HoldWarning struct {
+	// Released is how long ago the provider gave the quota back, and
+	// Remaining how long the host's cooldown still runs.
+	Released, Remaining time.Duration
+	// Problem says why the plugin has not cleared it.
+	Problem string
+}
+
+// ThrottleWarning is the one warning a throttled usage endpoint raises. The
+// endpoint throttles the caller rather than a credential, so the condition is
+// the pool's and not any one seat's; the status page appends the age of the
+// oldest reading a seat keeps that no failure of its own explains.
+const ThrottleWarning = "usage endpoint throttled; seats keep their last readings until a read succeeds"
 
 // Warnings is the operator warning list a status view carries: the plugin
 // being off, each setting Normalize raised to fit another, a failing
-// credential listing, a provider the host offered one candidate for, and per
-// credential a failing poll or a missing reading. A
-// credential the host no longer lists, or has disabled, warns about neither:
+// credential listing, a throttled usage endpoint, a provider the host offered
+// one candidate for, and per credential a failing poll, a missing reading, or
+// a host cooldown that outlasts a quota the provider gave back. A credential
+// the host no longer lists, or has disabled, warns about none of these:
 // the poller skips it, so it holds no reading by design.
 //
 // Order follows rows, so the same state renders the same list twice.
@@ -244,6 +268,16 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 	if listErr != "" {
 		warnings = append(warnings, "credential listing is failing: "+listErr)
 	}
+	throttled, kept := false, false
+	for _, row := range rows {
+		if seat := seats[row.AuthID]; seat.Listed && !seat.Disabled {
+			throttled = throttled || seat.PollCategory == string(quota.CategoryRateLimited)
+			kept = kept || seat.HasReading
+		}
+	}
+	if throttled && kept {
+		warnings = append(warnings, ThrottleWarning)
+	}
 	for _, provider := range singleCandidateProviders {
 		warnings = append(warnings, singleCandidateWarning(provider, rows))
 	}
@@ -252,12 +286,39 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 		if !seat.Listed || seat.Disabled {
 			continue
 		}
-		if seat.PollErr != "" {
+		// A throttled seat that keeps a reading is covered by ThrottleWarning;
+		// one with nothing to keep is failing on its own account.
+		if seat.PollErr != "" && (seat.PollCategory != string(quota.CategoryRateLimited) || !seat.HasReading) {
 			warnings = append(warnings, fmt.Sprintf("quota poll failing for %s (%s): %s", row.AuthID, seat.PollCategory, seat.PollErr))
 		}
 		if !seat.HasSnapshot {
 			warnings = append(warnings, fmt.Sprintf("%s has not been read yet; it cannot take a new conversation", row.AuthID))
 		}
+		if hold := seat.Hold; hold != nil {
+			warnings = append(warnings, fmt.Sprintf("%s has had its quota back for %s, but the host keeps it cooled for another %s and offers it no request; %s",
+				row.AuthID, durationText(hold.Released), durationText(hold.Remaining), hold.Problem))
+		}
 	}
 	return warnings
+}
+
+// durationText renders a duration in the status page's units, as 2d 17h,
+// 3h 5m, 4m or 20s, rounded down.
+func durationText(d time.Duration) string {
+	s := int64(d / time.Second)
+	switch {
+	case s < 60:
+		return fmt.Sprintf("%ds", max(s, 0))
+	case s < 3600:
+		return fmt.Sprintf("%dm", s/60)
+	case s < 86400:
+		if m := s % 3600 / 60; m > 0 {
+			return fmt.Sprintf("%dh %dm", s/3600, m)
+		}
+		return fmt.Sprintf("%dh", s/3600)
+	}
+	if h := s % 86400 / 3600; h > 0 {
+		return fmt.Sprintf("%dd %dh", s/86400, h)
+	}
+	return fmt.Sprintf("%dd", s/86400)
 }

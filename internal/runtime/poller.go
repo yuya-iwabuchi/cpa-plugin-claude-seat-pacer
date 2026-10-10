@@ -67,7 +67,35 @@ func (p *Plugin) startPoller() {
 	}
 	pl := &poller{stop: make(chan struct{}), done: make(chan struct{})}
 	p.poller = pl
+	// A new loop's first poll falls due at its start delay: a wake a previous
+	// loop left, or a signal a forced read raised with no loop running, would
+	// move it.
+	p.mu.Lock()
+	p.nextPollAt = time.Time{}
+	p.mu.Unlock()
+	select {
+	case <-p.rearm:
+	default:
+	}
 	go p.runPoller(pl)
+}
+
+// rearmPoller tells the poll loop that nextPollAt moved, so it sleeps until
+// then instead of to the wake it last set. The signal never blocks and never
+// takes a lock: SyncNow raises it holding pollMu, which a stopping loop may be
+// waiting on.
+func (p *Plugin) rearmPoller() {
+	select {
+	case p.rearm <- struct{}{}:
+	default:
+	}
+}
+
+// untilNextPoll is the wait to nextPollAt, zero once it has passed.
+func (p *Plugin) untilNextPoll() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return max(p.nextPollAt.Sub(p.now()), 0)
 }
 
 // defaultHistoryFile is the history file's location when the config names
@@ -82,7 +110,8 @@ func defaultHistoryFile() string {
 }
 
 // loadHistory reads the history file once, ahead of the first poll, so the
-// charts show the previous run's samples from the first status response. It
+// charts show the previous run's samples from the first status response and
+// its readings are restored at the first listing. It
 // runs under pollMu on the poll goroutine or a management request, never on
 // the pick path.
 //
@@ -213,6 +242,9 @@ func (p *Plugin) runPoller(pl *poller) {
 		select {
 		case <-pl.stop:
 			return
+		case <-p.rearm:
+			timer.Reset(p.untilNextPoll())
+			continue
 		case <-timer.C:
 		}
 		timer.Reset(p.guardedPoll(ctx))
@@ -256,8 +288,23 @@ func (p *Plugin) guard(what string, fn func()) (panicked bool) {
 // TTL, and records when the next poll falls due. The wake it returns is the
 // one the loop takes, so nextPollAt names it and the status view's "next in"
 // counts down to the poll that actually happens.
+//
+// The loop's timer fires only once nextPollAt has passed, and only SyncNow
+// moves nextPollAt later, so a poll that finds it still ahead holding pollMu
+// was overtaken by a forced read: that read was its sweep, and it reads
+// nothing and sleeps to the wake SyncNow set. The read time is recorded under
+// pollMu, so SyncNow's MinForcedPollGap check sees it as soon as the lock is
+// free.
 func (p *Plugin) pollAndSchedule(ctx context.Context) time.Duration {
-	wait := p.pollOnce(ctx)
+	ctx, cancel := context.WithTimeout(ctx, pollBudget)
+	defer cancel()
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
+	if wait := p.untilNextPoll(); wait > 0 {
+		return wait
+	}
+
+	wait, _ := p.pollLocked(ctx)
 	now := p.now()
 	p.bindingStore().Sweep(now)
 	wait = nextPollWait(p.quota.All(), now, wait)
@@ -304,14 +351,6 @@ func nextPollWait(snaps []model.AuthSnapshot, now time.Time, interval time.Durat
 	return min(max(earliest.Sub(now)+resetSettle, resetWakeFloor), interval)
 }
 
-// pollOnce runs one background poll under the deadline a manual refresh uses,
-// so a host callback that never returns costs one poll rather than the loop.
-func (p *Plugin) pollOnce(ctx context.Context) time.Duration {
-	ctx, cancel := context.WithTimeout(ctx, pollBudget)
-	defer cancel()
-	return p.poll(ctx)
-}
-
 // refresh polls every governed credential now and reports the first failure:
 // a credential listing that failed, a usage fetch that failed, or a context
 // that expired part-way. It runs inline on the caller's goroutine, so a
@@ -343,17 +382,22 @@ func (e errPoll) Error() string { return string(e) }
 func (p *Plugin) poll(ctx context.Context) time.Duration {
 	p.pollMu.Lock()
 	defer p.pollMu.Unlock()
-	return p.pollLocked(ctx)
+	wait, _ := p.pollLocked(ctx)
+	return wait
 }
 
-// pollLocked is poll for a caller already holding pollMu.
-func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
+// pollLocked is poll for a caller already holding pollMu, and also reports
+// whether its context cut the sweep short. That is decided before the
+// listing is published, so a deadline that lapses afterwards, during the
+// history save, does not count.
+func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort bool) {
 	cfg := p.config()
 	if !cfg.Enabled {
 		p.mu.Lock()
 		p.listErr, p.fetchErr = "", ""
+		p.holds = nil
 		p.mu.Unlock()
-		return cfg.Quota.PollInterval
+		return cfg.Quota.PollInterval, false
 	}
 	p.loadHistory(cfg)
 	defer p.saveHistory(cfg)
@@ -365,7 +409,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		p.listErr = err.Error()
 		p.mu.Unlock()
 		p.host.log("warn", "claude-seat-pacer could not list credentials", map[string]any{"error": err.Error()})
-		return listRetryWait
+		return listRetryWait, false
 	}
 
 	governed := make([]HostAuthFileEntry, 0, len(entries))
@@ -384,25 +428,51 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		p.listErr = errNoGovernedCredential
 		p.mu.Unlock()
 		p.host.log("warn", "claude-seat-pacer: "+errNoGovernedCredential, map[string]any{"listed": len(entries)})
-		return listRetryWait
+		return listRetryWait, false
 	}
 
+	// A disabled credential is never read, so a reading restored for it would
+	// stand unrefreshed for as long as the host lists it.
 	listed := make(map[string]struct{}, len(governed))
+	restorable := make(map[string]struct{}, len(governed))
+	for _, entry := range governed {
+		if id := authID(entry); id != "" {
+			listed[id] = struct{}{}
+			if !entry.Disabled {
+				restorable[id] = struct{}{}
+			}
+		}
+	}
+	restored := p.quota.Restore(restorable)
+	p.mu.Lock()
+	if len(p.auths) == 0 {
+		// The first listing names the restored rows while this poll reads.
+		p.auths = governed
+	}
+	p.mu.Unlock()
+
 	keep := make(map[string]struct{}, len(governed))
+	read := make(map[string]bool, len(governed))
 	fetchErr := ""
 	fetched := 0
+	throttled := false
+	now := p.now()
 	client := quota.NewClient(hostDoer{h: p.host}, cfg.Quota.UsageURL, cfg.Quota.RequestTimeout)
 	for _, entry := range governed {
 		id := authID(entry)
-		if id != "" {
-			listed[id] = struct{}{}
-		}
 		if entry.Disabled || entry.RuntimeOnly {
 			// The host never offers a disabled credential, and a runtime-only
 			// one has no file for host.auth.get to read.
 			continue
 		}
 		if id == "" || entry.AuthIndex == "" {
+			continue
+		}
+		// A restored reading that still describes its seat stands until the
+		// next poll, and a throttle answers every seat the sweep has not
+		// reached yet: each keeps the outcome it already had.
+		if snap, ok := restored[id]; throttled || ok && standing(snap, now, cfg.Quota.PollInterval) {
+			keep[id] = struct{}{}
 			continue
 		}
 		if ctx.Err() != nil {
@@ -427,9 +497,12 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 			if fetchErr == "" {
 				fetchErr = err.Error()
 			}
+		} else {
+			read[id] = true
 		}
 		p.polls[id] = state
 		p.mu.Unlock()
+		throttled = quota.Category(err) == quota.CategoryRateLimited
 	}
 	if ctx.Err() != nil {
 		// The credential list was read only in part. Publishing it would drop
@@ -441,7 +514,7 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		p.mu.Lock()
 		p.listErr, p.fetchErr = "", ""
 		p.mu.Unlock()
-		return cfg.Quota.PollInterval
+		return cfg.Quota.PollInterval, true
 	}
 	// Snapshots follow the host's listing rather than the fetch set: a
 	// credential that is disabled, runtime-only or carries no access token is
@@ -467,7 +540,22 @@ func (p *Plugin) pollLocked(ctx context.Context) time.Duration {
 		}
 	}
 	p.mu.Unlock()
-	return cfg.Quota.PollInterval
+	p.releaseHolds(ctx, governed, read)
+	return cfg.Quota.PollInterval, false
+}
+
+// standing reports whether a restored reading still describes its seat: taken
+// less than interval before now, with no window reset in between.
+func standing(snap model.AuthSnapshot, now time.Time, interval time.Duration) bool {
+	if now.Sub(snap.ObservedAt) >= interval {
+		return false
+	}
+	for _, w := range snap.Windows {
+		if w.ResetsAt.After(snap.ObservedAt) && !w.ResetsAt.After(now) {
+			return false
+		}
+	}
+	return true
 }
 
 // wait pauses for d and reports whether it elapsed. A cancelled context ends

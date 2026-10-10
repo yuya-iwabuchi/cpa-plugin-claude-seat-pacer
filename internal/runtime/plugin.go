@@ -81,6 +81,12 @@ type Plugin struct {
 	// and singleLogged the providers already warned about.
 	singleCandidates map[string]int
 	singleLogged     map[string]bool
+	// holds are the stale host cooldowns the last poll left standing, and
+	// holdResets the reset asked for on each credential. resetUnsupported
+	// marks a host without host.routing.reset_cooldown.
+	holds            map[string]staleHold
+	holdResets       map[string]staleHold
+	resetUnsupported bool
 	mgmtBase         string
 	resourceBase     string
 
@@ -93,6 +99,8 @@ type Plugin struct {
 	// startDelay is the wait before the first poll; tests push it out so a
 	// poll cannot race their assertions.
 	startDelay time.Duration
+	// rearm carries rearmPoller's signal to the poll loop.
+	rearm chan struct{}
 	// historyLoaded marks the one-time read of the history file, and
 	// historySaved the store version the file last held. historyRefused marks
 	// a file of a newer version, which this run neither reads nor writes.
@@ -132,8 +140,10 @@ func New(opts Options) *Plugin {
 		polls:            make(map[string]pollState),
 		singleCandidates: make(map[string]int),
 		singleLogged:     make(map[string]bool),
+		holdResets:       make(map[string]staleHold),
 		fetchStagger:     fetchStagger,
 		startDelay:       startupGrace,
+		rearm:            make(chan struct{}, 1),
 	}
 	if p.opts.HistoryFile == "" {
 		p.opts.HistoryFile = defaultHistoryFile()

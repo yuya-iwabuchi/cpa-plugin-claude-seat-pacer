@@ -176,7 +176,7 @@ func TestUsageRecordsARefusalSpan(t *testing.T) {
 	}
 	served(fableModel, testNow.Add(20*time.Minute))
 	end := testNow.Add(20*time.Minute + 2*time.Second)
-	if got, want := fableLocks(), []model.Lock{{From: refused.Unix(), To: end.Unix(), End: model.LockEndServed}}; !reflect.DeepEqual(got, want) {
+	if got, want := fableLocks(), []model.Lock{{From: refused.Unix(), To: end.Unix(), End: model.LockEndServed, Expected: reset.Unix()}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("locks after a served Fable request = %v, want %v", got, want)
 	}
 }
@@ -241,7 +241,7 @@ func TestUsageRefusalSpanAgainstInFlightSuccess(t *testing.T) {
 			success(refusedAt.Add(-20*time.Second), 20700*time.Millisecond),
 		}, running},
 		{"a success handled before the refusal", []UsageRecord{success(refusedAt.Add(-20*time.Second), 21*time.Second), refusal}, running},
-		{"a success admitted after the refusal", []UsageRecord{refusal, success(refusedAt.Add(time.Minute), 2*time.Second)}, []model.Lock{{From: refusedAt.Unix(), To: refusedAt.Add(time.Minute + 2*time.Second).Unix(), End: model.LockEndServed}}},
+		{"a success admitted after the refusal", []UsageRecord{refusal, success(refusedAt.Add(time.Minute), 2*time.Second)}, []model.Lock{{From: refusedAt.Unix(), To: refusedAt.Add(time.Minute + 2*time.Second).Unix(), End: model.LockEndServed, Expected: reset.Unix()}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tp := newTestPlugin(t, testConfigYAML)
@@ -294,7 +294,7 @@ func TestUsageServedResponseRefusesNoBearingWindow(t *testing.T) {
 		RequestedAt: requested.Add(time.Minute), TTFT: time.Second, Latency: time.Minute,
 	}), nil)
 	ended := requested.Add(time.Minute + time.Second)
-	if got, want := windowLocks(t, tp, model.WindowWeeklyScoped, model.FamilyFable), []model.Lock{{From: opened.Unix(), To: ended.Unix(), End: model.LockEndServed}}; !reflect.DeepEqual(got, want) {
+	if got, want := windowLocks(t, tp, model.WindowWeeklyScoped, model.FamilyFable), []model.Lock{{From: opened.Unix(), To: ended.Unix(), End: model.LockEndServed, Expected: weeklyReset.Unix()}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Fable locks after a served Fable request = %v, want %v", got, want)
 	}
 }
@@ -328,7 +328,7 @@ func TestUsageLateRefusalAfterAServedRequest(t *testing.T) {
 		admitted := testNow.Add(30*time.Minute + 500*time.Millisecond)
 		tp.callOK(t, MethodUsageHandle, mustJSON(t, sessionRecord("claude-opus-4-5", admitted, time.Second, reset, "0.2", "allowed", false)), nil)
 		tp.callOK(t, MethodUsageHandle, mustJSON(t, sessionRecord("claude-opus-4-5", testNow.Add(30*time.Minute), 3*time.Second, reset, "1.0", "rejected", true)), nil)
-		want := []model.Lock{{From: testNow.Add(time.Second).Unix(), To: admitted.Add(time.Second).Unix(), End: model.LockEndServed}}
+		want := []model.Lock{{From: testNow.Add(time.Second).Unix(), To: admitted.Add(time.Second).Unix(), End: model.LockEndServed, Expected: reset.Unix()}}
 		if got := windowLocks(t, tp, model.WindowSession, ""); !reflect.DeepEqual(got, want) {
 			t.Errorf("5-hour locks = %v, want the span the served request ended %v", got, want)
 		}
@@ -352,7 +352,7 @@ func TestUsageLateRefusalAfterAServedRequest(t *testing.T) {
 			RequestedAt: testNow.Add(30 * time.Minute), TTFT: time.Second, Latency: 6 * time.Minute,
 			ResponseHeaders: fableCapHeaders(reset, "rejected"),
 		}), nil)
-		want := []model.Lock{{From: testNow.Add(time.Second).Unix(), To: testNow.Add(31*time.Minute + time.Second).Unix(), End: model.LockEndServed}}
+		want := []model.Lock{{From: testNow.Add(time.Second).Unix(), To: testNow.Add(31*time.Minute + time.Second).Unix(), End: model.LockEndServed, Expected: reset.Unix()}}
 		if got := windowLocks(t, tp, model.WindowWeeklyScoped, model.FamilyFable); !reflect.DeepEqual(got, want) {
 			t.Errorf("Fable locks = %v, want the span the served Fable request ended %v", got, want)
 		}
