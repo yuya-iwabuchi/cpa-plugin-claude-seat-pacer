@@ -20,28 +20,31 @@ new conversation. A seat held off ranks below them.
   refused, is taped red and black, and that seat's other windows turn grey.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
-  is marked fallback, and a tier whose seats are all refused, full,
-  unavailable or disabled is skipped.
-- **Weekly window.** Every seat's use plotted against the target curve over
-  its own week, and the seats ranked by cost, each with where it is headed at
-  its last 24 hours' rate.
-- **5-hour window.** Where each seat stands against the limit that can make
-  it ineligible.
+  is marked fallback, and a tier none of whose seats can take requests is
+  skipped, with the reason: disabled or unavailable in the host, refused by
+  the provider, full, or not scored.
+- **Current window pace.** Each seat's use of its current window against the
+  curve, one window at a time: 7d Standard, each model family's 7-day cap the
+  cost weighs, and 5h Standard. A 7-day view ranks the seats by its family's
+  cost, each with where it is headed at its last 24 hours' rate; the 5-hour
+  view shows where each seat stands against the limit that can make it
+  ineligible. Pointing at a seat shows its gap to the target where the window
+  is paced.
 - **Over time.** One window across the recorded cycles, counting every seat in
-  the pool whatever its priority tier. Lines draws each seat's use, with each
-  refusal and what ended it, and its side list totals the pool's use in seats'
-  worth a week. Stacked piles the seats' use into the pool's total against
-  what the pool holds, one full window per seat able to spend it, shades each
-  seat's refused stretches grey, and runs past now to show what comes back at
-  each reset if no more is used. Both mark the stretches in which every seat
-  was refused at once. On a weekly window, brackets over the plot give the
-  pool's use per local day, or per week from Monday once days are too narrow
-  to label, and each bracket's tooltip sets that against what the pool renews
-  and splits it by seat. If every seat is on the same plan, these figures show
-  whether the pool has enough seats, though use understates demand while every
-  seat is refused.
+  the pool whatever its priority tier. Stacked, the default, piles the seats'
+  use into the pool's total against what the pool holds, one full window per
+  seat able to spend it, shades each seat's refused stretches grey, and runs
+  past now to show what comes back at each reset if no more is used. Lines
+  draws each seat's use, with each refusal and what ended it, and its side
+  list totals the pool's use in seats' worth a week. Both mark the stretches
+  in which every seat was refused at once. On a weekly window, brackets over
+  the plot give the pool's use per local day, or per week from Monday once
+  days are too narrow to label, and each bracket's tooltip sets that against
+  what the pool renews and splits it by seat. If every seat is on the same
+  plan, these figures show whether the pool has enough seats, though use
+  understates demand while every seat is refused.
 
-  <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has left and what each reset brings back.">
+  <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
 
   <img src="over-time-lines.png" width="900" alt="The same chart in its Lines form: each seat's use of 7d Standard against its target over two weeks, with day brackets above and a side list giving the pool's total use, what it renewed and its seats' worth a week, then each seat's total.">
 

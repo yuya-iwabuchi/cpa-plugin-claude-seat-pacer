@@ -5,7 +5,7 @@ A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for pooling
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/hero-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png">
-  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats with their rank and cost, the one taking the next conversation highlighted, and the weekly pace plot with the cost-ordered seat list beside it.">
+  <img src="docs/hero-light.png" width="900" alt="Screenshot of the Claude Seat Pacer status page, showing the live bar naming the seat the next new conversation will land on, three seats with their rank and cost, the one taking the next conversation highlighted, and the Current window pace plot of 7d Standard with the cost-ordered seat list beside it.">
 </picture>
 
 ## Why
@@ -53,7 +53,7 @@ every seat against its plan, the live bindings and the routing log. Over time
 piles every seat's use into the pool's total and totals each day, so you can
 see whether the pool has enough seats.
 
-<img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has left and what each reset brings back.">
+<img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
 
 ## Install
 
