@@ -320,3 +320,19 @@ func (a hostAPI) status() model.Status {
 	}
 	return out
 }
+
+// send posts one Messages request as a new Claude Code session and returns
+// the host's status code.
+func (a hostAPI) send(modelName, session string) int {
+	a.t.Helper()
+	code, raw := a.host.post(a.t, fmt.Sprintf(`{"model":%q,"max_tokens":16,"metadata":{"user_id":"user_e2e_account_e2e_session_%s"},"messages":[{"role":"user","content":"ping"}]}`, modelName, session))
+	a.t.Logf("%s on %s: %d %s", session, modelName, code, truncate(raw, 200))
+	return code
+}
+
+func truncate(raw []byte, n int) string {
+	if len(raw) > n {
+		return string(raw[:n]) + "..."
+	}
+	return string(raw)
+}

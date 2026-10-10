@@ -1128,8 +1128,9 @@ func TestFileNameResidueFoldsWithoutRealigning(t *testing.T) {
 }
 
 // TestPublicTextDropsHostsAndPaths covers what an os or transport error names
-// beyond a URL and a Unix path: a Windows path, a home-relative path, and the
-// address or host name a dial, a lookup or a certificate check quotes.
+// beyond a URL and a Unix path: a Windows path, a home-relative path, the
+// address or host name a dial, a lookup or a certificate check quotes, and
+// the auth index a host error quotes.
 func TestPublicTextDropsHostsAndPaths(t *testing.T) {
 	t.Parallel()
 	ids := strings.NewReplacer()
@@ -1151,6 +1152,8 @@ func TestPublicTextDropsHostsAndPaths(t *testing.T) {
 		{`dial tcp localhost:8317: connect: connection refused`, `dial tcp …: connect: connection refused`},
 		{`tls: failed to verify certificate: x509: certificate is valid for *.corp.internal, proxy.corp.internal, not usage.corp.internal`, `tls: failed to verify certificate: x509: certificate is valid for …`},
 		{`x509: certificate is not valid for any names, but wanted to match usage.corp.internal`, `x509: certificate is not valid for any names, but wanted to match …`},
+		{`host error host_call_failed: auth not found for auth_index 3f9a1c2b4d5e6f70`, `host error host_call_failed: auth not found for auth_index …`},
+		{`reset failed auth_index="3f9a1c2b4d5e6f70"`, `reset failed auth_index="…"`},
 	}
 	for _, c := range cases {
 		if got := publicText(c.in, ids); got != c.want {

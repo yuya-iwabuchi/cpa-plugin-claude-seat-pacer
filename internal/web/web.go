@@ -400,6 +400,11 @@ var networkAddress = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\
 	`|\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z._-]+)?\](?::\d{1,5})?` +
 	`|\b(?:localhost|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+):\d{1,5}\b`)
 
+// authIndexValue is the credential index a host error quotes, such as "auth
+// not found for auth_index 3f9a…". The index is a digest of the credential
+// file's path that the page withholds everywhere else.
+var authIndexValue = regexp.MustCompile(`\b(auth_index[\s:=]+"?)[^\s",;)]+`)
+
 // lookupHost is the host a failed name resolution names, which carries no
 // port: "lookup usage.corp.internal on 192.168.1.1:53" or "lookup
 // usage.corp.internal: no such host".
@@ -418,7 +423,8 @@ var bareEmail = regexp.MustCompile(`[^\s"'<>@]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)
 // route otherwise withholds taken out: URLs and network addresses, because a
 // failing poll quotes the transport error and that error names the usage
 // endpoint or the resolver, filesystem paths, and credential identity, because
-// a warning and a decision note both name the credential they concern.
+// a warning and a decision note both name the credential they concern, and a
+// credential's auth index, which a host error quotes.
 func publicText(s string, ids *strings.Replacer) string {
 	if s == "" {
 		return ""
@@ -431,6 +437,7 @@ func publicText(s string, ids *strings.Replacer) string {
 	s = certificateNames.ReplaceAllString(s, "$1 …")
 	s = lookupHost.ReplaceAllString(s, "lookup …")
 	s = networkAddress.ReplaceAllString(s, "…")
+	s = authIndexValue.ReplaceAllString(s, "${1}…")
 	s = ids.Replace(s)
 	return bareEmail.ReplaceAllStringFunc(s, maskEmail)
 }

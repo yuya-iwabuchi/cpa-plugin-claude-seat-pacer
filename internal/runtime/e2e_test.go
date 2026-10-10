@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -64,11 +63,12 @@ routing:
 		clientTimeout: 10 * time.Second,
 	})
 
+	api := hostAPI{t: t, host: host, pluginID: pluginID}
 	send := func(sessionID string) {
 		t.Helper()
-		host.post(t, fmt.Sprintf(`{"model":%q,"max_tokens":16,"metadata":{"user_id":"user_e2e_account_e2e_session_%s"},"messages":[{"role":"user","content":"ping"}]}`, modelID, sessionID))
+		api.send(modelID, sessionID)
 	}
-	status := hostAPI{t: t, host: host, pluginID: pluginID}.status
+	status := api.status
 
 	for i := 0; i < 3; i++ {
 		send(sessionOne)

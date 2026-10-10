@@ -36,7 +36,8 @@ const errResetUnsupported = "unsupported host callback"
 type staleHold struct {
 	// until is when the host's cooldown ends.
 	until time.Time
-	// released is when the refusal span that set it ended.
+	// released is when the quota came back: the cycle the cause's window
+	// opened at or after the refusal span that set the cooldown ended.
 	released time.Time
 	// span is that span's start.
 	span int64
@@ -48,10 +49,10 @@ type staleHold struct {
 }
 
 // capsEveryRequest reports whether a window caps requests for every model.
-// Only a refusal on one of these is sure to cool the whole credential, unless
-// upstream.claude.model-level-cooling is on: the host cools only the refused
-// model for a family cap's refusal while the 5-hour and weekly windows report
-// allowed.
+// Only a refusal on one of these cools the whole credential: the host cools
+// just the refused model for a family cap's refusal while the 5-hour and
+// weekly windows report allowed, and for every refusal when
+// upstream.claude.model-level-cooling is on.
 func capsEveryRequest(kind model.WindowKind) bool {
 	return kind == model.WindowSession || kind == model.WindowWeekly
 }
@@ -66,12 +67,18 @@ func within(until time.Time, l model.Lock) bool {
 // span ended: the provider cleared the window or it rolled onto a new reset.
 // A span a served request ended shows only that one request got through.
 func reopened(h model.WindowHistory, l model.Lock) bool {
+	_, ok := reopenedAt(h, l)
+	return ok
+}
+
+// reopenedAt is when the first cycle reopened says opened.
+func reopenedAt(h model.WindowHistory, l model.Lock) (time.Time, bool) {
 	for _, c := range h.Cycles {
 		if len(c.Samples) > 0 && c.Samples[0].At.Unix() >= l.To {
-			return true
+			return c.Samples[0].At, true
 		}
 	}
-	return false
+	return time.Time{}, false
 }
 
 // explains reports whether a cooldown ending at until is the one the 429
@@ -99,16 +106,16 @@ func explains(history []model.WindowHistory, c model.Lock, until time.Time) bool
 //     provider refusing neither.
 //   - No refusal span on those windows is ongoing. The cause is the latest of
 //     them to end whose window has cleared or rolled since, and which
-//     explains ties to the cooldown.
+//     `explains` ties to the cooldown.
 //   - None of them still open when the cause began expected the reset the
 //     cooldown ends at without its window clearing or rolling since: while
 //     that window stays full the provider refuses every model.
 //   - That span ended more than holdMargin before the cooldown does, and
 //     before the read.
-//   - No span on any window, a family cap's included, began after it ended
-//     and expected the reset the cooldown ends at: a later refusal explains
-//     the cooldown better, as when a family cap's refusal cooled the whole
-//     credential.
+//   - No family cap's span began after it ended and expected the reset the
+//     cooldown ends at: a later 429 that refused that cap with the 5-hour
+//     window cooled the credential to the cap's reset. A later 5-hour or
+//     weekly span either is ongoing, has not reopened, or is the cause.
 //
 // A family cap still full does not hold the reset back: the host's reset
 // lifts that family's cooldown too, but the pick sends the family nowhere
@@ -131,6 +138,7 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 		return staleHold{}, false
 	}
 	var cause model.Lock
+	var released time.Time
 	for _, h := range history {
 		if !capsEveryRequest(h.Kind) {
 			continue
@@ -139,8 +147,8 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 			if l.End == "" {
 				return staleHold{}, false
 			}
-			if l.To > cause.To && reopened(h, l) && explains(history, l, entry.NextRetryAfter) {
-				cause = l
+			if at, ok := reopenedAt(h, l); ok && l.To > cause.To && explains(history, l, entry.NextRetryAfter) {
+				cause, released = l, at
 			}
 		}
 	}
@@ -158,14 +166,17 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 		}
 	}
 	for _, h := range history {
+		if capsEveryRequest(h.Kind) {
+			continue
+		}
 		for _, l := range h.Locks {
 			if l.From >= cause.To && within(entry.NextRetryAfter, l) {
 				return staleHold{}, false
 			}
 		}
 	}
-	released := time.Unix(cause.To, 0).UTC()
-	if !snap.ObservedAt.After(released) || entry.NextRetryAfter.Sub(released) <= holdMargin {
+	ended := time.Unix(cause.To, 0)
+	if !snap.ObservedAt.After(ended) || entry.NextRetryAfter.Sub(ended) <= holdMargin {
 		return staleHold{}, false
 	}
 	return staleHold{until: entry.NextRetryAfter, released: released, span: cause.From}, true

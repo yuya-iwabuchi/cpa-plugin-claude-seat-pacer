@@ -78,17 +78,17 @@ the run. Do not remove that test.
   keeps affinity and the plugin only biases cold starts cannot bootstrap.
   `host.affinity.lookup` (host 7.2.156+) answers `unsupported` while a plugin
   scheduler is wired, so it tells this plugin nothing.
-- **A credential cooldown outlasts an early quota reset.** A 429 refusing
-  the 5-hour or weekly window cools every model on the seat until the latest
-  reset it names, a family cap's included, and the host never re-checks it;
-  with `upstream.claude.model-level-cooling` on it cools only the refused
-  model, and the seat is never listed unavailable. `host.routing.reset_cooldown`
-  (host 8.0.12+) ends the cooldown without writing the credential file, and
-  clears the seat's other per-model cooldowns with it. The plugin calls it
-  only for a cooldown `findStaleHold` ties to an ended 5-hour or weekly
-  refusal whose window has since cleared or rolled, at most once per refusal
-  span. An older host answers `unsupported host callback`, and the status page
-  warns instead.
+- **A credential cooldown outlasts an early quota reset.** A 429 refusing the
+  5-hour or weekly window cools every model on the seat until the latest reset
+  it names, a family cap's included, and the host never re-checks it; with
+  `upstream.claude.model-level-cooling` on it cools only the refused model, and
+  lists the seat unavailable only once every model it has served is cooled.
+  `host.routing.reset_cooldown` (host 8.0.12+) ends the cooldown without
+  writing the credential file, and clears the seat's other per-model cooldowns
+  with it. The plugin calls it only for a cooldown `findStaleHold` ties to an
+  ended 5-hour or weekly refusal whose window has since cleared or rolled, at
+  most once per refusal span. An older host answers `unsupported host
+  callback`, and the status page warns instead.
 - **Only one scheduler plugin is ever consulted**: the first non-fused one by
   plugin priority, then id.
 - **Home mode bypasses the scheduler hook entirely**, while

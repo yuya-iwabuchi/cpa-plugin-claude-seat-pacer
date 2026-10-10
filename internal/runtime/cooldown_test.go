@@ -91,7 +91,7 @@ func TestFindStaleHold(t *testing.T) {
 			[]model.WindowHistory{reopenAt(window(model.WindowWeekly, "", ended(refused, cleared, model.LockEndServed, weeklyReset)), cleared.Add(20*time.Minute))}, true},
 		{"a span a served request ended, a clearing before it", held, freshSnap(),
 			[]model.WindowHistory{reopenAt(window(model.WindowWeekly, "", ended(refused, cleared, model.LockEndServed, weeklyReset)), cleared.Add(-time.Second))}, false},
-		{"a 5-hour span", held, freshSnap(), []model.WindowHistory{session(ended(refused, cleared, model.LockEndReset, weeklyReset))}, true},
+		{"a 5-hour span that rolled early", held, freshSnap(), []model.WindowHistory{session(ended(refused, cleared, model.LockEndReset, weeklyReset))}, true},
 		{"a 429 on both windows, only the 5-hour one rolled since", held, freshSnap(), []model.WindowHistory{
 			reopenAt(session(ended(refused, refused.Add(time.Second), model.LockEndServed, refused.Add(2*time.Hour))), refused.Add(2*time.Hour)),
 			window(model.WindowWeekly, "", ended(refused, refused.Add(time.Second), model.LockEndServed, weeklyReset)),
@@ -101,7 +101,7 @@ func TestFindStaleHold(t *testing.T) {
 			window(model.WindowWeekly, "", ended(refused, refused.Add(time.Second), model.LockEndServed, weeklyReset)),
 			fable(ongoing(refused.Add(-time.Hour), weeklyReset)),
 		}, false},
-		{"a 5-hour refusal with the full Fable cap, after a weekly refusal a served request ended", heldEntry(weeklyReset.Add(20 * time.Second)), freshSnap(), []model.WindowHistory{
+		{"a 5-hour refusal with the full Fable cap, after a weekly refusal a served request ended", held, freshSnap(), []model.WindowHistory{
 			session(ended(refused, cleared, model.LockEndReset, refused.Add(2*time.Hour))),
 			window(model.WindowWeekly, "", ended(refused.Add(-2*time.Hour), refused.Add(-2*time.Hour+time.Minute), model.LockEndServed, weeklyReset)),
 			fable(ongoing(refused.Add(-3*time.Hour), weeklyReset)),
@@ -161,6 +161,19 @@ func TestFindStaleHold(t *testing.T) {
 				t.Errorf("hold = %+v", hold)
 			}
 		})
+	}
+}
+
+// TestAHoldIsReleasedWhereItsWindowReopened covers a span a served request
+// ended and whose window cleared later: the quota came back at the clearing,
+// not when the one request got through.
+func TestAHoldIsReleasedWhereItsWindowReopened(t *testing.T) {
+	refused, served := testNow.Add(-3*time.Hour), testNow.Add(-time.Hour)
+	clearedAt := served.Add(20 * time.Minute)
+	history := []model.WindowHistory{reopenAt(window(model.WindowWeekly, "", ended(refused, served, model.LockEndServed, weeklyReset)), clearedAt)}
+	hold, ok := findStaleHold(heldEntry(weeklyReset.Add(20*time.Second)), freshSnap(), history, testNow)
+	if !ok || !hold.released.Equal(clearedAt) {
+		t.Fatalf("findStaleHold = %+v, %v; want released at the clearing %v", hold, ok, clearedAt)
 	}
 }
 

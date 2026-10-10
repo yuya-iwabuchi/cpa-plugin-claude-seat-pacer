@@ -32,11 +32,12 @@ page warns which, and names the seats when it is the tier layout.
 **A seat whose quota came back early still gets no requests.** The host keeps
 the cooldown from the 429 the seat had until the reset that 429 named. When
 that cooldown ends at the reset the plugin saw refused, the plugin ends it
-within a poll or two of a usage read showing the window cleared. The page
-warns when it cannot: on a host older than 8.0.12, or when the host cools the
-seat again right after. Then, or for a cooldown the page does not mention,
-reset the seat with `POST /v0/management/reset-quota {"auth_index": …}`, or
-restart the host, which drops every cooldown unless
+within a poll or two of a usage read showing the quota back. The page warns
+when it cannot: on a host older than 8.0.12, when the reset fails, or when the
+host cools the seat again right after. Then, or for a cooldown the page does
+not mention, reset the seat with
+`POST /v0/management/reset-quota {"auth_index": …}`, or restart the host,
+which drops every cooldown unless
 `routing.cooldown.save-cooldown-status` (`save-cooldown-status` before 8.0) is
 on.
 
