@@ -476,6 +476,8 @@ td .seat-mark { max-width: 22ch; }
    wrap to the card's width rather than to the timeline's. */
 .tl-legend { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 0; padding: 0 8px; }
 .tl-legend .legend { margin: 0; }
+.tl-legend { gap: 6px; }
+.tl-note { margin: 2px 0 0; font: 400 11px/1.4 var(--sans); color: var(--ink-3); }
 /* The timeline's SVG draws its own gutter at the left, so the card keeps
    less padding at its sides than the rest: more would double that gutter. */
 .tl-card { padding: 8px; }
@@ -1185,24 +1187,15 @@ time[data-ts] { cursor: help; }
       </div>
       <div class="card tl-card">
         <div id="timeline"></div>
-        <!-- Lists: what a bar's fill says, the marks drawn over it, and what
-             Standard means where a family has a window of its own.
-             The lane states come from STATE_META and a held seat's other
-             windows from HELD_META, the sign key from SIGN_KEY, the curve
-             key's words from CURVE_KEY and the Standard line from onTopText,
-             all at render time; only the other axis markers, which no script
-             draws, are markup. -->
+        <!-- Lists: what a bar's fill says, the marks drawn over a meter, and
+             what Standard means where a family has a window of its own. The
+             script fills all three: the states from STATE_META and HELD_META,
+             the marks drawn as the meter draws them, and the Standard line
+             from onTopText. -->
         <div class="tl-legend" id="timeline-legend">
           <ul class="legend" id="timeline-states" aria-label="Window states"></ul>
-          <ul class="legend" id="timeline-marks" aria-label="Axis marks">
-            <li><span class="gl">&#9662;&#8202;&#9474;</span> target</li>
-            <li id="tl-curve-key"><span class="gl">&#8942;</span></li>
-            <li><span class="gl">&#8943;</span> gap to target</li>
-            <li><span class="gl">&#9474;</span> now</li>
-            <li><span class="gl">&#9618;</span> weekend</li>
-            <li id="tl-cut-key" hidden><span class="sw sw-cut"></span> runs past the axis</li>
-          </ul>
-          <ul class="legend" id="tl-std-key" aria-label="Window names" hidden><li></li></ul>
+          <ul class="legend" id="timeline-marks" aria-label="Meter marks"></ul>
+          <p class="tl-note" id="tl-std-key" hidden></p>
         </div>
       </div>
     </section>
@@ -1498,7 +1491,11 @@ time[data-ts] { cursor: help; }
 
   /* The one sentence on the page that says what the sign means. Every legend
      carrying a signed figure prints it, so no two can disagree. */
-  var SIGN_KEY = "+ over target · − under target";
+  var SIGN_KEY = "gap to target: + over, \u2212 under";
+  /* A meter's target tick and the curve tick of a window the cost does not
+     weigh, at the meter's own measures. */
+  var SW_TICK = "width:0;height:13px;margin:0 7px;border-left:1.5px solid var(--ink-1)";
+  var SW_CURVE_TICK = "width:0;height:13px;margin:0 7px;border-left:1.5px dashed var(--ink-3)";
 
   function absTime(d) {
     return d.toLocaleString(undefined, {
@@ -1758,7 +1755,7 @@ time[data-ts] { cursor: help; }
     over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
     spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "tape" },
     limit:   { color: "var(--ink-1)",    glyph: "◇", label: "weighs nothing in the cost",
-               legend: "under, on or above curve, weighs nothing" },
+               legend: "not paced" },
     blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "tape" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not scored" }
   };
@@ -1766,7 +1763,7 @@ time[data-ts] { cursor: help; }
   /* An ineligible seat's windows that do not hold it off: drawn in one
      opaque neutral, so the window that holds it is the only one whose bar,
      meter and glyph keep a state's colour. */
-  var HELD_META = { color: "color-mix(in srgb, var(--ink-3) 55%, var(--track))", legend: "held seat, other windows" };
+  var HELD_META = { color: "color-mix(in srgb, var(--ink-3) 55%, var(--track))", legend: "other windows of a held seat" };
 
   function laneState(w, ws) {
     /* A provider rejection and a full reading are readings rather than
@@ -2607,10 +2604,17 @@ time[data-ts] { cursor: help; }
       li.appendChild(document.createTextNode(" " + r.label));
       host.appendChild(li);
     });
-    var curve = $("tl-curve-key");
-    if (curve.childNodes.length === 1) curve.appendChild(document.createTextNode(" " + CURVE_KEY));
+    /* The meter's marks, each drawn as the meter draws it; NOW and the
+       weekend shade name themselves on the axis. */
     var marks = $("timeline-marks");
-    if (!marks.querySelector("[data-sign]")) legendRow(marks, SW_SIGN, SIGN_KEY).setAttribute("data-sign", "true");
+    marks.textContent = "";
+    legendRow(marks, SW_TICK, "target");
+    legendRow(marks, SW_SIGN, SIGN_KEY);
+    legendRow(marks, SW_CURVE_TICK, CURVE_KEY);
+    var cut = legendRow(marks, "", "runs past the axis");
+    cut.id = "tl-cut-key";
+    cut.hidden = true;
+    cut.firstChild.classList.add("sw-cut");
   }
 
   /* A family's standing on a seat, in the page's words: eligible, or why it
@@ -3129,7 +3133,7 @@ time[data-ts] { cursor: help; }
     $("tl-cut-key").hidden = !anyCut;
     var stdKey = $("tl-std-key");
     stdKey.hidden = ranks.fams.length < 2;
-    stdKey.firstElementChild.textContent = "Standard windows apply to every request; " + onTopText(ranks.fams);
+    stdKey.textContent = "Standard windows apply to every request; " + onTopText(ranks.fams);
     $("tl-held-key").hidden = !anyHeld;
 
     /* One now line across every row. */
@@ -3674,7 +3678,7 @@ time[data-ts] { cursor: help; }
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
   var EST_KEY = "estimated from token spend";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
-  var CURVE_KEY = "reference curve, not paced";
+  var CURVE_KEY = "reference curve";
   /* Over time's keys. */
   var SW_TARGET = "height:0;border-top:1.5px dashed var(--ink-2);opacity:.7";
   var SW_RESET = "box-sizing:border-box;width:7px;height:7px;margin:0 3.5px;border:1.4px solid var(--ink-2);border-radius:50%";
@@ -5117,8 +5121,8 @@ time[data-ts] { cursor: help; }
   /* How the plot draws the seats: each its own line, or stacked into the
      pool's total against what the pool holds. */
   var HIST_FORM_KEY = "pacer-hist-form";
-  var histForm = "lines";
-  function loadHistForm() { histForm = loadPref(HIST_FORM_KEY) === "stacked" ? "stacked" : "lines"; }
+  var histForm = "stacked";
+  function loadHistForm() { histForm = loadPref(HIST_FORM_KEY) === "lines" ? "lines" : "stacked"; }
   function saveHistForm() { savePref(HIST_FORM_KEY, histForm); }
 
   /* The span each view shows and the instant it ends, kept across refreshes;
@@ -5454,7 +5458,7 @@ time[data-ts] { cursor: help; }
       histView = id; saveHistView(); render();
     });
     var stacked = histForm === "stacked";
-    switchBar($("hist-form"), [["lines", "Lines"], ["stacked", "Stacked"]], histForm, "hist-form:", function (id) {
+    switchBar($("hist-form"), [["stacked", "Stacked"], ["lines", "Lines"]], histForm, "hist-form:", function (id) {
       histForm = id; saveHistForm(); render();
     });
 

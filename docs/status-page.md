@@ -28,12 +28,12 @@ new conversation. A seat held off ranks below them.
   its last 24 hours' rate; the 5-hour view shows where each seat stands
   against the limit that can make it ineligible.
 - **Over time.** One window across the recorded cycles, counting every seat in
-  the pool whatever its priority tier. Lines draws each seat's use, with each
-  refusal and what ended it, and its side list totals the pool's use in seats'
-  worth a week. Stacked piles the seats' use into the pool's total against
-  what the pool holds, one full window per seat able to spend it, shades each
-  seat's refused stretches grey, and runs past now to show what comes back at
-  each reset if no more is used. Both mark the stretches in which every seat
+  the pool whatever its priority tier. Stacked, the default, piles the seats'
+  use into the pool's total against what the pool holds, one full window per
+  seat able to spend it, shades each seat's refused stretches grey, and runs
+  past now to show what comes back at each reset if no more is used. Lines
+  draws each seat's use, with each refusal and what ended it, and its side
+  list totals the pool's use in seats' worth a week. Both mark the stretches in which every seat
   was refused at once. On a weekly window, brackets over the plot give the
   pool's use per local day, or per week from Monday once days are too narrow
   to label, and each bracket's tooltip sets that against what the pool renews
