@@ -58,7 +58,7 @@ see whether the pool has enough seats.
 ## Install
 
 You need CLIProxyAPI 7.2.145 or newer; the plugin is tested against 7.3.10,
-7.3.15 and 8.0.4.
+7.3.15, 8.0.4, 8.0.13, 8.0.15 and 8.0.20.
 
 1. Turn plugins on and set a management key, which the status page asks for:
 

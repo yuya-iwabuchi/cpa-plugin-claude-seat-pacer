@@ -250,7 +250,7 @@ func handleManagementRegister() ([]byte, error) {
 	})
 }
 
-// handleManagementCall exercises the host auth callbacks off the pick path and
+// handleManagementCall exercises host callbacks off the pick path and
 // reports what came back. Only identifiers and JSON key names are recorded;
 // credential values never leave the host.
 func handleManagementCall(payload []byte) ([]byte, error) {
@@ -278,6 +278,7 @@ func handleManagementCall(payload []byte) ([]byte, error) {
 			entry["auth_list"] = identifiersOf(list.Files)
 			if len(list.Files) > 0 {
 				entry["auth_get"] = probeAuthGet(list.Files[0].AuthIndex)
+				entry["reset_cooldown"] = probeResetCooldown(list.Files[0].AuthIndex)
 			}
 		}
 	}
@@ -356,6 +357,23 @@ func probeAuthGet(authIndex string) map[string]any {
 		"path_set":    resp.Path != "",
 		"json_fields": sortedKeys(fields),
 	}
+}
+
+// probeResetCooldown clears the host's cooldowns on one credential, which
+// holds none in this fixture, and reports the auth index the host answered
+// with, or the error a host without the callback gives.
+func probeResetCooldown(authIndex string) map[string]any {
+	raw, err := callHostResult(runtime.MethodHostRoutingResetCooldown, runtime.HostRoutingResetCooldownRequest{AuthIndex: authIndex})
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	var resp struct {
+		AuthIndex string `json:"auth_index"`
+	}
+	if err = json.Unmarshal(raw, &resp); err != nil {
+		return map[string]any{"error": "decode: " + err.Error()}
+	}
+	return map[string]any{"auth_index": resp.AuthIndex}
 }
 
 // callHostResult unwraps the host's {ok,result,error} envelope.

@@ -67,14 +67,19 @@ func main() {
 		src.observedAge[seatBID] = src.cfg.Quota.MaxStaleness + 5*time.Minute
 	case "degraded":
 		// The warnings a healthy pool never raises: the plugin switched off,
-		// the credential listing failing, and a credential the poller has
-		// never published a reading for.
+		// the credential listing failing, a credential the poller has never
+		// published a reading for, and a host cooldown left on a seat whose
+		// quota is back.
 		src.cfg.Enabled = false
 		src.listErr = "read auth dir: permission denied"
 		src.auths = append(src.auths, model.AuthStatus{
 			AuthID: seatCID, Label: "Seat C", Provider: "claude",
 			Priority: 10, HostStatus: "active",
 		})
+		src.holds = map[string]*runtime.HoldWarning{seatAID: {
+			Released: 6 * time.Minute, Remaining: 2*24*time.Hour + 17*time.Hour,
+			Problem: "the host cooled it again after the plugin cleared it",
+		}}
 	case "throttled":
 		// The usage endpoint refusing the poller: every seat keeps a reading
 		// a few minutes old and carries the throttle.
@@ -233,7 +238,9 @@ type fixture struct {
 	decisions     []model.Decision
 	// listErr is the host credential listing's last failure, empty while it
 	// succeeds.
-	listErr  string
+	listErr string
+	// holds are the stale host cooldowns the scenario leaves standing.
+	holds    map[string]*runtime.HoldWarning
 	warnings []string
 	// clearedAgo is how long before the request the provider cleared a
 	// seat's weekly windows without moving their reset.
@@ -459,6 +466,7 @@ func (f *fixture) rebuildWarnings() {
 			HasReading:   len(snap.Windows) > 0,
 			PollErr:      snap.Err,
 			PollCategory: snap.ErrCategory,
+			Hold:         f.holds[row.AuthID],
 		}
 	}
 	var single []string

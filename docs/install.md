@@ -1,7 +1,8 @@
 # Install
 
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
-7.3.10, 7.3.15 and 8.0.4.
+7.3.10, 7.3.15, 8.0.4, 8.0.13, 8.0.15 and 8.0.20. Ending a cooldown that an
+early quota reset made stale needs 8.0.12 or newer.
 
 ## From the Plugin Store
 

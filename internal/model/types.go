@@ -222,11 +222,22 @@ const (
 
 // Lock is one span in which the provider refused requests on a window, its
 // ends in Unix seconds. End is empty while the span is ongoing, and To is
-// then the reset its latest refusal expected.
+// then the reset its latest refusal expected. A span that ended before that
+// reset keeps it in Expected; zero otherwise.
 type Lock struct {
-	From int64   `json:"from"`
-	To   int64   `json:"to"`
-	End  LockEnd `json:"end,omitempty"`
+	From     int64   `json:"from"`
+	To       int64   `json:"to"`
+	End      LockEnd `json:"end,omitempty"`
+	Expected int64   `json:"expected,omitempty"`
+}
+
+// ExpectedEnd is the reset the span's latest refusal expected, whether or not
+// the span ran to it.
+func (l Lock) ExpectedEnd() int64 {
+	if l.Expected != 0 {
+		return l.Expected
+	}
+	return l.To
 }
 
 // Samples counts the samples across every cycle.

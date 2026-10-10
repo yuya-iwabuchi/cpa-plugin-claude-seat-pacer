@@ -52,7 +52,7 @@ const (
 )
 
 // Host callbacks this plugin calls back into the host. The host declares more
-// than these four.
+// than these.
 // Source: sdk/pluginabi/types.go:78-92.
 const (
 	MethodHostHTTPDo   = "host.http.do"
@@ -60,6 +60,11 @@ const (
 	MethodHostAuthList = "host.auth.list"
 	MethodHostAuthGet  = "host.auth.get"
 )
+
+// MethodHostRoutingResetCooldown exists from host 8.0.12; an older host
+// answers it with an "unsupported host callback" error.
+// Source: CLIProxyAPI v8.0.12 sdk/pluginabi/types.go:114.
+const MethodHostRoutingResetCooldown = "host.routing.reset_cooldown"
 
 // Built-in schedulers a pick may delegate to. This is the host's full set,
 // and no pick here delegates, so neither name is referenced.
@@ -554,6 +559,9 @@ type HostAuthFileEntry struct {
 	Priority      int       `json:"priority,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at,omitempty"`
 	LastRefresh   time.Time `json:"last_refresh,omitempty"`
+	// NextRetryAfter is when the host's credential-wide cooldown ends. It is
+	// set while Unavailable is, and left behind once that cooldown passes.
+	NextRetryAfter time.Time `json:"next_retry_after,omitempty"`
 }
 
 // HostAuthGetRequest asks for credential JSON by auth index. The host rejects
@@ -573,6 +581,15 @@ type HostAuthGetResponse struct {
 	Name      string          `json:"name,omitempty"`
 	Path      string          `json:"path,omitempty"`
 	JSON      json.RawMessage `json:"json"`
+}
+
+// HostRoutingResetCooldownRequest is the host.routing.reset_cooldown payload.
+// The host clears every cooldown it holds on the credential without writing
+// the credential file, and rejects a blank or unknown AuthIndex.
+// Casing: snake_case. Source: CLIProxyAPI v8.0.12
+// internal/pluginhost/routing_callbacks.go:16, sdk/pluginapi/types.go:888.
+type HostRoutingResetCooldownRequest struct {
+	AuthIndex string `json:"auth_index"`
 }
 
 // HostLogRequest is the host.log payload. Level is one of trace, info, warn,

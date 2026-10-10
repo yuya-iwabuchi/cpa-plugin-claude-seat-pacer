@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -64,31 +63,12 @@ routing:
 		clientTimeout: 10 * time.Second,
 	})
 
+	api := hostAPI{t: t, host: host, pluginID: pluginID}
 	send := func(sessionID string) {
 		t.Helper()
-		host.post(t, fmt.Sprintf(`{"model":%q,"max_tokens":16,"metadata":{"user_id":"user_e2e_account_e2e_session_%s"},"messages":[{"role":"user","content":"ping"}]}`, modelID, sessionID))
+		api.send(modelID, sessionID)
 	}
-	status := func() model.Status {
-		t.Helper()
-		request, err := http.NewRequest(http.MethodGet, host.baseURL+"/v0/management/plugins/"+pluginID+"/status", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		request.Header.Set("Authorization", "Bearer "+host.managementKey)
-		response, err := host.client.Do(request)
-		if err != nil {
-			t.Fatalf("get status: %v", err)
-		}
-		raw, _ := readAll(response)
-		if response.StatusCode != http.StatusOK {
-			t.Fatalf("status route: %d %s\nserver log:\n%s", response.StatusCode, raw, readFile(host.logPath))
-		}
-		var out model.Status
-		if err := json.Unmarshal(raw, &out); err != nil {
-			t.Fatalf("decode status: %v\n%s", err, raw)
-		}
-		return out
-	}
+	status := api.status
 
 	for i := 0; i < 3; i++ {
 		send(sessionOne)

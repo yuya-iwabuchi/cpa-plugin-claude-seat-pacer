@@ -213,6 +213,12 @@ func (h host) authGet(ctx context.Context, authIndex string) (HostAuthGetRespons
 	return resp, err
 }
 
+// resetCooldown asks the host to clear every cooldown it holds on one
+// credential.
+func (h host) resetCooldown(ctx context.Context, authIndex string) error {
+	return h.invokeCtx(ctx, MethodHostRoutingResetCooldown, HostRoutingResetCooldownRequest{AuthIndex: authIndex}, nil)
+}
+
 // hostDoer is a quota.Doer that routes through host.http.do, so a usage fetch
 // inherits the host's proxy and TLS configuration.
 type hostDoer struct {
