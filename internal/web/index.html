@@ -642,6 +642,8 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
      switching. The axis gives the range. */
   #hist-rank { height: min(380px, var(--hist-h, 380px)); }
   .hist-range { display: none; }
+  /* Stacked's legend runs two rows here and Lines' one; both keep two. */
+  #hist-legend { min-height: 27px; align-content: flex-start; }
 }
 @media (max-width: 620px) {
   /* The views' lines and legends take two and three rows here, so each
@@ -6208,7 +6210,7 @@ time[data-ts] { cursor: help; }
       }
       /* Under the plot, measured at no height, so the list's own rows set it;
          a change of layout starts the measure again. */
-      var layoutKey = NARROW.matches + ":" + list.clientWidth;
+      var layoutKey = NARROW.matches + ":" + list.offsetWidth;
       if (layoutKey !== histListAt) { histListAt = layoutKey; histListH = 0; }
       if (NARROW.matches) {
         var keep = list.scrollTop;
