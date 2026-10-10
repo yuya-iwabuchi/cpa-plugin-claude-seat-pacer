@@ -561,7 +561,7 @@ svg.pace[data-focus] g.pt-tape:not([data-focused]) { opacity: .38; }
 svg.pace[data-focus] g.pt:focus-visible, svg.pace[data-focus] g.pt-line:has(:focus-visible) { opacity: 1; }
 /* The gap label reads in ink over the curve and grid; the gap line under
    the mark carries the seat's colour. Both show for the seat pointed at, on
-   its point, its line or in the legend, or whose point or line has focus,
+   its point, its line or its row in the list, or whose point or line has focus,
    and for no other. */
 svg.pace text.gap-label { fill: var(--ink-2); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 /* The plate under a label drawn over the plot: a halo clears a line from the
@@ -1222,7 +1222,7 @@ time[data-ts] { cursor: help; }
         <a class="skip" href="#sec-hist">skip to next section</a>
         <span class="sec-idx"></span>
         <h2>Current window pace</h2>
-        <span class="sec-sub" id="pace-sub">each seat's use of its current window against the curve</span>
+        <span class="sec-sub">each seat's use so far in its current window, against the curve it is paced to</span>
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
@@ -1253,6 +1253,9 @@ time[data-ts] { cursor: help; }
         </details>
         </div>
         <div id="pace-five" hidden>
+        <!-- What the 5-hour window is worth and what it gates, where a weekly
+             view states its cost. -->
+        <p class="rank-formula" id="session-sub"></p>
         <div class="pace-body">
           <div id="session-chart"></div>
           <div class="pace-rank">
@@ -4307,8 +4310,6 @@ time[data-ts] { cursor: help; }
     $("pace-week").hidden = view === PACE_SESSION;
     $("pace-five").hidden = view !== PACE_SESSION;
     if (view === PACE_SESSION) { renderSession(st, seats); return; }
-    $("pace-sub").textContent = "each seat's " + (view === STANDARD ? WEEKLY_SHORT : capShort(view)) +
-      " use against the target curve, ranked by cost";
     var pace = (st.config && st.config.pace) || {};
 
     /* The plot takes the card's width and a height that follows it, bounded so
@@ -4560,23 +4561,13 @@ time[data-ts] { cursor: help; }
     });
   }
 
-  /* Every seat is named: plotted ones in the legend, the rest with the reason
-     they have no point, so a seat never vanishes from the chart unexplained. */
+  /* The marks and lines the chart draws, and every seat it cannot plot with
+     the reason, so a seat never vanishes from the chart unexplained. The
+     list beside the chart names each plotted seat by its colour. */
   function renderPaceLegend(series, root, fams, anyEst, view, anyUnrec, anyLock) {
     var leg = $("pace-legend");
     leg.textContent = "";
-    /* Where a seat can carry two marks the legend names the marks before the
-       seats, those of the view only. */
-    var capsShown = fams.filter(function (f) { return shows(view, f); });
-    if (fams.length) {
-      if (shows(view, STANDARD)) {
-        legendRow(leg, SW_NOW, WEEKLY_SHORT);
-      }
-      if (capsShown.length) {
-        legendRow(leg, SW_NOW_CAP,
-          capsShown.map(capShort).join(", "));
-      }
-    }
+    legendRow(leg, shows(view, STANDARD) ? SW_NOW : SW_NOW_CAP, "now");
     legendRow(leg, SW_SIGN, SIGN_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
@@ -4594,18 +4585,6 @@ time[data-ts] { cursor: help; }
         var why = cap ? cap.gap : s.gap || view + " ranking unknown";
         if (why) { missing.push(seatLabel(a) + ": " + why); return; }
       }
-      var li = h("li", "");
-      li.setAttribute("data-seat", a.auth_id);
-      var sw = h("span", "sw");
-      sw.style.background = seatColor(a);
-      sw.style.borderRadius = "50%";
-      sw.style.width = "10px";
-      sw.style.height = "10px";
-      li.appendChild(sw);
-      li.appendChild(document.createTextNode(seatLabel(a)));
-      li.addEventListener("pointerenter", function () { focusSeat(root, a.auth_id); });
-      li.addEventListener("pointerleave", function () { focusSeat(root, seatOn(root, document.activeElement)); });
-      leg.appendChild(li);
     });
     leg.hidden = !leg.childNodes.length;
 
@@ -4656,7 +4635,7 @@ time[data-ts] { cursor: help; }
             "curve, counted" + weightTag(wts.scoped_weight) + " in its own family's cost and not in Standard's."
           : " The " + fams.map(capShort).join(" or ") + " window weighs nothing, so it has no diamond; refused or full, it " +
             "still makes a seat ineligible for that family's requests.") +
-      " Point at a seat, on the chart or in the legend, or focus its mark, to see its gaps: a dotted line from " +
+      " Point at a seat, on the chart or in the list, or focus its mark, to see its gaps: a dotted line from " +
       "each mark to a ring on the curve, labelled in points over the mark."));
 
     var t = def(dl, "the target curve");
@@ -4806,14 +4785,18 @@ time[data-ts] { cursor: help; }
        the way the seats and weekly subheads do. */
     var wt = paceCfg.session_weight, counts = termShown(wt);
     var weightClause = !num(wt) ? "" : wt === 0 ? "weighs nothing in the cost" : "counts" + weightTag(wt) + " in the cost";
-    $("pace-sub").textContent = ["each seat's " + SESSION_SHORT + " use, a rate limit and not a budget", weightClause, SESSION_GATES]
-      .filter(Boolean).join(" · ");
+    var sub = $("session-sub");
+    sub.textContent = "";
+    sub.appendChild(h("b", "", SESSION_SHORT));
+    sub.appendChild(document.createTextNode(" " + ["a rate limit, not a budget", weightClause, SESSION_GATES]
+      .filter(Boolean).join(" · ")));
 
     /* As tall for its width as the Over time plot, so the seat list beside
        it has the plot's height to sit in. */
     var W = Math.max(280, host.clientWidth || 480);
-    var H = Math.round(clamp(W * 0.34, 260, 440));
-    var m = { l: 46, r: 22, t: 18, b: 46 };
+    /* Sized as the weekly plot, so switching windows keeps the card still. */
+    var H = Math.round(clamp(W * 0.375, 294, 510));
+    var m = { l: 46, r: 22, t: 16, b: 40 };
     var pw = W - m.l - m.r, ph = H - m.t - m.b;
     var now = nowMs();
 
@@ -4991,6 +4974,7 @@ time[data-ts] { cursor: help; }
   function renderSessionLegend(series, root, anyEst, anyUnrec, anyLock, counts) {
     var leg = $("session-legend");
     leg.textContent = "";
+    legendRow(leg, SW_NOW, "now");
     if (counts) legendRow(leg, SW_SIGN, SIGN_KEY);
     else legendRow(leg, SW_CURVE, CURVE_KEY);
     if (anyEst) legendRow(leg, SW_EST, "estimated from token spend");
@@ -4999,17 +4983,7 @@ time[data-ts] { cursor: help; }
     var missing = [];
     series.forEach(function (s) {
       var a = s.auth;
-      if (s.gap) { missing.push(seatLabel(a) + ": " + s.gap); return; }
-      var li = h("li", "");
-      li.setAttribute("data-seat", a.auth_id);
-      var sw = h("span", "sw");
-      sw.style.background = seatColor(a);
-      sw.style.height = "3px";
-      li.appendChild(sw);
-      li.appendChild(document.createTextNode(seatLabel(a)));
-      li.addEventListener("pointerenter", function () { focusSeat(root, a.auth_id); });
-      li.addEventListener("pointerleave", function () { focusSeat(root, seatOn(root, document.activeElement)); });
-      leg.appendChild(li);
+      if (s.gap) missing.push(seatLabel(a) + ": " + s.gap);
     });
     leg.hidden = !leg.childNodes.length;
 
@@ -6728,6 +6702,12 @@ time[data-ts] { cursor: help; }
       var meta = STATE_META[seatState(a, fam)];
       li.setAttribute("data-fk", "rank:" + fam + ":" + a.auth_id);
       if (ranks.lead[fam] === a.auth_id) li.setAttribute("data-lead", "true");
+      /* Pointing at a row lifts its seat on the chart beside it. */
+      li.addEventListener("pointerenter", function () { var cr = $("pace-curve").querySelector("svg.pace"); if (cr) focusSeat(cr, a.auth_id); });
+      li.addEventListener("pointerleave", function () {
+        var cr = $("pace-curve").querySelector("svg.pace");
+        if (cr) focusSeat(cr, seatOn(cr, document.activeElement));
+      });
       li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : ""));
       var outside = offTier(a, fam, ranks);
       var mark = seatMark(a);
