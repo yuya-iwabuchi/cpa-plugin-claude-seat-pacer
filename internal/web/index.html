@@ -688,9 +688,9 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
   border-color: color-mix(in srgb, var(--info) 42%, transparent);
 }
 /* A row reads rank, seat, cost. The lead row carries the tint the timeline
-   gives the same seat; a seat held off the family, or off its serving tier,
-   is greyed, has no rank, and carries the reason's word under its meter and
-   the whole reason, with when it lifts, in the tooltip. */
+   gives the same seat. A seat held off the family, or off its serving tier,
+   is greyed and prints neither rank nor cost; its tooltip gives why and its
+   cost, and a held seat gives the reason's word under its meter. */
 .rank-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
@@ -1238,8 +1238,8 @@ time[data-ts] { cursor: help; }
         </div>
         </div>
         <div id="pace-five" hidden>
-        <!-- What the 5-hour window is worth and what it gates, where a weekly
-             view states its cost. -->
+        <!-- What the 5-hour window is worth in the cost, where a 7-day view
+             states its cost. -->
         <p class="rank-formula" id="session-sub"></p>
         <div class="pace-body">
           <div id="session-chart"></div>
@@ -4457,15 +4457,17 @@ time[data-ts] { cursor: help; }
       }
       g.setAttribute("data-seat", a.auth_id);
       g.setAttribute("data-fk", "pt:" + key);
-      g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
-        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " used" +
-        ", " + overText(ws.slack) + (weighted ? ", counted" + weightTag(ws.weight) + " in the cost" : ", cost " + costText(a.score)) +
-        liveAria(locks.live, now));
-      var tip = markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now);
       /* A cap's gap is one term of its family's cost; the mark gives the
          cost the list ranks by, so the two figures meet. */
       var fsc = weighted ? famScore(a, ws.scope) : null;
-      if (fsc && scored(fsc) && num(fsc.cost)) tip.lines.push({ b: ws.scope + " cost", t: costText(fsc) });
+      var famCost = fsc && scored(fsc) && num(fsc.cost) ? costText(fsc) : "";
+      g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
+        ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " used" +
+        ", " + overText(ws.slack) + (weighted ? ", counted" + weightTag(ws.weight) + " in the cost" +
+          (famCost ? ", " + ws.scope + " cost " + famCost : "") : ", cost " + costText(a.score)) +
+        liveAria(locks.live, now));
+      var tip = markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now);
+      if (famCost) tip.lines.push({ b: ws.scope + " cost", t: famCost });
       setTip(g, tip);
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       presentMark(g, cx, cy, col, locks.live.length > 0);
@@ -4757,7 +4759,7 @@ time[data-ts] { cursor: help; }
     var sub = $("session-sub");
     sub.textContent = "";
     sub.appendChild(h("b", "", SESSION_SHORT));
-    sub.appendChild(document.createTextNode(" " + (weightClause || "a rate limit, not a budget")));
+    sub.appendChild(document.createTextNode(" " + (weightClause || "is a rate limit, not a budget")));
 
     var W = Math.max(280, host.clientWidth || 480);
     /* Sized as the 7-day views' plot, so switching windows keeps the card still. */
