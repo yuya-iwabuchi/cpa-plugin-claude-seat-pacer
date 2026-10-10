@@ -641,13 +641,13 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
      of the taller one seen, up to 380px, so the card holds still when
      switching. The axis gives the range. */
   #hist-rank { height: min(380px, var(--hist-h, 380px)); }
+  .hist-range { display: none; }
 }
 @media (max-width: 620px) {
   /* The views' lines and legends take two and three rows here, so each
      keeps that many whichever view shows. */
   .rank-formula { min-height: calc(2 * 1.45em); }
   #hist-legend { min-height: 44px; align-content: flex-start; }
-  .hist-range { display: none; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
    can check a figure against the marks' labels by. It runs the width of the
@@ -696,7 +696,8 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
 /* A row reads rank, seat, cost. The lead row carries the tint the timeline
    gives the same seat. A seat held off the family, or off its serving tier,
    is greyed and prints neither rank nor cost; its tooltip gives why and its
-   cost, and a held seat gives the reason's word under its meter. */
+   cost. A held seat, or one with no mark on the plot, gives the reason's
+   word under its meter. */
 .rank-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
@@ -812,7 +813,7 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 .ol-line.ol-muted { color: var(--ink-3); }
 /* The list's total, over its seats: set as a row, ruled off from them. */
 .ol-row.ol-total { margin-bottom: 4px; border-bottom: 1px solid var(--rule); border-radius: 6px 6px 0 0; }
-.ol-row.ol-total:hover { background: none; }
+.ol-row.ol-total:hover { background: none; box-shadow: none; }
 .ol-total-name { font-weight: 600; font-size: 12px; color: var(--ink-1); }
 svg.hist-tl path.hs-target { fill: none; stroke-width: 1; stroke-dasharray: 5 4; opacity: .7; }
 svg.hist-tl path.hs-reset { fill: none; stroke-width: 1; stroke-dasharray: 1 3; opacity: .3; }
@@ -5156,8 +5157,10 @@ time[data-ts] { cursor: help; }
   /* How the plot draws the seats: each its own line, or stacked into the
      pool's total against what the pool holds. */
   var HIST_FORM_KEY = "pacer-hist-form";
-  /* The tallest Over time list drawn on this page, in px. */
-  var histListH = 0;
+  /* The tallest Over time list drawn under the plot in the current layout,
+     in px, and that layout. */
+  var histListH = 0, histListAt = "";
+  var NARROW = window.matchMedia("(max-width: 1000px)");
   var histForm = "stacked";
   function loadHistForm() { histForm = loadPref(HIST_FORM_KEY) === "lines" ? "lines" : "stacked"; }
   function saveHistForm() { savePref(HIST_FORM_KEY, histForm); }
@@ -5950,7 +5953,7 @@ time[data-ts] { cursor: help; }
     }
 
     /* The side list of the stacked form: what the seats on the roster have
-       used now, the height the stack stands at, in a tone that rises as the
+       used now, in a tone that rises as the
        share left falls, against what they hold, with what that leaves, and
        how many seats are off it; then the schedule of what comes back if no
        more is used, soonest first and the next's time in bold: each reset
@@ -6203,12 +6206,17 @@ time[data-ts] { cursor: help; }
         seatList(list, view.label, "use in view, summed across resets; 100% is one full window",
           rangeRows, function () { return histGeo && histGeo.root; }, rangeTotal(rangeRows, t0, t1));
       }
-      /* Measured at no height, so the list's own rows set it. */
-      var keep = list.scrollTop;
-      list.style.setProperty("--hist-h", "0px");
-      histListH = Math.max(histListH, list.scrollHeight);
-      list.style.setProperty("--hist-h", histListH + "px");
-      list.scrollTop = keep;
+      /* Under the plot, measured at no height, so the list's own rows set it;
+         a change of layout starts the measure again. */
+      var layoutKey = NARROW.matches + ":" + list.clientWidth;
+      if (layoutKey !== histListAt) { histListAt = layoutKey; histListH = 0; }
+      if (NARROW.matches) {
+        var keep = list.scrollTop;
+        list.style.setProperty("--hist-h", "0px");
+        histListH = Math.max(histListH, list.scrollHeight);
+        list.style.setProperty("--hist-h", histListH + "px");
+        list.scrollTop = keep;
+      }
 
       histGeo = {
         t0: t0, t1: t1, liveEnd: liveEnd, minSpan: minSpan, set: set, root: root,
