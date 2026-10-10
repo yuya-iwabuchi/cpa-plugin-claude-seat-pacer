@@ -81,10 +81,12 @@ type ring struct {
 }
 
 // lock is one refusal span, at second precision. end is empty while it is
-// ongoing.
+// ongoing. expected is the reset its latest refusal expected, kept when the
+// span ends before it and zero otherwise.
 type lock struct {
 	from, to time.Time
 	end      model.LockEnd
+	expected time.Time
 }
 
 // pendingFall is a candidate clearing's first reading.
@@ -408,6 +410,9 @@ func (r *ring) export(kind model.WindowKind, scope string, max int, now time.Tim
 				l.end = model.LockEndReset
 			}
 			out.Locks[i] = model.Lock{From: l.from.Unix(), To: l.to.Unix(), End: l.end}
+			if !l.expected.IsZero() {
+				out.Locks[i].Expected = l.expected.Unix()
+			}
 		}
 	}
 	return out
@@ -466,7 +471,11 @@ func keeps(samples []model.Sample, i int, step time.Duration) bool {
 func (r *ring) replay(h model.WindowHistory, loaded time.Time) {
 	r.addCycles(h.Kind, h.Scope, h.Cycles)
 	for _, l := range h.Locks {
-		r.mergeLock(lock{from: time.Unix(l.From, 0).UTC(), to: time.Unix(l.To, 0).UTC(), end: l.End})
+		restored := lock{from: time.Unix(l.From, 0).UTC(), to: time.Unix(l.To, 0).UTC(), end: l.End}
+		if l.Expected != 0 {
+			restored.expected = time.Unix(l.Expected, 0).UTC()
+		}
+		r.mergeLock(restored)
 	}
 	if len(r.locks) > 0 {
 		r.refused = loaded
@@ -547,7 +556,7 @@ func (r *ring) refuse(admitted, at, until time.Time) bool {
 		last.from, changed = at, true
 	case last.end == "" || last.end == model.LockEndServed:
 		changed = last.to != until || last.end != ""
-		last.to, last.end = until, ""
+		last.to, last.end, last.expected = until, "", time.Time{}
 	}
 	if admitted.After(r.refused) {
 		r.refused = admitted
@@ -591,7 +600,7 @@ func (r *ring) end(at time.Time, cause model.LockEnd) bool {
 		return false
 	}
 	if at.Before(last.to) {
-		last.to, last.end = at, cause
+		last.to, last.end, last.expected = at, cause, last.to
 	} else {
 		last.end = model.LockEndReset
 	}
@@ -625,7 +634,7 @@ func (r *ring) mergeLock(l lock) {
 		if l.from.Before(last.from) {
 			last.from = l.from
 		}
-		last.to, last.end = l.to, l.end
+		last.to, last.end, last.expected = l.to, l.end, l.expected
 	}
 }
 

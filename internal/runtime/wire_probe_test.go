@@ -121,9 +121,9 @@ func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
 	}
 	t.Logf("host.log lines:\n%s", strings.Join(hostLogLines, "\n"))
 
-	// The probe's management route exercises host.auth.list, host.auth.get and
-	// host.http.do and returns what they produced, so one call checks four
-	// shapes at once.
+	// The probe's management route exercises host.auth.list, host.auth.get,
+	// host.routing.reset_cooldown and host.http.do and returns what they
+	// produced, so one call checks five shapes at once.
 	reportURL := host.baseURL + "/v0/management/probe/report?http_probe=" + url.QueryEscape(host.upstreamURL+"/probe")
 	report, err := http.NewRequest(http.MethodGet, reportURL, nil)
 	if err != nil {
@@ -148,6 +148,10 @@ func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
 			JSONFields []string `json:"json_fields"`
 			Error      string   `json:"error"`
 		} `json:"auth_get"`
+		ResetCooldown struct {
+			AuthIndex string `json:"auth_index"`
+			Error     string `json:"error"`
+		} `json:"reset_cooldown"`
 		HTTPDo struct {
 			StatusCode int    `json:"status_code"`
 			Error      string `json:"error"`
@@ -161,6 +165,14 @@ func TestHeaderBridgeSurvivesToSchedulerPick(t *testing.T) {
 	}
 	if observed.AuthGet.Error != "" || observed.AuthGet.AuthIndex == "" || len(observed.AuthGet.JSONFields) == 0 {
 		t.Errorf("host.auth.get returned no credential JSON: %s", reportBody)
+	}
+	// A host before 8.0.12 has no reset callback and says so; a later one
+	// answers with the credential it reset.
+	switch reset := observed.ResetCooldown; {
+	case strings.Contains(reset.Error, "unsupported host callback"):
+		t.Log("this host has no host.routing.reset_cooldown")
+	case reset.Error != "" || reset.AuthIndex != observed.AuthGet.AuthIndex:
+		t.Errorf("host.routing.reset_cooldown did not round-trip: %s", reportBody)
 	}
 	// host.http.do reaches the fixture, which refuses everything with 502, so
 	// the status proves the round trip carried a real response back.

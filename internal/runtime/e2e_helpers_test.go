@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // requireHostSource is the CLIProxyAPI checkout the end-to-end tests build a
@@ -58,7 +61,8 @@ type hostOptions struct {
 	// pluginLDFlags, when set, is passed to the plugin build as -ldflags.
 	pluginLDFlags string
 	// credentialPrefix names the two fabricated Claude credentials' email
-	// addresses and access tokens. No provider is ever reached with them.
+	// addresses and access tokens, unless credentials replaces them. No
+	// provider is ever reached with them.
 	credentialPrefix string
 	// hostSettings is YAML spliced in above the plugins block, and
 	// pluginSettings YAML for the plugin's own config, indented six spaces.
@@ -70,6 +74,17 @@ type hostOptions struct {
 	// extraLogs are files dumped beside the server log when the test fails,
 	// keyed by the label to print them under.
 	extraLogs map[string]string
+	// proxyURL, when set, is the host's proxy-url in place of a fixture that
+	// refuses every upstream request.
+	proxyURL string
+	// credentials, when set, are the Claude credential files written to the
+	// auth dir, keyed by file name, in place of the two fabricated ones.
+	credentials map[string]string
+	// cooling leaves the host's credential cooldowns on.
+	cooling bool
+	// serverBuildFlags are extra flags for the host build, and serverEnv extra
+	// environment for the host process.
+	serverBuildFlags, serverEnv []string
 }
 
 // liveHost is a running CLIProxyAPI with the plugin loaded and the model
@@ -78,8 +93,9 @@ type liveHost struct {
 	// done closes when the server process exits, so a wait loop can fail fast
 	// instead of polling a host that is already gone.
 	done <-chan struct{}
-	// upstreamURL is the refusing fixture proxy, reachable as an ordinary HTTP
-	// target for a plugin that makes its own host.http.do call.
+	// upstreamURL is the host's proxy, the refusing fixture unless the caller
+	// named another, reachable as an ordinary HTTP target for a plugin that
+	// makes its own host.http.do call.
 	upstreamURL   string
 	baseURL       string
 	client        *http.Client
@@ -102,12 +118,17 @@ func startHost(t *testing.T, opts hostOptions) *liveHost {
 		managementKey: opts.pluginID + "-management-key",
 	}
 
-	// Every upstream dial lands here and is refused, so a request fails after
-	// credential selection rather than reaching a provider.
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "fixture proxy refuses upstream", http.StatusBadGateway)
-	}))
-	t.Cleanup(upstream.Close)
+	// Every upstream dial lands on the proxy. The default one refuses it, so a
+	// request fails after credential selection rather than reaching a
+	// provider.
+	proxyURL := opts.proxyURL
+	if proxyURL == "" {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "fixture proxy refuses upstream", http.StatusBadGateway)
+		}))
+		t.Cleanup(upstream.Close)
+		proxyURL = upstream.URL
+	}
 
 	pluginDir := filepath.Join(opts.dir, "plugins")
 	authDir := filepath.Join(opts.dir, "auth")
@@ -134,15 +155,22 @@ func startHost(t *testing.T, opts hostOptions) *liveHost {
 	}
 
 	serverPath := filepath.Join(opts.dir, serverName)
-	buildServer := exec.Command("go", "build", "-o", serverPath, "./cmd/server")
+	buildArgs := append([]string{"build"}, opts.serverBuildFlags...)
+	buildServer := exec.Command("go", append(buildArgs, "-o", serverPath, "./cmd/server")...)
 	buildServer.Dir = opts.hostSource
 	if out, err := buildServer.CombinedOutput(); err != nil {
 		t.Fatalf("build CLIProxyAPI: %v\n%s", err, out)
 	}
 
-	for index, name := range []string{"claude-a.json", "claude-b.json"} {
-		body := fmt.Sprintf(`{"type":"claude","email":"%s-%d@example.com","access_token":"%s-token-%d","refresh_token":"%s-refresh","expired":"2099-01-01T00:00:00Z"}`,
-			opts.credentialPrefix, index, opts.credentialPrefix, index, opts.credentialPrefix)
+	credentials := opts.credentials
+	if credentials == nil {
+		credentials = make(map[string]string, 2)
+		for index, name := range []string{"claude-a.json", "claude-b.json"} {
+			credentials[name] = fmt.Sprintf(`{"type":"claude","email":"%s-%d@example.com","access_token":"%s-token-%d","refresh_token":"%s-refresh","expired":"2099-01-01T00:00:00Z"}`,
+				opts.credentialPrefix, index, opts.credentialPrefix, index, opts.credentialPrefix)
+		}
+	}
+	for name, body := range credentials {
 		if err := os.WriteFile(filepath.Join(authDir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -162,7 +190,7 @@ remote-management:
   disable-auto-update-panel: true
 logging-to-file: false
 debug: false
-disable-cooling: true
+disable-cooling: %t
 %splugins:
   enabled: true
   dir: %q
@@ -170,8 +198,8 @@ disable-cooling: true
     %s:
       enabled: true
       priority: 100
-%s`, port, upstream.URL, authDir, host.apiKey, host.managementKey,
-		opts.hostSettings, pluginDir, opts.pluginID, opts.pluginSettings)
+%s`, port, proxyURL, authDir, host.apiKey, host.managementKey,
+		!opts.cooling, opts.hostSettings, pluginDir, opts.pluginID, opts.pluginSettings)
 	if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -189,6 +217,7 @@ disable-cooling: true
 		"HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=",
 		"NO_PROXY=127.0.0.1,localhost",
 	)
+	server.Env = append(server.Env, opts.serverEnv...)
 	if err = server.Start(); err != nil {
 		_ = logFile.Close()
 		t.Fatal(err)
@@ -215,16 +244,16 @@ disable-cooling: true
 	})
 
 	host.done = processDone
-	host.upstreamURL = upstream.URL
+	host.upstreamURL = proxyURL
 	host.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	host.client = &http.Client{Timeout: opts.clientTimeout}
 	waitForModel(t, host.client, host.baseURL, host.apiKey, processDone, host.logPath, opts.modelID)
 	return host
 }
 
-// post sends one Anthropic Messages request and discards the response, which
-// the refusing upstream makes a 502 in every case.
-func (h *liveHost) post(t *testing.T, body string) {
+// post sends one Anthropic Messages request and returns its status code and
+// body.
+func (h *liveHost) post(t *testing.T, body string) (int, []byte) {
 	t.Helper()
 	request, err := http.NewRequest(http.MethodPost, h.baseURL+"/v1/messages", strings.NewReader(body))
 	if err != nil {
@@ -237,5 +266,57 @@ func (h *liveHost) post(t *testing.T, body string) {
 	if err != nil {
 		t.Fatalf("post /v1/messages: %v\nserver log:\n%s", err, readFile(h.logPath))
 	}
-	_ = response.Body.Close()
+	raw, _ := readAll(response)
+	return response.StatusCode, raw
+}
+
+// hostAPI wraps the requests a test makes of a live host, sending the
+// management key on every management request.
+type hostAPI struct {
+	t        *testing.T
+	host     *liveHost
+	pluginID string
+}
+
+// managementDo sends one management request with the key. The host bans an
+// address after five failed key checks, so every request carries it.
+func (a hostAPI) managementDo(method, path string) []byte {
+	a.t.Helper()
+	request, err := http.NewRequest(method, a.host.baseURL+"/v0/management"+path, nil)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+a.host.managementKey)
+	response, err := a.host.client.Do(request)
+	if err != nil {
+		a.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	raw, _ := readAll(response)
+	if response.StatusCode != http.StatusOK {
+		a.t.Fatalf("%s %s: %d %s\nserver log:\n%s", method, path, response.StatusCode, raw, readFile(a.host.logPath))
+	}
+	return raw
+}
+
+// refresh forces a usage read of every seat and fails on any error.
+func (a hostAPI) refresh() {
+	a.t.Helper()
+	raw := a.managementDo(http.MethodPost, "/plugins/"+a.pluginID+"/refresh")
+	var result struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil || !result.OK {
+		a.t.Fatalf("refresh: %s", raw)
+	}
+}
+
+func (a hostAPI) status() model.Status {
+	a.t.Helper()
+	raw := a.managementDo(http.MethodGet, "/plugins/"+a.pluginID+"/status")
+	var out model.Status
+	if err := json.Unmarshal(raw, &out); err != nil {
+		a.t.Fatalf("decode status: %v\n%s", err, raw)
+	}
+	return out
 }

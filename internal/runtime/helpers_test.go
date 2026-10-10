@@ -41,6 +41,10 @@ type fakeHost struct {
 	httpGate chan struct{}
 	// logGate, when non-nil, blocks host.log until closed.
 	logGate chan struct{}
+	// resetErr fails host.routing.reset_cooldown with its message; otherwise
+	// the reset ends the credential's cooldown unless resetKeeps is set.
+	resetErr   error
+	resetKeeps bool
 }
 
 type hostCall struct {
@@ -81,6 +85,20 @@ func (f *fakeHost) call(method string, payload []byte) ([]byte, error) {
 			return errorEnvelope("auth_not_found", "auth not found for auth_index "+req.AuthIndex), nil
 		}
 		return okEnvelope(HostAuthGetResponse{AuthIndex: req.AuthIndex, Name: req.AuthIndex + ".json", JSON: raw})
+	case MethodHostRoutingResetCooldown:
+		var req HostRoutingResetCooldownRequest
+		_ = json.Unmarshal(payload, &req)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.resetErr != nil {
+			return errorEnvelope("host_call_failed", f.resetErr.Error()), nil
+		}
+		for i := range f.files {
+			if f.files[i].AuthIndex == req.AuthIndex && !f.resetKeeps {
+				f.files[i].Unavailable = false
+			}
+		}
+		return okEnvelope(map[string]any{"auth_index": req.AuthIndex, "models": []string{"claude-opus-5"}})
 	case MethodHostHTTPDo:
 		if f.httpGate != nil {
 			<-f.httpGate

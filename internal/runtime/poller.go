@@ -395,6 +395,7 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 	if !cfg.Enabled {
 		p.mu.Lock()
 		p.listErr, p.fetchErr = "", ""
+		p.holds = nil
 		p.mu.Unlock()
 		return cfg.Quota.PollInterval, false
 	}
@@ -451,6 +452,7 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 	p.mu.Unlock()
 
 	keep := make(map[string]struct{}, len(governed))
+	read := make(map[string]bool, len(governed))
 	fetchErr := ""
 	fetched := 0
 	throttled := false
@@ -495,6 +497,8 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 			if fetchErr == "" {
 				fetchErr = err.Error()
 			}
+		} else {
+			read[id] = true
 		}
 		p.polls[id] = state
 		p.mu.Unlock()
@@ -536,6 +540,7 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 		}
 	}
 	p.mu.Unlock()
+	p.releaseHolds(ctx, governed, read)
 	return cfg.Quota.PollInterval, false
 }
 

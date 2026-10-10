@@ -3,9 +3,10 @@
 Host: CLIProxyAPI v7.2.149 (tag `v7.2.149`, commit `2a6b87ac`), built from
 source by the test.
 
-The deployment target is 7.2.145 or newer. Everything below holds at 7.2.149,
-and the host-driven tests also pass against v7.3.10, v7.3.15 and v8.0.4;
-nothing here establishes the lower bound.
+The deployment target is 7.2.145 or newer. Everything below holds at 7.2.149
+unless it names another version, and the host-driven tests also pass against
+v7.3.10, v7.3.15, v8.0.4, v8.0.13, v8.0.15 and v8.0.20; nothing here
+establishes the lower bound.
 
 ## Verdict: header bridge CONFIRMED
 
@@ -60,6 +61,9 @@ reads those.
   `host.http.do` round-trip with the request casing in `wire.go`.
   `host.auth.get` returns the credential file whole, access and refresh tokens
   included; the probe records its key names only.
+- `host.routing.reset_cooldown` round-trips on v8.0.13, v8.0.15 and v8.0.20,
+  answering with the `auth_index` it was given; v7.2.149, v7.3.10, v7.3.15
+  and v8.0.4 answer `unsupported host callback host.routing.reset_cooldown`.
 
 ## Source-derived only
 
@@ -84,4 +88,7 @@ reads those.
   `-v<version>` suffix it strips: the probe's filename carries no version.
 - `SchedulerOptions.Metadata["pinned_auth_id"]`, absent from every capture.
 - Every `HostAuthFileEntry` field except `id`, `auth_index`, `name`, `type`,
-  `provider` and `status`, which are the ones the probe's report reads back.
+  `provider` and `status`, which are the ones the probe's report reads back,
+  and `unavailable` and `next_retry_after`, which
+  `TestE2ECooldownResetThroughRealHost` drives on v8.0.20 by cooling a
+  credential and having the plugin reset it.

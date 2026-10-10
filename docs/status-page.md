@@ -57,8 +57,8 @@ disabled ones only until the page reloads, and never in Over time. Hiding
 changes only the page; routing is unchanged.
 
 A warning banner names anything that leaves the plugin inert or degraded, such
-as a seat alone on the top priority tier, a seat not read yet, or a failing
-usage poll.
+as a seat alone on the top priority tier, a seat not read yet, a failing
+usage poll, or a seat the host keeps cooled after its quota came back.
 
 The page names a window by its length and the requests it gates. `5h Standard`
 and `7d Standard` are the 5-hour and all-models weekly windows, which apply to
