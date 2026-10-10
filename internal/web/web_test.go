@@ -1158,6 +1158,7 @@ func TestPublicTextDropsHostsAndPaths(t *testing.T) {
 		{`{"auth_index":"3f9a1c2b"}`, `{"auth_index":"…"}`},
 		{`AuthIndex:3f9a1c2b selected_auth_index=3f9a1c2b`, `AuthIndex:… selected_auth_index=…`},
 		{`auth_index is required`, `auth_index is required`},
+		{`auth not found for auth_index 3f9a-1c2b-uuid`, `auth not found for auth_index …`},
 	}
 	for _, c := range cases {
 		if got := publicText(c.in, ids); got != c.want {

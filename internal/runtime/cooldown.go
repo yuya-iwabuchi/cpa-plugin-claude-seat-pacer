@@ -48,11 +48,13 @@ type staleHold struct {
 	problem string
 }
 
-// capsEveryRequest reports whether a window caps requests for every model.
-// Only a refusal on one of these cools the whole credential: the host cools
-// just the refused model for a family cap's refusal while the 5-hour and
-// weekly windows report allowed, and for every refusal when
-// upstream.claude.model-level-cooling is on.
+// capsEveryRequest reports whether a window caps requests for every model. A
+// refusal on one of these cools the whole credential, and it is the only
+// refusal findStaleHold ties a cooldown to. The host also cools the whole
+// credential for a family cap's refusal, except a Fable or overage refusal
+// while the 5-hour and weekly windows report allowed, and cools just the
+// refused model for every refusal when upstream.claude.model-level-cooling is
+// on.
 func capsEveryRequest(kind model.WindowKind) bool {
 	return kind == model.WindowSession || kind == model.WindowWeekly
 }
@@ -113,10 +115,10 @@ func explains(history []model.WindowHistory, c model.Lock, until time.Time) bool
 //   - That span ended more than holdMargin before the cooldown does, and
 //     before the read.
 //   - No family cap's span began after it ended and expected the reset the
-//     cooldown ends at: the host cools the whole credential to the cap's
-//     reset for a refusal of that cap alone when the 429 does not show the
-//     5-hour and weekly windows allowed. A later 5-hour or weekly span
-//     either is ongoing, has not reopened, or is the cause.
+//     cooldown ends at: a later refusal of that cap alone can cool the whole
+//     credential to the cap's reset, as capsEveryRequest describes. A later
+//     5-hour or weekly span either is ongoing, has not reopened, or is the
+//     cause.
 //
 // A family cap still full does not hold the reset back: the host's reset
 // lifts that family's cooldown too, but the pick sends the family nowhere
@@ -255,7 +257,7 @@ func (p *Plugin) resetHold(ctx context.Context, id, authIndex string, hold stale
 	fields := map[string]any{
 		"auth_id":    id,
 		"released":   hold.released.UTC().Format(time.RFC3339),
-		"held_until": hold.until.Format(time.RFC3339),
+		"held_until": hold.until.UTC().Format(time.RFC3339),
 	}
 	err := p.host.resetCooldown(ctx, authIndex)
 	problem := ""
