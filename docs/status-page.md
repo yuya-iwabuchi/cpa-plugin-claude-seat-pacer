@@ -28,7 +28,8 @@ new conversation. A seat held off ranks below them.
   cost weighs, and 5h Standard. A 7-day view ranks the seats by its family's
   cost, each with where it is headed at its last 24 hours' rate; the 5-hour
   view shows where each seat stands against the limit that can make it
-  ineligible. Pointing at a seat shows its gap to the target.
+  ineligible. Pointing at a seat shows its gap to the target where the window
+  is paced.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per
@@ -43,7 +44,7 @@ new conversation. A seat held off ranks below them.
   plan, these figures show whether the pool has enough seats, though use
   understates demand while every seat is refused.
 
-  <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has left and what each reset brings back.">
+  <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
 
   <img src="over-time-lines.png" width="900" alt="The same chart in its Lines form: each seat's use of 7d Standard against its target over two weeks, with day brackets above and a side list giving the pool's total use, what it renewed and its seats' worth a week, then each seat's total.">
 

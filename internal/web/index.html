@@ -637,9 +637,16 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
   .side-list { position: relative; max-height: 380px; }
   .side-list :is(.ol-list, .rank-list, .bal-list) { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 24px; }
   .side-list .rank-list > .rank-tier { grid-column: 1 / -1; }
-  /* Over time's two forms list different rows; one height keeps the card
-     still when switching. The axis gives the range. */
-  #hist-rank { height: 380px; }
+  /* Over time's two forms list different rows; the list keeps the height
+     of the taller one seen, up to 380px, so the card holds still when
+     switching. The axis gives the range. */
+  #hist-rank { height: min(380px, var(--hist-h, 380px)); }
+}
+@media (max-width: 620px) {
+  /* The views' lines and legends take two and three rows here, so each
+     keeps that many whichever view shows. */
+  .rank-formula { min-height: calc(2 * 1.45em); }
+  #hist-legend { min-height: 44px; align-content: flex-start; }
   .hist-range { display: none; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
@@ -647,7 +654,7 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
    card: in the list's own column the same sentence wraps to several lines. */
 .rank-formula { margin: 0 0 8px; font: 500 11px/1.45 var(--mono); color: var(--ink-2); }
 /* The view switch: one row of joined buttons, the pressed one the view. */
-.pace-view { display: inline-flex; margin: 0 0 10px; }
+.pace-view { display: inline-flex; }
 .pace-view button { padding: 5px 11px; border-radius: 0; margin-left: -1px; }
 .pace-view button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .pace-view button:last-child { border-radius: 0 6px 6px 0; }
@@ -655,7 +662,6 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
 /* One list per request family: its serving tier's seats by cost, lowest
    first, and every other tier's seats unranked under their own heading. The
    lead row is the seat that family's next new conversation lands on. */
-.rank-fam + .rank-fam { margin-top: 14px; }
 .rank-fam-head {
   margin: 0 0 4px; padding: 4px 0 2px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px;
   position: sticky; top: -2px; z-index: 3; background: var(--surface-1);
@@ -696,6 +702,7 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
   padding: 4px 8px; border-radius: 6px; font: 500 12px/1.4 var(--sans);
 }
 .rank-row[data-lead] { background: var(--emph); }
+.rank-list.unranked .rank-row { grid-template-columns: minmax(0, 1fr) auto; }
 /* The row of the seat pointed at, here or on the chart, is outlined, so it
    reads apart from the lead row's tint. */
 .rank-row:is(:hover, [data-focused]) { box-shadow: inset 0 0 0 1px var(--ink-3); }
@@ -739,6 +746,9 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
 .pace-more[open] > summary::before { content: "\25BE"; }
 .pace-more > summary:hover { color: var(--ink-1); }
 .pace-note { display: grid; gap: 8px; max-width: 72ch; padding-top: 6px; }
+.pace-notes { display: grid; }
+.pace-notes > .pace-note { grid-area: 1 / 1; }
+.pace-notes > .pace-note[data-off] { visibility: hidden; }
 .pace-note p { margin: 0; font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
 /* The note is a list of definitions: each term names the topic under it, so
    a reader after one of them finds it without reading the rest. */
@@ -759,13 +769,12 @@ svg.hist-tl rect.hs-nav-dim { fill: var(--surface-1); opacity: .62; }
 svg.hist-tl rect.hs-brush { fill: none; stroke: var(--ink-2); stroke-width: 1; }
 svg.hist-tl rect.hs-handle { fill: var(--ink-2); }
 svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .7; }
-/* A seat's outlook sits at body size beside the chart: the seat and its use
-   now on one line, a hairline meter, and two short lines under them. Only a
-   refusal, or a seat headed for its 5-hour limit, takes a colour. */
+/* A seat's row in a list beside a chart: the seat and its figure on one
+   line, then a hairline meter and short lines in their tone. */
 .ol-list { margin: 0; padding: 0; list-style: none; }
 .ol-row + .ol-row { margin-top: 1px; }
 .ol-row { padding: 5px 8px 6px; border-radius: 6px; font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
-.ol-row:hover, .ol-row[data-focused] { background: var(--emph); }
+.ol-row:hover, .ol-row[data-focused] { box-shadow: inset 0 0 0 1px var(--ink-3); }
 /* The name's track is minmax(0, 1fr), as on a rank row, so a long name
    clips to its tooltip whatever lays out the rows around it. */
 .ol-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px; }
@@ -776,14 +785,15 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 .ol-meter .ol-fill { left: 0; border-radius: 2px; }
 .ol-meter .ol-proj { opacity: .35; }
 .ol-meter .ol-pace { top: -2px; bottom: -2px; width: 1.5px; margin-left: -.75px; background: var(--ink-2); }
-/* The stacked form's balance: what the pool has left, large, against what
-   it holds, then the schedule of what comes back: seat and time, then
-   amount and what the pool then has. */
+/* The stacked form's balance: what the pool has used, large, against what
+   it holds and what is left, then the schedule of what comes back: seat and
+   time, then amount and what the pool then has left. */
 .bal { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px 8px; border-bottom: 1px solid var(--rule); }
 .bal-fig { font: 650 22px/1 var(--sans); color: var(--ink-1); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .bal-fig[data-tone="serious"] { color: var(--serious); }
 .bal-fig[data-tone="critical"] { color: var(--critical); }
 .bal-of { font: 500 12px/1.3 var(--sans); color: var(--ink-2); }
+.bal-left { margin-left: auto; font: 500 12px/1.3 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .bal-off { margin: 6px 8px; font: 500 11.5px/1.4 var(--sans); color: var(--critical); }
 .bal-none { margin: 8px; font: 400 11.5px/1.4 var(--sans); color: var(--ink-3); }
 .bal-list { margin: 6px 0 0; padding: 0; list-style: none; }
@@ -1213,12 +1223,10 @@ time[data-ts] { cursor: help; }
         <span class="sec-line"></span>
       </div>
       <div class="card pace-card">
-        <!-- Which window the card draws: a weekly window with its family's
-             ranking, or the 5-hour window with each seat's outlook. The
-             script fills it and shows the body of the window pressed. -->
-        <!-- The switch, and at the row's far end the line styles the view
-             draws, so the legend takes no row of its own and the card keeps
-             one height across views. -->
+        <!-- The window switch, and at the row's far end the line styles the
+             view draws, so the legend takes no row of its own and the card
+             keeps one height across views. The script fills both and shows
+             the body of the window pressed. -->
         <div class="hist-tools">
           <div class="pace-view" id="pace-view" role="group" aria-label="Window shown"></div>
           <ul class="legend tools-legend" id="pace-legend" aria-label="Legend"></ul>
@@ -1249,12 +1257,15 @@ time[data-ts] { cursor: help; }
         </div>
         </div>
         <!-- Static and shared by every view, so the fold's open state and a
-             focused summary outlive the refresh and a switch of window; only
-             the note of the view shown is rebuilt and shown. -->
+             focused summary outlive the refresh and a switch of window. Both
+             notes sit in one cell, so the open fold is as tall as the longer
+             one whichever view shows; only the shown note is visible. -->
         <details class="pace-more">
           <summary>How to read this chart</summary>
-          <div class="pace-note" id="pace-note"></div>
-          <div class="pace-note" id="session-note" hidden></div>
+          <div class="pace-notes">
+            <div class="pace-note" id="pace-note"></div>
+            <div class="pace-note" id="session-note" data-off></div>
+          </div>
         </details>
       </div>
     </section>
@@ -1746,8 +1757,9 @@ time[data-ts] { cursor: help; }
      forecast. Full is the page's one
      word for that state. Blocked is the provider's own refusal of the window,
      which the page calls refused, and it makes the seat ineligible the same
-     way. Limit is a window the cost does not weigh; its lane reads under, on
-     or above its curve, which the legend says. The usage endpoint's
+     way. Limit is a window the cost does not weigh, which the legend calls
+     not paced; its tooltip says whether it reads under, on or above its
+     curve. The usage endpoint's
      critical-headroom advisory is no state of its own: a window it is raised
      on keeps its pace verdict, and the advisory is on the window's tooltip. */
   var STATE_META = {
@@ -4308,6 +4320,14 @@ time[data-ts] { cursor: help; }
     }
   }
 
+  /* One frame for every Current window pace plot, so switching windows
+     keeps the card still. */
+  function paceFrame(host) {
+    var W = Math.max(280, host.clientWidth || 480), H = Math.round(clamp(W * 0.375, 294, 510));
+    var m = { l: 46, r: 22, t: 16, b: 40 };
+    return { W: W, H: H, m: m, pw: W - m.l - m.r, ph: H - m.t - m.b };
+  }
+
   function renderPace(st, seats, ranks) {
     var host = $("pace-curve");
     host.textContent = "";
@@ -4320,21 +4340,18 @@ time[data-ts] { cursor: help; }
     renderPaceView(fams, view, capDrawn);
     $("pace-week").hidden = view === PACE_SESSION;
     $("pace-five").hidden = view !== PACE_SESSION;
-    $("pace-note").hidden = view === PACE_SESSION;
-    $("session-note").hidden = view !== PACE_SESSION;
+    $("pace-note").toggleAttribute("data-off", view === PACE_SESSION);
+    $("session-note").toggleAttribute("data-off", view !== PACE_SESSION);
     if (view === PACE_SESSION) { renderSession(st, seats); return; }
     var pace = (st.config && st.config.pace) || {};
 
     /* The plot takes the card's width and a height that follows it, bounded so
        a phone still gets a readable chart and a wide screen not a wall. The
        ratio gives the y axis room for seats a few points apart to keep their
-       labels beside their marks, and still stands the section with section
+       labels clear of their marks, and still stands the section with section
        01 on a laptop viewport; the labelled gridlines stay a fifth of the budget
        apart. */
-    var W = Math.max(280, host.clientWidth || 480);
-    var H = Math.round(clamp(W * 0.375, 294, 510));
-    var m = { l: 46, r: 22, t: 16, b: 40 };
-    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    var fr = paceFrame(host), W = fr.W, H = fr.H, m = fr.m, pw = fr.pw, ph = fr.ph;
 
     var series = seats.map(function (a) {
       var ws = scoreFor(a, { kind: PACE_KIND });
@@ -4365,7 +4382,7 @@ time[data-ts] { cursor: help; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": (shows(view, STANDARD) ? "Weekly" : capShort(view)) +
+      "aria-label": (shows(view, STANDARD) ? WEEKLY_SHORT : capShort(view)) +
         " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it"
     }, host);
 
@@ -4420,8 +4437,8 @@ time[data-ts] { cursor: help; }
       var cx = X(ws.elapsed), cy = Y(ws.utilization), col = seatColor(a);
       var g = svg("g", { "class": "pt", tabindex: 0, role: "img" }, gPts);
       /* The line's own group, carrying the mark's identity: it sits in the
-         lower layer, and the legend's focus dimming finds it by the attribute
-         it finds the mark by. Each section of the line carries its own
+         lower layer, and focusSeat finds it by the attribute it finds the
+         mark by. Each section of the line carries its own
          tooltip, and a limit or a reset on it is a stop of its own. */
       var gl = svg("g", { "class": "pt-line" }, gLines);
       gl.setAttribute("data-seat", a.auth_id);
@@ -4563,8 +4580,6 @@ time[data-ts] { cursor: help; }
     });
   }
 
-  /* The marks and lines the chart draws. The list beside the chart names
-     every seat by its colour, and a seat with no mark carries the reason. */
   /* The line styles a recorded line can take past the plain one, each only
      where the chart draws it. The curve names itself on the plot, a mark is
      a seat's reading now, and its gap shows on pointing at it, which the
@@ -4608,16 +4623,15 @@ time[data-ts] { cursor: help; }
     /* A cap has a view only where its weight puts it in a cost, which is the
        same test the formula line gives it a clause on, so the note claims a
        view the switch offers and a term the list carries. */
-    p.appendChild(document.createTextNode("Each mark is a seat's reading now on the window the view shows: " +
-      WEEKLY_SHORT + ", or a family's cap." +
+    p.appendChild(document.createTextNode("Each mark is a seat's reading now on the window the view shows." +
       (!fams.length ? ""
         : termShown(wts.scoped_weight)
           ? " The " + fams.map(capShort).join(" or ") + " window is on the same target curve, counted" +
             weightTag(wts.scoped_weight) + " in its own family's cost and not in Standard's."
           : " The " + fams.map(capShort).join(" or ") + " window weighs nothing, so it has no view; refused or full, it " +
             "still makes a seat ineligible for that family's requests.") +
-      " Point at a seat, on the chart or in the list, or focus its mark, to see its gaps: a dotted line from " +
-      "each mark to a ring on the curve, labelled in points: + over target, \u2212 under."));
+      " Point at a seat, on the chart or in the list, or focus its mark, to see its gap: a dotted line from " +
+      "the mark to a ring on the curve, labelled in points: + over target, \u2212 under."));
 
     var t = def(dl, "the target curve");
     var land = landingOf(wts);
@@ -4764,11 +4778,7 @@ time[data-ts] { cursor: help; }
     sub.appendChild(h("b", "", SESSION_SHORT));
     sub.appendChild(document.createTextNode(" " + (weightClause || "is a rate limit, not a budget")));
 
-    var W = Math.max(280, host.clientWidth || 480);
-    /* Sized as the 7-day views' plot, so switching windows keeps the card still. */
-    var H = Math.round(clamp(W * 0.375, 294, 510));
-    var m = { l: 46, r: 22, t: 16, b: 40 };
-    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    var fr = paceFrame(host), W = fr.W, H = fr.H, m = fr.m, pw = fr.pw, ph = fr.ph;
     var now = nowMs();
 
     var series = seats.map(function (a) {
@@ -4915,10 +4925,15 @@ time[data-ts] { cursor: help; }
     lineLegend($("pace-legend"), anyEst, anyUnrec, anyLock);
     sessionList($("session-rank"), series.map(function (s) {
       var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
-      if (!o) return Object.assign({ a: s.auth }, blankDetail(s.gap || "no reading"));
-      /* Where it is headed and when it resets, on one line. */
+      /* A seat whose reading the scorer cannot use, too old or never taken,
+         says so in the 7-day lists' word; any other says where it is headed
+         and when it resets, on one line. */
+      var v = famVerdict(s.auth, STANDARD, now), sc = famScore(s.auth, STANDARD);
+      var unread = !v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot") ? v.word : "";
+      if (!o) return Object.assign({ a: s.auth }, blankDetail(unread || s.gap || "no reading"));
       var d = outlookDetail(o);
-      d.lines = [{ t: d.lines.map(function (l) { return l.t; }).join(" \u00b7 "), tone: d.lines.length ? d.lines[0].tone : "" }];
+      d.lines = unread ? [{ t: unread, tone: "muted" }]
+        : [{ t: d.lines.map(function (l) { return l.t; }).join(" \u00b7 "), tone: d.lines.length ? d.lines[0].tone : "" }];
       return Object.assign({ a: s.auth }, d);
     }), root);
     renderSessionNote(st);
@@ -5026,8 +5041,8 @@ time[data-ts] { cursor: help; }
     return { figure: "\u2014", meter: { from: 0, to: 0, tick: null }, lines: [{ t: why, tone: "muted" }] };
   }
 
-  /* The 5-hour list, in the rankings' own rows: no rank, the seat, its use
-     now, and under them its meter and one line, where it is headed by its
+  /* The 5-hour list, in the rankings' own rows without their rank column:
+     the seat, its use now, and under them its meter and one line, where it is headed by its
      reset and when that is. Pointing at a row lifts its seat on the chart. */
   function sessionList(host, rows, root) {
     var top = host.getAttribute("data-view") === PACE_SESSION ? host.scrollTop : 0;
@@ -5036,12 +5051,11 @@ time[data-ts] { cursor: help; }
     var block = host.appendChild(h("div", "rank-fam", ""));
     var head = block.appendChild(h("p", "rank-fam-head pin", ""));
     head.appendChild(h("span", "rank-fam-name", SESSION_SHORT));
-    var ul = block.appendChild(h("ul", "rank-list", ""));
+    var ul = block.appendChild(h("ul", "rank-list unranked", ""));
     ul.setAttribute("aria-label", SESSION_SHORT + " use now, by seat");
     rows.forEach(function (r) {
       var li = ul.appendChild(h("li", "rank-row", ""));
       li.setAttribute("data-seat", r.a.auth_id);
-      li.appendChild(h("span", "rank-no", ""));
       li.appendChild(seatMark(r.a));
       li.appendChild(h("span", "rank-cost", r.figure));
       seatDetail(li.appendChild(h("div", "rank-detail", "")), r.a, r);
@@ -5142,6 +5156,8 @@ time[data-ts] { cursor: help; }
   /* How the plot draws the seats: each its own line, or stacked into the
      pool's total against what the pool holds. */
   var HIST_FORM_KEY = "pacer-hist-form";
+  /* The tallest Over time list drawn on this page, in px. */
+  var histListH = 0;
   var histForm = "stacked";
   function loadHistForm() { histForm = loadPref(HIST_FORM_KEY) === "lines" ? "lines" : "stacked"; }
   function saveHistForm() { savePref(HIST_FORM_KEY, histForm); }
@@ -5168,7 +5184,8 @@ time[data-ts] { cursor: help; }
   }
 
   /* A span's lead past now: the same share of every span, so a range that
-     follows now always gives the future the same part of the plot. */
+     follows now gives the future the same part of the plot wherever the
+     strip reaches that far. */
   function histAhead(span) { return span * 0.15; }
 
   /* Maps a window's elapsed fraction to x on a calendar axis, so curvePath
@@ -5663,7 +5680,7 @@ time[data-ts] { cursor: help; }
 
     /* Moves the range, clamped to the strip: a move keeps its span, a resize
        keeps the edge it did not drag, and a zoom below the least span grows
-       back about its middle. A range covering the strip is the whole history;
+       back about its middle. A range as wide as All, or with All's ends, is All;
        one that ends where a live one would follows now as a live one does;
        one that ends past that, or that follows now and still ends after it
        through a resize or zoom, follows by the lead it has. */
@@ -5933,12 +5950,13 @@ time[data-ts] { cursor: help; }
     }
 
     /* The side list of the stacked form: what the seats on the roster have
-       left now, in a tone that rises as the share left falls, against what
-       they hold, and how many seats are off it; then the schedule of what
-       comes back if no more is used, soonest first and the next's time in
-       bold: each reset returning a seat's spend and each weekly reset
-       bringing a seat back on the roster, with what the pool then has left,
-       "full" once every seat is back with nothing spent. Each seat's own
+       used now, the height the stack stands at, in a tone that rises as the
+       share left falls, against what they hold, with what that leaves, and
+       how many seats are off it; then the schedule of what comes back if no
+       more is used, soonest first and the next's time in bold: each reset
+       returning a seat's spend and each weekly reset bringing a seat back on
+       the roster, with what the pool then has left, "all back" once every
+       seat is back with nothing spent. Each seat's own
        level, reset and refusals are the Seats section's; pointing at a row
        lifts its seat on the chart. */
     function balanceList() {
@@ -5953,11 +5971,12 @@ time[data-ts] { cursor: help; }
       var fam = list.appendChild(h("div", "rank-fam", ""));
       var head = fam.appendChild(h("p", "rank-fam-head pin", ""));
       head.appendChild(h("span", "rank-fam-name", view.label));
-      head.appendChild(h("span", "rank-fam-note", "left now · what each reset brings back if no more is used; 100% is one full window"));
+      head.appendChild(h("span", "rank-fam-note", "used now · what each reset brings back if no more is used; 100% is one full window"));
       var bal = fam.appendChild(h("div", "bal", ""));
-      var fig = bal.appendChild(h("span", "bal-fig", pct(left, 0)));
+      var fig = bal.appendChild(h("span", "bal-fig", pct(spent, 0)));
       if (share < BAL_LOW) fig.setAttribute("data-tone", share < BAL_LOW / 2 ? "critical" : "serious");
-      bal.appendChild(h("span", "bal-of", "left of " + pct(size, 0)));
+      bal.appendChild(h("span", "bal-of", "of " + pct(size, 0) + " used"));
+      bal.appendChild(h("span", "bal-left", pct(left, 0) + " left"));
       if (off) fam.appendChild(h("p", "bal-off", off + (off === 1 ? " seat" : " seats") + " off, refused on " + WEEKLY_SHORT));
       if (!schedule.length) {
         fam.appendChild(h("p", "bal-none", spent > 0.005 ? "no reset ahead on record" : "nothing spent"));
@@ -5977,7 +5996,7 @@ time[data-ts] { cursor: help; }
         when.appendChild(stamp(new Date(r.t), ""));
         var gain = li.appendChild(h("div", "bal-gain", ""));
         gain.appendChild(h("b", "", "+" + pct(r.u, 0)));
-        gain.appendChild(document.createTextNode(then >= full - 0.005 ? " \u2192 full" : " \u2192 " + pct(then, 0) + " total"));
+        gain.appendChild(document.createTextNode(then >= full - 0.005 ? " \u2192 all back" : " \u2192 " + pct(then, 0) + " left"));
         li.addEventListener("pointerenter", function () { var cr = root(); if (cr) focusSeat(cr, r.a.auth_id); });
         li.addEventListener("pointerleave", function () { var cr = root(); if (cr) focusSeat(cr, seatOn(cr, document.activeElement)); });
       });
@@ -5986,7 +6005,7 @@ time[data-ts] { cursor: help; }
     }
 
     /* The stacked form's tooltip at t, in the stack's order from the top:
-       the pool's share left then against what it holds, and each seat's
+       the pool's use then against what it holds, with what that leaves, and each seat's
        level, the one on marked; ahead of now, when each seat's spend comes
        back and what comes back next. */
     function stackTip(t, on) {
@@ -6010,7 +6029,7 @@ time[data-ts] { cursor: help; }
       return {
         seat: "All seats", win: view.label, type: future ? "reset" : past ? "usage" : "now",
         label: future ? "ahead" : past ? "past" : "now", when: absTime(new Date(t)), dur: past || future ? relText(new Date(t), now) : "",
-        big: [pct(Math.max(0, size - spent), 0) + " left"], delta: "of " + pct(size, 0) + " held, " + pct(spent, 0) + " spent",
+        big: [pct(spent, 0)], delta: "of " + pct(size, 0) + " used · " + pct(Math.max(0, size - spent), 0) + " left",
         rows: rows, lines: lines
       };
     }
@@ -6184,6 +6203,12 @@ time[data-ts] { cursor: help; }
         seatList(list, view.label, "use in view, summed across resets; 100% is one full window",
           rangeRows, function () { return histGeo && histGeo.root; }, rangeTotal(rangeRows, t0, t1));
       }
+      /* Measured at no height, so the list's own rows set it. */
+      var keep = list.scrollTop;
+      list.style.setProperty("--hist-h", "0px");
+      histListH = Math.max(histListH, list.scrollHeight);
+      list.style.setProperty("--hist-h", histListH + "px");
+      list.scrollTop = keep;
 
       histGeo = {
         t0: t0, t1: t1, liveEnd: liveEnd, minSpan: minSpan, set: set, root: root,
@@ -6707,10 +6732,12 @@ time[data-ts] { cursor: help; }
       }
       li.appendChild(cost);
       var o = currentOutlook(a, fam === STANDARD ? "seven_day" : "weekly_scoped", fam, pace, now);
-      /* A seat held off the family says why under its meter; one that can
-         take it says where it is headed. */
-      var det = o ? outlookDetail(o, true) : blankDetail(verdict.ok ? "no reading" : verdict.word);
-      if (o && !verdict.ok) det.lines = [{ t: verdict.word, tone: "muted" }];
+      /* A seat held off the family says why under its meter, and so does one
+         with no mark on the plot; any other says where it is headed. */
+      var wsOf = scoreFor(a, fam === STANDARD ? { kind: PACE_KIND } : { kind: "weekly_scoped", scope: fam });
+      var why = !verdict.ok ? verdict.word : fam === STANDARD ? paceGap(a, wsOf) : scopedGap(fam, famScore(a, fam), wsOf);
+      var det = o ? outlookDetail(o, true) : blankDetail(why || "no reading");
+      if (o && why) det.lines = [{ t: why, tone: "muted" }];
       seatDetail(li.appendChild(h("div", "rank-detail", "")), a, det);
       ul.appendChild(li);
     });
