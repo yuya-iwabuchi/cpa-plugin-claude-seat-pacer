@@ -637,6 +637,10 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
   .side-list { position: relative; max-height: 380px; }
   .side-list :is(.ol-list, .rank-list, .bal-list) { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 24px; }
   .side-list .rank-list > .rank-tier { grid-column: 1 / -1; }
+  /* Over time's two forms list different rows; one height keeps the card
+     still when switching. The axis gives the range. */
+  #hist-rank { height: 380px; }
+  .hist-range { display: none; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
    can check a figure against the marks' labels by. It runs the width of the
@@ -694,7 +698,7 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
 .rank-row[data-lead] { background: var(--emph); }
 /* The row of the seat pointed at, here or on the chart, is outlined, so it
    reads apart from the lead row's tint. */
-.rank-row:is(:hover, [data-focused]) { box-shadow: inset 0 0 0 1px var(--hairline); background: var(--emph); }
+.rank-row:is(:hover, [data-focused]) { box-shadow: inset 0 0 0 1px var(--ink-3); }
 .rank-row[data-out] { color: var(--ink-3); }
 /* A seat held off a family recedes in its dot: the row is already set in
    the dimmest ink, and an opacity over that takes the name under the ratio
@@ -739,7 +743,8 @@ svg.pace text.reset-label { paint-order: stroke; stroke: var(--surface-1); strok
 /* The note is a list of definitions: each term names the topic under it, so
    a reader after one of them finds it without reading the rest. */
 .pace-note dl { margin: 0; display: grid; gap: 8px; }
-.pace-note dt { font: 600 10.5px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.pace-note dt { font: 600 12px/1.4 var(--sans); color: var(--ink-1); }
+.pace-note dt::first-letter { text-transform: uppercase; }
 .pace-note dd { margin: -4px 0 0; font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
 .pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
@@ -774,8 +779,8 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 /* The stacked form's balance: what the pool has left, large, against what
    it holds, then the schedule of what comes back: seat and time, then
    amount and what the pool then has. */
-.bal { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px 10px; border-bottom: 1px solid var(--rule); }
-.bal-fig { font: 650 28px/1 var(--sans); color: var(--ink-1); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.bal { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px 8px; border-bottom: 1px solid var(--rule); }
+.bal-fig { font: 650 22px/1 var(--sans); color: var(--ink-1); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .bal-fig[data-tone="serious"] { color: var(--serious); }
 .bal-fig[data-tone="critical"] { color: var(--critical); }
 .bal-of { font: 500 12px/1.3 var(--sans); color: var(--ink-2); }
@@ -4456,7 +4461,12 @@ time[data-ts] { cursor: help; }
         ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " used" +
         ", " + overText(ws.slack) + (weighted ? ", counted" + weightTag(ws.weight) + " in the cost" : ", cost " + costText(a.score)) +
         liveAria(locks.live, now));
-      setTip(g, markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now));
+      var tip = markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now);
+      /* A cap's gap is one term of its family's cost; the mark gives the
+         cost the list ranks by, so the two figures meet. */
+      var fsc = weighted ? famScore(a, ws.scope) : null;
+      if (fsc && scored(fsc) && num(fsc.cost)) tip.lines.push({ b: ws.scope + " cost", t: costText(fsc) });
+      setTip(g, tip);
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       presentMark(g, cx, cy, col, locks.live.length > 0);
     }
@@ -4690,10 +4700,8 @@ time[data-ts] { cursor: help; }
      them. All three are readings the provider hands over. A reading at full
      and a reading that is not a number leave a conversation already bound to
      the seat where it is; a refusal moves it where runtime.pickByAffinity
-     finds another seat that can take the model.
-
-     The view's line and the chart's name print this constant, so the two
-     list the gates alike. */
+     finds another seat that can take the model. The chart's name prints
+     this constant. */
   var SESSION_GATES = "a refusal, a bad reading or a full reading makes a seat ineligible";
 
   /* Why a seat draws no 5-hour line. Null means plottable. */
@@ -4741,17 +4749,15 @@ time[data-ts] { cursor: help; }
     var host = $("session-chart");
     host.textContent = "";
     var paceCfg = (st.config && st.config.pace) || {};
-    /* The view's line carries the two facts the chart cannot draw: what this
-       window's headroom is worth in the cost, which the running weight
-       decides, and that the window gates whatever that weight is. Written
-       here so it follows the running config. */
+    /* The view's line carries what this window's headroom is worth in the
+       cost, which the running weight decides; the note says what the window
+       gates. Written here so it follows the running config. */
     var wt = paceCfg.session_weight, counts = termShown(wt);
     var weightClause = !num(wt) ? "" : wt === 0 ? "weighs nothing in the cost" : "counts" + weightTag(wt) + " in the cost";
     var sub = $("session-sub");
     sub.textContent = "";
     sub.appendChild(h("b", "", SESSION_SHORT));
-    sub.appendChild(document.createTextNode(" " + [weightClause, SESSION_GATES]
-      .filter(Boolean).join(" · ")));
+    sub.appendChild(document.createTextNode(" " + (weightClause || "a rate limit, not a budget")));
 
     var W = Math.max(280, host.clientWidth || 480);
     /* Sized as the 7-day views' plot, so switching windows keeps the card still. */
@@ -6651,10 +6657,14 @@ time[data-ts] { cursor: help; }
       var mark = seatMark(a);
       mark.appendChild(h("span", "sr-only", ", " + meta.label));
       li.appendChild(mark);
-      var cost = h("span", "rank-cost", costText(sc));
+      /* Only a ranked seat prints its cost in the column the ranking reads;
+         a seat outside it gives its cost in the tooltip. */
+      var ranked = elig && !outside;
+      var cost = h("span", "rank-cost", ranked ? costText(sc) : "\u2014");
+      var costTip = sc && scored(sc) && num(sc.cost) ? " · cost " + costText(sc) : "";
       if (elig && outside) {
         li.setAttribute("data-out", "true");
-        tipOnly(li, priorityWord(p) + " · " + tierText(p, ranks, [fam]));
+        tipOnly(li, priorityWord(p) + " · " + tierText(p, ranks, [fam]) + costTip);
       } else if (elig) {
         var same = (printing[costText(sc)] || []).filter(function (o) { return o !== a; });
         var near = nearNeighbours(a).filter(function (o) { return same.indexOf(o) < 0; });
@@ -6688,7 +6698,7 @@ time[data-ts] { cursor: help; }
         /* The grey says the seat is out; the tooltip says why, and when the
            work returns where the provider names an instant. */
         li.setAttribute("data-out", "true");
-        tipOnly(li, verdict.text);
+        tipOnly(li, verdict.text + costTip);
       }
       li.appendChild(cost);
       var o = currentOutlook(a, fam === STANDARD ? "seven_day" : "weekly_scoped", fam, pace, now);
