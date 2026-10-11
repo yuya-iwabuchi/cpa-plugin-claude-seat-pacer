@@ -4036,13 +4036,14 @@ time[data-ts] { cursor: help; }
     if (mark) {
       bands.forEach(function (r) {
         if (Math.abs(r[2] - mark.y) < 1 && r[1] >= mark.x - 1) {
-          /* The window the sleeve runs in is the latest part to start by
-             its end. */
+          /* The stretch reaches no earlier than the first reading of the
+             window it ends in, the latest part to start by its end; it is
+             never cut short. */
           var first = Math.max.apply(null, parts.map(function (part) {
             var x = part[1].length ? xOf(part[1][0].t) : -Infinity;
             return x <= r[1] + 0.5 ? x : -Infinity;
           }));
-          r[0] = Math.max(first + SLEEVE_W / 2, Math.min(r[0], mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2));
+          r[0] = Math.min(r[0], Math.max(first + SLEEVE_W / 2, mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2));
         }
       });
     }
