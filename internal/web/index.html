@@ -4010,10 +4010,11 @@ time[data-ts] { cursor: help; }
      make one sleeve. A run under a pixel wide draws nothing, since it would
      sleeve a climb. The seat's line, lineG, leaves its sleeves to a copy
      drawn through them in parent, so every other seat's line passes over a
-     refused one. mark, for a seat refused now, is its present mark's centre:
-     a sleeve running into the mark reaches at least SLEEVE_MIN past the
-     mark's ring, which would otherwise cover a brief one. Reports whether it
-     drew any. */
+     refused one. mark, for a seat refused now whose present mark is drawn,
+     is that mark's centre: a sleeve running into the mark reaches at least
+     SLEEVE_MIN past the mark's ring, which would otherwise cover a brief one,
+     though never before the line's first reading. Reports whether it drew
+     any. */
   function lockSleeves(parent, parts, xOf, Y, col, lineG, mark) {
     var runs = [];
     parts.forEach(function (part) {
@@ -4033,8 +4034,11 @@ time[data-ts] { cursor: help; }
     });
     if (!bands.length) return false;
     if (mark) {
+      var first = Math.min.apply(null, parts.map(function (part) { return part[1].length ? xOf(part[1][0].t) : Infinity; }));
       bands.forEach(function (r) {
-        if (Math.abs(r[2] - mark.y) < 1 && r[1] >= mark.x - 1) r[0] = Math.min(r[0], mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2);
+        if (Math.abs(r[2] - mark.y) < 1 && r[1] >= mark.x - 1) {
+          r[0] = Math.max(first + SLEEVE_W / 2, Math.min(r[0], mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2));
+        }
       });
     }
     var root = parent.ownerSVGElement || parent, defs = root.querySelector("defs") || svg("defs", {}, root);
@@ -4635,7 +4639,7 @@ time[data-ts] { cursor: help; }
     series.forEach(function (s) {
       if (!s.gap && view === STANDARD) { plotted++; point(s.auth, s.ws, false); }
       s.caps.forEach(function (c) {
-        if (c.gap || !view === c.fam) return;
+        if (c.gap || view !== c.fam) return;
         plotted++;
         point(s.auth, c.ws, true);
       });
@@ -4656,10 +4660,9 @@ time[data-ts] { cursor: help; }
   }
 
   /* Under 1000px the list drops under the plot; it keeps the height of the
-     tallest family's list, measured unseen at its own width, up to the 380px
-     it scrolls past, so switching views moves nothing under it. The 5-hour
-     list holds the same seats in rows of one height, under no tier heads, so
-     it is never the tallest. */
+     tallest view's list, each family's and the 5-hour one, measured unseen
+     at its own width, up to the 380px it scrolls past, so switching views
+     moves nothing under it. */
   function steadyPaceList(st, seats, ranks) {
     var lists = [$("pace-rank"), $("session-rank")];
     lists.forEach(function (l) { l.style.minHeight = ""; });
@@ -4667,15 +4670,17 @@ time[data-ts] { cursor: help; }
     var shown = lists.filter(function (l) { return l.offsetParent; })[0];
     if (!shown) return;
     var probe = shown.parentNode.appendChild(h("div", "side-list"));
-    probe.style.cssText = "position:absolute;left:0;right:0;top:0;visibility:hidden;max-height:none";
-    var tallest = shown.scrollHeight;
+    probe.style.cssText = "position:absolute;left:0;right:0;top:0;bottom:auto;height:auto;visibility:hidden;max-height:none";
+    var tallest = 0;
     ranks.fams.forEach(function (fam) {
       probe.textContent = "";
       probe.appendChild(rankList(st, seats, ranks, fam));
-      tallest = Math.max(tallest, probe.scrollHeight);
+      tallest = Math.max(tallest, probe.getBoundingClientRect().height);
     });
+    sessionList(probe, sessionRows(seats, (st.config && st.config.pace) || {}, nowMs()), null);
+    tallest = Math.max(tallest, probe.getBoundingClientRect().height);
     probe.parentNode.removeChild(probe);
-    lists.forEach(function (l) { l.style.minHeight = Math.min(380, tallest) + "px"; });
+    lists.forEach(function (l) { l.style.minHeight = Math.min(380, Math.ceil(tallest)) + "px"; });
   }
 
   /* One button per window, named as Over time names it, the view's pressed:
@@ -4964,8 +4969,7 @@ time[data-ts] { cursor: help; }
     var now = nowMs();
 
     var series = seats.map(function (a) {
-      var w = null;
-      ((a.snapshot && a.snapshot.windows) || []).forEach(function (x) { if (x.kind === "five_hour") w = x; });
+      var w = sessionWindow(a);
       var resets = w ? parseT(w.resets_at) : null;
       /* The scorer's own target and gap for this window, with Weight 0; a
          seat it never evaluated draws its line with no head tick. */
@@ -5112,19 +5116,31 @@ time[data-ts] { cursor: help; }
     }
 
     lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
-    sessionList($("session-rank"), series.map(function (s) {
-      var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
-      /* A seat the host holds, or whose reading the scorer cannot use, too
-         old or never taken, says so in the 7-day lists' word; any other says
-         where it is headed and when it resets, on one line. */
-      var v = famVerdict(s.auth, STANDARD, now), sc = famScore(s.auth, STANDARD);
-      var unread = hostHolds(s.auth) || (!v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot")) ? v.word : "";
-      if (!o) return Object.assign({ a: s.auth }, blankDetail(unread || s.gap || "no reading"));
+    sessionList($("session-rank"), sessionRows(seats, paceCfg, now), root);
+  }
+
+  /* A seat's 5-hour window, or null where its reading has none. */
+  function sessionWindow(a) {
+    var w = null;
+    ((a.snapshot && a.snapshot.windows) || []).forEach(function (x) { if (x.kind === "five_hour") w = x; });
+    return w;
+  }
+
+  /* The 5-hour list's rows. A seat the host holds, or whose reading the
+     scorer cannot use, too old or never taken, says so in the 7-day lists'
+     word; any other says where it is headed and when it resets, on one
+     line. */
+  function sessionRows(seats, paceCfg, now) {
+    return seats.map(function (a) {
+      var w = sessionWindow(a), o = currentOutlook(a, "five_hour", "", paceCfg, now);
+      var v = famVerdict(a, STANDARD, now), sc = famScore(a, STANDARD);
+      var unread = hostHolds(a) || (!v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot")) ? v.word : "";
+      if (!o) return Object.assign({ a: a }, blankDetail(unread || sessionGap(a, w, w ? parseT(w.resets_at) : null) || "no reading"));
       var d = outlookDetail(o);
       d.lines = unread ? [{ t: unread, tone: "muted" }]
         : [{ t: d.lines.map(function (l) { return l.t; }).join(" \u00b7 "), tone: d.lines.length ? d.lines[0].tone : "" }];
-      return Object.assign({ a: s.auth }, d);
-    }), root);
+      return Object.assign({ a: a }, d);
+    });
   }
 
   function renderSessionNote(st) {
@@ -6405,8 +6421,9 @@ time[data-ts] { cursor: help; }
           svg("path", { "class": "hs-reset", d: "M" + x + " " + Y(last.u).toFixed(1) + "V" + Y(0).toFixed(1), stroke: sd.col }, gl);
           svg("path", { "class": "hist", d: "M" + x + " " + Y(0).toFixed(1) + tailTo(X(first.t), Y(first.u)), stroke: sd.col }, gl);
         });
-        lockSleeves(gt, lockParts, X, Y, sd.col, gl, sd.live && sd.cur !== null ? { x: X(now), y: Y(sd.cur) } : null);
-        if (sd.cur !== null && now >= t0 && now <= t1) {
+        var drawsMark = sd.cur !== null && now >= t0 && now <= t1;
+        lockSleeves(gt, lockParts, X, Y, sd.col, gl, sd.live && drawsMark ? { x: X(now), y: Y(sd.cur) } : null);
+        if (drawsMark) {
           presentMark(gm, X(now), Y(sd.cur), sd.col, sd.live);
         }
       });
