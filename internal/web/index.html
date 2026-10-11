@@ -776,7 +776,6 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 /* -------------------------------------------------------------- over time */
 #hist-chart { min-width: 0; touch-action: pan-y pinch-zoom; user-select: none; }
 .hist-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; }
-.hist-tools .pace-view { margin: 0; }
 .hist-range { font: 500 11px/1 var(--mono); color: var(--ink-2); }
 svg.hist-tl rect.hs-nav-bg { fill: var(--rule); opacity: .35; }
 svg.hist-tl path.hs-nav-line { fill: none; stroke-width: 1; opacity: .85; }
@@ -2072,8 +2071,6 @@ time[data-ts] { cursor: help; }
     if (paceView === PACE_SESSION) return paceView;
     return capDrawn && fams.indexOf(paceView) >= 0 ? paceView : STANDARD;
   }
-
-  function shows(view, fam) { return view === fam; }
 
   /* Seats by priority, highest first, then in name order, numbers within a
      name read as numbers, then by id where two names match, minus the hidden
@@ -3704,8 +3701,11 @@ time[data-ts] { cursor: help; }
     "background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink-2) 75%, transparent) 0 1.1px, transparent 1.1px 3px)";
   var LOCK_KEY = "refused";
   /* Stacked, a refused seat's band, struck through in the card's colour. */
-  var SW_STACK_LOCK = "height:10px;background:repeating-linear-gradient(135deg, var(--surface-1) 0 1.6px, var(--ink-3) 1.6px 4.4px)";
-  var HS_HATCH_P = 4.4;
+  /* Stacked's refusal stripes: their period and width in px, which the
+     swatch repeats. */
+  var HS_HATCH_P = 4.4, HS_HATCH_W = 1.6;
+  var SW_STACK_LOCK = "height:10px;background:repeating-linear-gradient(135deg, var(--surface-1) 0 " + HS_HATCH_W + "px, " +
+    "var(--ink-3) " + HS_HATCH_W + "px " + HS_HATCH_P + "px)";
   var SW_ALL_REFUSED = "height:10px;background:linear-gradient(var(--critical) 0 2px, " +
     "color-mix(in srgb, var(--critical) 14%, transparent) 2px)";
   var ALL_REFUSED_KEY = "every seat refused";
@@ -3854,10 +3854,10 @@ time[data-ts] { cursor: help; }
      that reading rose, else t0. A refused seat takes no work, so that rise is
      use from before the refusal that the reading caught late. */
   function settledStart(t0, t1, samples, tNow, uNow) {
-    for (var i = 1; i < samples.length; i++) {
+    for (var i = 0; i < samples.length; i++) {
       var s = samples[i];
       if (s.t <= t0) continue;
-      return s.t < t1 && !s.fresh && s.u > samples[i - 1].u ? s.t : t0;
+      return i && s.t < t1 && !s.fresh && s.u > samples[i - 1].u ? s.t : t0;
     }
     var last = samples[samples.length - 1];
     return last && uNow > last.u && tNow > t0 ? Math.min(tNow, t1) : t0;
@@ -4436,8 +4436,13 @@ time[data-ts] { cursor: help; }
     }
   }
 
-  /* One frame for every Current window plot, so switching windows
-     keeps the card still. */
+  /* One frame for every Current window plot, so switching windows keeps
+     the card still: the card's width and a height that follows it, bounded
+     so a phone still gets a readable chart and a wide screen not a wall. The
+     ratio gives the y axis room for seats a few points apart to keep their
+     labels clear of their marks, and still stands the section with section
+     01 on a laptop viewport; the labelled gridlines stay a fifth of the
+     budget apart. */
   function paceFrame(host) {
     var W = Math.max(280, host.clientWidth || 480), H = Math.round(clamp(W * 0.375, 294, 510));
     var m = { l: 46, r: 22, t: 16, b: 40 };
@@ -4458,15 +4463,13 @@ time[data-ts] { cursor: help; }
     $("pace-five").hidden = view !== PACE_SESSION;
     $("pace-note").toggleAttribute("data-off", view === PACE_SESSION);
     $("session-note").toggleAttribute("data-off", view !== PACE_SESSION);
+    /* Both notes are written whichever view shows, so the fold holding them
+       keeps the longer one's height on every switch. */
+    renderPaceNote(st);
+    renderSessionNote(st);
     if (view === PACE_SESSION) { renderSession(st, seats); return; }
     var pace = (st.config && st.config.pace) || {};
 
-    /* The plot takes the card's width and a height that follows it, bounded so
-       a phone still gets a readable chart and a wide screen not a wall. The
-       ratio gives the y axis room for seats a few points apart to keep their
-       labels clear of their marks, and still stands the section with section
-       01 on a laptop viewport; the labelled gridlines stay a fifth of the budget
-       apart. */
     var fr = paceFrame(host), W = fr.W, H = fr.H, m = fr.m, pw = fr.pw, ph = fr.ph;
 
     var series = seats.map(function (a) {
@@ -4486,8 +4489,8 @@ time[data-ts] { cursor: help; }
 
     var maxY = 1.05;
     series.forEach(function (s) {
-      if (!s.gap && shows(view, STANDARD)) maxY = Math.max(maxY, s.ws.utilization + 0.05);
-      s.caps.forEach(function (c) { if (!c.gap && shows(view, c.fam)) maxY = Math.max(maxY, c.ws.utilization + 0.05); });
+      if (!s.gap && view === STANDARD) maxY = Math.max(maxY, s.ws.utilization + 0.05);
+      s.caps.forEach(function (c) { if (!c.gap && view === c.fam) maxY = Math.max(maxY, c.ws.utilization + 0.05); });
     });
 
     var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
@@ -4498,7 +4501,7 @@ time[data-ts] { cursor: help; }
     var root = svg("svg", {
       "class": "pace", width: W, height: H, viewBox: "0 0 " + W + " " + H,
       role: "group",
-      "aria-label": (shows(view, STANDARD) ? WEEKLY_SHORT : capShort(view)) +
+      "aria-label": (view === STANDARD ? WEEKLY_SHORT : capShort(view)) +
         " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it"
     }, host);
 
@@ -4618,9 +4621,9 @@ time[data-ts] { cursor: help; }
 
     var plotted = 0;
     series.forEach(function (s) {
-      if (!s.gap && shows(view, STANDARD)) { plotted++; point(s.auth, s.ws, false); }
+      if (!s.gap && view === STANDARD) { plotted++; point(s.auth, s.ws, false); }
       s.caps.forEach(function (c) {
-        if (c.gap || !shows(view, c.fam)) return;
+        if (c.gap || !view === c.fam) return;
         plotted++;
         point(s.auth, c.ws, true);
       });
@@ -4631,13 +4634,12 @@ time[data-ts] { cursor: help; }
 
     if (!plotted) {
       svgText(root, m.l + pw / 2, m.t + ph / 2,
-        shows(view, STANDARD) ? "no " + WEEKLY_SHORT + " window to plot" : "no " + capShort(view) + " window to plot",
+        view === STANDARD ? "no " + WEEKLY_SHORT + " window to plot" : "no " + capShort(view) + " window to plot",
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
     lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
     renderRank(st, seats, ranks, view);
-    renderPaceNote(st);
   }
 
   /* One button per window, named as Over time names it, the view's pressed:
@@ -5074,18 +5076,17 @@ time[data-ts] { cursor: help; }
     lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
     sessionList($("session-rank"), series.map(function (s) {
       var o = currentOutlook(s.auth, "five_hour", "", paceCfg, now);
-      /* A seat whose reading the scorer cannot use, too old or never taken,
-         says so in the 7-day lists' word; any other says where it is headed
-         and when it resets, on one line. */
+      /* A seat the host holds, or whose reading the scorer cannot use, too
+         old or never taken, says so in the 7-day lists' word; any other says
+         where it is headed and when it resets, on one line. */
       var v = famVerdict(s.auth, STANDARD, now), sc = famScore(s.auth, STANDARD);
-      var unread = !v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot") ? v.word : "";
+      var unread = hostHolds(s.auth) || (!v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot")) ? v.word : "";
       if (!o) return Object.assign({ a: s.auth }, blankDetail(unread || s.gap || "no reading"));
       var d = outlookDetail(o);
       d.lines = unread ? [{ t: unread, tone: "muted" }]
         : [{ t: d.lines.map(function (l) { return l.t; }).join(" \u00b7 "), tone: d.lines.length ? d.lines[0].tone : "" }];
       return Object.assign({ a: s.auth }, d);
     }), root);
-    renderSessionNote(st);
   }
 
   function renderSessionNote(st) {
@@ -5337,7 +5338,9 @@ time[data-ts] { cursor: help; }
   /* A span's lead past now: the same share of every span, so a range that
      follows now gives the future the same part of the plot wherever the
      strip reaches that far. */
-  function histAhead(span) { return span * 0.15; }
+  function histAhead(span) {
+    return span * 0.15;
+  }
 
   /* Maps a window's elapsed fraction to x on a calendar axis, so curvePath
      lays a cycle's target from the instant the window opened to its reset. */
@@ -5531,6 +5534,27 @@ time[data-ts] { cursor: help; }
   function foldedReset(sd, from, to, t, now) {
     return { b: seatLabel(sd.a), t: pct(from, 0) + " \u2192 " + pct(to, 0) + " \u00b7 " + absTime(new Date(t)) +
       (t > now ? " \u00b7 if no more is used" : "") };
+  }
+
+  /* A reset mark for seat sd at x, y, in the group group() makes, its fall
+     from from to to at t on window win in the tooltip, faint and said to
+     hold only if no more is used while t is ahead of now. A mark that would
+     meet one in taken is left off, and its reset joins that mark's tooltip. */
+  function placeReset(taken, group, x, y, sd, from, to, t, win, now) {
+    var box = { x0: x - 8, x1: x + 8, y0: y - 8, y1: y + 8 };
+    var met = taken.filter(function (o) { return boxesMeet(box, o.box); })[0];
+    if (met) {
+      met.spec.lines.push(foldedReset(sd, from, to, t, now));
+      setTip(met.el, met.spec);
+      return;
+    }
+    var ahead = t > now, mk = resetMark(group(), x, y, sd.col, ahead ? "rs-ahead" : "");
+    var spec = { seat: seatLabel(sd.a), col: sd.col, win: win, type: "reset", label: ahead ? "resets" : "reset",
+      when: absTime(new Date(t)), dur: relText(new Date(t), now), big: [pct(from, 0), pct(to, 0)], delta: "",
+      lines: ahead ? [{ t: "if no more is used" }] : [] };
+    setTip(mk, spec);
+    mk.setAttribute("data-tip-visual", "true");
+    taken.push({ box: box, el: mk, spec: spec });
   }
 
   /* A reset's mark in col at x, y: the reset glyph in a ring. */
@@ -6012,7 +6036,7 @@ time[data-ts] { cursor: help; }
         var gr = svg("g", { "class": "pt-lock", "data-seat": sd.a.auth_id }, gShade);
         refused[k].forEach(function (sp) {
           svg("path", { "class": "hs-refused", d: stepArea(st.ts, top, bot, X, Y, sp[0], sp[1]), fill: "var(--surface-1)",
-            mask: hatchMask(gr, HS_HATCH_P, 1.6) }, gr);
+            mask: hatchMask(gr, HS_HATCH_P, HS_HATCH_W) }, gr);
         });
       });
       var caps = [t0].concat(heldEdges.filter(function (t) { return t > t0 && t < t1; }).sort(function (x, y) { return x - y; }));
@@ -6065,24 +6089,9 @@ time[data-ts] { cursor: help; }
         while (jb + 1 < st.ts.length && st.ts[jb + 1] < c.t) jb++;
         var ja = Math.min(jb + 1, st.ts.length - 1);
         var x = clamp(X(c.t), xMin, xMax), y = (Y(st.tops[p][jb]) + Y(st.tops[p][ja])) / 2;
-        var box = { x0: x - 8, x1: x + 8, y0: y - 8, y1: y + 8 };
-        var sd = data[c.k], ahead = c.t > now;
-        var met = taken.filter(function (o) { return boxesMeet(box, o.box); })[0];
-        if (met) {
-          met.spec.lines.push(foldedReset(sd, c.from, c.to, c.t, now));
-          setTip(met.el, met.spec);
-          return;
-        }
-        var gs = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, g);
-        var mk = resetMark(gs, x, y, sd.col, ahead ? "rs-ahead" : "");
-        var spec = {
-          seat: seatLabel(sd.a), col: sd.col, win: view.label, type: "reset", label: ahead ? "resets" : "reset",
-          when: absTime(new Date(c.t)), dur: relText(new Date(c.t), now), big: [pct(c.from, 0), pct(c.to, 0)], delta: "",
-          lines: ahead ? [{ t: "if no more is used" }] : []
-        };
-        setTip(mk, spec);
-        mk.setAttribute("data-tip-visual", "true");
-        taken.push({ box: box, el: mk, spec: spec });
+        var sd = data[c.k];
+        placeReset(taken, function () { return svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, g); },
+          x, y, sd, c.from, c.to, c.t, view.label, now);
       });
     }
 
@@ -6324,20 +6333,7 @@ time[data-ts] { cursor: help; }
           }
           if (c.at > t1 || cyclePx < 16) return;
           var ex = X(c.at), ey = Y(c.u), left = Math.max(0, 1 - c.u);
-          var box = { x0: ex - 8, x1: ex + 8, y0: ey - 8, y1: ey + 8 };
-          var met = rings.filter(function (o) { return boxesMeet(box, o.box); })[0];
-          if (met) {
-            /* Its reset joins the tooltip of the mark it would meet. */
-            met.spec.lines.push(foldedReset(sd, c.u, 0, c.at, now));
-            setTip(met.el, met.spec);
-          } else {
-            var rk = resetMark(gr, ex, ey, sd.col);
-            var spec = { seat: seatLabel(sd.a), col: sd.col, win: view.label, type: "reset", label: "reset",
-              when: absTime(new Date(c.at)), dur: relText(new Date(c.at), now), big: [pct(c.u, 0), "0%"], delta: "", lines: [] };
-            setTip(rk, spec);
-            rk.setAttribute("data-tip-visual", "true");
-            rings.push({ box: box, el: rk, spec: spec });
-          }
+          placeReset(rings, function () { return gr; }, ex, ey, sd, c.u, 0, c.at, view.label, now);
           /* A cycle that spent its whole budget left nothing to name. */
           if (view.weekly && !c.est && left >= 0.005 && cyclePx >= 60) {
             /* Above the mark, or under it where the 100% line and its
@@ -6788,20 +6784,15 @@ time[data-ts] { cursor: help; }
     }
     /* A view of one cap states its cost whole; the switch beside it reaches
        the views that draw the other terms. */
-    if (shows(view, STANDARD)) line("Standard cost", std.length ? "= " + std.join(" + ") : "= 0: no window carries weight");
-    fams.forEach(function (fam) {
-      if (!shows(view, fam)) return;
-      var scoped = famPace(st, fam).scoped_weight;
-      if (!termShown(scoped)) {
-        line(fam + " cost", "= Standard cost (" + capShort(fam) + " weighs nothing)");
-        return;
-      }
-      var cap = termClause(capShort(fam), scoped);
-      line(fam + " cost", "= " + (std.length ? std.join(" + ") + " + " : "") + cap);
-    });
+    if (view === STANDARD) line("Standard cost", std.length ? "= " + std.join(" + ") : "= 0: no window carries weight");
+    if (fams.indexOf(view) >= 0) {
+      var scoped = famPace(st, view).scoped_weight;
+      if (!termShown(scoped)) line(view + " cost", "= Standard cost (" + capShort(view) + " weighs nothing)");
+      else line(view + " cost", "= " + (std.length ? std.join(" + ") + " + " : "") + termClause(capShort(view), scoped));
+    }
     /* The close says who wins, and with no seat eligible in the family shown
        it says that: the ranking then orders seats that cannot take work. */
-    var anyLead = ranks.fams.some(function (fam) { return shows(view, fam) && !!ranks.lead[fam]; });
+    var anyLead = !!ranks.lead[view];
     host.appendChild(document.createTextNode(" · " + (anyLead ? "lowest eligible cost wins" : "no seat eligible")));
   }
 
@@ -6999,8 +6990,8 @@ time[data-ts] { cursor: help; }
     var scrollTop = host.getAttribute("data-view") === String(view) ? host.scrollTop : 0;
     host.setAttribute("data-view", String(view));
     host.textContent = "";
-    ranks.fams.forEach(function (fam) { if (shows(view, fam)) host.appendChild(rankList(st, seats, ranks, fam)); });
-    /* Each family's tier headings pin just under its head, whose height
+    if (ranks.fams.indexOf(view) >= 0) host.appendChild(rankList(st, seats, ranks, view));
+    /* The family's tier headings pin just under its head, whose height
        follows its note's wrapping; a resize renders again. */
     Array.prototype.forEach.call(host.querySelectorAll(".rank-fam"), function (block) {
       var head = block.querySelector(".rank-fam-head");

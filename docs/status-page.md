@@ -25,8 +25,8 @@ offers it for other models, and its tooltip names the host status.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is
-  skipped, with the reason: disabled in the host, held by the host, refused
-  by the provider, full, or not scored.
+  skipped, with the reason: disabled in the host, held by host, refused by
+  the provider, full, or not scored.
 - **Current window.** Each seat's use of its current window against the
   curve, one window at a time: 7d Standard, each model family's 7-day cap the
   cost weighs, and 5h Standard. A 7-day view ranks the seats by its family's
