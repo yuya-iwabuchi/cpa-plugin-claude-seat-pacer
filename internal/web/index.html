@@ -5521,9 +5521,11 @@ time[data-ts] { cursor: help; }
   }
 
   /* A tooltip line for a reset another seat's mark stands for: the seat,
-     the level it fell from and to, and when. */
-  function foldedReset(sd, from, to, t) {
-    return { b: seatLabel(sd.a), t: pct(from, 0) + " \u2192 " + pct(to, 0) + " \u00b7 " + absTime(new Date(t)) };
+     the level it falls from and to, and when, said to hold only if no more
+     is used where the reset is still ahead of now. */
+  function foldedReset(sd, from, to, t, now) {
+    return { b: seatLabel(sd.a), t: pct(from, 0) + " \u2192 " + pct(to, 0) + " \u00b7 " + absTime(new Date(t)) +
+      (t > now ? " \u00b7 if no more is used" : "") };
   }
 
   /* A reset's mark in col at x, y: the reset glyph in a ring. */
@@ -6062,7 +6064,7 @@ time[data-ts] { cursor: help; }
         var sd = data[c.k], ahead = c.t > now;
         var met = taken.filter(function (o) { return boxesMeet(box, o.box); })[0];
         if (met) {
-          met.spec.lines.push(foldedReset(sd, c.from, c.to, c.t));
+          met.spec.lines.push(foldedReset(sd, c.from, c.to, c.t, now));
           setTip(met.el, met.spec);
           return;
         }
@@ -6321,7 +6323,7 @@ time[data-ts] { cursor: help; }
           var met = rings.filter(function (o) { return boxesMeet(box, o.box); })[0];
           if (met) {
             /* Its reset joins the tooltip of the mark it would meet. */
-            met.spec.lines.push(foldedReset(sd, c.u, 0, c.at));
+            met.spec.lines.push(foldedReset(sd, c.u, 0, c.at, now));
             setTip(met.el, met.spec);
           } else {
             var rk = resetMark(gr, ex, ey, sd.col);
@@ -6489,7 +6491,7 @@ time[data-ts] { cursor: help; }
     /* The legend holds the height of the taller form's at this width, so
        switching forms moves nothing under it. */
     var other = legend.parentNode.appendChild(h("ul", "legend", ""));
-    other.style.cssText = "position:absolute;visibility:hidden;width:" + legend.offsetWidth + "px";
+    other.style.cssText = "position:absolute;visibility:hidden;width:" + legend.getBoundingClientRect().width + "px";
     fillLegend(other, !stacked);
     legend.style.minHeight = "";
     legend.style.minHeight = Math.max(legend.offsetHeight, other.offsetHeight) + "px";
