@@ -119,7 +119,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			row.Email = entry.Email
 			row.Provider = strings.ToLower(entry.Provider)
 			row.Priority = entry.Priority
-			row.HostStatus = hostStatus(entry)
+			row.HostStatus = hostStatus(entry, now)
 			if entry.Unavailable && entry.NextRetryAfter.After(now) {
 				until := entry.NextRetryAfter
 				row.HostHeldUntil = &until
@@ -174,12 +174,16 @@ func ApplyHostState(row *model.AuthStatus) {
 	}
 }
 
-// hostStatus is the credential state as the host reports it.
-func hostStatus(entry HostAuthFileEntry) string {
+// hostStatus is the credential state as the host reports it. An unavailable
+// credential whose cooldown has passed reads as its plain status: the host
+// keeps the flag until the credential's next request result, but offers it
+// again once the cooldown ends, and blocks one that names no end
+// (sdk/cliproxy/auth/selector.go availabilityBlock).
+func hostStatus(entry HostAuthFileEntry, now time.Time) string {
 	switch {
 	case entry.Disabled:
 		return "disabled"
-	case entry.Unavailable:
+	case entry.Unavailable && (entry.NextRetryAfter.IsZero() || entry.NextRetryAfter.After(now)):
 		return "unavailable"
 	case entry.Status != "":
 		return entry.Status

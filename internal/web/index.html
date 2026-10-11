@@ -6573,8 +6573,8 @@ time[data-ts] { cursor: help; }
     else if (!ranks.lead[fam]) {
       head.appendChild(overflowInLog(st)
         ? tipOnly(h("span", "rank-fam-note", OVERFLOW_TEXT), OVERFLOW_TIP)
-        : h("span", "rank-fam-note", "no seat eligible · new conversations go to the seat with the fewest live ones, " +
-          "refused and full seats last"));
+        : h("span", "rank-fam-note", "no seat eligible · new conversations go to the offered seat with the fewest " +
+          "live ones, refused and full seats last"));
     }
     block.appendChild(head);
     if (!known) return block;
@@ -7148,8 +7148,13 @@ time[data-ts] { cursor: help; }
   function holdText(reason, back, now, word) {
     var when = !back ? "" : reason === "provider-rejected" || reason === "spent" ? " · " + resetText(back, now)
       : reason === "not-a-candidate" ? " · " + backText(back, now) : "";
-    return (word || reasonText(reason)) + when;
+    return (word || (reason === "not-a-candidate" ? HELD_TEXT : reasonText(reason))) + when;
   }
+
+  /* A seat the host does not offer, in a hold's words: the status view gives
+     the reason only to a seat the host disables or is cooling, while a
+     routing decision gives it to any seat the host left out of that pick. */
+  var HELD_TEXT = "held by host";
 
   /* The end of a host's cooldown, as a countdown to the seat's return. */
   function backText(d, base) {
@@ -7170,7 +7175,7 @@ time[data-ts] { cursor: help; }
      at full names the windows. */
   function holdWord(a, reason, fam, back, now) {
     if (reason === "not-a-candidate") {
-      return (a.host_status || "") === "disabled" ? "host disabled" : holdText(reason, back, now, "held by host");
+      return (a.host_status || "") === "disabled" ? "host disabled" : holdText(reason, back, now);
     }
     var named = reason === "spent" || reason === "provider-rejected";
     return holdText(reason, back, now, named ? holdingWindows(a, fam).map(holdLabel).join(", ") : "");

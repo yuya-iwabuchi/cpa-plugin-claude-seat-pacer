@@ -843,7 +843,13 @@ func (f *fixture) tiered(down bool) {
 		snap.Windows[0].Status, snap.Windows[0].Severity = model.StatusRejected, model.SeverityCritical
 		f.snapshots[id] = snap
 		if i < 2 {
+			// The host cools a refused credential until the reset the
+			// refusal names.
 			f.auths[i].HostStatus = "unavailable"
+			if f.heldFor == nil {
+				f.heldFor = make(map[string]time.Duration)
+			}
+			f.heldFor[id] = snap.Windows[0].ResetsAt.Sub(f.anchor)
 		}
 		f.auths[i].Bindings = 0
 	}

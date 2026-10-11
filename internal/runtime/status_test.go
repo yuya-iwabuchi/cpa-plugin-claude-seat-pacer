@@ -444,3 +444,21 @@ func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
 		t.Error("held row lost its pace evaluation; the page still draws its gaps")
 	}
 }
+
+// TestALapsedHostCooldownIsOfferedAgain covers a credential the host still
+// flags unavailable after its cooldown ended: the host offers it again, so
+// its row ranks.
+func TestALapsedHostCooldownIsOfferedAgain(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	tp.host.files[1].Unavailable = true
+	tp.host.files[1].NextRetryAfter = testNow.Add(-time.Minute)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	for _, row := range tp.Status(testNow, "").Auths {
+		if row.AuthID == "claude-b.json" && (row.HostStatus == "unavailable" || !row.Score.Eligible || row.HostHeldUntil != nil) {
+			t.Errorf("lapsed row = status %q eligible %v until %v, want offered", row.HostStatus, row.Score.Eligible, row.HostHeldUntil)
+		}
+	}
+}
