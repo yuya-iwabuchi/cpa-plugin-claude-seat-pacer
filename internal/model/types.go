@@ -332,9 +332,9 @@ const (
 	// number, which no comparison can order safely.
 	ReasonBadReading = "bad-reading"
 	ReasonStale      = "stale-snapshot"
-	// ReasonNotCandidate marks a credential the host does not offer: one a
-	// pick's candidates leave out, or one the host lists as disabled or
-	// unavailable, which it filters out of every pick's candidates.
+	// ReasonNotCandidate marks a credential the host does not offer: in a
+	// pick, one outside its candidates; in the status view, one the host has
+	// disabled or holds in a credential-wide cooldown.
 	ReasonNotCandidate = "not-a-candidate"
 )
 

@@ -410,55 +410,64 @@ func TestAThrottleRaisesOneWarning(t *testing.T) {
 	}
 }
 
-// TestStatusRanksOnlySeatsTheHostOffers covers a credential the host cools:
-// its reading has room, but the host filters it out of every pick's
-// candidates, so its row is ineligible and names when the host lets it back.
+// TestStatusRanksOnlySeatsTheHostOffers covers the host's credential state
+// against the reading: a seat the host holds in a credential-wide cooldown is
+// ineligible and names when the host lets it back, whatever its reading
+// says; one the host flags unavailable for its served models alone, or whose
+// cooldown has passed, keeps its score.
 func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
-	tp := newTestPlugin(t, testConfigYAML)
-	pollFixture(t, tp)
-	if err := tp.refresh(context.Background()); err != nil {
-		t.Fatalf("refresh: %v", err)
-	}
+	refusedAt := testNow.Add(-3 * time.Hour)
 	until := testNow.Add(65 * time.Hour)
-	tp.host.mu.Lock()
-	tp.host.files[1].Unavailable = true
-	tp.host.files[1].NextRetryAfter = until
-	tp.host.mu.Unlock()
-	if err := tp.refresh(context.Background()); err != nil {
-		t.Fatalf("refresh: %v", err)
+	recorded := map[string][]model.WindowHistory{"claude-b.json": {{
+		Kind:   model.WindowWeekly,
+		Cycles: []model.Cycle{{ResetsAt: until, Samples: []model.Sample{{At: refusedAt.Add(-time.Hour), Utilization: 1}}}},
+		Locks:  []model.Lock{{From: refusedAt.Unix(), To: testNow.Add(-time.Hour).Unix(), End: model.LockEndCleared, Expected: until.Unix()}},
+	}}}
+	cases := []struct {
+		name     string
+		retry    time.Time
+		history  map[string][]model.WindowHistory
+		held     bool
+		heldTill *time.Time
+	}{
+		{"a cooldown a recorded refusal expected", until, recorded, true, &until},
+		{"a cooldown that names no end", time.Time{}, nil, true, nil},
+		{"a cooldown no recorded refusal expected", until, nil, false, &until},
+		{"a cooldown that has passed", testNow.Add(-time.Minute), recorded, false, nil},
 	}
-
-	rows := make(map[string]model.AuthStatus)
-	for _, row := range tp.Status(testNow, "").Auths {
-		rows[row.AuthID] = row
-	}
-	if a := rows["claude-a.json"]; !a.Score.Eligible || a.HostHeldUntil != nil {
-		t.Errorf("offered row = eligible %v held until %v, want eligible and not held", a.Score.Eligible, a.HostHeldUntil)
-	}
-	b := rows["claude-b.json"]
-	if b.HostStatus != "unavailable" || b.Score.Eligible || b.Score.Reason != model.ReasonNotCandidate || b.HostHeldUntil == nil || !b.HostHeldUntil.Equal(until) {
-		t.Errorf("held row = status %q eligible %v reason %q until %v, want unavailable, ineligible as not a candidate, until %v",
-			b.HostStatus, b.Score.Eligible, b.Score.Reason, b.HostHeldUntil, until)
-	}
-	if len(b.Score.Windows) == 0 {
-		t.Error("held row lost its pace evaluation; the page still draws its gaps")
-	}
-}
-
-// TestALapsedHostCooldownIsOfferedAgain covers a credential the host still
-// flags unavailable after its cooldown ended: the host offers it again, so
-// its row ranks.
-func TestALapsedHostCooldownIsOfferedAgain(t *testing.T) {
-	tp := newTestPlugin(t, testConfigYAML)
-	pollFixture(t, tp)
-	tp.host.files[1].Unavailable = true
-	tp.host.files[1].NextRetryAfter = testNow.Add(-time.Minute)
-	if err := tp.refresh(context.Background()); err != nil {
-		t.Fatalf("refresh: %v", err)
-	}
-	for _, row := range tp.Status(testNow, "").Auths {
-		if row.AuthID == "claude-b.json" && (row.HostStatus == "unavailable" || !row.Score.Eligible || row.HostHeldUntil != nil) {
-			t.Errorf("lapsed row = status %q eligible %v until %v, want offered", row.HostStatus, row.Score.Eligible, row.HostHeldUntil)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTestPlugin(t, testConfigYAML)
+			pollFixture(t, tp)
+			tp.quota.ImportHistory(tc.history, testNow.Add(-5*time.Hour))
+			tp.host.mu.Lock()
+			tp.host.files[1].Unavailable = true
+			tp.host.files[1].NextRetryAfter = tc.retry
+			tp.host.mu.Unlock()
+			if err := tp.refresh(context.Background()); err != nil {
+				t.Fatalf("refresh: %v", err)
+			}
+			rows := make(map[string]model.AuthStatus)
+			for _, row := range tp.Status(testNow, "").Auths {
+				rows[row.AuthID] = row
+			}
+			if a := rows["claude-a.json"]; !a.Score.Eligible || a.HostHeldUntil != nil {
+				t.Errorf("offered row = eligible %v held until %v, want eligible and not held", a.Score.Eligible, a.HostHeldUntil)
+			}
+			b, ok := rows["claude-b.json"]
+			if !ok {
+				t.Fatal("no row for claude-b.json")
+			}
+			if held := !b.Score.Eligible && b.Score.Reason == model.ReasonNotCandidate; held != tc.held {
+				t.Errorf("row = eligible %v reason %q, want held %v", b.Score.Eligible, b.Score.Reason, tc.held)
+			}
+			switch {
+			case tc.heldTill == nil && b.HostHeldUntil != nil, tc.heldTill != nil && (b.HostHeldUntil == nil || !b.HostHeldUntil.Equal(*tc.heldTill)):
+				t.Errorf("held until %v, want %v", b.HostHeldUntil, tc.heldTill)
+			}
+			if len(b.Score.Windows) == 0 {
+				t.Error("row lost its pace evaluation; the page still draws its gaps")
+			}
+		})
 	}
 }

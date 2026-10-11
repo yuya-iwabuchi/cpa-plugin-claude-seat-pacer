@@ -76,8 +76,15 @@ func main() {
 			AuthID: seatCID, Label: "Seat C", Provider: "claude",
 			Priority: 10, HostStatus: "active",
 		})
+		// The host still cools seat A from a weekly refusal the provider has
+		// since cleared.
+		until := src.anchor.Add(2*24*time.Hour + 17*time.Hour)
 		src.auths[0].HostStatus = "unavailable"
-		src.heldFor = map[string]time.Duration{seatAID: 2*24*time.Hour + 17*time.Hour}
+		src.heldUntil = map[string]time.Time{seatAID: until}
+		src.heldBy = map[string]heldSpan{seatAID: {kind: model.WindowWeekly, lock: model.Lock{
+			From: src.anchor.Add(-3 * time.Hour).Unix(), To: src.anchor.Add(-6 * time.Minute).Unix(),
+			End: model.LockEndCleared, Expected: until.Unix(),
+		}}}
 		src.holds = map[string]*runtime.HoldWarning{seatAID: {
 			Released: 6 * time.Minute, Remaining: 2*24*time.Hour + 17*time.Hour,
 			Problem: "the host cooled it again after the plugin cleared it",
@@ -241,9 +248,11 @@ type fixture struct {
 	// listErr is the host credential listing's last failure, empty while it
 	// succeeds.
 	listErr string
-	// heldFor is how long the host still cools each credential it lists
-	// unavailable with a deadline.
-	heldFor map[string]time.Duration
+	// heldUntil is when the host's cooldown ends on each credential it lists
+	// unavailable with a deadline, and heldBy the refusal span the plugin
+	// recorded for that cooldown, on the window it names.
+	heldUntil map[string]time.Time
+	heldBy    map[string]heldSpan
 	// holds are the stale host cooldowns the scenario leaves standing.
 	holds    map[string]*runtime.HoldWarning
 	warnings []string
@@ -481,6 +490,12 @@ func (f *fixture) rebuildWarnings() {
 	f.warnings = runtime.Warnings(f.cfg.Enabled, nil, f.listErr, single, rows, seats)
 }
 
+// heldSpan is a refusal span the plugin recorded on one window.
+type heldSpan struct {
+	kind model.WindowKind
+	lock model.Lock
+}
+
 // rankAt is the score list a decision carries, over the readings as they stood
 // at that instant: each one is stamped with the age the fixture gives its
 // credential, so the rank meets the same staleness gate the pick applies.
@@ -511,17 +526,23 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 		}
 		a.Snapshot = snap
 		a.Score = pace.ScoreWithStaleness(f.cfg, snap, ok, a.AuthID, modelID, now)
-		if left, held := f.heldFor[a.AuthID]; held {
-			until := now.Add(left)
+		if until, held := f.heldUntil[a.AuthID]; held {
 			a.HostHeldUntil = &until
 		}
-		runtime.ApplyHostState(&a)
 		a.History = []model.WindowHistory{}
 		if hs, replayed := f.replayed[a.AuthID]; replayed {
 			a.History = hs
 		} else if ok {
 			a.History = f.history(snap, now, shapeIdx)
 		}
+		if by, held := f.heldBy[a.AuthID]; held {
+			for i := range a.History {
+				if a.History[i].Kind == by.kind && a.History[i].Scope == "" {
+					a.History[i].Locks = append(slices.Clone(a.History[i].Locks), by.lock)
+				}
+			}
+		}
+		runtime.ApplyHostState(&a)
 		auths = append(auths, a)
 	}
 	sort.Slice(auths, func(i, j int) bool { return auths[i].AuthID < auths[j].AuthID })
@@ -846,10 +867,12 @@ func (f *fixture) tiered(down bool) {
 			// The host cools a refused credential until the reset the
 			// refusal names.
 			f.auths[i].HostStatus = "unavailable"
-			if f.heldFor == nil {
-				f.heldFor = make(map[string]time.Duration)
+			if f.heldUntil == nil {
+				f.heldUntil, f.heldBy = make(map[string]time.Time), make(map[string]heldSpan)
 			}
-			f.heldFor[id] = snap.Windows[0].ResetsAt.Sub(f.anchor)
+			reset := snap.Windows[0].ResetsAt
+			f.heldUntil[id] = reset
+			f.heldBy[id] = heldSpan{kind: snap.Windows[0].Kind, lock: model.Lock{From: f.anchor.Add(-30 * time.Minute).Unix(), To: reset.Unix()}}
 		}
 		f.auths[i].Bindings = 0
 	}

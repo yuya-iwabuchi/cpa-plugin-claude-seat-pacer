@@ -120,7 +120,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			row.Provider = strings.ToLower(entry.Provider)
 			row.Priority = entry.Priority
 			row.HostStatus = hostStatus(entry, now)
-			if entry.Unavailable && entry.NextRetryAfter.After(now) {
+			if row.HostStatus == "unavailable" && entry.NextRetryAfter.After(now) {
 				until := entry.NextRetryAfter
 				row.HostHeldUntil = &until
 			}
@@ -163,15 +163,38 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	}
 }
 
-// ApplyHostState scores a credential the host does not offer as ineligible:
-// the host filters a disabled or unavailable credential out of every pick's
-// candidates, so the status view ranks the seats the pick can be offered.
-// The host's state takes precedence over any reason the reading gives, since
-// the host decides before the plugin is asked.
+// ApplyHostState scores a credential the host does not offer as ineligible,
+// so the status view ranks the seats a pick can be offered. The host leaves a
+// disabled credential out of every pick. An unavailable one it leaves out of
+// every pick while a credential-wide cooldown holds it: one that names no
+// end, or one ending at the reset a refusal the plugin recorded expected,
+// since a 429 cools the whole credential until the latest reset it names. An
+// unavailable credential whose cooldown matches no recorded refusal is one
+// whose every served model the host cools on its own, and the host still
+// offers it for a model it has not served, so its score stands. The host's
+// state takes precedence over any reason the reading gives, since the host
+// decides before the plugin is asked.
 func ApplyHostState(row *model.AuthStatus) {
-	if row.HostStatus == "disabled" || row.HostStatus == "unavailable" {
+	held := row.HostStatus == "disabled"
+	if row.HostStatus == "unavailable" {
+		held = row.HostHeldUntil == nil || refused(row.History, *row.HostHeldUntil)
+	}
+	if held {
 		row.Score.Eligible, row.Score.Reason = false, model.ReasonNotCandidate
 	}
+}
+
+// refused reports whether a recorded refusal span on any window expected the
+// reset a cooldown ends at.
+func refused(history []model.WindowHistory, until time.Time) bool {
+	for _, h := range history {
+		for _, l := range h.Locks {
+			if within(until, l) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // hostStatus is the credential state as the host reports it. An unavailable
