@@ -70,10 +70,13 @@ the run. Do not remove that test.
   tier is a fallback the host reaches on its own. The status view applies the
   same filter where it can see it: `runtime.ApplyHostState` scores a seat the
   host has disabled, or holds in a credential-wide cooldown, as
-  `not-a-candidate`. A seat the host lists unavailable because it cools every
-  model the seat has served keeps its score, since the host still offers it
-  for other models. The page groups seats by tier and warns while the pick
-  sees a single candidate.
+  `not-a-candidate`, taking a cooldown to be credential-wide when it names no
+  end or ends at the reset of a refusal the plugin recorded. Any other
+  unavailable seat keeps its score: the host lists a seat unavailable once it
+  cools every model the seat has served, and still offers it for other models.
+  A refusal under `upstream.claude.model-level-cooling` matches a recorded
+  refusal, so that seat is held off every family. The page groups seats by
+  tier and warns while the pick sees a single candidate.
 - **The plugin owns affinity for what it routes.** The host asks the plugin
   before its own selector, and a plugin that answers `Handled: true` skips
   that selector, `SessionAffinitySelector` included, so

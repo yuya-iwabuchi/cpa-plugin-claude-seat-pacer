@@ -166,14 +166,15 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 // ApplyHostState scores a credential the host does not offer as ineligible,
 // so the status view ranks the seats a pick can be offered. The host leaves a
 // disabled credential out of every pick. An unavailable one it leaves out of
-// every pick while a credential-wide cooldown holds it: one that names no
-// end, or one ending at the reset a refusal the plugin recorded expected,
-// since a 429 cools the whole credential until the latest reset it names. An
-// unavailable credential whose cooldown matches no recorded refusal is one
-// whose every served model the host cools on its own, and the host still
-// offers it for a model it has not served, so its score stands. The host's
-// state takes precedence over any reason the reading gives, since the host
-// decides before the plugin is asked.
+// every pick while a credential-wide cooldown holds it, which the plugin
+// takes to be one that names no end, or one ending at the reset a refusal the
+// plugin recorded expected, since a 429 cools the whole credential until the
+// latest reset it names. The host also lists a credential unavailable once it
+// cools every model the credential has served on its own, and still offers it
+// for other models; a cooldown that matches no recorded refusal is taken to
+// be that one, so its score stands. The host's state takes precedence over
+// any reason the reading gives, since the host decides before the plugin is
+// asked.
 func ApplyHostState(row *model.AuthStatus) {
 	held := row.HostStatus == "disabled"
 	if row.HostStatus == "unavailable" {

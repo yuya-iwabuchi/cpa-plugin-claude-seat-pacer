@@ -6662,7 +6662,9 @@ time[data-ts] { cursor: help; }
       var outside = offTier(a, fam, ranks);
       var mark = seatMark(a);
       if (capMark) mark.querySelector(".seat-dot").classList.add("cap");
-      mark.appendChild(h("span", "sr-only", ", " + meta.label));
+      /* A seat the host does not offer has no lane state of its own, so it
+         is read by its hold. */
+      mark.appendChild(h("span", "sr-only", ", " + (sc && sc.reason === "not-a-candidate" ? verdict.word : meta.label)));
       li.appendChild(mark);
       var cost = h("span", "rank-cost", costText(sc));
       if (elig && outside) {

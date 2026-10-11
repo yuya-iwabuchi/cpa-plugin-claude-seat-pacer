@@ -418,6 +418,7 @@ func TestAThrottleRaisesOneWarning(t *testing.T) {
 func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
 	refusedAt := testNow.Add(-3 * time.Hour)
 	until := testNow.Add(65 * time.Hour)
+	later := until.Add(30 * time.Minute)
 	recorded := map[string][]model.WindowHistory{"claude-b.json": {{
 		Kind:   model.WindowWeekly,
 		Cycles: []model.Cycle{{ResetsAt: until, Samples: []model.Sample{{At: refusedAt.Add(-time.Hour), Utilization: 1}}}},
@@ -433,6 +434,7 @@ func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
 		{"a cooldown a recorded refusal expected", until, recorded, true, &until},
 		{"a cooldown that names no end", time.Time{}, nil, true, nil},
 		{"a cooldown no recorded refusal expected", until, nil, false, &until},
+		{"a cooldown past the reset a recorded refusal expected", until.Add(30 * time.Minute), recorded, false, &later},
 		{"a cooldown that has passed", testNow.Add(-time.Minute), recorded, false, nil},
 	}
 	for _, tc := range cases {
