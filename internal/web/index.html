@@ -1731,7 +1731,8 @@ time[data-ts] { cursor: help; }
     "no-bearing-window": "no window applies",
     "provider-rejected": "refused",
     "spent": "full",
-    "bad-reading": "bad reading"
+    "bad-reading": "bad reading",
+    "not-a-candidate": "held by host"
   };
 
   /* Where the traffic goes with no seat left to take it, another credential,
@@ -2008,6 +2009,9 @@ time[data-ts] { cursor: help; }
 
   function hostDisabled(a) { return (a.host_status || "") === "disabled"; }
 
+  /* Whether the host does not offer the seat, which its hold already says. */
+  function hostHolds(a) { return !!a.score && a.score.reason === "not-a-candidate"; }
+
   function seatHidden(a) {
     return !!hiddenSeats[a.auth_id] || (!revealDisabled && hostDisabled(a));
   }
@@ -2106,20 +2110,19 @@ time[data-ts] { cursor: help; }
 
   /* The host offers a request only to the highest-priority credentials it
      can use for the requested model, and the plugin paces across those alone.
-     A seat the host disables or reports unavailable cannot serve, nor can one
-     the provider refuses or reports full for the family, so each family's
-     serving tier is the highest priority holding a seat that can serve it,
-     else the top one. The host takes a seat out only after a request to it
-     fails, so this is the page's reading of the host's choice, not the
-     host's own. A seat with no score for the family, as when that family's
-     fetch failed, is not counted as serving it. Tiers are read from the
-     seats on screen, as the ranks are. */
-  var HOST_DOWN = { disabled: true, unavailable: true };
+     A seat the host does not offer cannot serve, nor can one the provider
+     refuses or reports full for the family, so each family's serving tier is
+     the highest priority holding a seat that can serve it, else the top one.
+     The host takes a refused or full seat out only after a request to it
+     fails, so for those this is the page's reading of the host's choice. A
+     seat with no score for the family, as when that family's fetch failed, is
+     not counted as serving it. Tiers are read from the seats on screen, as
+     the ranks are. */
+  var CANNOT_SERVE = { "provider-rejected": true, "spent": true, "not-a-candidate": true };
 
   function servesFamily(a, fam) {
-    if (HOST_DOWN[a.host_status || ""]) return false;
     var sc = famScore(a, fam);
-    return !!sc && sc.reason !== "provider-rejected" && sc.reason !== "spent";
+    return !!sc && !CANNOT_SERVE[sc.reason || ""];
   }
 
   function tiersOf(seats, fams) {
@@ -2194,14 +2197,14 @@ time[data-ts] { cursor: help; }
   }
 
   /* Why no seat on a skipped tier takes requests, by the cause each seat
-     carries: the host's disabled or unavailable state first, then the first
-     family, in order, whose score is missing, refused or full. One cause
-     names itself in full; several are counted in short. */
-  var SKIP_CAUSES = [["disabled", "disabled in the host", "disabled"], ["unavailable", "unavailable in the host", "unavailable"],
+     carries: the host disabling or holding it first, then the first family,
+     in order, whose score is missing, refused or full. One cause names
+     itself in full; several are counted in short. */
+  var SKIP_CAUSES = [["disabled", "disabled in the host", "disabled"], ["held", "held by host", "held by host"],
     ["refused", "refused by the provider", "refused"], ["full", "full", "full"], ["unscored", "not scored", "not scored"]];
   function skipCause(a, fams) {
-    var hs = a.host_status || "";
-    if (HOST_DOWN[hs]) return hs;
+    if (hostDisabled(a)) return "disabled";
+    if (hostHolds(a)) return "held";
     for (var i = 0; i < fams.length; i++) {
       var sc = famScore(a, fams[i]);
       if (!sc) return "unscored";
@@ -2478,7 +2481,7 @@ time[data-ts] { cursor: help; }
       spec.lines.push({ t: "disabled in the host, so it is not read; re-enable it in the host's auth files" });
       return spec;
     }
-    if (hs !== "active") spec.lines.push({ b: "host", t: hs });
+    if (hs !== "active" && !hostHolds(a)) spec.lines.push({ b: "host", t: hs });
     if (!obs) {
       spec.lines.push({ t: "not read yet; it takes no new conversation until its first reading, usually within " +
         "one poll interval, and if it stays, check the host log for \u201Cusage fetch failed\u201D" });
@@ -2499,7 +2502,7 @@ time[data-ts] { cursor: help; }
       ", " + WEEKLY_SHORT + " " + weeklyGapText(sc) +
       ", cost " + pairText(ranks.fams, function (fam) { return costText(famScore(a, fam)); }) +
       ", " + intFmt(a.bindings) + " live " + (a.bindings === 1 ? "conversation" : "conversations") +
-      (hs !== "active" ? ", host " + hs : "") +
+      (hs !== "active" && !hostHolds(a) ? ", host " + hs : "") +
       (throttledReading(a) ? ", read throttled" :
         snap.err || snap.err_category ? ", read failing" + (snap.err_category ? " " + snap.err_category : "") : "");
   }
@@ -2659,8 +2662,8 @@ time[data-ts] { cursor: help; }
   }
 
   /* A family's standing on a seat, in the page's words: eligible, or why it
-     is held off, with the instant the hold lifts where the provider names
-     one. The word alone is the line's label; the text with the instant is
+     is held off, with the instant the hold lifts where the provider or the
+     host names one. The word alone is the line's label; the text with the instant is
      the tooltip's, and lift is that instant's phrase alone. A family whose
      ranking is unknown reads as unknown. */
   function famVerdict(a, fam, now) {
@@ -6832,8 +6835,8 @@ time[data-ts] { cursor: help; }
     else if (!ranks.lead[fam]) {
       head.appendChild(overflowInLog(st)
         ? tipOnly(h("span", "rank-fam-note", OVERFLOW_TEXT), OVERFLOW_TIP)
-        : h("span", "rank-fam-note", "no seat eligible · new conversations go to the seat with the fewest live ones, " +
-          "refused and full seats last"));
+        : h("span", "rank-fam-note", "no seat eligible · new conversations go to the offered seat with the fewest " +
+          "live ones, refused and full seats last"));
     }
     block.appendChild(head);
     if (!known) return block;
@@ -6927,7 +6930,9 @@ time[data-ts] { cursor: help; }
       li.appendChild(h("span", "rank-no", elig && rank !== undefined ? "#" + (rank + 1) : ""));
       var outside = offTier(a, fam, ranks);
       var mark = seatMark(a);
-      mark.appendChild(h("span", "sr-only", ", " + meta.label));
+      /* A seat the host does not offer has no lane state of its own, so it
+         is read by its hold. */
+      mark.appendChild(h("span", "sr-only", ", " + (sc && sc.reason === "not-a-candidate" ? verdict.word : meta.label)));
       li.appendChild(mark);
       /* Only a ranked seat prints its cost in the column the ranking reads;
          a seat outside it gives its cost in the tooltip. */
@@ -7416,12 +7421,20 @@ time[data-ts] { cursor: help; }
     return holdText(only[0], returnsAt(st, fam, ranks), nowMs());
   }
 
-  /* A hold in the page's words, with the instant it lifts where one is known
-     for a refusal or a window at full; every other reason promises no
-     return, so it stands alone. */
+  /* A hold in the page's words, with the instant it lifts where one is known:
+     the window's reset for a refusal or a window at full, the end of the
+     host's cooldown for a seat the host holds. Every other reason promises
+     no return, so it stands alone. */
   function holdText(reason, back, now, word) {
-    var when = back && (reason === "provider-rejected" || reason === "spent") ? " · " + resetText(back, now) : "";
+    var when = !back ? "" : reason === "provider-rejected" || reason === "spent" ? " · " + resetText(back, now)
+      : reason === "not-a-candidate" ? " · " + backText(back, now) : "";
     return (word || reasonText(reason)) + when;
+  }
+
+  /* The end of a host's cooldown, as a countdown to the seat's return. */
+  function backText(d, base) {
+    var s = Math.floor((d.getTime() - base) / 1000);
+    return s < 10 ? "back in a moment" : "back in " + durText(s);
   }
 
   /* The windows holding a seat off a family, in lane order. */
@@ -7432,11 +7445,13 @@ time[data-ts] { cursor: help; }
   /* A holding window as the page names it: the window, then full or refused. */
   function holdLabel(w) { return windowShort(w) + (w.status === "rejected" ? " refused" : " full"); }
 
-  /* The word a seat's cross carries: a credential the host has disabled is
-     never polled, so "not read yet" would promise a reading that will not
-     come; the host state is the reason. */
+  /* The word a seat's cross carries. A seat the host does not offer says
+     whether the host has disabled it or is holding it; a refusal or a window
+     at full names the windows. */
   function holdWord(a, reason, fam, back, now) {
-    if (reason === "no-snapshot" && (a.host_status || "") === "disabled") return "host disabled";
+    if (reason === "not-a-candidate") {
+      return hostDisabled(a) ? "host disabled" : holdText(reason, back, now);
+    }
     var named = reason === "spent" || reason === "provider-rejected";
     return holdText(reason, back, now, named ? holdingWindows(a, fam).map(holdLabel).join(", ") : "");
   }
@@ -7451,13 +7466,19 @@ time[data-ts] { cursor: help; }
     return w.status === "rejected" || (num(w.utilization) && w.utilization >= 1);
   }
 
-  /* When this seat can serve the family again: the latest reset among the
+  /* When this seat can serve the family again: the latest of the end of the
+     host's cooldown, for a seat the host does not offer, and the resets of the
      windows holding it back, because the soonest would promise capacity that
-     another held window still withholds. Null where nothing holds it back,
-     and where a held window names no reset instant, since an unknown return
-     cannot be claimed as a time. */
+     another hold still withholds. Null where nothing holds it back, and where
+     a hold names no instant, since an unknown return cannot be claimed as a
+     time. */
   function seatReturnsAt(a, fam) {
+    var sc = famScore(a, fam);
     var last = null, unknown = false;
+    if (sc && sc.reason === "not-a-candidate") {
+      last = parseT(a.host_held_until);
+      if (!last) return null;
+    }
     holdingWindows(a, fam).forEach(function (w) {
       var r = parseT(w.resets_at);
       if (!r) { unknown = true; return; }

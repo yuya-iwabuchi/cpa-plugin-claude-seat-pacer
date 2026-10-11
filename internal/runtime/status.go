@@ -119,7 +119,12 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			row.Email = entry.Email
 			row.Provider = strings.ToLower(entry.Provider)
 			row.Priority = entry.Priority
-			row.HostStatus = hostStatus(entry)
+			row.HostStatus = hostStatus(entry, now)
+			if row.HostStatus == "unavailable" && entry.NextRetryAfter.After(now) {
+				until := entry.NextRetryAfter
+				row.HostHeldUntil = &until
+			}
+			ApplyHostState(&row)
 		}
 		rows = append(rows, row)
 	}
@@ -158,12 +163,51 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	}
 }
 
-// hostStatus is the credential state as the host reports it.
-func hostStatus(entry HostAuthFileEntry) string {
+// ApplyHostState scores a credential the host does not offer as ineligible,
+// so the status view ranks the seats a pick can be offered. The host leaves a
+// disabled credential out of every pick. An unavailable one it leaves out of
+// every pick while a credential-wide cooldown holds it, which the plugin
+// takes to be one that names no end, or one ending at the reset a refusal the
+// plugin recorded expected, since a 429 cools the whole credential until the
+// latest reset it names. The host also lists a credential unavailable once it
+// cools every model the credential has served on its own, and still offers it
+// for other models; a cooldown that matches no recorded refusal is taken to
+// be that one, so its score stands. The host's state takes precedence over
+// any reason the reading gives, since the host decides before the plugin is
+// asked.
+func ApplyHostState(row *model.AuthStatus) {
+	held := row.HostStatus == "disabled"
+	if row.HostStatus == "unavailable" {
+		held = row.HostHeldUntil == nil || refused(row.History, *row.HostHeldUntil)
+	}
+	if held {
+		row.Score.Eligible, row.Score.Reason = false, model.ReasonNotCandidate
+	}
+}
+
+// refused reports whether a recorded refusal span on any window expected the
+// reset a cooldown ends at.
+func refused(history []model.WindowHistory, until time.Time) bool {
+	for _, h := range history {
+		for _, l := range h.Locks {
+			if within(until, l) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hostStatus is the credential state as the host reports it. An unavailable
+// credential whose cooldown has passed reads as its plain status: the host
+// keeps the flag until the credential's next request result, but offers it
+// again once the cooldown ends, and blocks one that names no end
+// (sdk/cliproxy/auth/selector.go availabilityBlock).
+func hostStatus(entry HostAuthFileEntry, now time.Time) string {
 	switch {
 	case entry.Disabled:
 		return "disabled"
-	case entry.Unavailable:
+	case entry.Unavailable && (entry.NextRetryAfter.IsZero() || entry.NextRetryAfter.After(now)):
 		return "unavailable"
 	case entry.Status != "":
 		return entry.Status

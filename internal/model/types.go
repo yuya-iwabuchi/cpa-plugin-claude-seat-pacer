@@ -330,8 +330,11 @@ const (
 	ReasonNoWindow = "no-bearing-window"
 	// ReasonBadReading marks a snapshot whose utilization is not a finite
 	// number, which no comparison can order safely.
-	ReasonBadReading   = "bad-reading"
-	ReasonStale        = "stale-snapshot"
+	ReasonBadReading = "bad-reading"
+	ReasonStale      = "stale-snapshot"
+	// ReasonNotCandidate marks a credential the host does not offer: in a
+	// pick, one outside its candidates; in the status view, one the host has
+	// disabled or holds in a credential-wide cooldown.
 	ReasonNotCandidate = "not-a-candidate"
 )
 
@@ -436,9 +439,12 @@ type AuthStatus struct {
 	Provider string `json:"provider,omitempty"`
 	Priority int    `json:"priority"`
 	// HostStatus is the credential state the host reports, such as active,
-	// disabled or cooling.
-	HostStatus string       `json:"host_status,omitempty"`
-	Snapshot   AuthSnapshot `json:"snapshot"`
+	// disabled or unavailable.
+	HostStatus string `json:"host_status,omitempty"`
+	// HostHeldUntil is when the host's cooldown on an unavailable credential
+	// ends; nil when the host names no instant ahead.
+	HostHeldUntil *time.Time   `json:"host_held_until,omitempty"`
+	Snapshot      AuthSnapshot `json:"snapshot"`
 	// Score is the pace evaluation for Status.Model at Status.Now.
 	Score Score `json:"score"`
 	// Bindings counts live conversations pinned to this credential.

@@ -4,7 +4,11 @@ The Management Center gains a "Claude Seat Pacer" entry: a live dashboard of
 what the plugin decides and the numbers behind it. The page calls a seat's
 plan its target, and ranks the eligible seats by cost: the weighted gap to
 target, negative while a seat is behind, so the lowest cost takes the next
-new conversation. A seat held off ranks below them.
+new conversation. A seat held off ranks below them, including one the host
+has disabled ("host disabled") or holds in a cooldown that covers every model
+("held by host", with the time the host lets it back). A seat whose served
+models the host cools on their own keeps its rank, since the host still
+offers it for other models, and its tooltip names the host status.
 
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
@@ -21,8 +25,8 @@ new conversation. A seat held off ranks below them.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is
-  skipped, with the reason: disabled or unavailable in the host, refused by
-  the provider, full, or not scored.
+  skipped, with the reason: disabled in the host, held by the host, refused
+  by the provider, full, or not scored.
 - **Current window.** Each seat's use of its current window against the
   curve, one window at a time: 7d Standard, each model family's 7-day cap the
   cost weighs, and 5h Standard. A 7-day view ranks the seats by its family's

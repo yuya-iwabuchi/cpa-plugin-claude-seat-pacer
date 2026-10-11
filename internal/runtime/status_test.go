@@ -69,7 +69,7 @@ func TestStatusFillsEveryField(t *testing.T) {
 	if rows["claude-a.json"].Bindings+rows["claude-b.json"].Bindings != 2 {
 		t.Errorf("bindings per row = a %d b %d, want two in total", rows["claude-a.json"].Bindings, rows["claude-b.json"].Bindings)
 	}
-	if off := rows["claude-off.json"]; off.HostStatus != "disabled" || off.Score.Reason != model.ReasonNoSnapshot {
+	if off := rows["claude-off.json"]; off.HostStatus != "disabled" || off.Score.Eligible || off.Score.Reason != model.ReasonNotCandidate {
 		t.Errorf("disabled row = %+v", off)
 	}
 	if len(status.Bindings) != 2 {
@@ -407,5 +407,69 @@ func TestAThrottleRaisesOneWarning(t *testing.T) {
 	got = Warnings(true, nil, "", nil, []model.AuthStatus{{AuthID: "d"}, {AuthID: "e"}}, seats)
 	if want := []string{ThrottleWarning, "quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
 		t.Errorf("warnings with another seat keeping a reading = %q, want %q", got, want)
+	}
+}
+
+// TestStatusRanksOnlySeatsTheHostOffers covers the host's credential state
+// against the reading: a seat the host holds in a credential-wide cooldown is
+// ineligible and names when the host lets it back, whatever its reading
+// says; one the host flags unavailable for its served models alone, or whose
+// cooldown has passed, keeps its score.
+func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
+	refusedAt := testNow.Add(-3 * time.Hour)
+	until := testNow.Add(65 * time.Hour)
+	later := until.Add(30 * time.Minute)
+	recorded := map[string][]model.WindowHistory{"claude-b.json": {{
+		Kind:   model.WindowWeekly,
+		Cycles: []model.Cycle{{ResetsAt: until, Samples: []model.Sample{{At: refusedAt.Add(-time.Hour), Utilization: 1}}}},
+		Locks:  []model.Lock{{From: refusedAt.Unix(), To: testNow.Add(-time.Hour).Unix(), End: model.LockEndCleared, Expected: until.Unix()}},
+	}}}
+	cases := []struct {
+		name     string
+		retry    time.Time
+		history  map[string][]model.WindowHistory
+		held     bool
+		heldTill *time.Time
+	}{
+		{"a cooldown a recorded refusal expected", until, recorded, true, &until},
+		{"a cooldown that names no end", time.Time{}, nil, true, nil},
+		{"a cooldown no recorded refusal expected", until, nil, false, &until},
+		{"a cooldown past the reset a recorded refusal expected", until.Add(30 * time.Minute), recorded, false, &later},
+		{"a cooldown that has passed", testNow.Add(-time.Minute), recorded, false, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTestPlugin(t, testConfigYAML)
+			pollFixture(t, tp)
+			tp.quota.ImportHistory(tc.history, testNow.Add(-5*time.Hour))
+			tp.host.mu.Lock()
+			tp.host.files[1].Unavailable = true
+			tp.host.files[1].NextRetryAfter = tc.retry
+			tp.host.mu.Unlock()
+			if err := tp.refresh(context.Background()); err != nil {
+				t.Fatalf("refresh: %v", err)
+			}
+			rows := make(map[string]model.AuthStatus)
+			for _, row := range tp.Status(testNow, "").Auths {
+				rows[row.AuthID] = row
+			}
+			if a := rows["claude-a.json"]; !a.Score.Eligible || a.HostHeldUntil != nil {
+				t.Errorf("offered row = eligible %v held until %v, want eligible and not held", a.Score.Eligible, a.HostHeldUntil)
+			}
+			b, ok := rows["claude-b.json"]
+			if !ok {
+				t.Fatal("no row for claude-b.json")
+			}
+			if held := !b.Score.Eligible && b.Score.Reason == model.ReasonNotCandidate; held != tc.held {
+				t.Errorf("row = eligible %v reason %q, want held %v", b.Score.Eligible, b.Score.Reason, tc.held)
+			}
+			switch {
+			case tc.heldTill == nil && b.HostHeldUntil != nil, tc.heldTill != nil && (b.HostHeldUntil == nil || !b.HostHeldUntil.Equal(*tc.heldTill)):
+				t.Errorf("held until %v, want %v", b.HostHeldUntil, tc.heldTill)
+			}
+			if len(b.Score.Windows) == 0 {
+				t.Error("row lost its pace evaluation; the page still draws its gaps")
+			}
+		})
 	}
 }
