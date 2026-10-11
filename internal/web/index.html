@@ -1543,10 +1543,10 @@ time[data-ts] { cursor: help; }
     if (s < 3600) return Math.floor(s / 60) + "m";
     if (s < 86400) {
       var hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60);
-      return mm ? hh + "h " + mm + "m" : hh + "h";
+      return mm ? hh + "h\u00a0" + mm + "m" : hh + "h";
     }
     var dd = Math.floor(s / 86400), rh = Math.floor((s % 86400) / 3600);
-    return rh ? dd + "d " + rh + "h" : dd + "d";
+    return rh ? dd + "d\u00a0" + rh + "h" : dd + "d";
   }
 
   function relText(d, base) {
@@ -1799,7 +1799,7 @@ time[data-ts] { cursor: help; }
   /* An ineligible seat's windows that do not hold it off: drawn in one
      opaque neutral, so the window that holds it is the only one whose bar,
      meter and glyph keep a state's colour. */
-  var HELD_META = { color: "color-mix(in srgb, var(--ink-3) 55%, var(--track))", legend: "other windows of a held seat" };
+  var HELD_META = { color: "color-mix(in srgb, var(--ink-3) 55%, var(--track))", legend: "windows of a held seat" };
 
   function laneState(w, ws) {
     /* A provider rejection and a full reading are readings rather than
@@ -2010,6 +2010,9 @@ time[data-ts] { cursor: help; }
 
   /* Whether the host does not offer the seat, which its hold already says. */
   function hostHolds(a) { return !!a.score && a.score.reason === "not-a-candidate"; }
+  /* A host hold as a mark's tooltip and spoken name give it, "" for a seat
+     the host offers. */
+  function holdNote(a, now) { return hostHolds(a) ? famVerdict(a, STANDARD, now).text : ""; }
 
   function seatHidden(a) {
     return !!hiddenSeats[a.auth_id] || (!revealDisabled && hostDisabled(a));
@@ -4007,8 +4010,11 @@ time[data-ts] { cursor: help; }
      make one sleeve. A run under a pixel wide draws nothing, since it would
      sleeve a climb. The seat's line, lineG, leaves its sleeves to a copy
      drawn through them in parent, so every other seat's line passes over a
-     refused one. Reports whether it drew any. */
-  function lockSleeves(parent, parts, xOf, Y, col, lineG) {
+     refused one. mark, for a seat refused now, is its present mark's centre:
+     a sleeve running into the mark reaches at least SLEEVE_MIN past the
+     mark's ring, which would otherwise cover a brief one. Reports whether it
+     drew any. */
+  function lockSleeves(parent, parts, xOf, Y, col, lineG, mark) {
     var runs = [];
     parts.forEach(function (part) {
       part[0].forEach(function (sp) {
@@ -4026,6 +4032,11 @@ time[data-ts] { cursor: help; }
       else bands.push(r.slice());
     });
     if (!bands.length) return false;
+    if (mark) {
+      bands.forEach(function (r) {
+        if (Math.abs(r[2] - mark.y) < 1 && r[1] >= mark.x - 1) r[0] = Math.min(r[0], mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2);
+      });
+    }
     var root = parent.ownerSVGElement || parent, defs = root.querySelector("defs") || svg("defs", {}, root);
     var clip = svg("clipPath", { id: "lock-clip-" + (++maskN) }, defs);
     var hole = svg("mask", { id: "lock-hole-" + (++maskN), maskUnits: "userSpaceOnUse", x: -5000, y: -5000, width: 20000, height: 20000 }, defs);
@@ -4467,7 +4478,7 @@ time[data-ts] { cursor: help; }
        keeps the longer one's height on every switch. */
     renderPaceNote(st);
     renderSessionNote(st);
-    if (view === PACE_SESSION) { renderSession(st, seats); return; }
+    if (view === PACE_SESSION) { renderSession(st, seats); steadyPaceList(st, seats, ranks); return; }
     var pace = (st.config && st.config.pace) || {};
 
     var fr = paceFrame(host), W = fr.W, H = fr.H, m = fr.m, pw = fr.pw, ph = fr.ph;
@@ -4586,7 +4597,7 @@ time[data-ts] { cursor: help; }
           var v = lineVertices(line, start, tNow, ws.utilization);
           var gt = svg("g", { "class": "pt-lock" }, gLock);
           gt.setAttribute("data-seat", a.auth_id);
-          anyLock = lockSleeves(gt, [[locks.drawn, v]], xOf, Y, col, gl) || anyLock;
+          anyLock = lockSleeves(gt, [[locks.drawn, v]], xOf, Y, col, gl, locks.live.length ? { x: cx, y: cy } : null) || anyLock;
           var drawn = historyLine(gl, line, xOf, Y, col, tailTo(cx, cy));
           anyEst = anyEst || drawn.est > 0;
           anyUnrec = anyUnrec || drawn.unrecorded.length > 0;
@@ -4610,8 +4621,9 @@ time[data-ts] { cursor: help; }
         ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " used" +
         ", " + overText(ws.slack) + (weighted ? ", counted" + weightTag(ws.weight) + " in the cost" +
           (famCost ? ", " + ws.scope + " cost " + famCost : "") : ", cost " + costText(a.score)) +
-        liveAria(locks.live, now));
+        liveAria(locks.live, now) + (holdNote(a, now) ? ", " + holdNote(a, now) : ""));
       var tip = markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now);
+      if (holdNote(a, now)) tip.lines.push({ t: holdNote(a, now) });
       if (famCost) tip.lines.push({ b: ws.scope + " cost", t: famCost });
       setTip(g, tip);
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
@@ -4640,6 +4652,30 @@ time[data-ts] { cursor: help; }
 
     lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
     renderRank(st, seats, ranks, view);
+    steadyPaceList(st, seats, ranks);
+  }
+
+  /* Under 1000px the list drops under the plot; it keeps the height of the
+     tallest family's list, measured unseen at its own width, up to the 380px
+     it scrolls past, so switching views moves nothing under it. The 5-hour
+     list holds the same seats in rows of one height, under no tier heads, so
+     it is never the tallest. */
+  function steadyPaceList(st, seats, ranks) {
+    var lists = [$("pace-rank"), $("session-rank")];
+    lists.forEach(function (l) { l.style.minHeight = ""; });
+    if (!NARROW.matches) return;
+    var shown = lists.filter(function (l) { return l.offsetParent; })[0];
+    if (!shown) return;
+    var probe = shown.parentNode.appendChild(h("div", "side-list"));
+    probe.style.cssText = "position:absolute;left:0;right:0;top:0;visibility:hidden;max-height:none";
+    var tallest = shown.scrollHeight;
+    ranks.fams.forEach(function (fam) {
+      probe.textContent = "";
+      probe.appendChild(rankList(st, seats, ranks, fam));
+      tallest = Math.max(tallest, probe.scrollHeight);
+    });
+    probe.parentNode.removeChild(probe);
+    lists.forEach(function (l) { l.style.minHeight = Math.min(380, tallest) + "px"; });
   }
 
   /* One button per window, named as Over time names it, the view's pressed:
@@ -5023,14 +5059,14 @@ time[data-ts] { cursor: help; }
         ", " + pct(s.w.utilization) + " used" +
         (counts ? (ws ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") : num(along) ? ", curve " + pct(along) : "") +
         ", resets " + relText(s.resets, now) +
-        ", last hour " + lastHour + liveAria(locks5.live, now);
+        ", last hour " + lastHour + liveAria(locks5.live, now) + (holdNote(a, now) ? ", " + holdNote(a, now) : "");
       if (s.cur.length >= 2) {
         var gSeat = svg("g", { "class": "pt-line" }, gLines);
         gSeat.setAttribute("data-seat", a.auth_id);
         var v5 = lineVertices(s.cur, start, now, s.w.utilization);
         var gt = svg("g", { "class": "pt-lock" }, gLock);
         gt.setAttribute("data-seat", a.auth_id);
-        anyLock = lockSleeves(gt, [[locks5.drawn, v5]], xOf, Y, col, gSeat) || anyLock;
+        anyLock = lockSleeves(gt, [[locks5.drawn, v5]], xOf, Y, col, gSeat, locks5.live.length ? { x: cx, y: cy } : null) || anyLock;
         var drawnCur = historyLine(gSeat, s.cur, xOf, Y, col, tailTo(cx, cy));
         estCur = drawnCur.est;
         anyEst = anyEst || estCur > 0;
@@ -5052,7 +5088,9 @@ time[data-ts] { cursor: help; }
       hg.setAttribute("data-seat", a.auth_id);
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
       var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated" : "";
-      setTip(hg, markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, along, counts ? "target" : "curve", locks5.live, now));
+      var tip5 = markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, along, counts ? "target" : "curve", locks5.live, now);
+      if (holdNote(a, now)) tip5.lines.push({ t: holdNote(a, now) });
+      setTip(hg, tip5);
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
       /* Where the window counts, the dotted line is the gap to the target at
          this seat's own elapsed, as on the 7-day views; the present reading
@@ -6367,7 +6405,7 @@ time[data-ts] { cursor: help; }
           svg("path", { "class": "hs-reset", d: "M" + x + " " + Y(last.u).toFixed(1) + "V" + Y(0).toFixed(1), stroke: sd.col }, gl);
           svg("path", { "class": "hist", d: "M" + x + " " + Y(0).toFixed(1) + tailTo(X(first.t), Y(first.u)), stroke: sd.col }, gl);
         });
-        lockSleeves(gt, lockParts, X, Y, sd.col, gl);
+        lockSleeves(gt, lockParts, X, Y, sd.col, gl, sd.live && sd.cur !== null ? { x: X(now), y: Y(sd.cur) } : null);
         if (sd.cur !== null && now >= t0 && now <= t1) {
           presentMark(gm, X(now), Y(sd.cur), sd.col, sd.live);
         }

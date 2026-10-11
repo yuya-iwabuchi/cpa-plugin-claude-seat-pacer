@@ -21,7 +21,8 @@ offers it for other models, and its tooltip names the host status.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
   showing each window's current cycle. A window holding its seat off, full or
-  refused, is hatched red, and that seat's other windows turn grey.
+  refused, is hatched red, and that seat's other windows turn grey, as every
+  window of a seat the host holds does.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is
