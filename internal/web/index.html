@@ -603,6 +603,7 @@ svg.pace g.reset-mark:focus-visible { outline: none; }
 svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width: 2; }
 .pace-card { overflow-x: auto; }
 .pace-card .legend { margin: 8px 0 0; }
+#hist-legend { align-content: flex-start; }
 #pace-legend { min-height: 13px; }
 /* The plot and the ranking it produces, side by side: the plot carries the
    inputs, the list the answer. The list's column is one fixed width, so the
@@ -616,9 +617,8 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
    gives way, so the legend runs the card's width under both; under 1000px it
    stays under the plot, above the list. */
 .hist-plot { min-width: 0; }
-@media (min-width: 1001px) {
+@media (width > 1000px) {
   .hist-plot { display: contents; }
-  #hist-chart { min-width: 0; }
   .pace-body:has(> .hist-plot) { row-gap: 0; }
   #hist-legend { grid-column: 1 / -1; grid-row: 2; }
   .hist-plot ~ .pace-rank { grid-column: 2; grid-row: 1; }
@@ -655,15 +655,13 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
   #hist-rank { height: min(380px, var(--hist-h, 380px)); scrollbar-gutter: stable; }
   .hist-range { display: none; }
   /* A legend can take two rows here, so each view's keeps two. */
-  :is(#pace-legend, #hist-legend) { min-height: 27px; align-content: flex-start; }
+  #pace-legend { min-height: 27px; align-content: flex-start; }
 }
 @media (max-width: 620px) {
-  /* The views' lines and legends take two and three or four rows here, so
-     each keeps that many whichever view shows. */
+  /* The views' lines and legends take two and three rows here, so each
+     keeps that many whichever view shows. */
   .rank-formula { min-height: calc(2 * 1.45em); }
   #pace-legend { min-height: 44px; align-content: flex-start; }
-  /* Over time's weekly legend takes four rows here. */
-  #hist-legend { min-height: 58px; align-content: flex-start; }
 }
 /* The sum a listed cost is, from the running weights, in one line a reader
    can check a figure against the marks' labels by. It runs the width of the
@@ -776,7 +774,7 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .pace-note code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
 /* -------------------------------------------------------------- over time */
-.pace-body > #hist-chart { min-width: 0; touch-action: pan-y pinch-zoom; user-select: none; }
+#hist-chart { min-width: 0; touch-action: pan-y pinch-zoom; user-select: none; }
 .hist-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; }
 .hist-tools .pace-view { margin: 0; }
 .hist-range { font: 500 11px/1 var(--mono); color: var(--ink-2); }
@@ -3982,12 +3980,17 @@ time[data-ts] { cursor: help; }
      before the node before: under every line, sleeve and mark, so it takes
      the pointer only where none of them does. */
   function allRefusedHits(parent, before, spans, t0, t1, xOf, y, left, right) {
+    var hits = [];
     allRefusedRuns(spans, t0, t1, xOf, left, right).forEach(function (r) {
-      var sp = r.sp;
-      var hw = Math.max(10, r.w);
-      var hit = svg("rect", { "class": "hs-all-refused-hit", x: r.x0 + (r.w - hw) / 2, y: y, width: hw, height: 8, fill: "transparent",
-        "data-tip": ALL_REFUSED_KEY + "\n" + absTime(new Date(sp[0])) + " – " + absTime(new Date(sp[1])) +
-          " (" + durText(Math.round((sp[1] - sp[0]) / 1000)) + ")" }, parent);
+      var hw = Math.max(10, r.w), a = r.x0 + (r.w - hw) / 2, last = hits[hits.length - 1];
+      var line = absTime(new Date(r.sp[0])) + " – " + absTime(new Date(r.sp[1])) + " (" + durText(Math.round((r.sp[1] - r.sp[0]) / 1000)) + ")";
+      /* Targets that meet make one, which lists each stretch. */
+      if (last && a <= last.b) { last.b = Math.max(last.b, a + hw); last.lines.push(line); }
+      else hits.push({ a: a, b: a + hw, lines: [line] });
+    });
+    hits.forEach(function (t) {
+      var hit = svg("rect", { "class": "hs-all-refused-hit", x: t.a, y: y, width: t.b - t.a, height: 8, fill: "transparent",
+        "data-tip": ALL_REFUSED_KEY + "\n" + t.lines.join("\n") }, parent);
       parent.insertBefore(hit, before);
     });
   }
@@ -5517,6 +5520,12 @@ time[data-ts] { cursor: help; }
       "L" + o.map(function (v) { return v.toFixed(2); }).join(" ") + "L" + i.map(function (v) { return v.toFixed(2); }).join(" ") + "Z" }, parent);
   }
 
+  /* A tooltip line for a reset another seat's mark stands for: the seat,
+     the level it fell from and to, and when. */
+  function foldedReset(sd, from, to, t) {
+    return { b: seatLabel(sd.a), t: pct(from, 0) + " \u2192 " + pct(to, 0) + " \u00b7 " + absTime(new Date(t)) };
+  }
+
   /* A reset's mark in col at x, y: the reset glyph in a ring. */
   function resetMark(parent, x, y, col, cls) {
     var mk = svg("g", { "class": "rs-mark" + (cls ? " " + cls : "") }, parent);
@@ -6032,8 +6041,8 @@ time[data-ts] { cursor: help; }
        CLIFF_DROP or to nothing, with a reset mark in its colour halfway down
        the fall of its band's edge, faint ahead of now. Pointing at a mark
        names the seat, when and how much came back. A mark meeting one
-       already set is left off, and one at an end of the view is drawn whole
-       just inside it. */
+       already set is left off and its reset joins that mark's tooltip, and
+       one at an end of the view is drawn whole just inside it. */
     function resetMarks(root, st, X, Y, t0, t1) {
       var cliffs = [];
       steps.forEach(function (l, k) {
@@ -6050,17 +6059,23 @@ time[data-ts] { cursor: help; }
         var ja = Math.min(jb + 1, st.ts.length - 1);
         var x = clamp(X(c.t), xMin, xMax), y = (Y(st.tops[p][jb]) + Y(st.tops[p][ja])) / 2;
         var box = { x0: x - 8, x1: x + 8, y0: y - 8, y1: y + 8 };
-        if (taken.some(function (o) { return boxesMeet(box, o); })) return;
-        taken.push(box);
         var sd = data[c.k], ahead = c.t > now;
+        var met = taken.filter(function (o) { return boxesMeet(box, o.box); })[0];
+        if (met) {
+          met.spec.lines.push(foldedReset(sd, c.from, c.to, c.t));
+          setTip(met.el, met.spec);
+          return;
+        }
         var gs = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, g);
         var mk = resetMark(gs, x, y, sd.col, ahead ? "rs-ahead" : "");
-        setTip(mk, {
+        var spec = {
           seat: seatLabel(sd.a), col: sd.col, win: view.label, type: "reset", label: ahead ? "resets" : "reset",
           when: absTime(new Date(c.t)), dur: relText(new Date(c.t), now), big: [pct(c.from, 0), pct(c.to, 0)], delta: "",
           lines: ahead ? [{ t: "if no more is used" }] : []
-        });
+        };
+        setTip(mk, spec);
         mk.setAttribute("data-tip-visual", "true");
+        taken.push({ box: box, el: mk, spec: spec });
       });
     }
 
@@ -6292,7 +6307,8 @@ time[data-ts] { cursor: help; }
         var gr = seatLayer(gResets, sd.a.auth_id);
         /* A finished cycle's target and reset mark are drawn only where the
            cycle is wide enough on screen for them to read as one; a mark
-           meeting one already set is left off, as on the stacked form. */
+           meeting one already set is left off and its reset joins that
+           mark's tooltip, as on the stacked form. */
         var cyclePx = sd.dur / pxPer;
         sd.done.forEach(function (c) {
           if (c.at < t0 || c.at - sd.dur > t1) return;
@@ -6305,7 +6321,7 @@ time[data-ts] { cursor: help; }
           var met = rings.filter(function (o) { return boxesMeet(box, o.box); })[0];
           if (met) {
             /* Its reset joins the tooltip of the mark it would meet. */
-            met.spec.lines.push({ b: seatLabel(sd.a), t: pct(c.u, 0) + " \u2192 0% \u00b7 " + absTime(new Date(c.at)) });
+            met.spec.lines.push(foldedReset(sd, c.u, 0, c.at));
             setTip(met.el, met.spec);
           } else {
             var rk = resetMark(gr, ex, ey, sd.col);
@@ -6450,23 +6466,34 @@ time[data-ts] { cursor: help; }
       if (hadFocus) root.focus({ preventScroll: true });
     }
 
-    /* What the plot draws that does not name itself; the line, NOW and the
-       day lines read on their own. */
-    (stacked ? [
-      [SW_HELD, "held until its reset, if no more is used"],
-      [SW_POOL, "what the pool holds"],
-      [SW_WEEKEND, "weekend"]
-    ] : [
-      [reference ? SW_CURVE : SW_TARGET, reference ? CURVE_KEY : "target"],
-      [SW_WEEKEND, "weekend"]
-    ]).forEach(function (it) { legendRow(legend, it[0], it[1]); });
-    resetRow(legend);
-    if (!stacked) markLegend(legend, anyMark, anyLive, anyEst, anyGap);
-    if (stacked ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
-      legendRow(legend, stacked ? SW_STACK_LOCK : SW_LOCK, LOCK_KEY);
+    /* What the plot draws that does not name itself in either form; the
+       line, NOW and the day lines read on their own. */
+    function fillLegend(leg, stk) {
+      (stk ? [
+        [SW_HELD, "held until its reset, if no more is used"],
+        [SW_POOL, "what the pool holds"],
+        [SW_WEEKEND, "weekend"]
+      ] : [
+        [reference ? SW_CURVE : SW_TARGET, reference ? CURVE_KEY : "target"],
+        [SW_WEEKEND, "weekend"]
+      ]).forEach(function (it) { legendRow(leg, it[0], it[1]); });
+      resetRow(leg);
+      if (!stk) markLegend(leg, anyMark, anyLive, anyEst, anyGap);
+      if (stk ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
+        legendRow(leg, stk ? SW_STACK_LOCK : SW_LOCK, LOCK_KEY);
+      }
+      if (pool.length) legendRow(leg, SW_ALL_REFUSED, ALL_REFUSED_KEY);
+      if (view.weekly) legendRow(leg, SW_BRACKET, "use per day or week" + (stk ? "; +N% is a seat's share" : ""));
     }
-    if (pool.length) legendRow(legend, SW_ALL_REFUSED, ALL_REFUSED_KEY);
-    if (view.weekly) legendRow(legend, SW_BRACKET, "use per day or week" + (stacked ? "; +N% is a seat's share" : ""));
+    fillLegend(legend, stacked);
+    /* The legend holds the height of the taller form's at this width, so
+       switching forms moves nothing under it. */
+    var other = legend.parentNode.appendChild(h("ul", "legend", ""));
+    other.style.cssText = "position:absolute;visibility:hidden;width:" + legend.offsetWidth + "px";
+    fillLegend(other, !stacked);
+    legend.style.minHeight = "";
+    legend.style.minHeight = Math.max(legend.offsetHeight, other.offsetHeight) + "px";
+    other.parentNode.removeChild(other);
 
     bindHistPointer(host);
     draw();
