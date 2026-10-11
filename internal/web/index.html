@@ -3939,14 +3939,16 @@ time[data-ts] { cursor: help; }
     svg("path", { d: shape(0.5), fill: "none", stroke: "var(--critical)", "stroke-width": 1, opacity: .9 }, parent);
   }
 
-  var SLEEVE_W = 6;
+  var SLEEVE_W = 6, SLEEVE_MIN = 10;
   /* One sleeve from x0 to x1 around a line at y: its round ends centred on
-     the stretch's ends, so a stretch with no length is a circle; the seat's
-     hatch inside a border of its colour, over whatever the plot draws under
-     it. Its inside joins clip, through which the seat's line is drawn, and
-     the whole of it joins hole, where the line itself is left out. */
+     the stretch's ends, and never shorter than SLEEVE_MIN about its middle,
+     so a brief one still shows a stripe of its hatch; the seat's hatch
+     inside a border of its colour, over whatever the plot draws under it.
+     Its inside joins clip, through which the seat's line is drawn, and the
+     whole of it joins hole, where the line itself is left out. */
   function sleeve(parent, x0, x1, y, col, clip, hole) {
-    var r = SLEEVE_W / 2, box = { x: x0 - r, y: y - r, width: x1 - x0 + SLEEVE_W, height: SLEEVE_W, rx: r };
+    var w = Math.max(SLEEVE_MIN, x1 - x0 + SLEEVE_W), mid = (x0 + x1) / 2, r = SLEEVE_W / 2;
+    var box = { x: mid - w / 2, y: y - r, width: w, height: SLEEVE_W, rx: r };
     svg("rect", Object.assign({ "class": "lock-sleeve", fill: col, opacity: .55, mask: hatchFor(parent, SLEEVE_W) }, box), parent);
     svg("rect", Object.assign({ "class": "lock-sleeve", fill: "none", stroke: col, "stroke-width": 1.25 }, box), parent);
     svg("rect", { x: box.x + 1, y: box.y + 1, width: box.width - 2, height: box.height - 2, rx: r - 1 }, clip);
