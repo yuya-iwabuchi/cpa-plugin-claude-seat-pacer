@@ -4013,7 +4013,7 @@ time[data-ts] { cursor: help; }
      refused one. mark, for a seat refused now whose present mark is drawn,
      is that mark's centre: a sleeve running into the mark reaches at least
      SLEEVE_MIN past the mark's ring, which would otherwise cover a brief one,
-     though never before the line's first reading. Reports whether it drew
+     though never before its window's first reading. Reports whether it drew
      any. */
   function lockSleeves(parent, parts, xOf, Y, col, lineG, mark) {
     var runs = [];
@@ -4034,9 +4034,14 @@ time[data-ts] { cursor: help; }
     });
     if (!bands.length) return false;
     if (mark) {
-      var first = Math.min.apply(null, parts.map(function (part) { return part[1].length ? xOf(part[1][0].t) : Infinity; }));
       bands.forEach(function (r) {
         if (Math.abs(r[2] - mark.y) < 1 && r[1] >= mark.x - 1) {
+          /* The window the sleeve runs in is the latest part to start by
+             its end. */
+          var first = Math.max.apply(null, parts.map(function (part) {
+            var x = part[1].length ? xOf(part[1][0].t) : -Infinity;
+            return x <= r[1] + 0.5 ? x : -Infinity;
+          }));
           r[0] = Math.max(first + SLEEVE_W / 2, Math.min(r[0], mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2));
         }
       });
@@ -4482,7 +4487,7 @@ time[data-ts] { cursor: help; }
        keeps the longer one's height on every switch. */
     renderPaceNote(st);
     renderSessionNote(st);
-    if (view === PACE_SESSION) { renderSession(st, seats); steadyPaceList(st, seats, ranks); return; }
+    if (view === PACE_SESSION) { renderSession(st, seats); steadyPaceList(st, seats, ranks, capDrawn); return; }
     var pace = (st.config && st.config.pace) || {};
 
     var fr = paceFrame(host), W = fr.W, H = fr.H, m = fr.m, pw = fr.pw, ph = fr.ph;
@@ -4656,14 +4661,15 @@ time[data-ts] { cursor: help; }
 
     lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
     renderRank(st, seats, ranks, view);
-    steadyPaceList(st, seats, ranks);
+    steadyPaceList(st, seats, ranks, capDrawn);
   }
 
   /* Under 1000px the list drops under the plot; it keeps the height of the
-     tallest view's list, each family's and the 5-hour one, measured unseen
-     at its own width, up to the 380px it scrolls past, so switching views
-     moves nothing under it. */
-  function steadyPaceList(st, seats, ranks) {
+     tallest list a view shows, the Standard one, each family cap's where
+     capDrawn gives the caps views, and the 5-hour one, measured unseen at its
+     own width, up to the 380px it scrolls past, so switching views moves
+     nothing under it. */
+  function steadyPaceList(st, seats, ranks, capDrawn) {
     var lists = [$("pace-rank"), $("session-rank")];
     lists.forEach(function (l) { l.style.minHeight = ""; });
     if (!NARROW.matches) return;
@@ -4672,7 +4678,7 @@ time[data-ts] { cursor: help; }
     var probe = shown.parentNode.appendChild(h("div", "side-list"));
     probe.style.cssText = "position:absolute;left:0;right:0;top:0;bottom:auto;height:auto;visibility:hidden;max-height:none";
     var tallest = 0;
-    ranks.fams.forEach(function (fam) {
+    ranks.fams.filter(function (fam) { return fam === STANDARD || capDrawn; }).forEach(function (fam) {
       probe.textContent = "";
       probe.appendChild(rankList(st, seats, ranks, fam));
       tallest = Math.max(tallest, probe.getBoundingClientRect().height);
