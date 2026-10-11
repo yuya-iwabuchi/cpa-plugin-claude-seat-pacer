@@ -120,6 +120,11 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			row.Provider = strings.ToLower(entry.Provider)
 			row.Priority = entry.Priority
 			row.HostStatus = hostStatus(entry)
+			if entry.Unavailable && entry.NextRetryAfter.After(now) {
+				until := entry.NextRetryAfter
+				row.HostHeldUntil = &until
+			}
+			ApplyHostState(&row)
 		}
 		rows = append(rows, row)
 	}
@@ -155,6 +160,17 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 		Bindings:   bound,
 		Decisions:  decisions,
 		Warnings:   warnings,
+	}
+}
+
+// ApplyHostState scores a credential the host does not offer as ineligible:
+// the host filters a disabled or unavailable credential out of every pick's
+// candidates, so the status view ranks the seats the pick can be offered.
+// The host's state takes precedence over any reason the reading gives, since
+// the host decides before the plugin is asked.
+func ApplyHostState(row *model.AuthStatus) {
+	if row.HostStatus == "disabled" || row.HostStatus == "unavailable" {
+		row.Score.Eligible, row.Score.Reason = false, model.ReasonNotCandidate
 	}
 }
 

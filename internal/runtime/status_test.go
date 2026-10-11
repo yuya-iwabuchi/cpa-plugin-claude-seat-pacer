@@ -69,7 +69,7 @@ func TestStatusFillsEveryField(t *testing.T) {
 	if rows["claude-a.json"].Bindings+rows["claude-b.json"].Bindings != 2 {
 		t.Errorf("bindings per row = a %d b %d, want two in total", rows["claude-a.json"].Bindings, rows["claude-b.json"].Bindings)
 	}
-	if off := rows["claude-off.json"]; off.HostStatus != "disabled" || off.Score.Reason != model.ReasonNoSnapshot {
+	if off := rows["claude-off.json"]; off.HostStatus != "disabled" || off.Score.Eligible || off.Score.Reason != model.ReasonNotCandidate {
 		t.Errorf("disabled row = %+v", off)
 	}
 	if len(status.Bindings) != 2 {
@@ -407,5 +407,40 @@ func TestAThrottleRaisesOneWarning(t *testing.T) {
 	got = Warnings(true, nil, "", nil, []model.AuthStatus{{AuthID: "d"}, {AuthID: "e"}}, seats)
 	if want := []string{ThrottleWarning, "quota poll failing for d (rate-limited): " + throttle}; !slices.Equal(got, want) {
 		t.Errorf("warnings with another seat keeping a reading = %q, want %q", got, want)
+	}
+}
+
+// TestStatusRanksOnlySeatsTheHostOffers covers a credential the host cools:
+// its reading has room, but the host filters it out of every pick's
+// candidates, so its row is ineligible and names when the host lets it back.
+func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	pollFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	until := testNow.Add(65 * time.Hour)
+	tp.host.mu.Lock()
+	tp.host.files[1].Unavailable = true
+	tp.host.files[1].NextRetryAfter = until
+	tp.host.mu.Unlock()
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	rows := make(map[string]model.AuthStatus)
+	for _, row := range tp.Status(testNow, "").Auths {
+		rows[row.AuthID] = row
+	}
+	if a := rows["claude-a.json"]; !a.Score.Eligible || a.HostHeldUntil != nil {
+		t.Errorf("offered row = eligible %v held until %v, want eligible and not held", a.Score.Eligible, a.HostHeldUntil)
+	}
+	b := rows["claude-b.json"]
+	if b.HostStatus != "unavailable" || b.Score.Eligible || b.Score.Reason != model.ReasonNotCandidate || b.HostHeldUntil == nil || !b.HostHeldUntil.Equal(until) {
+		t.Errorf("held row = status %q eligible %v reason %q until %v, want unavailable, ineligible as not a candidate, until %v",
+			b.HostStatus, b.Score.Eligible, b.Score.Reason, b.HostHeldUntil, until)
+	}
+	if len(b.Score.Windows) == 0 {
+		t.Error("held row lost its pace evaluation; the page still draws its gaps")
 	}
 }

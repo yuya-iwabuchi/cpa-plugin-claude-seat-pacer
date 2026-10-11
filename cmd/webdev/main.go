@@ -76,6 +76,8 @@ func main() {
 			AuthID: seatCID, Label: "Seat C", Provider: "claude",
 			Priority: 10, HostStatus: "active",
 		})
+		src.auths[0].HostStatus = "unavailable"
+		src.heldFor = map[string]time.Duration{seatAID: 2*24*time.Hour + 17*time.Hour}
 		src.holds = map[string]*runtime.HoldWarning{seatAID: {
 			Released: 6 * time.Minute, Remaining: 2*24*time.Hour + 17*time.Hour,
 			Problem: "the host cooled it again after the plugin cleared it",
@@ -239,6 +241,9 @@ type fixture struct {
 	// listErr is the host credential listing's last failure, empty while it
 	// succeeds.
 	listErr string
+	// heldFor is how long the host still cools each credential it lists
+	// unavailable with a deadline.
+	heldFor map[string]time.Duration
 	// holds are the stale host cooldowns the scenario leaves standing.
 	holds    map[string]*runtime.HoldWarning
 	warnings []string
@@ -506,6 +511,11 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 		}
 		a.Snapshot = snap
 		a.Score = pace.ScoreWithStaleness(f.cfg, snap, ok, a.AuthID, modelID, now)
+		if left, held := f.heldFor[a.AuthID]; held {
+			until := now.Add(left)
+			a.HostHeldUntil = &until
+		}
+		runtime.ApplyHostState(&a)
 		a.History = []model.WindowHistory{}
 		if hs, replayed := f.replayed[a.AuthID]; replayed {
 			a.History = hs

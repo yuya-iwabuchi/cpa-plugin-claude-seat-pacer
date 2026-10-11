@@ -4,7 +4,9 @@ The Management Center gains a "Claude Seat Pacer" entry: a live dashboard of
 what the plugin decides and the numbers behind it. The page calls a seat's
 plan its target, and ranks the eligible seats by cost: the weighted gap to
 target, negative while a seat is behind, so the lowest cost takes the next
-new conversation. A seat held off ranks below them.
+new conversation. A seat held off ranks below them, including one the host
+is not offering, which the page marks "held by host" with the time the host
+lets it back, or "host disabled".
 
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with

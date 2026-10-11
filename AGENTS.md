@@ -67,8 +67,11 @@ the run. Do not remove that test.
   Disabled, cooling, model-incompatible and already-tried credentials are gone
   before the plugin is asked, and lower tiers are never offered, so the plugin
   paces only across the seats sharing the highest usable `priority`; a lower
-  tier is a fallback the host reaches on its own. The status page groups seats
-  by tier and warns while the pick sees a single candidate.
+  tier is a fallback the host reaches on its own. The status view applies the
+  same filter: `runtime.ApplyHostState` scores a seat the host lists as
+  disabled or unavailable as `not-a-candidate`, so the page ranks only the
+  seats the pick can be offered. It groups seats by tier and warns while the
+  pick sees a single candidate.
 - **The plugin owns affinity for what it routes.** The host asks the plugin
   before its own selector, and a plugin that answers `Handled: true` skips
   that selector, `SessionAffinitySelector` included, so
