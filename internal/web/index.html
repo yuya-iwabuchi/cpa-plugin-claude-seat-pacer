@@ -446,6 +446,12 @@ td .seat-mark { max-width: 22ch; }
   border: 1px solid color-mix(in srgb, var(--tone) 34%, transparent);
 }
 .chip-glyph { font-size: 10px; line-height: 1; color: var(--tone); }
+/* The pause glyph: two rounded bars in the text's colour. */
+.gl-pause {
+  display: inline-block; flex: none; width: 6px; height: 8px;
+  background: linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px, currentColor 4px 6px);
+  border-radius: 1px;
+}
 .chip[data-tone="good"]     { --tone: var(--good); }
 .chip[data-tone="info"]     { --tone: var(--info); }
 .chip[data-tone="serious"]  { --tone: var(--serious); }
@@ -536,7 +542,7 @@ svg.tl g.rst:hover rect.hit { fill: var(--surface-2); }
    the reason the family is held off it. The chip of a family whose next new
    conversation the seat takes is tinted, and the #1 it reads says the same,
    so the tint carries nothing on its own; a rank below it is set a step
-   quieter. A cross is a stop of its own, with the hold's reason in its
+   quieter. A hold is a stop of its own, with the hold's reason in its
    tooltip; a rank has none, so it lets the pointer through to the row behind
    it. */
 svg.tl .fam-plate { fill: transparent; stroke: var(--axis); stroke-width: 1; }
@@ -1772,27 +1778,46 @@ time[data-ts] { cursor: help; }
 
   /* The lane states, in the order the legend lists them. Every state carries
      a glyph, so no state rests on its hue. The two states that hold a seat
-     share the critical hue and the hatch, and share one legend row: either
-     one keeps new conversations off the seat, and its glyph and the seat's
-     chip say which. Spent is a window the provider reports full: no new
-     conversation lands on the seat for the requests the window applies to
-     until it resets, which is a gate on a reading and not on the pace
-     forecast. Full is the page's one
-     word for that state. Blocked is the provider's own refusal of the window,
-     which the page calls refused, and it makes the seat ineligible the same
-     way. Limit is a window the cost does not weigh, which the legend calls
-     not paced; its tooltip says whether it reads under, on or above its
-     curve. The usage endpoint's
-     critical-headroom advisory is no state of its own: a window it is raised
+     share the critical hue, the hatch and the pause glyph, and share one
+     legend row: either one keeps new conversations off the seat until the
+     window resets, and the seat's chip and the window's tooltip say which.
+     Spent is a window the provider reports full: no new conversation lands
+     on the seat for the requests the window applies to until it resets,
+     which is a gate on a reading and not on the pace forecast. Full is the
+     page's one word for that state. Blocked is the provider's own refusal of
+     the window, which the page calls refused, and it makes the seat
+     ineligible the same way. Limit is a window the cost does not weigh,
+     which the legend calls not paced; its tooltip says whether it reads
+     under, on or above its curve. The usage endpoint's critical-headroom
+     advisory is no state of its own: a window it is raised
      on keeps its pace verdict, and the advisory is on the window's tooltip. */
+  /* A hold that lifts on its own, at a reset or the end of a host's
+     cooldown, is drawn as a pause: two rounded bars, never the character
+     PAUSE_GLYPH stands for. A hold that waits on someone, as on a seat the
+     host has disabled or one with no reading to score, keeps the cross. */
+  var PAUSE_GLYPH = "\u2016", CROSS_GLYPH = "\u2715";
+  /* The pause in col centred on cx, cy, hgt tall. */
+  function pauseGlyph(parent, cx, cy, col, hgt) {
+    var w = hgt * 0.27, gap = hgt * 0.24;
+    [cx - gap / 2 - w, cx + gap / 2].forEach(function (x) {
+      svg("rect", { x: x, y: cy - hgt / 2, width: w, height: hgt, rx: w / 2, fill: col }, parent);
+    });
+  }
+  /* A glyph as an HTML element of class cls, the pause drawn by CSS. */
+  function glyphEl(cls, glyph) {
+    if (glyph !== PAUSE_GLYPH) return h("span", cls, glyph);
+    var s = h("span", cls + " gl-pause");
+    s.setAttribute("aria-hidden", "true");
+    return s;
+  }
   var STATE_META = {
     under:   { color: "var(--good)",     glyph: "−", label: "under target" },
     on:      { color: "var(--info)",     glyph: "≈", label: "on pace" },
     over:    { color: "var(--serious)",  glyph: "+", label: "over target" },
-    spent:   { color: "var(--critical)", glyph: "◼", label: "full", pattern: "hatch" },
+    spent:   { color: "var(--critical)", glyph: PAUSE_GLYPH, label: "full", pattern: "hatch" },
     limit:   { color: "var(--ink-1)",    glyph: "◇", label: "weighs nothing in the cost",
                legend: "not paced" },
-    blocked: { color: "var(--critical)", glyph: "✕", label: "refused", pattern: "hatch" },
+    blocked: { color: "var(--critical)", glyph: PAUSE_GLYPH, label: "refused", pattern: "hatch" },
     unknown: { color: "var(--ink-3)",    glyph: "?", label: "not scored" }
   };
 
@@ -2010,9 +2035,33 @@ time[data-ts] { cursor: help; }
 
   /* Whether the host does not offer the seat, which its hold already says. */
   function hostHolds(a) { return !!a.score && a.score.reason === "not-a-candidate"; }
-  /* A host hold as a mark's tooltip and spoken name give it, "" for a seat
-     the host offers. */
-  function holdNote(a, now) { return hostHolds(a) ? famVerdict(a, STANDARD, now).text : ""; }
+  /* Whether a seat takes no new conversation of family fam now: a window
+     bearing on the family is refused or full, or the host does not offer
+     the seat. */
+  var HELD_REASONS = { "provider-rejected": true, "spent": true, "not-a-candidate": true };
+  function heldOff(a, fam) { var sc = famScore(a, fam || STANDARD); return !!sc && !!HELD_REASONS[sc.reason]; }
+  /* The hold a seat's present mark shows for family fam: "" for a seat
+     taking work, "cross" for one the host has disabled, and "pause" for
+     any other hold, live saying whether the provider refuses the mark's own
+     window now. */
+  function markHold(a, fam, live) {
+    if (!live && !heldOff(a, fam)) return "";
+    return hostDisabled(a) ? "cross" : "pause";
+  }
+  /* A seat's hold on family fam as a present mark's tooltip and spoken
+     name give it, "" for a seat taking work, and for one whose holds are
+     all refusals live already lists. */
+  function heldNote(a, fam, live, now) {
+    fam = fam || STANDARD;
+    if (!heldOff(a, fam)) return "";
+    var holding = holdingWindows(a, fam);
+    var said = !hostHolds(a) && holding.length > 0 && holding.every(function (w) {
+      return w.status === "rejected" && live.some(function (sp) {
+        return sp.kind === w.kind && (sp.scope || "") === (w.scope || "");
+      });
+    });
+    return said ? "" : famVerdict(a, fam, now).text;
+  }
 
   function seatHidden(a) {
     return !!hiddenSeats[a.auth_id] || (!revealDisabled && hostDisabled(a));
@@ -2390,7 +2439,7 @@ time[data-ts] { cursor: help; }
     var c = h("span", "chip");
     c.setAttribute("data-tone", tone || "muted");
     if (glyph) {
-      var g = h("span", "chip-glyph", glyph);
+      var g = glyphEl("chip-glyph", glyph);
       g.setAttribute("aria-hidden", "true");
       c.appendChild(g);
     }
@@ -2621,9 +2670,9 @@ time[data-ts] { cursor: help; }
   /* The lane states are one list: the legend, the glyph, the tooltip, the
      aria-label and the ranked list's spoken state all read STATE_META, so they
      cannot drift apart. States that share a pattern share a legend row, with
-     both glyphs and both words. A held seat's other windows close the list,
-     from HELD_META. renderTimeline shows only the rows of states it drew, a
-     held seat's grey glyph included. */
+     each distinct glyph and both words. A held seat's other windows close the
+     list, from HELD_META. renderTimeline shows only the rows of states it
+     drew, a held seat's grey glyph included. */
   function renderStateLegend() {
     var host = $("timeline-states");
     host.textContent = "";
@@ -2632,7 +2681,7 @@ time[data-ts] { cursor: help; }
       var meta = STATE_META[key];
       var same = meta.pattern && rows.filter(function (r) { return r.pattern === meta.pattern; })[0];
       if (same) {
-        same.glyph += " " + meta.glyph;
+        if (same.glyph !== meta.glyph) same.glyph += " " + meta.glyph;
         same.label += " or " + (meta.legend || meta.label);
       } else {
         rows.push({ color: meta.color, pattern: meta.pattern, glyph: meta.glyph, label: meta.legend || meta.label, keys: [key] });
@@ -2676,7 +2725,7 @@ time[data-ts] { cursor: help; }
 
   /* The chips a seat's header row carries: "fallback" where its tier is a
      fallback, its rank in each family it can serve on that family's serving
-     tier, then a cross for each hold. Ranking puts every eligible seat
+     tier, then each hold led by its glyph. Ranking puts every eligible seat
      first, so a #1 is the seat that takes that family's next new
      conversation, and its chip is the one tinted. Ranks that agree across
      every family collapse to one chip with no family named, which is also
@@ -2716,7 +2765,7 @@ time[data-ts] { cursor: help; }
       var some = fams.length > 1 && hc.fams.length < fams.length;
       var label = some && !hc.window ? andList(hc.fams.map(rankLabel)) + " " + hc.label : hc.label;
       var reach = fams.length > 1 && hc.known ? "keeps the seat off " + andList(hc.fams.map(rankLabel)) + " requests" : "";
-      chips.push({ ok: false, key: label, label: label, word: label, lift: hc.lift, win: reach,
+      chips.push({ ok: false, pause: hc.pause, key: label, label: label, word: label, lift: hc.lift, win: reach,
         tip: [label, hc.lift, reach].filter(Boolean).join(" · ") });
     });
     return chips;
@@ -2724,15 +2773,17 @@ time[data-ts] { cursor: help; }
 
   /* The holds keeping a seat off one family: each window that holds it, full
      or refused, with its reset, led by the family's reason with when it lifts
-     where that reason is not one of those windows. */
+     where that reason is not one of those windows. A hold that lifts on its
+     own is set with the pause. */
   function holdChips(a, fam, v, now) {
     var sc = famScore(a, fam), reason = sc && sc.reason;
     var out = holdingWindows(a, fam).map(function (w) {
       var r = parseT(w.resets_at);
-      return { label: holdLabel(w), lift: r ? resetText(r, now) : "", window: true, known: true };
+      return { label: holdLabel(w), lift: r ? resetText(r, now) : "", window: true, known: true, pause: true };
     });
     var named = out.length && (reason === "spent" || reason === "provider-rejected");
-    return named ? out : [{ label: v.word, lift: v.lift, window: false, known: !!sc }].concat(out);
+    var lifts = !!HELD_REASONS[reason] && !hostDisabled(a);
+    return named ? out : [{ label: v.word, lift: v.lift, window: false, known: !!sc, pause: lifts }].concat(out);
   }
 
   /* A seat's holds as one phrase, each with its reset: its hold chips' words. */
@@ -2741,11 +2792,12 @@ time[data-ts] { cursor: help; }
       .map(function (c) { return [c.label, c.lift].filter(Boolean).join(" · "); }).join("; ");
   }
 
-  /* A chip's text as it is set: a cross before a hold, a rank bare. */
-  function chipText(c) { return (c.ok ? "" : "✕ ") + c.label; }
+  /* A chip's text as it is set: a rank bare, a hold led by its glyph, a
+     pause taking the room of two spaces. */
+  function chipText(c) { return (c.ok ? "" : c.pause ? "\u00a0\u00a0" : CROSS_GLYPH + " ") + c.label; }
 
   /* One chip on a seat's header row: a plate behind a short label, a hold's
-     led by a cross, drawn at the origin so the caller can slide it beside the
+     led by its glyph, drawn at the origin so the caller can slide it beside the
      name once that has been trimmed. A chip with a tip is a stop named by
      its tip, which the rich tooltip draws; one without says nothing the
      row's own label does not, so it is out of the reading. */
@@ -2756,7 +2808,8 @@ time[data-ts] { cursor: help; }
     var t = svgText(g, 7, y, "", "fam-text", { "font-size": 9.5 });
     if (!c.ok) {
       var gl = svg("tspan", { fill: "var(--critical)" }, t);
-      gl.textContent = "✕ ";
+      gl.textContent = chipText(c).slice(0, 2);
+      if (c.pause) pauseGlyph(g, 11.5, y - 3.25, "var(--critical)", 6.5);
     }
     t.appendChild(document.createTextNode(c.label));
     var w = t.getComputedTextLength() + 14;
@@ -2778,9 +2831,9 @@ time[data-ts] { cursor: help; }
   }
 
   /* Takes one seat off this page and leaves the pool alone. The glyph is a
-     struck-through eye rather than a cross, because a cross on this page
-     already means a seat a family cannot use. The way back is the live bar,
-     which is on screen wherever the reader is when the row goes. */
+     struck-through eye rather than a cross, because a cross or a pause on
+     this page already means a seat a family cannot use. The way back is the
+     live bar, which is on screen wherever the reader is when the row goes. */
   function hideControl(parent, x, y, a) {
     var g = svg("g", { "class": "hide", tabindex: 0, role: "button" }, parent);
     var label = "hide " + seatLabel(a) + " from this page";
@@ -3037,7 +3090,7 @@ time[data-ts] { cursor: help; }
       }
       svg("rect", { x: 6, y: row.top - geo.inset, width: 3, height: row.bottom - row.top + geo.inset + padB, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: identity, then its rank per family and a cross per hold, with
+      /* The seat's row: identity, then its rank per family and a chip per hold, with
          the whole record in the tooltip. Every name starts at NAME_X, so the
          names read down the page as one column. The name is trimmed to the
          measured space, so the tooltip is also where a long name is read
@@ -3055,7 +3108,7 @@ time[data-ts] { cursor: help; }
 
       /* The seat's family chips sit beside its name, which is the seat the
          facts are about. They are stops of their own beside the row rather
-         than inside it, so each cross keeps its own tooltip, and are slid
+         than inside it, so each hold keeps its own tooltip, and are slid
          into place once the name has been trimmed, so they hold their space
          either way. */
       var chips = seatChips(a, ranks).map(function (c) { return seatChip(gRow, headY, a, c); });
@@ -3086,16 +3139,17 @@ time[data-ts] { cursor: help; }
         var g = svg("g", { "class": "lane", tabindex: 0, role: "img" }, gRow);
         g.setAttribute("data-fk", "lane:" + a.auth_id + ":" + w.kind + ":" + (w.scope || ""));
 
-        /* Gutter: name, state glyph, utilization. All three are text, so no
-           value in this view depends on hovering a bar. An ineligible seat
-           sets them one ink token down. The glyph takes its state's colour as
-           the bar does, and the dimmest ink where the bar takes the neutral;
-           it is set as a style, since the chart's text rule outranks a fill
-           attribute. */
+        /* Gutter: name, state glyph, utilization. All three are set in the
+           row, so no value in this view depends on hovering a bar. An
+           ineligible seat sets them one ink token down. The glyph takes its
+           state's colour as the bar does, and the dimmest ink where the bar
+           takes the neutral; text sets it as a style, since the chart's text
+           rule outranks a fill attribute. */
         var nm = svgText(gRow, LANE_NAME_X, cy + 4, windowShort(w), eligible ? "t-sec" : "t-muted", { "font-size": 11.5 });
         fitText(nm, LANE_NAME_W);
-        svgText(gRow, LANE_GLYPH_X, cy + 4, meta.glyph, "", { "font-size": 10 }).style.fill =
-          drawn === HELD_META ? "var(--ink-3)" : meta.color;
+        var glCol = drawn === HELD_META ? "var(--ink-3)" : meta.color;
+        if (meta.glyph === PAUSE_GLYPH) pauseGlyph(gRow, LANE_GLYPH_X + 4, cy, glCol, 7);
+        else svgText(gRow, LANE_GLYPH_X, cy + 4, meta.glyph, "", { "font-size": 10 }).style.fill = glCol;
         svgText(gRow, LANE_PCT_X, cy + 4, pct(w.utilization), eligible ? "t-mono" : "t-mono t-sec",
           { "font-size": 11.5, "text-anchor": "end" });
         /* The budget meter is a fixed width, so utilization and its target
@@ -3712,12 +3766,15 @@ time[data-ts] { cursor: help; }
   var SW_ALL_REFUSED = "height:10px;background:linear-gradient(var(--critical) 0 2px, " +
     "color-mix(in srgb, var(--critical) 14%, transparent) 2px)";
   var ALL_REFUSED_KEY = "every seat refused";
-  /* A present mark, and one the provider is refusing now. */
+  /* A present mark, one held now, and one the host has disabled. */
   var SW_MARK = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;" +
     "border:1.5px solid var(--ink-2);background:radial-gradient(circle, var(--ink-2) 0 2.5px, transparent 3px)";
-  var SW_MARK_LIVE = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:2px solid var(--critical);" +
-    "background:linear-gradient(45deg, transparent 42%, var(--ink-2) 42% 58%, transparent 58%) center/6px 6px no-repeat," +
-    "linear-gradient(-45deg, transparent 42%, var(--ink-2) 42% 58%, transparent 58%) center/6px 6px no-repeat";
+  var SW_MARK_HELD = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;" +
+    "border:1.5px solid var(--ink-2);background:linear-gradient(90deg, var(--ink-2) 0 1.75px, transparent 1.75px 3.3px, " +
+    "var(--ink-2) 3.3px 5.05px) center/5.05px 6.5px no-repeat";
+  var SW_MARK_OFF = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:1.5px solid var(--ink-2);" +
+    "background:linear-gradient(45deg, transparent 40%, var(--ink-2) 40% 60%, transparent 60%) center/5px 5px no-repeat," +
+    "linear-gradient(-45deg, transparent 40%, var(--ink-2) 40% 60%, transparent 60%) center/5px 5px no-repeat";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
   var EST_KEY = "estimated from token spend";
   var SW_CURVE = "height:0;border-top:1.5px dashed var(--ink-1);opacity:.5";
@@ -4419,20 +4476,20 @@ time[data-ts] { cursor: help; }
   /* A present mark in the seat's colour at cx, cy: a dot of radius PT_R
      inside a ring PT_RING further out, with the card's colour between them.
      The gap parts the mark from any line under it, its own seat's included.
-     While the provider refuses the seat the ring is in the critical tone and
-     a cross in the seat's colour takes the dot's place. */
-  function presentMark(g, cx, cy, col, live) {
-    svg("circle", { cx: cx, cy: cy, r: PT_R + PT_RING, fill: "var(--surface-1)",
-      stroke: live ? "var(--critical)" : col, "stroke-width": live ? 2 : 1.5 }, g);
-    if (live) {
-      svg("path", { d: "M" + (cx - 3) + " " + (cy - 3) + "l6 6M" + (cx + 3) + " " + (cy - 3) + "l-6 6",
-        stroke: col, "stroke-width": 1.75, "stroke-linecap": "round" }, g);
+     A seat held now has its hold's glyph, from markHold, in the dot's
+     place. */
+  function presentMark(g, cx, cy, col, hold) {
+    svg("circle", { cx: cx, cy: cy, r: PT_R + PT_RING, fill: "var(--surface-1)", stroke: col, "stroke-width": 1.5 }, g);
+    if (hold === "pause") pauseGlyph(g, cx, cy, col, 6.5);
+    else if (hold === "cross") {
+      svg("path", { d: "M" + (cx - 2.5) + " " + (cy - 2.5) + "l5 5M" + (cx + 2.5) + " " + (cy - 2.5) + "l-5 5",
+        stroke: col, "stroke-width": 1.6, "stroke-linecap": "round" }, g);
     } else svg("circle", { cx: cx, cy: cy, r: PT_R, fill: col }, g);
   }
 
-  /* Moves a refused seat's mark into low, the layer under every other mark,
+  /* Moves a held seat's mark into low, the layer under every other mark,
      so a seat still taking work reads over one held at the same level.
-     Refused seats come first in keyboard order, in the order drawn. */
+     Held seats come first in keyboard order, in the order drawn. */
   function sinkMark(g, low) { low.appendChild(g); }
 
   /* The stacked form's gridlines: a labelled line every half window up to
@@ -4561,12 +4618,12 @@ time[data-ts] { cursor: help; }
        its weight in the cost; the weekly window counts whole. The group's
        role="img" keeps the label out of the accessibility tree; the gap is
        in its name. */
-    var labels = [], anyEst = false, anyUnrec = false, anyLock = false, anyLive = false, anyReset = false;
+    var labels = [], anyEst = false, anyUnrec = false, anyLock = false, holds = {}, anyReset = false;
     /* Layers, because SVG paints in document order and a seat drawn later
        would otherwise run its recorded line across an earlier seat's mark
        and label. Every refusal's sleeve goes in the lowest layer, every line
        over them, so a seat still taking work runs over one refused, then
-       every reset mark, every refused seat's mark, and every other mark,
+       every reset mark, every held seat's mark, and every other mark,
        label and hit area in the top one, so no seat can hide another's
        reading. */
     var gLock = svg("g", {}, root);
@@ -4627,18 +4684,19 @@ time[data-ts] { cursor: help; }
          cost the list ranks by, so the two figures meet. */
       var fsc = weighted ? famScore(a, ws.scope) : null;
       var famCost = fsc && scored(fsc) && num(fsc.cost) ? costText(fsc) : "";
+      var hold = markHold(a, ws.scope, locks.live.length > 0), note = heldNote(a, ws.scope, locks.live, now);
       g.setAttribute("aria-label", seatLabel(a) + ", " + windowName(ws) +
         ", day " + dayText(ws.elapsed) + ", " + pct(ws.utilization) + " used" +
         ", " + overText(ws.slack) + (weighted ? ", counted" + weightTag(ws.weight) + " in the cost" +
           (famCost ? ", " + ws.scope + " cost " + famCost : "") : ", cost " + costText(a.score)) +
-        liveAria(locks.live, now) + (holdNote(a, now) ? ", " + holdNote(a, now) : ""));
+        liveAria(locks.live, now) + (note ? ", " + note : ""));
       var tip = markTip(tipHead, "day " + dayText(ws.elapsed), ws.utilization, ws.target, "target", locks.live, now);
-      if (holdNote(a, now)) tip.lines.push({ t: holdNote(a, now) });
+      if (note) tip.lines.push({ t: note });
       if (famCost) tip.lines.push({ b: ws.scope + " cost", t: famCost });
       setTip(g, tip);
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
-      presentMark(g, cx, cy, col, locks.live.length > 0);
-      if (locks.live.length) { anyLive = true; sinkMark(g, gLow); }
+      presentMark(g, cx, cy, col, hold);
+      if (hold) { holds[hold] = true; sinkMark(g, gLow); }
     }
 
     var plotted = 0;
@@ -4660,7 +4718,7 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
+    lineLegend(host, plotted > 0, holds, anyEst, anyUnrec, anyLock, anyReset);
     renderRank(st, seats, ranks, view);
     steadyPaceList(st, seats, ranks, capDrawn);
   }
@@ -4752,12 +4810,13 @@ time[data-ts] { cursor: help; }
     });
   }
 
-  /* The present mark, and its refused form where one is drawn, then the
+  /* The present mark, and each held form drawn, then the
      line styles a recorded line can take past the plain one, each only
      where the chart draws it. Both line charts key these alike. */
-  function markLegend(leg, anyMark, anyLive, anyEst, anyUnrec) {
+  function markLegend(leg, anyMark, holds, anyEst, anyUnrec) {
     if (anyMark) legendRow(leg, SW_MARK, "now");
-    if (anyLive) legendRow(leg, SW_MARK_LIVE, "refused now");
+    if (holds.pause) legendRow(leg, SW_MARK_HELD, "held now");
+    if (holds.cross) legendRow(leg, SW_MARK_OFF, "host disabled");
     if (anyEst) legendRow(leg, SW_EST, EST_KEY);
     if (anyUnrec) legendRow(leg, SW_GAP, UNRECORDED_KEY);
   }
@@ -4772,10 +4831,10 @@ time[data-ts] { cursor: help; }
   /* Current window's legend, under its plot: what markLegend keys, then the
      sleeve and the reset mark where drawn. The curve names itself on the
      plot, and a mark's gap shows on pointing at it, which the note says. */
-  function lineLegend(host, anyMark, anyLive, anyEst, anyUnrec, anyLock, anyReset) {
+  function lineLegend(host, anyMark, holds, anyEst, anyUnrec, anyLock, anyReset) {
     var leg = paceLegend();
     leg.textContent = "";
-    markLegend(leg, anyMark, anyLive, anyEst, anyUnrec);
+    markLegend(leg, anyMark, holds, anyEst, anyUnrec);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
     if (anyReset) resetRow(leg);
     host.appendChild(leg);
@@ -4791,8 +4850,8 @@ time[data-ts] { cursor: help; }
     return "Point at a stretch of a line to see what happened in it: usage (rises less than " + pause +
       " apart), idle, not recorded (a climb after an early reset that no reading covers), or refused (a " +
       "hatched sleeve around the line, badged with the window that refused). A rise the first reading of a " +
-      "refusal shows is use from before it, and counts as usage. A mark ringed in red with a cross is a seat " +
-      "the provider is refusing now, and \u21bb marks an early reset.";
+      "refusal shows is use from before it, and counts as usage. A mark with a pause in its ring is a seat " +
+      "held now, refused, full or held by the host, a cross one the host has disabled, and \u21bb marks an early reset.";
   }
 
   /* One entry of a note: the term that names the topic, and the definition
@@ -5036,9 +5095,9 @@ time[data-ts] { cursor: help; }
       counts ? curveLabelText(paceCfg, "target", function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }) : "reference curve, not paced",
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
-    var plotted = 0, labels = [], anyEst = false, anyUnrec = false, anyLock = false, anyLive = false, anyReset = false;
+    var plotted = 0, labels = [], anyEst = false, anyUnrec = false, anyLock = false, holds = {}, anyReset = false;
     /* Layers, as on the 7-day views: every refusal's sleeve below every
-       line, then every reset mark, every refused seat's mark, and every
+       line, then every reset mark, every held seat's mark, and every
        other mark and label on top, so a seat drawn later cannot run its line
        across an earlier seat's reading. */
     var gLock = svg("g", {}, root);
@@ -5061,6 +5120,7 @@ time[data-ts] { cursor: help; }
       var key = a.auth_id + ":five_hour:";
       var locks5 = lockSpans(a, { kind: "five_hour" }, start, s.resets.getTime(), now);
       settleSpans(locks5.drawn, s.cur, now, s.w.utilization);
+      var hold5 = markHold(a, s.w.scope, locks5.live.length > 0), note5 = heldNote(a, s.w.scope, locks5.live, now);
       var estCur = 0;
       var hoursIn = clamp(hoursOf(now), 0, SESSION_HOURS), lastHour = rateText(recentSlope(s.cur, 3600000));
       /* The tooltip gives the reading against the target or the curve and
@@ -5070,7 +5130,7 @@ time[data-ts] { cursor: help; }
         ", " + pct(s.w.utilization) + " used" +
         (counts ? (ws ? ", target " + pct(ws.target) + ", " + overText(ws.slack) : "") : num(along) ? ", curve " + pct(along) : "") +
         ", resets " + relText(s.resets, now) +
-        ", last hour " + lastHour + liveAria(locks5.live, now) + (holdNote(a, now) ? ", " + holdNote(a, now) : "");
+        ", last hour " + lastHour + liveAria(locks5.live, now) + (note5 ? ", " + note5 : "");
       if (s.cur.length >= 2) {
         var gSeat = svg("g", { "class": "pt-line" }, gLines);
         gSeat.setAttribute("data-seat", a.auth_id);
@@ -5100,7 +5160,7 @@ time[data-ts] { cursor: help; }
       hg.setAttribute("data-fk", "sh:" + a.auth_id);
       var estLine = estCur ? estCur + " of " + s.cur.length + " readings estimated" : "";
       var tip5 = markTip(sHead, hoursIn.toFixed(1) + " h of " + SESSION_HOURS, s.w.utilization, along, counts ? "target" : "curve", locks5.live, now);
-      if (holdNote(a, now)) tip5.lines.push({ t: holdNote(a, now) });
+      if (note5) tip5.lines.push({ t: note5 });
       setTip(hg, tip5);
       hg.setAttribute("aria-label", headAria + (estLine ? ", " + estLine : ""));
       /* Where the window counts, the dotted line is the gap to the target at
@@ -5110,8 +5170,8 @@ time[data-ts] { cursor: help; }
         head(hg, labels, a, cx, cy, Y(ws.target), overPts(ws.slack));
       }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
-      presentMark(hg, cx, cy, col, locks5.live.length > 0);
-      if (locks5.live.length) { anyLive = true; sinkMark(hg, gLow); }
+      presentMark(hg, cx, cy, col, hold5);
+      if (hold5) { holds[hold5] = true; sinkMark(hg, gLow); }
     });
 
     settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
@@ -5122,7 +5182,7 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    lineLegend(host, plotted > 0, anyLive, anyEst, anyUnrec, anyLock, anyReset);
+    lineLegend(host, plotted > 0, holds, anyEst, anyUnrec, anyLock, anyReset);
     sessionList($("session-rank"), sessionRows(seats, paceCfg, now), root);
   }
 
@@ -5788,7 +5848,7 @@ time[data-ts] { cursor: help; }
        its reset for a finished one, the present reading for the newest. Its
        refusal spans, its vertices and its sections are read over that
        stretch, as Current window reads them over one window. */
-    var anyEst = false, anyGap = false, anyLock = false, anyMark = false, anyLive = false;
+    var anyEst = false, anyGap = false, anyLock = false, anyMark = false, holds = {};
     var idleMs = view.weekly ? PACE_IDLE_MS : SESSION_IDLE_MS;
     var data = seats.map(function (a) {
       var sd = seatUse(a, view, now), wins = sd.wins, cur = sd.cur, resets = sd.resets, dur = sd.dur;
@@ -5818,12 +5878,13 @@ time[data-ts] { cursor: help; }
           if (s.fresh && s.t - win.samples[j - 1].t >= UNRECORDED_MS) anyGap = true;
         });
       });
-      /* The present reading is ringed in the critical tone while the
-         provider refuses the seat. */
+      /* The present reading is marked held while the seat takes no new
+         conversation of the view's family. */
       var newest = wins[wins.length - 1];
       sd.live = cur !== null && !!newest && newest.locks.live.length > 0;
       if (cur !== null) anyMark = true;
-      if (sd.live) anyLive = true;
+      sd.hold = cur === null ? "" : markHold(a, view.scope, sd.live);
+      if (sd.hold) holds[sd.hold] = true;
       sd.done = wins.filter(function (win) { return win.at !== null && win.at <= now; }).map(function (win) {
         var last = win.samples[win.samples.length - 1];
         return { at: win.at, u: last.u, est: !!last.est };
@@ -6367,7 +6428,7 @@ time[data-ts] { cursor: help; }
       svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
 
       /* Layers, as on Current window: every refusal's sleeve under every
-         line, then every reset mark, every refused seat's present mark, and
+         line, then every reset mark, every held seat's present mark, and
          every other mark and label on top. */
       var gLock = svg("g", { "clip-path": "url(#hist-clip)" }, root);
       var gPlot = svg("g", { "clip-path": "url(#hist-clip)" }, root);
@@ -6380,7 +6441,7 @@ time[data-ts] { cursor: help; }
       (stacked ? [] : data).forEach(function (sd) {
         var gt = svg("g", { "class": "pt-lock", "data-seat": sd.a.auth_id }, gLock);
         var gl = svg("g", { "class": "pt-line", "data-seat": sd.a.auth_id }, gPlot);
-        var gm = svg("g", { "class": "pt", "data-seat": sd.a.auth_id }, sd.live ? gLow : gMarks);
+        var gm = svg("g", { "class": "pt", "data-seat": sd.a.auth_id }, sd.hold ? gLow : gMarks);
         var gr = seatLayer(gResets, sd.a.auth_id);
         /* A finished cycle's target and reset mark are drawn only where the
            cycle is wide enough on screen for them to read as one; a mark
@@ -6431,7 +6492,7 @@ time[data-ts] { cursor: help; }
         var drawsMark = sd.cur !== null && now >= t0 && now <= t1;
         lockSleeves(gt, lockParts, X, Y, sd.col, gl, sd.live && drawsMark ? { x: X(now), y: Y(sd.cur) } : null);
         if (drawsMark) {
-          presentMark(gm, X(now), Y(sd.cur), sd.col, sd.live);
+          presentMark(gm, X(now), Y(sd.cur), sd.col, sd.hold);
         }
       });
       if (view.weekly) drawRanges(root, X, Y, t0, t1, m, pw, st);
@@ -6543,7 +6604,7 @@ time[data-ts] { cursor: help; }
         [SW_WEEKEND, "weekend"]
       ]).forEach(function (it) { legendRow(leg, it[0], it[1]); });
       resetRow(leg);
-      if (!stk) markLegend(leg, anyMark, anyLive, anyEst, anyGap);
+      if (!stk) markLegend(leg, anyMark, holds, anyEst, anyGap);
       if (stk ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
         legendRow(leg, stk ? SW_STACK_LOCK : SW_LOCK, LOCK_KEY);
       }
@@ -6867,7 +6928,7 @@ time[data-ts] { cursor: help; }
     if (meta.pattern) sw.setAttribute("data-pattern", meta.pattern);
     box.appendChild(sw);
     if (meta.glyph) {
-      var gl = h("span", "gl", meta.glyph);
+      var gl = glyphEl("gl", meta.glyph);
       gl.style.color = meta.color;
       box.appendChild(gl);
     }
@@ -7227,7 +7288,7 @@ time[data-ts] { cursor: help; }
 
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
-                                 : chip(reasonText(s.reason), "critical", "✕"));
+                                 : chip(reasonText(s.reason), "critical", HELD_REASONS[s.reason] ? PAUSE_GLYPH : CROSS_GLYPH));
       tr.appendChild(tdE);
 
       var tdW = h("td", "");
@@ -7498,7 +7559,7 @@ time[data-ts] { cursor: help; }
   /* A holding window as the page names it: the window, then full or refused. */
   function holdLabel(w) { return windowShort(w) + (w.status === "rejected" ? " refused" : " full"); }
 
-  /* The word a seat's cross carries. A seat the host does not offer says
+  /* The word a seat's hold chip carries. A seat the host does not offer says
      whether the host has disabled it or is holding it; a refusal or a window
      at full names the windows. */
   function holdWord(a, reason, fam, back, now) {

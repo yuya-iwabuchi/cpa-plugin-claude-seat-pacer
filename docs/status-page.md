@@ -21,8 +21,8 @@ offers it for other models, and its tooltip names the host status.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
   showing each window's current cycle. A window holding its seat off, full or
-  refused, is hatched red, and that seat's other windows turn grey, as every
-  window of a seat the host holds does.
+  refused, is hatched red and marked with a pause, and that seat's other
+  windows turn grey, as every window of a seat the host holds does.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is
@@ -36,7 +36,8 @@ offers it for other models, and its tooltip names the host status.
   ineligible. Pointing at a seat shows its gap to the target where the window
   is paced. A stretch in which the provider refused the seat is a hatched
   sleeve in the seat's colour around its line, under every seat still taking
-  work, and a seat refused now has its mark ringed in red with a cross.
+  work, and a seat held now, refused, full or held by the host, has a pause
+  in its mark, and one the host has disabled a cross.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per
