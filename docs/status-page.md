@@ -36,8 +36,8 @@ offers it for other models, and its tooltip names the host status.
   ineligible. Pointing at a seat shows its gap to the target where the window
   is paced. A stretch in which the provider refused the seat is a hatched
   sleeve in the seat's colour around its line, under every seat still taking
-  work, and a seat held now, refused, full or held by the host, has a pause
-  in its mark, and one the host has disabled a cross.
+  work. A seat held now (refused, full or held by host) has a pause in place
+  of its mark's dot, and one the host has disabled a cross.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per

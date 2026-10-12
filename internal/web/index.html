@@ -446,11 +446,11 @@ td .seat-mark { max-width: 22ch; }
   border: 1px solid color-mix(in srgb, var(--tone) 34%, transparent);
 }
 .chip-glyph { font-size: 10px; line-height: 1; color: var(--tone); }
-/* The pause glyph: two rounded bars in the text's colour. */
+/* The pause glyph in HTML: two bars in the text's colour, 8px tall, at the
+   proportions pauseGlyph draws in SVG. */
 .gl-pause {
-  display: inline-block; flex: none; width: 6px; height: 8px;
-  background: linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px, currentColor 4px 6px);
-  border-radius: 1px;
+  display: inline-block; flex: none; width: 6.24px; height: 8px;
+  background: linear-gradient(90deg, currentColor 0 2.16px, transparent 2.16px 4.08px, currentColor 4.08px 6.24px);
 }
 .chip[data-tone="good"]     { --tone: var(--good); }
 .chip[data-tone="info"]     { --tone: var(--info); }
@@ -1796,9 +1796,12 @@ time[data-ts] { cursor: help; }
      PAUSE_GLYPH stands for. A hold that waits on someone, as on a seat the
      host has disabled or one with no reading to score, keeps the cross. */
   var PAUSE_GLYPH = "\u2016", CROSS_GLYPH = "\u2715";
+  /* The pause's bar width and the gap between its bars, as fractions of
+     its height. */
+  var PAUSE_BAR = 0.27, PAUSE_GAP = 0.24;
   /* The pause in col centred on cx, cy, hgt tall. */
   function pauseGlyph(parent, cx, cy, col, hgt) {
-    var w = hgt * 0.27, gap = hgt * 0.24;
+    var w = hgt * PAUSE_BAR, gap = hgt * PAUSE_GAP;
     [cx - gap / 2 - w, cx + gap / 2].forEach(function (x) {
       svg("rect", { x: x, y: cy - hgt / 2, width: w, height: hgt, rx: w / 2, fill: col }, parent);
     });
@@ -2039,14 +2042,18 @@ time[data-ts] { cursor: help; }
      bearing on the family is refused or full, or the host does not offer
      the seat. */
   var HELD_REASONS = { "provider-rejected": true, "spent": true, "not-a-candidate": true };
-  function heldOff(a, fam) { var sc = famScore(a, fam || STANDARD); return !!sc && !!HELD_REASONS[sc.reason]; }
+  function heldOff(a, fam) {
+    fam = fam || STANDARD;
+    var sc = famScore(a, fam);
+    return (!!sc && !!HELD_REASONS[sc.reason]) || hostHolds(a) || holdingWindows(a, fam).length > 0;
+  }
   /* The hold a seat's present mark shows for family fam: "" for a seat
      taking work, "cross" for one the host has disabled, and "pause" for
      any other hold, live saying whether the provider refuses the mark's own
      window now. */
   function markHold(a, fam, live) {
-    if (!live && !heldOff(a, fam)) return "";
-    return hostDisabled(a) ? "cross" : "pause";
+    if (hostDisabled(a)) return "cross";
+    return live || heldOff(a, fam) ? "pause" : "";
   }
   /* A seat's hold on family fam as a present mark's tooltip and spoken
      name give it, "" for a seat taking work, and for one whose holds are
@@ -2060,7 +2067,13 @@ time[data-ts] { cursor: help; }
         return sp.kind === w.kind && (sp.scope || "") === (w.scope || "");
       });
     });
-    return said ? "" : famVerdict(a, fam, now).text;
+    if (said) return "";
+    var sc = famScore(a, fam);
+    if (hostHolds(a) || (sc && HELD_REASONS[sc.reason])) return famVerdict(a, fam, now).text;
+    return holding.map(function (w) {
+      var r = parseT(w.resets_at);
+      return holdLabel(w) + (r ? " \u00b7 " + resetText(r, now) : "");
+    }).join(", ");
   }
 
   function seatHidden(a) {
@@ -2669,8 +2682,8 @@ time[data-ts] { cursor: help; }
 
   /* The lane states are one list: the legend, the glyph, the tooltip, the
      aria-label and the ranked list's spoken state all read STATE_META, so they
-     cannot drift apart. States that share a pattern share a legend row, with
-     each distinct glyph and both words. A held seat's other windows close the
+     cannot drift apart. States that share a pattern share a glyph and one
+     legend row naming both. A held seat's other windows close the
      list, from HELD_META. renderTimeline shows only the rows of states it
      drew, a held seat's grey glyph included. */
   function renderStateLegend() {
@@ -2681,7 +2694,6 @@ time[data-ts] { cursor: help; }
       var meta = STATE_META[key];
       var same = meta.pattern && rows.filter(function (r) { return r.pattern === meta.pattern; })[0];
       if (same) {
-        if (same.glyph !== meta.glyph) same.glyph += " " + meta.glyph;
         same.label += " or " + (meta.legend || meta.label);
       } else {
         rows.push({ color: meta.color, pattern: meta.pattern, glyph: meta.glyph, label: meta.legend || meta.label, keys: [key] });
@@ -3090,8 +3102,8 @@ time[data-ts] { cursor: help; }
       }
       svg("rect", { x: 6, y: row.top - geo.inset, width: 3, height: row.bottom - row.top + geo.inset + padB, rx: 1.5, fill: col }, gBack);
 
-      /* The seat's row: identity, then its rank per family and a chip per hold, with
-         the whole record in the tooltip. Every name starts at NAME_X, so the
+      /* The seat's row: identity, then its rank per family and a chip per
+         hold, with the whole record in the tooltip. Every name starts at NAME_X, so the
          names read down the page as one column. The name is trimmed to the
          measured space, so the tooltip is also where a long name is read
          whole. */
@@ -3767,12 +3779,14 @@ time[data-ts] { cursor: help; }
     "color-mix(in srgb, var(--critical) 14%, transparent) 2px)";
   var ALL_REFUSED_KEY = "every seat refused";
   /* A present mark, one held now, and one the host has disabled. */
-  var SW_MARK = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;" +
-    "border:1.5px solid var(--ink-2);background:radial-gradient(circle, var(--ink-2) 0 2.5px, transparent 3px)";
-  var SW_MARK_HELD = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;" +
-    "border:1.5px solid var(--ink-2);background:linear-gradient(90deg, var(--ink-2) 0 1.75px, transparent 1.75px 3.3px, " +
-    "var(--ink-2) 3.3px 5.05px) center/5.05px 6.5px no-repeat";
-  var SW_MARK_OFF = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:1.5px solid var(--ink-2);" +
+  var SW_RING = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:1.5px solid var(--ink-2);";
+  var SW_MARK = SW_RING + "background:radial-gradient(circle, var(--ink-2) 0 2.5px, transparent 3px)";
+  var SW_MARK_HELD = SW_RING + "background:" + (function (hgt) {
+    var w = (hgt * PAUSE_BAR).toFixed(2), g = (hgt * (PAUSE_BAR + PAUSE_GAP)).toFixed(2), all = (hgt * (2 * PAUSE_BAR + PAUSE_GAP)).toFixed(2);
+    return "linear-gradient(90deg, var(--ink-2) 0 " + w + "px, transparent " + w + "px " + g + "px, var(--ink-2) " + g + "px " +
+      all + "px) center/" + all + "px " + hgt + "px no-repeat";
+  })(6.5);
+  var SW_MARK_OFF = SW_RING +
     "background:linear-gradient(45deg, transparent 40%, var(--ink-2) 40% 60%, transparent 60%) center/5px 5px no-repeat," +
     "linear-gradient(-45deg, transparent 40%, var(--ink-2) 40% 60%, transparent 60%) center/5px 5px no-repeat";
   var SW_SIGN = "height:0;border-top:2px dotted var(--ink-2)";
@@ -4696,7 +4710,8 @@ time[data-ts] { cursor: help; }
       setTip(g, tip);
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, g);
       presentMark(g, cx, cy, col, hold);
-      if (hold) { holds[hold] = true; sinkMark(g, gLow); }
+      holds[hold || "plain"] = true;
+      if (hold) sinkMark(g, gLow);
     }
 
     var plotted = 0;
@@ -4718,7 +4733,7 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    lineLegend(host, plotted > 0, holds, anyEst, anyUnrec, anyLock, anyReset);
+    lineLegend(host, holds, anyEst, anyUnrec, anyLock, anyReset);
     renderRank(st, seats, ranks, view);
     steadyPaceList(st, seats, ranks, capDrawn);
   }
@@ -4810,11 +4825,12 @@ time[data-ts] { cursor: help; }
     });
   }
 
-  /* The present mark, and each held form drawn, then the
-     line styles a recorded line can take past the plain one, each only
-     where the chart draws it. Both line charts key these alike. */
-  function markLegend(leg, anyMark, holds, anyEst, anyUnrec) {
-    if (anyMark) legendRow(leg, SW_MARK, "now");
+  /* Each form of the present mark the chart draws, holds naming them as
+     markHold does with "plain" for a seat taking work, then the line styles
+     a recorded line can take past the plain one, each only where the chart
+     draws it. Both line charts key these alike. */
+  function markLegend(leg, holds, anyEst, anyUnrec) {
+    if (holds.plain) legendRow(leg, SW_MARK, "now");
     if (holds.pause) legendRow(leg, SW_MARK_HELD, "held now");
     if (holds.cross) legendRow(leg, SW_MARK_OFF, "host disabled");
     if (anyEst) legendRow(leg, SW_EST, EST_KEY);
@@ -4831,10 +4847,10 @@ time[data-ts] { cursor: help; }
   /* Current window's legend, under its plot: what markLegend keys, then the
      sleeve and the reset mark where drawn. The curve names itself on the
      plot, and a mark's gap shows on pointing at it, which the note says. */
-  function lineLegend(host, anyMark, holds, anyEst, anyUnrec, anyLock, anyReset) {
+  function lineLegend(host, holds, anyEst, anyUnrec, anyLock, anyReset) {
     var leg = paceLegend();
     leg.textContent = "";
-    markLegend(leg, anyMark, holds, anyEst, anyUnrec);
+    markLegend(leg, holds, anyEst, anyUnrec);
     if (anyLock) legendRow(leg, SW_LOCK, LOCK_KEY);
     if (anyReset) resetRow(leg);
     host.appendChild(leg);
@@ -4844,14 +4860,15 @@ time[data-ts] { cursor: help; }
   var paceLegendEl = null;
   function paceLegend() { return paceLegendEl || (paceLegendEl = $("pace-legend")); }
 
-  /* What both charts' notes say about a line's stretches, given the pause,
-     in words, that ends a usage stretch. */
-  function sectionsText(pause) {
-    return "Point at a stretch of a line to see what happened in it: usage (rises less than " + pause +
+  /* What both charts' notes say about a line's stretches, given the idle
+     gap, in words, that ends a usage stretch. */
+  function sectionsText(idle) {
+    return "Point at a stretch of a line to see what happened in it: usage (rises less than " + idle +
       " apart), idle, not recorded (a climb after an early reset that no reading covers), or refused (a " +
       "hatched sleeve around the line, badged with the window that refused). A rise the first reading of a " +
-      "refusal shows is use from before it, and counts as usage. A mark with a pause in its ring is a seat " +
-      "held now, refused, full or held by the host, a cross one the host has disabled, and \u21bb marks an early reset.";
+      "refusal shows is use from before it, and counts as usage. A mark with a pause where its dot would be is " +
+      "a seat held now (refused, full or held by host); a mark with a cross is a seat the host has disabled. " +
+      "\u21bb marks an early reset.";
   }
 
   /* One entry of a note: the term that names the topic, and the definition
@@ -5171,7 +5188,8 @@ time[data-ts] { cursor: help; }
       }
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13, fill: "transparent" }, hg);
       presentMark(hg, cx, cy, col, hold5);
-      if (hold5) { holds[hold5] = true; sinkMark(hg, gLow); }
+      holds[hold5 || "plain"] = true;
+      if (hold5) sinkMark(hg, gLow);
     });
 
     settleLabels(labels, { x0: m.l, x1: m.l + pw, y0: m.t, y1: m.t + ph }, root);
@@ -5182,7 +5200,7 @@ time[data-ts] { cursor: help; }
         "t-muted", { "font-size": 11.5, "text-anchor": "middle" });
     }
 
-    lineLegend(host, plotted > 0, holds, anyEst, anyUnrec, anyLock, anyReset);
+    lineLegend(host, holds, anyEst, anyUnrec, anyLock, anyReset);
     sessionList($("session-rank"), sessionRows(seats, paceCfg, now), root);
   }
 
@@ -5848,7 +5866,7 @@ time[data-ts] { cursor: help; }
        its reset for a finished one, the present reading for the newest. Its
        refusal spans, its vertices and its sections are read over that
        stretch, as Current window reads them over one window. */
-    var anyEst = false, anyGap = false, anyLock = false, anyMark = false, holds = {};
+    var anyEst = false, anyGap = false, anyLock = false, holds = {};
     var idleMs = view.weekly ? PACE_IDLE_MS : SESSION_IDLE_MS;
     var data = seats.map(function (a) {
       var sd = seatUse(a, view, now), wins = sd.wins, cur = sd.cur, resets = sd.resets, dur = sd.dur;
@@ -5882,9 +5900,8 @@ time[data-ts] { cursor: help; }
          conversation of the view's family. */
       var newest = wins[wins.length - 1];
       sd.live = cur !== null && !!newest && newest.locks.live.length > 0;
-      if (cur !== null) anyMark = true;
       sd.hold = cur === null ? "" : markHold(a, view.scope, sd.live);
-      if (sd.hold) holds[sd.hold] = true;
+      if (cur !== null) holds[sd.hold || "plain"] = true;
       sd.done = wins.filter(function (win) { return win.at !== null && win.at <= now; }).map(function (win) {
         var last = win.samples[win.samples.length - 1];
         return { at: win.at, u: last.u, est: !!last.est };
@@ -6499,8 +6516,9 @@ time[data-ts] { cursor: help; }
       var nowText = null;
       if (now >= t0 && now <= t1) {
         var nx = X(now);
-        svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1, "stroke-dasharray": "2 2",
-          "pointer-events": "none" }, root);
+        /* Under the present marks, whose ring it would otherwise cross. */
+        root.insertBefore(svg("line", { x1: nx, x2: nx, y1: m.t - 6, y2: Y(0), stroke: "var(--ink-2)", "stroke-width": 1,
+          "stroke-dasharray": "2 2", "pointer-events": "none" }), gLow);
         /* Set left of the line where it would run past the chart's edge. */
         var nearEdge = nx + 34 > m.l + pw + m.r;
         nowText = svgText(root, nearEdge ? nx - 5 : nx + 5, m.t - 4, "NOW", "t-mono gap-label",
@@ -6604,7 +6622,7 @@ time[data-ts] { cursor: help; }
         [SW_WEEKEND, "weekend"]
       ]).forEach(function (it) { legendRow(leg, it[0], it[1]); });
       resetRow(leg);
-      if (!stk) markLegend(leg, anyMark, holds, anyEst, anyGap);
+      if (!stk) markLegend(leg, holds, anyEst, anyGap);
       if (stk ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
         legendRow(leg, stk ? SW_STACK_LOCK : SW_LOCK, LOCK_KEY);
       }
