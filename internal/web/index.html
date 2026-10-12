@@ -446,12 +446,8 @@ td .seat-mark { max-width: 22ch; }
   border: 1px solid color-mix(in srgb, var(--tone) 34%, transparent);
 }
 .chip-glyph { font-size: 10px; line-height: 1; color: var(--tone); }
-/* The pause glyph in HTML: two bars in the text's colour, 8px tall, at the
-   proportions pauseGlyph draws in SVG. */
-.gl-pause {
-  display: inline-block; flex: none; width: 6.24px; height: 8px;
-  background: linear-gradient(90deg, currentColor 0 2.16px, transparent 2.16px 4.08px, currentColor 4.08px 6.24px);
-}
+/* The pause glyph in HTML, 8px tall; glyphEl sets its bars. */
+.gl-pause { display: inline-block; flex: none; height: 8px; }
 .chip[data-tone="good"]     { --tone: var(--good); }
 .chip[data-tone="info"]     { --tone: var(--info); }
 .chip[data-tone="serious"]  { --tone: var(--serious); }
@@ -476,7 +472,6 @@ td .seat-mark { max-width: 22ch; }
 }
 .legend .gl { font: 600 11px/1 var(--mono); flex: none; }
 .legend .sw-reset {
-  box-sizing: border-box; width: 13px; height: 13px; margin: -.5px .5px; border: 1.5px solid var(--ink-2); border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 var(--sans); color: var(--ink-2);
 }
 /* The timeline's legend sits inside its card under the chart, 8px below it,
@@ -1789,11 +1784,11 @@ time[data-ts] { cursor: help; }
      ineligible the same way. Limit is a window the cost does not weigh,
      which the legend calls not paced; its tooltip says whether it reads
      under, on or above its curve. The usage endpoint's critical-headroom
-     advisory is no state of its own: a window it is raised
-     on keeps its pace verdict, and the advisory is on the window's tooltip. */
+     advisory is no state of its own: a window it is raised on keeps its pace
+     verdict, and the advisory is on the window's tooltip. */
   /* A hold that lifts on its own, at a reset or the end of a host's
-     cooldown, is drawn as a pause: two rounded bars, never the character
-     PAUSE_GLYPH stands for. A hold that waits on someone, as on a seat the
+     cooldown, is drawn as a pause: two upright bars PAUSE_BAR wide and
+     PAUSE_GAP apart, never the character PAUSE_GLYPH stands for. A hold that waits on someone, as on a seat the
      host has disabled or one with no reading to score, keeps the cross. */
   var PAUSE_GLYPH = "\u2016", CROSS_GLYPH = "\u2715";
   /* The pause's bar width and the gap between its bars, as fractions of
@@ -1806,10 +1801,21 @@ time[data-ts] { cursor: help; }
       svg("rect", { x: x, y: cy - hgt / 2, width: w, height: hgt, rx: w / 2, fill: col }, parent);
     });
   }
-  /* A glyph as an HTML element of class cls, the pause drawn by CSS. */
+  /* The pause hgt px tall in col as a CSS background, centred in its box,
+     and the width it takes. */
+  function pauseFill(col, hgt) {
+    var w = (hgt * PAUSE_BAR).toFixed(2), g = (hgt * (PAUSE_BAR + PAUSE_GAP)).toFixed(2);
+    var all = (hgt * (2 * PAUSE_BAR + PAUSE_GAP)).toFixed(2);
+    return { width: all, css: "linear-gradient(90deg, " + col + " 0 " + w + "px, transparent " + w + "px " + g + "px, " +
+      col + " " + g + "px " + all + "px) center/" + all + "px " + hgt + "px no-repeat" };
+  }
+  /* A glyph as an HTML element of class cls, the pause drawn 8px tall in
+     the text's colour. */
   function glyphEl(cls, glyph) {
     if (glyph !== PAUSE_GLYPH) return h("span", cls, glyph);
-    var s = h("span", cls + " gl-pause");
+    var s = h("span", cls + " gl-pause"), fill = pauseFill("currentColor", 8);
+    s.style.width = fill.width + "px";
+    s.style.background = fill.css;
     s.setAttribute("aria-hidden", "true");
     return s;
   }
@@ -2038,14 +2044,23 @@ time[data-ts] { cursor: help; }
 
   /* Whether the host does not offer the seat, which its hold already says. */
   function hostHolds(a) { return !!a.score && a.score.reason === "not-a-candidate"; }
-  /* Whether a seat takes no new conversation of family fam now: a window
-     bearing on the family is refused or full, or the host does not offer
-     the seat. */
+  /* Whether a seat takes no new conversation of family fam now: its score
+     says a window bearing on the family is refused or full, or the host does
+     not offer the seat, or, where the score names another reason, such a
+     window still holds it with its reset ahead. */
   var HELD_REASONS = { "provider-rejected": true, "spent": true, "not-a-candidate": true };
   function heldOff(a, fam) {
     fam = fam || STANDARD;
     var sc = famScore(a, fam);
-    return (!!sc && !!HELD_REASONS[sc.reason]) || hostHolds(a) || holdingWindows(a, fam).length > 0;
+    return (!!sc && !!HELD_REASONS[sc.reason]) || hostHolds(a) || pendingHolds(a, fam, nowMs()).length > 0;
+  }
+  /* The windows holding a seat off family fam whose reset is still ahead of
+     now, or names no instant. */
+  function pendingHolds(a, fam, now) {
+    return holdingWindows(a, fam).filter(function (w) {
+      var r = parseT(w.resets_at);
+      return !r || r.getTime() > now;
+    });
   }
   /* The hold a seat's present mark shows for family fam: "" for a seat
      taking work, "cross" for one the host has disabled, and "pause" for
@@ -2070,7 +2085,7 @@ time[data-ts] { cursor: help; }
     if (said) return "";
     var sc = famScore(a, fam);
     if (hostHolds(a) || (sc && HELD_REASONS[sc.reason])) return famVerdict(a, fam, now).text;
-    return holding.map(function (w) {
+    return pendingHolds(a, fam, now).map(function (w) {
       var r = parseT(w.resets_at);
       return holdLabel(w) + (r ? " \u00b7 " + resetText(r, now) : "");
     }).join(", ");
@@ -3103,8 +3118,8 @@ time[data-ts] { cursor: help; }
       svg("rect", { x: 6, y: row.top - geo.inset, width: 3, height: row.bottom - row.top + geo.inset + padB, rx: 1.5, fill: col }, gBack);
 
       /* The seat's row: identity, then its rank per family and a chip per
-         hold, with the whole record in the tooltip. Every name starts at NAME_X, so the
-         names read down the page as one column. The name is trimmed to the
+         hold, with the whole record in the tooltip. Every name starts at
+         NAME_X, so the names read down the page as one column. The name is trimmed to the
          measured space, so the tooltip is also where a long name is read
          whole. */
       var headY = row.top + (compact ? 17 : 18);
@@ -3565,7 +3580,7 @@ time[data-ts] { cursor: help; }
   var PACE_KIND = "seven_day";
   var PACE_DAYS = 7;
   var PACE_MS = PACE_DAYS * 86400000;
-  /* A weekly line's usage splits into sections across a pause this long. */
+  /* A weekly line's usage splits into sections across an idle gap this long. */
   var PACE_IDLE_MS = 4 * 3600000;
   var PT_R = 2.5;            /* a present mark's dot */
   var PT_RING = 3.75;        /* how far a present mark's ring stands off its dot: a 3px gap and half its 1.5px stroke */
@@ -3781,11 +3796,7 @@ time[data-ts] { cursor: help; }
   /* A present mark, one held now, and one the host has disabled. */
   var SW_RING = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:1.5px solid var(--ink-2);";
   var SW_MARK = SW_RING + "background:radial-gradient(circle, var(--ink-2) 0 2.5px, transparent 3px)";
-  var SW_MARK_HELD = SW_RING + "background:" + (function (hgt) {
-    var w = (hgt * PAUSE_BAR).toFixed(2), g = (hgt * (PAUSE_BAR + PAUSE_GAP)).toFixed(2), all = (hgt * (2 * PAUSE_BAR + PAUSE_GAP)).toFixed(2);
-    return "linear-gradient(90deg, var(--ink-2) 0 " + w + "px, transparent " + w + "px " + g + "px, var(--ink-2) " + g + "px " +
-      all + "px) center/" + all + "px " + hgt + "px no-repeat";
-  })(6.5);
+  var SW_MARK_HELD = SW_RING + "background:" + pauseFill("var(--ink-2)", 6.5).css;
   var SW_MARK_OFF = SW_RING +
     "background:linear-gradient(45deg, transparent 40%, var(--ink-2) 40% 60%, transparent 60%) center/5px 5px no-repeat," +
     "linear-gradient(-45deg, transparent 40%, var(--ink-2) 40% 60%, transparent 60%) center/5px 5px no-repeat";
@@ -4840,7 +4851,8 @@ time[data-ts] { cursor: help; }
   /* A legend row for the reset mark the plots draw: the glyph in a ring. */
   function resetRow(leg) {
     var li = leg.appendChild(h("li", "", ""));
-    li.appendChild(h("span", "sw sw-reset", "\u21bb"));
+    var sw = li.appendChild(h("span", "sw sw-reset", "\u21bb"));
+    sw.style.cssText = SW_RING;
     li.appendChild(document.createTextNode("reset"));
   }
 
@@ -4980,7 +4992,7 @@ time[data-ts] { cursor: help; }
      that spent the tokens. */
   var SESSION_HOURS = 5;
   var SESSION_MS = SESSION_HOURS * 3600000;
-  /* A 5-hour line's usage splits into sections across a pause this long. */
+  /* A 5-hour line's usage splits into sections across an idle gap this long. */
   var SESSION_IDLE_MS = 15 * 60000;
   /* The sections of a 5-hour line that are keyboard stops besides any
      holding a limit: a usage section carries its conversations. */
