@@ -10,7 +10,7 @@ import (
 // TestSeatHuesHoldTheirBounds covers every theme the page declares seat hues
 // in: each block declares as many hues as the script assigns, the two dark
 // blocks agree, each hue clears 3:1 against that theme's card, and the first
-// four, which a small pool draws, stay at least ΔE 15 apart in OKLab (×100),
+// six, which a small pool draws, stay at least ΔE 15 apart in OKLab (×100),
 // the distance at which two thin lines read as two series.
 func TestSeatHuesHoldTheirBounds(t *testing.T) {
 	t.Parallel()
@@ -51,8 +51,8 @@ func TestSeatHuesHoldTheirBounds(t *testing.T) {
 				t.Errorf("block %d: --seat-%d %s is %.2f:1 on the card %s, want at least 3:1", bi, n, seats[n], r, card)
 			}
 		}
-		for i := 1; i <= 4; i++ {
-			for j := i + 1; j <= 4; j++ {
+		for i := 1; i <= 6; i++ {
+			for j := i + 1; j <= 6; j++ {
 				if d := oklabDistance(seats[i], seats[j]); d < 15 {
 					t.Errorf("block %d: --seat-%d and --seat-%d are ΔE %.1f apart, want at least 15", bi, i, j, d)
 				}

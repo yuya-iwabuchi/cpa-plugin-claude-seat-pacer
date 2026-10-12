@@ -40,26 +40,29 @@
   --critical:     #d03b3b;
   --warning:      #fab219;
 
-  /* Twelve identity hues: IBM Carbon's categorical sequence in its published
-     order, with its two reds left out, since red on a seat reads as an alarm.
-     Carbon ships a light and a dark step for each, and every step clears 3:1
-     on its card. The first four sit at least ΔE 15 apart for typical colour
-     vision (palette_test.go); past them, and under colour-vision deficiency,
-     some pairs sit close, and the seat's name carries the identity. Some hues
-     sit close to a state's hue; every state carries a glyph, so none rests on
-     its hue. */
+  /* Twelve identity hues from IBM Carbon's categorical palette, without its
+     two reds: red on a seat reads as an alarm, and Red 10 is the dark
+     theme's ink. The first eight keep Carbon's published order with Cyan 50,
+     Green 60, Teal 50 and Purple 50 taken out, so the first six sit at least
+     ΔE 15 apart for typical colour vision (palette_test.go); those four
+     follow, each placed furthest from the hues before it, since Cyan 50 sits
+     close to Blue and Teal 50 to Teal 70. Carbon ships a light and a dark
+     step for each, and every step clears 3:1 on its card. Past six seats,
+     and under colour-vision deficiency, some pairs sit close, and the seat's
+     name carries the identity. Some hues sit close to a state's hue; every
+     state carries a glyph, so none rests on its hue. */
   --seat-1:       #6929c4;
-  --seat-2:       #1192e8;
-  --seat-3:       #005d5d;
-  --seat-4:       #9f1853;
-  --seat-5:       #198038;
-  --seat-6:       #002d9c;
-  --seat-7:       #ee538b;
-  --seat-8:       #b28600;
+  --seat-2:       #005d5d;
+  --seat-3:       #9f1853;
+  --seat-4:       #002d9c;
+  --seat-5:       #ee538b;
+  --seat-6:       #b28600;
+  --seat-7:       #012749;
+  --seat-8:       #8a3800;
   --seat-9:       #009d9a;
-  --seat-10:      #012749;
-  --seat-11:      #8a3800;
-  --seat-12:      #a56eff;
+  --seat-10:      #198038;
+  --seat-11:      #a56eff;
+  --seat-12:      #1192e8;
   --seat-x:       #898781;
 
   --pos-text:     #006300;
@@ -87,17 +90,17 @@
     --serious:    #ec835a;
     --info:       #3987e5;
     --seat-1:     #8a3ffc;
-    --seat-2:     #33b1ff;
-    --seat-3:     #007d79;
-    --seat-4:     #ff7eb6;
-    --seat-5:     #6fdc8c;
-    --seat-6:     #4589ff;
-    --seat-7:     #d12771;
-    --seat-8:     #d2a106;
+    --seat-2:     #007d79;
+    --seat-3:     #ff7eb6;
+    --seat-4:     #4589ff;
+    --seat-5:     #d12771;
+    --seat-6:     #d2a106;
+    --seat-7:     #bae6ff;
+    --seat-8:     #ba4e00;
     --seat-9:     #08bdba;
-    --seat-10:    #bae6ff;
-    --seat-11:    #ba4e00;
-    --seat-12:    #d4bbff;
+    --seat-10:    #6fdc8c;
+    --seat-11:    #d4bbff;
+    --seat-12:    #33b1ff;
     --pos-text:   #0ca30c;
     --neg-text:   #e66767;
     --focus:      #3987e5;
@@ -123,17 +126,17 @@
   --serious:    #ec835a;
   --info:       #3987e5;
   --seat-1:     #8a3ffc;
-  --seat-2:     #33b1ff;
-  --seat-3:     #007d79;
-  --seat-4:     #ff7eb6;
-  --seat-5:     #6fdc8c;
-  --seat-6:     #4589ff;
-  --seat-7:     #d12771;
-  --seat-8:     #d2a106;
+  --seat-2:     #007d79;
+  --seat-3:     #ff7eb6;
+  --seat-4:     #4589ff;
+  --seat-5:     #d12771;
+  --seat-6:     #d2a106;
+  --seat-7:     #bae6ff;
+  --seat-8:     #ba4e00;
   --seat-9:     #08bdba;
-  --seat-10:    #bae6ff;
-  --seat-11:    #ba4e00;
-  --seat-12:    #d4bbff;
+  --seat-10:    #6fdc8c;
+  --seat-11:    #d4bbff;
+  --seat-12:    #33b1ff;
   --pos-text:   #0ca30c;
   --neg-text:   #e66767;
   --focus:      #3987e5;
