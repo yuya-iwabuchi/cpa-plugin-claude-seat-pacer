@@ -2048,40 +2048,40 @@ time[data-ts] { cursor: help; }
   function hostHolds(a) { return !!a.score && a.score.reason === "not-a-candidate"; }
   /* Whether a seat takes no new conversation of family fam now: a window
      bearing on the family is refused or full, by its score or by the reading
-     the Seats chips show, or the host does not offer the seat. */
-  var HELD_REASONS = { "provider-rejected": true, "spent": true, "not-a-candidate": true };
+     the Seats chips show, or the host does not offer the seat; the score's
+     reasons for that are CANNOT_SERVE's. */
   function heldOff(a, fam) {
     fam = fam || STANDARD;
     var sc = famScore(a, fam);
-    return (!!sc && !!HELD_REASONS[sc.reason]) || hostHolds(a) || holdingWindows(a, fam).length > 0;
+    return (!!sc && !!CANNOT_SERVE[sc.reason]) || hostHolds(a) || holdingWindows(a, fam).length > 0;
   }
   /* The hold a seat's present mark shows for family fam: "" for a seat
      taking work, "cross" for one the host has disabled, and "pause" for
-     any other hold, live saying whether the provider refuses the mark's own
-     window now. */
+     any other hold, live saying whether a refusal bearing on the mark's
+     window is in force now. */
   function markHold(a, fam, live) {
     if (hostDisabled(a)) return "cross";
     return live || heldOff(a, fam) ? "pause" : "";
   }
   /* A seat's hold on family fam as a present mark's tooltip and spoken
-     name give it, "" for a seat taking work, and for one whose holds are
-     all refusals live already lists. */
+     name give it, "" for a seat taking work: each holding window with its
+     own reset, leaving out a refusal live already lists, led by the host's
+     hold where there is one, and the family's verdict where no window holds
+     the seat. */
   function heldNote(a, fam, live, now) {
     fam = fam || STANDARD;
     if (!heldOff(a, fam)) return "";
     var holding = holdingWindows(a, fam);
-    var said = !hostHolds(a) && holding.length > 0 && holding.every(function (w) {
-      return w.status === "rejected" && live.some(function (sp) {
+    var parts = holding.filter(function (w) {
+      return !(w.status === "rejected" && live.some(function (sp) {
         return sp.kind === w.kind && (sp.scope || "") === (w.scope || "");
-      });
-    });
-    if (said) return "";
-    var sc = famScore(a, fam);
-    if (hostHolds(a) || (sc && HELD_REASONS[sc.reason])) return famVerdict(a, fam, now).text;
-    return holding.map(function (w) {
+      }));
+    }).map(function (w) {
       var r = parseT(w.resets_at);
       return holdLabel(w) + (r ? " \u00b7 " + resetText(r, now) : "");
-    }).join(", ");
+    });
+    if (hostHolds(a) || !holding.length) parts.unshift(famVerdict(a, fam, now).text);
+    return parts.join(", ");
   }
 
   function seatHidden(a) {
@@ -2802,7 +2802,7 @@ time[data-ts] { cursor: help; }
       return { label: holdLabel(w), lift: r ? resetText(r, now) : "", window: true, known: true, pause: true };
     });
     var named = out.length && (reason === "spent" || reason === "provider-rejected");
-    var lifts = !!HELD_REASONS[reason] && !hostDisabled(a);
+    var lifts = !!CANNOT_SERVE[reason] && !hostDisabled(a);
     return named ? out : [{ label: v.word, lift: v.lift, window: false, known: !!sc, pause: lifts }].concat(out);
   }
 
@@ -7312,7 +7312,7 @@ time[data-ts] { cursor: help; }
 
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
-                                 : chip(reasonText(s.reason), "critical", HELD_REASONS[s.reason] ? PAUSE_GLYPH : CROSS_GLYPH));
+                                 : chip(reasonText(s.reason), "critical", CANNOT_SERVE[s.reason] ? PAUSE_GLYPH : CROSS_GLYPH));
       tr.appendChild(tdE);
 
       var tdW = h("td", "");
