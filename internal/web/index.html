@@ -446,8 +446,8 @@ td .seat-mark { max-width: 22ch; }
   border: 1px solid color-mix(in srgb, var(--tone) 34%, transparent);
 }
 .chip-glyph { font-size: 10px; line-height: 1; color: var(--tone); }
-/* The pause glyph in HTML, 8px tall; glyphEl sets its bars. */
-.gl-pause { display: inline-block; flex: none; height: 8px; }
+/* The pause glyph in HTML; glyphEl sizes it and draws its bars. */
+.gl-pause { display: inline-block; flex: none; }
 .chip[data-tone="good"]     { --tone: var(--good); }
 .chip[data-tone="info"]     { --tone: var(--info); }
 .chip[data-tone="serious"]  { --tone: var(--serious); }
@@ -1788,8 +1788,9 @@ time[data-ts] { cursor: help; }
      verdict, and the advisory is on the window's tooltip. */
   /* A hold that lifts on its own, at a reset or the end of a host's
      cooldown, is drawn as a pause: two upright bars PAUSE_BAR wide and
-     PAUSE_GAP apart, never the character PAUSE_GLYPH stands for. A hold that waits on someone, as on a seat the
-     host has disabled or one with no reading to score, keeps the cross. */
+     PAUSE_GAP apart, never the character PAUSE_GLYPH stands for. A hold that
+     waits on someone, as on a seat the host has disabled or one with no
+     reading to score, keeps the cross. */
   var PAUSE_GLYPH = "\u2016", CROSS_GLYPH = "\u2715";
   /* The pause's bar width and the gap between its bars, as fractions of
      its height. */
@@ -1815,6 +1816,7 @@ time[data-ts] { cursor: help; }
     if (glyph !== PAUSE_GLYPH) return h("span", cls, glyph);
     var s = h("span", cls + " gl-pause"), fill = pauseFill("currentColor", 8);
     s.style.width = fill.width + "px";
+    s.style.height = "8px";
     s.style.background = fill.css;
     s.setAttribute("aria-hidden", "true");
     return s;
@@ -2044,23 +2046,14 @@ time[data-ts] { cursor: help; }
 
   /* Whether the host does not offer the seat, which its hold already says. */
   function hostHolds(a) { return !!a.score && a.score.reason === "not-a-candidate"; }
-  /* Whether a seat takes no new conversation of family fam now: its score
-     says a window bearing on the family is refused or full, or the host does
-     not offer the seat, or, where the score names another reason, such a
-     window still holds it with its reset ahead. */
+  /* Whether a seat takes no new conversation of family fam now: a window
+     bearing on the family is refused or full, by its score or by the reading
+     the Seats chips show, or the host does not offer the seat. */
   var HELD_REASONS = { "provider-rejected": true, "spent": true, "not-a-candidate": true };
   function heldOff(a, fam) {
     fam = fam || STANDARD;
     var sc = famScore(a, fam);
-    return (!!sc && !!HELD_REASONS[sc.reason]) || hostHolds(a) || pendingHolds(a, fam, nowMs()).length > 0;
-  }
-  /* The windows holding a seat off family fam whose reset is still ahead of
-     now, or names no instant. */
-  function pendingHolds(a, fam, now) {
-    return holdingWindows(a, fam).filter(function (w) {
-      var r = parseT(w.resets_at);
-      return !r || r.getTime() > now;
-    });
+    return (!!sc && !!HELD_REASONS[sc.reason]) || hostHolds(a) || holdingWindows(a, fam).length > 0;
   }
   /* The hold a seat's present mark shows for family fam: "" for a seat
      taking work, "cross" for one the host has disabled, and "pause" for
@@ -2085,7 +2078,7 @@ time[data-ts] { cursor: help; }
     if (said) return "";
     var sc = famScore(a, fam);
     if (hostHolds(a) || (sc && HELD_REASONS[sc.reason])) return famVerdict(a, fam, now).text;
-    return pendingHolds(a, fam, now).map(function (w) {
+    return holding.map(function (w) {
       var r = parseT(w.resets_at);
       return holdLabel(w) + (r ? " \u00b7 " + resetText(r, now) : "");
     }).join(", ");
@@ -3119,9 +3112,9 @@ time[data-ts] { cursor: help; }
 
       /* The seat's row: identity, then its rank per family and a chip per
          hold, with the whole record in the tooltip. Every name starts at
-         NAME_X, so the names read down the page as one column. The name is trimmed to the
-         measured space, so the tooltip is also where a long name is read
-         whole. */
+         NAME_X, so the names read down the page as one column. The name is
+         trimmed to the measured space, so the tooltip is also where a long
+         name is read whole. */
       var headY = row.top + (compact ? 17 : 18);
       var gRow = svg("g", { "class": "row" }, gRows);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gRow);
@@ -3793,7 +3786,8 @@ time[data-ts] { cursor: help; }
   var SW_ALL_REFUSED = "height:10px;background:linear-gradient(var(--critical) 0 2px, " +
     "color-mix(in srgb, var(--critical) 14%, transparent) 2px)";
   var ALL_REFUSED_KEY = "every seat refused";
-  /* A present mark, one held now, and one the host has disabled. */
+  /* The ring every mark swatch and the reset swatch share; then a present
+     mark, one held now, and one the host has disabled. */
   var SW_RING = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:1.5px solid var(--ink-2);";
   var SW_MARK = SW_RING + "background:radial-gradient(circle, var(--ink-2) 0 2.5px, transparent 3px)";
   var SW_MARK_HELD = SW_RING + "background:" + pauseFill("var(--ink-2)", 6.5).css;
