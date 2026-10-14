@@ -102,7 +102,7 @@ func (in pickInput) refused(authID string) bool {
 //     window the provider already rejected for this model; otherwise the
 //     session's own binding is honoured under those same two conditions, even
 //     when its pace score trails (OverrideThreshold), unless OverrideThreshold
-//     is off and the pace winner beats it by the hysteresis margin. A binding
+//     is off and pace.ShouldSwitch moves it to the pace winner. A binding
 //     that fails any of those fails over to the cold pick, except that a
 //     rejected binding stands when no other candidate can take the model.
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
@@ -241,9 +241,16 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 		return p.pickCold(in, bound.AuthID, "bound credential is refused for this model"), true
 	}
 	best, hasBest := pace.Best(in.scores)
-	if hasBest && best.AuthID != bound.AuthID && !in.cfg.Affinity.OverrideThreshold &&
-		pace.ShouldSwitch(in.cfg.Pace, in.scoreOf(bound.AuthID), best) {
-		return p.pickCold(in, bound.AuthID, "pace winner beats the binding by the hysteresis margin"), true
+	if incumbent := in.scoreOf(bound.AuthID); hasBest && best.AuthID != bound.AuthID &&
+		!in.cfg.Affinity.OverrideThreshold && pace.ShouldSwitch(in.cfg.Pace, incumbent, best) {
+		note := "pace winner beats the binding by the hysteresis margin"
+		switch {
+		case !incumbent.Eligible:
+			note = "bound seat is ineligible; the pace winner takes it"
+		case best.SessionOnly && !incumbent.SessionOnly:
+			note = "a seat with no weekly cap takes the binding"
+		}
+		return p.pickCold(in, bound.AuthID, note), true
 	}
 	// A binding on a credential the provider reports as full is kept on
 	// purpose: moving a live conversation is a certain cross-organization

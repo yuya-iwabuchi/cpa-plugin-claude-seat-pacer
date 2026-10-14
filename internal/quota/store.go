@@ -261,7 +261,8 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 // windows the headers do not carry keep that reading rather than going blank.
 //
 // Source keeps naming the endpoint read when one exists, because the snapshot
-// still carries endpoint data for windows traffic has not touched. Err is left
+// still carries endpoint data for windows traffic has not touched; an entry
+// with no window yet takes the headers' Source. Err is left
 // alone too: clearing it here would hide a usage-endpoint failure the poll
 // loop is still hitting, and the next successful Put clears it anyway.
 func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt time.Time) {
@@ -282,6 +283,11 @@ func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt t
 		s.entries[authID] = e
 	}
 	s.history++
+	// An entry holding no window has no endpoint reading behind it, whatever
+	// a failed fetch recorded, so the windows merged here are the headers'.
+	if len(e.snap.Windows) == 0 {
+		e.snap.Source = model.SourceResponseHeaders
+	}
 
 	var activeKey windowKey
 	activated := false
