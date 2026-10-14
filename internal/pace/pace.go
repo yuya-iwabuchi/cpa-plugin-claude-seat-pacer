@@ -306,20 +306,3 @@ func Best(scores []model.Score) (model.Score, bool) {
 	}
 	return best, found
 }
-
-// ShouldSwitch reports whether an established binding moves to challenger. An
-// ineligible incumbent always yields, and a SessionOnly challenger beats an
-// incumbent that is not; between two of a kind the challenger must win by more
-// than HysteresisMargin. An ineligible challenger never wins.
-func ShouldSwitch(cfg model.PaceConfig, incumbent model.Score, challenger model.Score) bool {
-	if !challenger.Eligible {
-		return false
-	}
-	if !incumbent.Eligible {
-		return true
-	}
-	if incumbent.SessionOnly != challenger.SessionOnly {
-		return challenger.SessionOnly
-	}
-	return challenger.Cost < incumbent.Cost-cfg.HysteresisMargin
-}

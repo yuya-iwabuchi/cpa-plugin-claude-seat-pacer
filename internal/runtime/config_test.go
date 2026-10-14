@@ -106,6 +106,38 @@ func TestADottedKeyOverridingADifferentNestedValueWarns(t *testing.T) {
 	}
 }
 
+// The decoder ignores an unknown key, so a retired key the operator still
+// sets has to be named or its value vanishes unremarked.
+func TestARetiredKeyWarns(t *testing.T) {
+	const override = "affinity.override-threshold is no longer a setting: a bound conversation stays on its seat however far another seat is behind its plan"
+	const hysteresis = "pace.hysteresis-margin is no longer a setting: a bound conversation stays on its seat however far another seat is behind its plan"
+	for _, tc := range []struct {
+		name, block string
+		want        []string
+	}{
+		{"nested", "affinity:\n  override-threshold: false\npace:\n  hysteresis-margin: 0.1\n", []string{override, hysteresis}},
+		{"dotted", "affinity.override-threshold: false\npace.hysteresis-margin: 0.1\n", []string{override, hysteresis}},
+		{"one of them", "pace:\n  hysteresis-margin: 0.1\n", []string{hysteresis}},
+		{"neither", "affinity:\n  ttl: 2h\npace: {}\n", nil},
+		{"a section that is not a mapping", "affinity: null\n", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, warnings, err := decodeConfig([]byte(tc.block))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(warnings, tc.want) {
+				t.Errorf("warnings = %q, want %q", warnings, tc.want)
+			}
+		})
+	}
+
+	tp := newTestPlugin(t, testConfigYAML+"affinity.override-threshold: false\n")
+	if !hasWarning(tp.Status(testNow, ""), "affinity.override-threshold is no longer a setting") {
+		t.Errorf("warnings = %q, want the retired key on the status page", tp.Status(testNow, "").Warnings)
+	}
+}
+
 func TestADottedKeyThroughAScalarIsInvalid(t *testing.T) {
 	cfg, _, err := decodeConfig([]byte("enabled: true\npace: 3\npace.shape: sigmoid\n"))
 	if err == nil {
