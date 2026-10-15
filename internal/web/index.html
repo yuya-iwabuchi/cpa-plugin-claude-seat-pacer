@@ -650,7 +650,7 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
   .pace-body { grid-template-columns: minmax(0, 1fr); }
   .side-list { position: relative; max-height: 380px; }
   .side-list :is(.ol-list, .rank-list, .bal-list) { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 24px; }
-  .side-list .rank-list > .rank-tier { grid-column: 1 / -1; }
+  .side-list .rank-list > .rank-tier, .side-list .rank-list > .rank-kind { grid-column: 1 / -1; }
   /* Over time's two forms list different rows; the list keeps the height
      of the taller one seen, up to 380px, so the card holds still when
      switching. The axis gives the range. */
@@ -700,13 +700,20 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .rank-tier:focus-visible { outline-offset: 0; }
 .rank-tier:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .rank-tier-name { font: 600 10.5px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+/* A kind heading splits a tier by weekly cap. It sits under the tier's
+   heading, lighter and unpinned, so it reads as part of that tier. */
+.rank-kind {
+  display: flex; align-items: baseline; gap: 8px; cursor: help; margin: 4px 0 1px; padding: 2px 0;
+}
+.rank-kind .rank-tier-name { font-size: 9.5px; letter-spacing: .1em; }
+.rank-kind .rank-tier-word { font-size: 9px; line-height: 10.5px; }
 /* A tier's role reads as the timeline's seat chips do: a plate, tinted
    where the tier is serving, around ink text. */
 .rank-tier-word {
   font: 600 9.5px/11.5px var(--mono); letter-spacing: .04em; color: var(--ink-2);
   border: 1px solid var(--axis); border-radius: 3.5px; padding: 0 6px;
 }
-.rank-tier[data-role="serving"] .rank-tier-word {
+.rank-tier[data-role="serving"] .rank-tier-word, .rank-kind[data-role="serving"] .rank-tier-word {
   color: var(--ink-1);
   background: color-mix(in srgb, var(--info) 15%, var(--surface-1));
   border-color: color-mix(in srgb, var(--info) 42%, transparent);
@@ -7170,7 +7177,22 @@ time[data-ts] { cursor: help; }
     var costOrder = byRank.some(sessionOnlySeat) ? "seats with no weekly cap first, then lowest cost first" : "lowest cost first";
     ul.setAttribute("aria-label", rankLabel(fam) + (ranks.tier.multi
       ? " ranking by priority tier; in the serving tier, " + costOrder : " ranking, " + costOrder));
-    var lastTier = null;
+    /* While the serving tier holds an eligible seat with no weekly cap for
+       the family, its rows split by kind: those seats, which rank first,
+       then the capped seats by cost, then the seats held off. The ranking
+       already orders the rows that way, so each heading opens where the
+       kind changes. */
+    var kindOf = function (a) {
+      var sc = famScore(a, fam);
+      return !sc || !sc.eligible ? "held" : sessionOnly(sc) ? "nocap" : "cap";
+    };
+    var byKind = order.some(function (a) { return !offTier(a, fam, ranks) && kindOf(a) === "nocap"; });
+    var KIND_HEAD = {
+      nocap: { name: "no weekly cap", word: "first", tip: "no weekly cap on " + rankLabel(fam) + " requests: ranked ahead of every capped seat, paced on " + SESSION_SHORT },
+      cap: { name: "weekly cap", tip: "a weekly cap on " + rankLabel(fam) + " requests: ranked by cost, after every seat with none" },
+      held: { name: "held off", tip: "takes no new " + rankLabel(fam) + " conversation while held" }
+    };
+    var lastTier = null, lastKind = null;
     order.forEach(function (a) {
       var p = a.priority || 0, role = tierRoleOf(p, [fam], ranks.tier).role;
       if (role && p !== lastTier) {
@@ -7183,6 +7205,17 @@ time[data-ts] { cursor: help; }
         ul.appendChild(tierLi);
         lastTier = p;
       }
+      var kind = byKind && !offTier(a, fam, ranks) ? kindOf(a) : null;
+      if (kind && kind !== lastKind) {
+        var kh = KIND_HEAD[kind], kindLi = h("li", "rank-kind");
+        if (kind === "nocap") kindLi.setAttribute("data-role", "serving");
+        kindLi.setAttribute("data-fk", "kind:" + fam + ":" + kind);
+        kindLi.appendChild(h("span", "rank-tier-name", kh.name));
+        if (kh.word) kindLi.appendChild(h("span", "rank-tier-word", kh.word));
+        tipOnly(kindLi, kh.tip);
+        ul.appendChild(kindLi);
+      }
+      lastKind = kind;
       var sc = famScore(a, fam), li = h("li", "rank-row");
       var rank = ranks.byFam[fam][a.auth_id];
       var elig = !!(sc && sc.eligible);
