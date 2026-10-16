@@ -72,16 +72,16 @@ the bindings, costing each open conversation one prompt-cache miss.
 ```
 
 Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
-`request-timeout` above 1m or a `history-limit` above 10000 runs at that bound,
-and the status page says so, as it does when a `max-staleness` you set is under
-twice `poll-interval` and runs at twice it. A negative weight counts as 0, and
-any other out-of-range value falls back to its default. `usage-url` receives
-every seat's token, so it must be `https` to `api.anthropic.com`, or `http` to
-a loopback host; anything else runs at the default, with a status-page warning.
-A block that doesn't parse loads the plugin disabled.
-`affinity.override-threshold` and `pace.hysteresis-margin` are no longer settings: a
-bound conversation stays on its seat however far another seat is behind its
-plan, and the status page warns while the block still sets either.
+`request-timeout` above 1m or a `history-limit` above 10000 runs at that
+bound, and the status page says so, as it does when a `max-staleness` you set
+is under twice `poll-interval` and runs at twice it. A negative weight counts
+as 0, and any other out-of-range value falls back to its default. `usage-url`
+receives every seat's token, so it must be `https` to `api.anthropic.com`, or
+`http` to a loopback host; anything else runs at the default, with a
+status-page warning. A block that doesn't parse loads the plugin disabled.
+`affinity.override-threshold` and `pace.hysteresis-margin` are no longer
+settings: a bound conversation stays on its seat however far another seat is
+behind its plan, and the status page warns while the block still sets either.
 
 The Management Center saves each field as a top-level dotted key, such as
 `affinity.ttl: 2h`, which wins over the nested form. When the two disagree the
