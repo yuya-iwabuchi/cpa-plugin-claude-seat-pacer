@@ -5,8 +5,9 @@ what the plugin decides and the numbers behind it. The page calls a seat's
 plan its target, and ranks the eligible seats by cost: the weighted gap to
 target, negative while a seat is behind, so the lowest cost takes the next
 new conversation, except that an eligible seat with no weekly cap on the
-model ranks ahead of every seat with one. While one does, the ranking splits
-under "no weekly cap", "weekly cap" and "held off" headings. A seat held off
+requested model ranks ahead of every seat with one. While such a seat is
+eligible, the ranking splits under "no weekly cap", "weekly cap" and "held
+off" headings. A seat held off
 ranks below them, including one the host has disabled ("host disabled") or
 holds in a cooldown that covers every model ("held by host", with the time
 the host lets it back). A seat whose served models the host cools on their
