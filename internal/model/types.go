@@ -347,11 +347,11 @@ type Score struct {
 	// so lower is better; SessionOnly orders credentials before Cost does.
 	// Every term is one window's; nothing else enters it.
 	Cost float64 `json:"cost"`
-	// SessionOnly marks a credential with no weekly window bearing on the
-	// requested model, so the 5-hour window is its only cap there. Quota on
-	// such a credential renews every five hours rather than running down over
-	// a week, so an eligible one ranks ahead of every credential with a
-	// weekly cap, whatever their costs.
+	// SessionOnly marks a credential with no weekly cap on the requested
+	// model: no weekly window bears on it, so the 5-hour window is its only
+	// quota there. That window resets several times a day rather than running
+	// down over a week, so an eligible one ranks ahead of every credential
+	// with a weekly cap, whatever their costs.
 	SessionOnly bool          `json:"session_only,omitempty"`
 	Windows     []WindowScore `json:"windows"`
 	Eligible    bool          `json:"eligible"`

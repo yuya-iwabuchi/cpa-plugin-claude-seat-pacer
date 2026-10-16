@@ -45,10 +45,10 @@ type AffinityConfig struct {
 // PaceConfig governs cold-start credential choice.
 //
 // The pace model compares each window's observed utilization against the
-// utilization a target curve expects at the same point in the window. Among
-// credentials of one kind, with a weekly cap on the requested model or with
-// none, the one furthest behind its curve wins, which drains a window that is
-// about to reset while holding back one with days left.
+// utilization a target curve expects at the same point in the window.
+// SessionOnly credentials (Score.SessionOnly) rank ahead of the rest, and
+// within each group the one furthest behind its curve wins, which drains a
+// window that is about to reset while holding back one with days left.
 type PaceConfig struct {
 	// Shape names the curve the target follows across a window: "linear"
 	// spends evenly, "power" bends it by CurveExponent, "sigmoid" holds back early,
@@ -86,9 +86,8 @@ type PaceConfig struct {
 	// against. A refusal recorded against it, a reading of it that is not
 	// finite, or a reading of it at full still gates the credential — each is
 	// an observation rather than a forecast. Non-zero restores a short-horizon
-	// term when weekly slack ties. On a credential with no such weekly window
-	// the 5-hour window is all the quota there is, and it is paced at the
-	// larger of this and WeeklyWeight.
+	// term when weekly slack ties. A SessionOnly credential paces its 5-hour
+	// window at the larger of this and WeeklyWeight.
 	SessionWeight float64 `yaml:"session-weight" json:"session_weight"`
 	// ScopedWeight scales a model-family weekly window's slack when the
 	// requested model falls in that family. Both weekly windows are paced

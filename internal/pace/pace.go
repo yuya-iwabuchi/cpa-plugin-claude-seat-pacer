@@ -90,8 +90,6 @@ func sigmoid(k, elapsed float64) float64 {
 // SessionWeight and WeeklyWeight. Response headers carry only the windows a
 // request touched, so a reading from them alone says nothing about a missing
 // weekly window and never makes a credential SessionOnly.
-// An unstarted 5-hour window reports no reset, so it costs nothing, as a
-// window opening now would.
 //
 // Snapshot age is not gated here; the caller applies QuotaConfig.MaxStaleness
 // and model.ReasonStale.
@@ -187,10 +185,10 @@ func sessionOnly(windows []model.Window, family string) bool {
 }
 
 // weightOf is the coefficient an open, bearing window contributes with.
-func weightOf(cfg model.PaceConfig, w model.Window, sessionOnly bool) float64 {
+func weightOf(cfg model.PaceConfig, w model.Window, onlySession bool) float64 {
 	switch w.Kind {
 	case model.WindowSession:
-		if sessionOnly {
+		if onlySession {
 			return math.Max(cfg.SessionWeight, cfg.WeeklyWeight)
 		}
 		return cfg.SessionWeight

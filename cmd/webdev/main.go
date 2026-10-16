@@ -116,11 +116,11 @@ func main() {
 		// is eligible for Standard requests and not for Fable ones.
 		src.collide()
 	case "session-only":
-		// Three Team seats reporting no all-models weekly window, one part way
-		// through its 5-hour window, one with that window unstarted and one
-		// with it full, the first two ranking ahead of three capped seats for
-		// Standard requests whatever their costs, one capped seat behind its
-		// plan included.
+		// Three SessionOnly seats, reporting no all-models weekly window: one
+		// part way through its 5-hour window, one with that window unopened
+		// and one with it full. The first two rank ahead of three capped seats
+		// for Standard requests whatever their costs, one capped seat behind
+		// its plan included.
 		src.sessionOnly()
 	case "cleared":
 		// A seat whose provider cleared both weekly windows half a day ago and
@@ -751,8 +751,8 @@ type manySeat struct {
 // figure — the critical seat excepted, whose cap over its week is the state it
 // exists to draw. Behind them come the exceptional states, one per row, then
 // the plain seats and the naming collisions a grown pool produces, so `many
-// -seats 12` draws every state these rows carry. A seat with no weekly cap is
-// the session-only scenario's.
+// -seats 12` draws every state these rows carry. A SessionOnly seat is the
+// session-only scenario's.
 var manySeats = []manySeat{
 	{id: "claude-seat-1.json", label: "seat-1", name: "claude-seat-1.json", session: 0.31, weekly: 0.35, scoped: 0.28, elapsedDays: 2.5},
 	{id: "claude-seat-2.json", label: "seat-2", name: "claude-seat-2.json", session: 0.58, weekly: 0.76, scoped: 0.62, elapsedDays: 4.5},
@@ -804,20 +804,20 @@ func (f *fixture) collide() {
 }
 
 // sessionOnly builds the session-only scenario: the first three manySeats
-// rows, the first of them behind its weekly plan, and three Team seats whose
-// usage carries a 5-hour window and a Fable cap and no all-models weekly
+// rows, the first of them behind its weekly plan, and three SessionOnly seats
+// whose usage carries a 5-hour window and a Fable cap and no all-models weekly
 // window, the last of them with its 5-hour window full. For Standard requests
-// the two eligible Team seats rank first, the busy one at a positive cost
+// the two eligible SessionOnly seats rank first, the busy one at a positive cost
 // ahead of the capped seat at a negative one; for Fable requests their caps
 // bear on the model and every eligible seat ranks by cost.
 func (f *fixture) sessionOnly() {
 	f.growTo(3)
 	for _, ms := range []manySeat{
-		{id: "claude-team-5h-only.json", label: "team-5h-only", name: "claude-team-5h-only.json",
+		{id: "claude-session-only-busy.json", label: "session-only-busy", name: "claude-session-only-busy.json",
 			session: 0.80, scoped: 0.30, elapsedDays: 3, state: "session-only"},
-		{id: "claude-team-5h-idle.json", label: "team-5h-idle", name: "claude-team-5h-idle.json",
-			scoped: 0.05, elapsedDays: 1, state: "session-only-idle"},
-		{id: "claude-team-5h-full.json", label: "team-5h-full", name: "claude-team-5h-full.json",
+		{id: "claude-session-only-unopened.json", label: "session-only-unopened", name: "claude-session-only-unopened.json",
+			scoped: 0.05, elapsedDays: 1, state: "session-only-unopened"},
+		{id: "claude-session-only-full.json", label: "session-only-full", name: "claude-session-only-full.json",
 			session: 1.0, scoped: 0.40, elapsedDays: 4, state: "session-only"},
 	} {
 		f.addManySeat(len(f.auths), ms)
@@ -1008,13 +1008,12 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		// The poller skips a credential the host has disabled, so it never
 		// holds a reading.
 		a.HostStatus = "disabled"
-	case "session-only", "session-only-idle":
-		// A Team seat the provider reports with no all-models weekly window,
-		// so only its 5-hour window bears on a Standard request.
+	case "session-only", "session-only-unopened":
+		// A seat the provider reports with no all-models weekly window, so
+		// only its 5-hour window bears on a Standard request.
 		snap.Windows = slices.Delete(snap.Windows, 1, 2)
-		if ms.state == "session-only-idle" {
-			// A 5-hour window that has not started reports nothing used and no
-			// reset.
+		if ms.state == "session-only-unopened" {
+			// An unopened 5-hour window reports nothing used and no reset.
 			snap.Windows[0].Utilization, snap.Windows[0].ResetsAt, snap.Windows[0].Active = 0, time.Time{}, false
 		}
 	}

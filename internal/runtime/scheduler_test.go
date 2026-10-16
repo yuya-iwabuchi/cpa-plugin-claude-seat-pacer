@@ -168,43 +168,43 @@ func TestPickHonoursExistingBindingEvenWhenBehindPace(t *testing.T) {
 	}
 }
 
-// seatTeam has a 5-hour window and a Fable weekly window but no all-models
-// weekly window, so outside Fable its 5-hour window is its only cap.
-func seatTeam(t *testing.T) model.AuthSnapshot {
-	return seat("seat-team", testNow,
+// seatSessionOnly has a 5-hour window and a Fable weekly window but no
+// all-models weekly window, so outside Fable it is SessionOnly.
+func seatSessionOnly(t *testing.T) model.AuthSnapshot {
+	return seat("seat-session-only", testNow,
 		model.Window{Kind: model.WindowSession, Utilization: 0.6, ResetsAt: at(t, "2026-09-04T21:00:00Z"), Duration: model.SessionDuration},
 		model.Window{Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: 0.35, ResetsAt: at(t, "2026-09-11T18:59:59Z"), Duration: model.WeeklyDuration},
 	)
 }
 
-func TestColdPickPrefersASeatWithNoWeeklyCap(t *testing.T) {
+func TestColdPickPrefersASessionOnlySeat(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)
-	tp.quota.Put(seatTeam(t))
+	tp.quota.Put(seatSessionOnly(t))
 
-	if resp := tp.pick(t, pickRequest("claude-opus-5", "k-opus", "seat-a", "seat-b", "seat-team")); resp.AuthID != "seat-team" {
-		t.Fatalf("opus response = %+v, want seat-team, which has no weekly cap on Opus", resp)
+	if resp := tp.pick(t, pickRequest("claude-opus-5", "k-opus", "seat-a", "seat-b", "seat-session-only")); resp.AuthID != "seat-session-only" {
+		t.Fatalf("opus response = %+v, want seat-session-only, which is SessionOnly on Opus", resp)
 	}
-	if resp := tp.pick(t, pickRequest(fableModel, "k-fable", "seat-a", "seat-b", "seat-team")); resp.AuthID != "seat-b" {
-		t.Fatalf("fable response = %+v, want the weekly pace winner seat-b, since seat-team has a Fable cap", resp)
+	if resp := tp.pick(t, pickRequest(fableModel, "k-fable", "seat-a", "seat-b", "seat-session-only")); resp.AuthID != "seat-b" {
+		t.Fatalf("fable response = %+v, want the weekly pace winner seat-b, since seat-session-only has a Fable cap", resp)
 	}
 }
 
-func TestPickKeepsACappedBindingWhenASeatWithNoWeeklyCapIsOffered(t *testing.T) {
+func TestPickKeepsACappedBindingWhenASessionOnlySeatIsOffered(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)
-	tp.quota.Put(seatTeam(t))
+	tp.quota.Put(seatSessionOnly(t))
 	tp.bindings.Bind("claude", "claude-opus-5", "k", "seat-b", testNow)
 
-	resp := tp.pick(t, pickRequest("claude-opus-5", "k", "seat-a", "seat-b", "seat-team"))
+	resp := tp.pick(t, pickRequest("claude-opus-5", "k", "seat-a", "seat-b", "seat-session-only"))
 	if resp.AuthID != "seat-b" {
 		t.Fatalf("response = %+v, want the bound seat-b", resp)
 	}
 	if d := tp.lastDecision(t); d.Kind != model.DecisionAffinityHit || d.PreviousAuthID != "" {
 		t.Errorf("decision = %+v, want an affinity hit on seat-b", d)
 	}
-	if resp := tp.pick(t, pickRequest("claude-opus-5", "fresh", "seat-a", "seat-b", "seat-team")); resp.AuthID != "seat-team" {
-		t.Errorf("cold pick = %+v, want seat-team, which has no weekly cap on Opus", resp)
+	if resp := tp.pick(t, pickRequest("claude-opus-5", "fresh", "seat-a", "seat-b", "seat-session-only")); resp.AuthID != "seat-session-only" {
+		t.Errorf("cold pick = %+v, want seat-session-only, which is SessionOnly on Opus", resp)
 	}
 }
 
