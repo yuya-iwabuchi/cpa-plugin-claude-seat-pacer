@@ -728,7 +728,7 @@ func TestARefusedBindingDoesNotFailOverToASpentSeat(t *testing.T) {
 // certain cache miss while the reading may be one poll stale. The request is
 // forwarded and the provider decides. This pins the behaviour so a change to
 // it is deliberate.
-func TestASpentBindingIsKeptWhileAffinityOverridesPace(t *testing.T) {
+func TestASpentBindingIsKept(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	spent := seatA(t)
 	spent.Windows[2].Utilization = 1.02

@@ -79,7 +79,7 @@ any other out-of-range value falls back to its default. `usage-url` receives
 every seat's token, so it must be `https` to `api.anthropic.com`, or `http` to
 a loopback host; anything else runs at the default, with a status-page warning.
 A block that doesn't parse loads the plugin disabled.
-`affinity.override-threshold` and `pace.hysteresis-margin` are not settings: a
+`affinity.override-threshold` and `pace.hysteresis-margin` are no longer settings: a
 bound conversation stays on its seat however far another seat is behind its
 plan, and the status page warns while the block still sets either.
 

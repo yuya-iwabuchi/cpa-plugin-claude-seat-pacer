@@ -100,10 +100,9 @@ func (in pickInput) refused(authID string) bool {
 //  2. With a session key and affinity on: a subagent inherits its parent's
 //     credential when that credential is a candidate and its snapshot shows no
 //     window the provider already rejected for this model; otherwise the
-//     session's own binding is honoured under those same two conditions,
-//     however far its pace score trails another seat's. A binding that fails
-//     either fails over to the cold pick, except that a rejected binding
-//     stands when no other candidate can take the model.
+//     session's own binding is honoured under those same two conditions. A
+//     binding that fails either fails over to the cold pick, except that a
+//     rejected binding stands when no other candidate can take the model.
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
 //     ineligible; the pace winner takes the session. When nothing is eligible
 //     but a session key exists, the candidate with the fewest live bindings
