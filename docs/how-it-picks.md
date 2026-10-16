@@ -33,7 +33,7 @@ with one, and a seat with a weekly cap takes a new conversation for that model
 only while no seat without one can. Among seats with no weekly cap, the one
 furthest behind its plan on the 5-hour window goes first, weighed at
 `weekly-weight`, or at `session-weight` where that is higher; a seat whose
-5-hour window has not started yet is neither behind nor ahead of its plan. On
+5-hour window has not opened yet is neither behind nor ahead of its plan. On
 Fable these seats have a weekly cap like any other and are paced the usual
 way. No setting controls this: it follows each seat's latest usage read, so a
 seat that gains an all-models weekly window is paced like any other from its
@@ -54,9 +54,10 @@ the plugin reads it every `poll-interval`, two minutes by default, and again a
 few seconds after each reset. Between reads, the rate-limit headers on every
 completed response update the 5-hour, weekly and Fable weekly windows and
 record any refusal, so the seat taking new conversations closes its gap as it
-works, and once another seat outranks it, new conversations go there. A seat refused or full on a window takes no new
-conversation for the models that window caps while another seat has room,
-until a later reading shows room on it.
+works, and once another seat outranks it, new conversations go there. A seat
+refused or full on a window takes no new conversation for the models that
+window caps while another seat has room, until a later reading shows room on
+it.
 
 CLIProxyAPI's own session affinity never binds a conversation a plugin routes,
 so the plugin binds each one itself. A new subagent on the same model joins
