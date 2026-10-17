@@ -5048,14 +5048,14 @@ time[data-ts] { cursor: help; }
   /* ----------------------------------------------- Current window, 5h */
 
   /* The 5-hour window is a rate limit, and its view puts each seat's mark and
-     recorded line on a 5-hour axis, against the 7-day views' target curve
-     with a gap to it where some seat's cost weighs the window
-     (pace.session-weight, or any SessionOnly seat's), and against a straight
-     reference line where none does. Under that line here is headroom rather than a verdict, because the
-     window resets several times a day and unused capacity is not carried;
-     what that headroom is worth in a pick is the weights' to say, and the
-     view's line, labels and note read the running value. What the window does
-     at any weight is gate, as the same facts do on any other window —
+     recorded line on a 5-hour axis, against the 7-day views' target curve with
+     a gap to it where some seat's cost weighs the window (pace.session-weight,
+     or always on a SessionOnly seat), and against a straight reference line
+     where none does. Under that line here is headroom rather than a verdict,
+     because the window resets several times a day and unused capacity is not
+     carried; what that headroom is worth in a pick is the weights' to say, and
+     the view's line, labels and note read the running value. What the window
+     does at any weight is gate, as the same facts do on any other window —
      SESSION_GATES names them — so a pick that went elsewhere is often read
      here. Spend is measured per seat, so the conversations a stretch of the
      line names are the ones the routing log shows active on that seat then,
@@ -7163,7 +7163,7 @@ time[data-ts] { cursor: help; }
       return sc && sc.eligible && rank !== undefined ? Math.max(n, rank + 1) : n;
     }, 1);
     ul.style.setProperty("--rank-ch", String(1 + String(shown).length));
-    var costOrder = byRank.some(function (x) { return !offTier(x, fam, ranks) && sessionOnly(famScore(x, fam)); })
+    var costOrder = byRank.some(function (x) { return sessionOnly(famScore(x, fam)); })
       ? "seats with no weekly cap first, then lowest cost first" : "lowest cost first";
     ul.setAttribute("aria-label", rankLabel(fam) + (ranks.tier.multi
       ? " ranking by priority tier; in the serving tier, " + costOrder : " ranking, " + costOrder));
