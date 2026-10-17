@@ -85,6 +85,12 @@ func sigmoid(k, elapsed float64) float64 {
 // contribute nothing, so the status UI renders the whole picture from one
 // value; a non-zero Weight marks a window that moved the score.
 //
+// A credential whose usage-endpoint reading holds a 5-hour window and no
+// weekly window bearing on the model is SessionOnly, and its 5-hour window
+// weighs 1 whatever SessionWeight is. Response headers carry only the windows
+// a request touched, so a reading from them alone says nothing about a missing
+// weekly window and never makes a credential SessionOnly.
+//
 // Snapshot age is not gated here; the caller applies QuotaConfig.MaxStaleness
 // and model.ReasonStale.
 func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, now time.Time) model.Score {
@@ -101,6 +107,7 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 	}
 
 	family := model.FamilyOf(modelID)
+	score.SessionOnly = snap.Source == model.SourceUsageEndpoint && sessionOnly(snap.Windows, family)
 	score.Windows = make([]model.WindowScore, 0, len(snap.Windows))
 
 	var (
@@ -127,7 +134,7 @@ func ScoreAuth(cfg model.PaceConfig, snap model.AuthSnapshot, modelID string, no
 			spent = spent || w.Utilization >= 1
 			unreadable = unreadable || math.IsNaN(w.Utilization) || math.IsInf(w.Utilization, 0)
 			if open(w) {
-				ws.Weight = weightOf(cfg, w)
+				ws.Weight = weightOf(cfg, w, score.SessionOnly)
 				// A window carrying no weight contributes no term. Skipping
 				// the product rather than adding a zero keeps an unreadable
 				// reading on such a window out of the total, where it would
@@ -162,10 +169,28 @@ func open(w model.Window) bool {
 	return !w.ResetsAt.IsZero() && w.Duration > 0
 }
 
+// sessionOnly reports whether a reading holds a 5-hour window and no weekly
+// window, all-models or scoped, bearing on family.
+func sessionOnly(windows []model.Window, family string) bool {
+	session := false
+	for _, w := range windows {
+		switch {
+		case w.Kind == model.WindowSession:
+			session = true
+		case w.BearsOn(family):
+			return false
+		}
+	}
+	return session
+}
+
 // weightOf is the coefficient an open, bearing window contributes with.
-func weightOf(cfg model.PaceConfig, w model.Window) float64 {
+func weightOf(cfg model.PaceConfig, w model.Window, onlySession bool) float64 {
 	switch w.Kind {
 	case model.WindowSession:
+		if onlySession {
+			return 1
+		}
 		return cfg.SessionWeight
 	case model.WindowWeekly:
 		return cfg.WeeklyWeight
@@ -176,11 +201,11 @@ func weightOf(cfg model.PaceConfig, w model.Window) float64 {
 }
 
 // Rank scores every candidate and orders the results: eligible before
-// ineligible, then Cost ascending, then AuthID ascending so repeated calls on
-// the same inputs agree regardless of the order the host offered candidates in.
-// A repeated id is scored and returned once. A candidate with no snapshot
-// scores ineligible with model.ReasonNoSnapshot. The arguments are not
-// modified.
+// ineligible, then SessionOnly first, then Cost ascending, then AuthID
+// ascending so repeated calls on the same inputs agree regardless of the order
+// the host offered candidates in. A repeated id is scored and returned once. A
+// candidate with no snapshot scores ineligible with model.ReasonNoSnapshot. The
+// arguments are not modified.
 func Rank(cfg model.PaceConfig, snaps map[string]model.AuthSnapshot, candidateIDs []string, modelID string, now time.Time) []model.Score {
 	scores := make([]model.Score, 0, len(candidateIDs))
 	seen := make(map[string]struct{}, len(candidateIDs))
@@ -243,12 +268,16 @@ func RankWithStaleness(cfg model.Config, snaps map[string]model.AuthSnapshot, ca
 	return scores
 }
 
-// better is the ranking order: eligible first, then a comparable Cost ahead of
-// a NaN one, then lower Cost, then lower AuthID. NaN compares false against
-// every number, so it needs its own branch for the order to stay transitive.
+// better is the ranking order: eligible first, then SessionOnly, then a
+// comparable Cost ahead of a NaN one, then lower Cost, then lower AuthID. NaN
+// compares false against every number, so it needs its own branch for the
+// order to stay transitive.
 func better(a, b model.Score) bool {
 	if a.Eligible != b.Eligible {
 		return a.Eligible
+	}
+	if a.SessionOnly != b.SessionOnly {
+		return a.SessionOnly
 	}
 	aNaN, bNaN := math.IsNaN(a.Cost), math.IsNaN(b.Cost)
 	if aNaN != bNaN {
@@ -260,8 +289,8 @@ func better(a, b model.Score) bool {
 	return a.AuthID < b.AuthID
 }
 
-// Best is the cheapest eligible credential, and false when none is eligible.
-// The slice need not be sorted.
+// Best is the eligible credential better ranks first, and false when none is
+// eligible. The slice need not be sorted.
 func Best(scores []model.Score) (model.Score, bool) {
 	var best model.Score
 	found := false
@@ -277,14 +306,18 @@ func Best(scores []model.Score) (model.Score, bool) {
 }
 
 // ShouldSwitch reports whether an established binding moves to challenger. An
-// ineligible incumbent always yields; otherwise the challenger must win by more
-// than HysteresisMargin. An ineligible challenger never wins.
+// ineligible incumbent always yields, and a SessionOnly challenger beats an
+// incumbent that is not; between two that are both SessionOnly or both not
+// the challenger must win by more than HysteresisMargin. An ineligible challenger never wins.
 func ShouldSwitch(cfg model.PaceConfig, incumbent model.Score, challenger model.Score) bool {
 	if !challenger.Eligible {
 		return false
 	}
 	if !incumbent.Eligible {
 		return true
+	}
+	if incumbent.SessionOnly != challenger.SessionOnly {
+		return challenger.SessionOnly
 	}
 	return challenger.Cost < incumbent.Cost-cfg.HysteresisMargin
 }

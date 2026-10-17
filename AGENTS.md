@@ -9,10 +9,16 @@ tests.
 ## What this plugin is
 
 A CLIProxyAPI plugin that uses up each Claude OAuth subscription seat's weekly
-quota before it resets. Every new conversation goes to the seat furthest behind
-a plan that spends its quota steadily and finishes a little before the reset,
-and each conversation stays on one seat so Anthropic prompt caches keep
-hitting.
+quota before it resets. Every new conversation goes to the seat furthest
+behind a plan that spends its quota steadily and finishes a little before the
+reset, and each conversation stays on one seat so Anthropic prompt caches keep
+hitting. A seat with no weekly cap on the requested model, meaning its latest
+usage read and the responses since show no weekly window covering that model's
+family, has no weekly quota to lose: its 5-hour window is its only quota. It
+goes ahead of every seat with a weekly cap and is paced against that 5-hour
+window, so a seat with a weekly cap starts a conversation for that model,
+other than a subagent of one it already holds, only while no seat without one
+is eligible.
 
 The preference is a policy, not a bug to fix: `LandingTarget` defaults above
 full on purpose, because weekly quota left at reset is lost. 1.0 removes only

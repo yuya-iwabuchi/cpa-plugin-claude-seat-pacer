@@ -50,9 +50,10 @@ type AffinityConfig struct {
 // PaceConfig governs cold-start credential choice.
 //
 // The pace model compares each window's observed utilization against the
-// utilization a target curve expects at the same point in the window. The
-// credential furthest behind its curve wins, which drains a window that is
-// about to reset while holding back one with days left.
+// utilization a target curve expects at the same point in the window.
+// SessionOnly credentials (Score.SessionOnly) rank ahead of the rest, and
+// within each group the one furthest behind its curve wins, which drains a
+// window that is about to reset while holding back one with days left.
 type PaceConfig struct {
 	// Shape names the curve the target follows across a window: "linear"
 	// spends evenly, "power" bends it by CurveExponent, "sigmoid" holds back early,
@@ -83,13 +84,14 @@ type PaceConfig struct {
 	// WeeklyWeight scales the weekly window's slack. The weekly window is the
 	// resource actually lost at reset, so it dominates.
 	WeeklyWeight float64 `yaml:"weekly-weight" json:"weekly_weight"`
-	// SessionWeight scales the 5-hour window's slack. It is zero: the session
-	// window is a rate limit rather than a budget, so there is nothing to pace
-	// against — unused session capacity is not carried, and the window resets
-	// several times a day. A refusal recorded against it, a reading of it that
-	// is not finite, or a reading of it at full still gates the credential —
-	// each is an observation rather than a forecast.
-	// Non-zero restores a short-horizon term when weekly slack ties.
+	// SessionWeight scales the 5-hour window's slack on a credential that is not
+	// SessionOnly. It is zero: there the weekly window is the budget lost at
+	// reset, and the 5-hour window, which resets several times a day, is a rate
+	// limit with nothing to pace against. A refusal recorded against it, a reading
+	// of it that is not finite, or a reading of it at full still gates the
+	// credential — each is an observation rather than a forecast. Non-zero
+	// restores a short-horizon term when weekly slack ties. A SessionOnly
+	// credential's 5-hour window weighs 1 whatever this is.
 	SessionWeight float64 `yaml:"session-weight" json:"session_weight"`
 	// ScopedWeight scales a model-family weekly window's slack when the
 	// requested model falls in that family. Both weekly windows are paced
@@ -97,7 +99,9 @@ type PaceConfig struct {
 	ScopedWeight float64 `yaml:"scoped-weight" json:"scoped_weight"`
 
 	// HysteresisMargin is the score gap a challenger must beat before an
-	// established binding moves. Zero makes routing flap at window edges.
+	// established binding moves between two credentials that are both
+	// SessionOnly or both not; a SessionOnly challenger takes another's
+	// binding without it. Zero makes routing flap at window edges.
 	HysteresisMargin float64 `yaml:"hysteresis-margin" json:"hysteresis_margin"`
 }
 

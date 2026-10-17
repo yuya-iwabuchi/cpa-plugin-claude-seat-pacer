@@ -3,6 +3,8 @@ package pace
 import (
 	"math"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -1023,6 +1025,18 @@ func TestShouldSwitch(t *testing.T) {
 			model.Score{AuthID: "b", Cost: -5, Reason: model.ReasonRejected},
 			false,
 		},
+		{
+			"a SessionOnly seat takes a capped binding at any cost", 0.05,
+			eligible("a", -0.9),
+			model.Score{AuthID: "b", Cost: 0.4, Eligible: true, SessionOnly: true},
+			true,
+		},
+		{
+			"a capped seat never takes a SessionOnly binding", 0.05,
+			model.Score{AuthID: "a", Cost: 0.4, Eligible: true, SessionOnly: true},
+			eligible("b", -0.9),
+			false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1035,11 +1049,11 @@ func TestShouldSwitch(t *testing.T) {
 	}
 }
 
-// The split the default weights rely on: the session window is a rate limit
-// rather than a budget, so no reading of it moves the cost, whatever the
-// reading says. Eligibility is the other half of the split, and it turns only
-// on what the provider has reported — a refusal recorded against the window,
-// or a window it reports as full.
+// The split the default weights rely on: on a seat with a weekly cap the
+// session window is a rate limit rather than a budget, so no reading of it
+// moves the cost, whatever the reading says. Eligibility is the other half of
+// the split, and it turns only on what the provider has reported — a refusal
+// recorded against the window, or a window it reports as full.
 func TestSessionWindowPacesNothingAndGatesOnWhatTheProviderReports(t *testing.T) {
 	cfg := model.Defaults().Pace
 	now := testNow
@@ -1194,5 +1208,105 @@ func TestStalenessGatesRunBeforeScoring(t *testing.T) {
 	}
 	if s := scoreOf(t, ranked, "fresh"); !s.Eligible {
 		t.Errorf("fresh candidate = %+v, want it scored", s)
+	}
+}
+
+// A pool mixing seats with an all-models weekly window and seats without one,
+// each with a Fable weekly window. On a model outside Fable, a SessionOnly
+// seat ranks ahead of every capped seat whatever their costs, and among
+// SessionOnly seats the 5-hour window is paced: the one furthest behind its
+// plan first, an unopened one next, one ahead of its plan last. On Fable every
+// seat has a weekly cap, so the order is the weekly pacing alone.
+func TestSessionOnlySeatsRankAheadOfCappedSeats(t *testing.T) {
+	now := testNow
+	fableCap := paced(model.WindowWeeklyScoped, model.FamilyFable, now, 0.5, 0.2)
+	pool := snapshots(
+		seat("capped-behind", now, paced(model.WindowSession, "", now, 0.5, 0.1), weekly(now, 0.9, 0.1), fableCap),
+		seat("capped-ahead", now, paced(model.WindowSession, "", now, 0.5, 0.1), weekly(now, 0.2, 0.8), fableCap),
+		seat("session-only-behind", now, paced(model.WindowSession, "", now, 0.5, 0.1), fableCap),
+		seat("session-only-unopened", now, unopened(model.WindowSession, "", 0), fableCap),
+		seat("session-only-ahead", now, paced(model.WindowSession, "", now, 0.5, 0.8), fableCap),
+	)
+	ids := []string{"capped-ahead", "capped-behind", "session-only-ahead", "session-only-behind", "session-only-unopened"}
+	cfg := model.Defaults().Pace
+
+	opusRank := Rank(cfg, pool, ids, opus, now)
+	if got, want := rankedIDs(opusRank), []string{"session-only-behind", "session-only-unopened", "session-only-ahead", "capped-behind", "capped-ahead"}; !slices.Equal(got, want) {
+		t.Fatalf("opus ranked %v, want %v", got, want)
+	}
+	for _, s := range opusRank {
+		if want := strings.HasPrefix(s.AuthID, "session-only-"); s.SessionOnly != want {
+			t.Errorf("%s: SessionOnly = %v, want %v", s.AuthID, s.SessionOnly, want)
+		}
+	}
+	if w := windowScoreOf(t, scoreOf(t, opusRank, "session-only-behind"), model.WindowSession, "").Weight; w != 1 {
+		t.Errorf("session-only-behind 5-hour weight = %v, want 1", w)
+	}
+	if w := windowScoreOf(t, scoreOf(t, opusRank, "capped-behind"), model.WindowSession, "").Weight; w != cfg.SessionWeight {
+		t.Errorf("capped-behind 5-hour weight = %v, want the session weight %v", w, cfg.SessionWeight)
+	}
+
+	fableRank := Rank(cfg, pool, ids, fable, now)
+	if got, want := rankedIDs(fableRank), []string{"capped-behind", "session-only-ahead", "session-only-behind", "session-only-unopened", "capped-ahead"}; !slices.Equal(got, want) {
+		t.Fatalf("fable ranked %v, want %v", got, want)
+	}
+	for _, s := range fableRank {
+		if s.SessionOnly {
+			t.Errorf("%s: SessionOnly on a Fable request, want the Fable cap to count", s.AuthID)
+		}
+	}
+}
+
+// A SessionOnly seat's 5-hour window weighs 1 whatever the weights are, so
+// zero weights still pace it and a large one does not inflate its cost.
+func TestSessionOnlySeatWeighsItsSessionWindowAtOne(t *testing.T) {
+	now := testNow
+	for _, wts := range [][2]float64{{0, 0}, {3, 0}, {0, 5}} {
+		cfg := model.Defaults().Pace
+		cfg.SessionWeight, cfg.WeeklyWeight = wts[0], wts[1]
+		s := ScoreAuth(cfg, seat("session-only", now, paced(model.WindowSession, "", now, 0.5, 0.1)), opus, now)
+		if w := windowScoreOf(t, s, model.WindowSession, "").Weight; w != 1 {
+			t.Errorf("session-weight %v, weekly-weight %v: 5-hour weight = %v, want 1", wts[0], wts[1], w)
+		}
+	}
+}
+
+// A SessionOnly seat is still gated: once its 5-hour window is full, a capped
+// seat takes the conversation.
+func TestFullSessionOnlySeatFallsThroughToACappedSeat(t *testing.T) {
+	now := testNow
+	cfg := model.Defaults().Pace
+	pool := snapshots(
+		seat("capped", now, paced(model.WindowSession, "", now, 0.5, 0.1), weekly(now, 0.2, 0.8)),
+		seat("session-only", now, paced(model.WindowSession, "", now, 0.5, 1.0)),
+	)
+	scores := Rank(cfg, pool, []string{"capped", "session-only"}, opus, now)
+	if s := scoreOf(t, scores, "session-only"); s.Eligible || s.Reason != model.ReasonSpent {
+		t.Fatalf("session-only eligible=%v reason=%q, want a full 5-hour window to gate", s.Eligible, s.Reason)
+	}
+	if best, ok := Best(scores); !ok || best.AuthID != "capped" {
+		t.Fatalf("best = %q (ok=%v), want capped", best.AuthID, ok)
+	}
+}
+
+// SessionOnly needs a 5-hour window to pace: a reading holding only another
+// family's cap bears on nothing and is not SessionOnly.
+func TestSessionOnlyNeedsASessionWindow(t *testing.T) {
+	now := testNow
+	s := ScoreAuth(model.Defaults().Pace, seat("odd", now, paced(model.WindowWeeklyScoped, model.FamilyFable, now, 0.5, 0.2)), opus, now)
+	if s.SessionOnly || s.Eligible || s.Reason != model.ReasonNoWindow {
+		t.Fatalf("SessionOnly=%v eligible=%v reason=%q, want an ineligible seat with no bearing window", s.SessionOnly, s.Eligible, s.Reason)
+	}
+}
+
+// Only a usage-endpoint read covers every window. A reading built from
+// response headers alone holds the windows traffic touched, so a capped seat
+// read that way is not taken for a SessionOnly one.
+func TestHeaderOnlyReadingIsNeverSessionOnly(t *testing.T) {
+	now := testNow
+	snap := seat("max", now, paced(model.WindowSession, "", now, 0.5, 0.9))
+	snap.Source = model.SourceResponseHeaders
+	if s := ScoreAuth(model.Defaults().Pace, snap, opus, now); s.SessionOnly {
+		t.Fatalf("SessionOnly on a header-only reading, want a missing weekly window to count only from the usage endpoint")
 	}
 }

@@ -37,7 +37,8 @@ const failoverNote = "bound credential not offered"
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, cleared, exhausted, replay or empty")
+		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, session-only, "+
+			"cleared, exhausted, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
 		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
@@ -114,6 +115,13 @@ func main() {
 		// one of them is at its Fable cap with its weekly window fine, so it
 		// is eligible for Standard requests and not for Fable ones.
 		src.collide()
+	case "session-only":
+		// Three SessionOnly seats, reporting no all-models weekly window: one
+		// part way through its 5-hour window, one with that window unopened
+		// and one with it full. The first two rank ahead of three capped seats
+		// for Standard requests whatever their costs, one capped seat behind
+		// its plan included.
+		src.sessionOnly()
 	case "cleared":
 		// A seat whose provider cleared both weekly windows half a day ago and
 		// kept their reset instant, so its recorded lines climb to near full,
@@ -743,7 +751,8 @@ type manySeat struct {
 // figure — the critical seat excepted, whose cap over its week is the state it
 // exists to draw. Behind them come the exceptional states, one per row, then
 // the plain seats and the naming collisions a grown pool produces, so `many
-// -seats 12` still draws every state the page can render.
+// -seats 12` draws every state these rows carry. A SessionOnly seat is the
+// session-only scenario's.
 var manySeats = []manySeat{
 	{id: "claude-seat-1.json", label: "seat-1", name: "claude-seat-1.json", session: 0.31, weekly: 0.35, scoped: 0.28, elapsedDays: 2.5},
 	{id: "claude-seat-2.json", label: "seat-2", name: "claude-seat-2.json", session: 0.58, weekly: 0.76, scoped: 0.62, elapsedDays: 4.5},
@@ -792,6 +801,41 @@ func (f *fixture) collide() {
 	set(seatAID, 0.48, 0.44, 3.5)
 	set(seatBID, 0.5428, 1.0, 3.9)
 	f.decisions = f.buildDecisions()
+}
+
+// sessionOnly builds the session-only scenario: the first three manySeats
+// rows, the first of them behind its weekly plan, and three SessionOnly seats
+// whose usage carries a 5-hour window and a Fable cap and no all-models weekly
+// window, the last of them with its 5-hour window full. For Standard requests
+// the two eligible SessionOnly seats rank first, the busy one at a positive cost
+// ahead of the capped seat at a negative one; for Fable requests their caps
+// bear on the model and every eligible seat ranks by cost. A conversation the
+// leading SessionOnly seat took over from seat-1 heads the log.
+func (f *fixture) sessionOnly() {
+	f.growTo(3)
+	for _, ms := range []manySeat{
+		{id: "claude-session-only-busy.json", label: "session-only-busy", name: "claude-session-only-busy.json",
+			session: 0.80, scoped: 0.30, elapsedDays: 3, state: "session-only"},
+		{id: "claude-session-only-unopened.json", label: "session-only-unopened", name: "claude-session-only-unopened.json",
+			scoped: 0.05, elapsedDays: 1, state: "session-only-unopened"},
+		{id: "claude-session-only-full.json", label: "session-only-full", name: "claude-session-only-full.json",
+			session: 1.0, scoped: 0.40, elapsedDays: 4, state: "session-only"},
+	} {
+		f.addManySeat(len(f.auths), ms)
+	}
+	ids := make([]string, 0, len(f.auths))
+	for _, a := range f.auths {
+		ids = append(ids, a.AuthID)
+	}
+	f.decisions = f.manyDecisions(ids)
+	at := f.anchor.Add(-10 * time.Second)
+	scores := f.rankAt(f.snapshots, ids, modelOpus, at)
+	f.decisions = append([]model.Decision{{
+		At: at, Provider: "claude", Kind: model.DecisionFailover, SessionKey: "3e5d71c08fa29b46", Model: modelOpus,
+		ChosenAuthID: scores[0].AuthID, PreviousAuthID: manySeats[0].id,
+		Note:   "a seat with no weekly cap takes the binding",
+		Scores: scores,
+	}}, f.decisions...)
 }
 
 // unreadAfterClear is how long the cleared scenario leaves a seat's
@@ -973,6 +1017,14 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		// The poller skips a credential the host has disabled, so it never
 		// holds a reading.
 		a.HostStatus = "disabled"
+	case "session-only", "session-only-unopened":
+		// A seat the provider reports with no all-models weekly window, so
+		// only its 5-hour window bears on a Standard request.
+		snap.Windows = slices.Delete(snap.Windows, 1, 2)
+		if ms.state == "session-only-unopened" {
+			// An unopened 5-hour window reports nothing used and no reset.
+			snap.Windows[0].Utilization, snap.Windows[0].ResetsAt, snap.Windows[0].Active = 0, time.Time{}, false
+		}
 	}
 	if ms.state != "nosnap" && ms.state != "disabled" {
 		f.snapshots[ms.id] = snap
@@ -1047,15 +1099,16 @@ func (f *fixture) manyDecisions(ids []string) []model.Decision {
 // started, and paceCurve stretches the replay onto the reading the snapshot
 // carries. One recording serves the whole pool and both weekly windows of one
 // seat, so every seat's flats and bursts fall at the same wall-clock times and
-// a seat's family cap moves with its week. The 5-hour window keeps a smooth power
-// curve, which is what a window that short and steep looks like; a third of
-// the seats get a steeper last forty minutes, the case the chart's
-// conversation markers exist for, and another third hold it flat through the
-// middle half of the cycle, so the store folds that stretch to two readings
-// hours apart and the chart's step between them is visible.
+// a seat's family cap moves with its week.
 //
-// The completed cycle is an estimate reconstructed from a token log, as a
-// backfilled file holds it; a weekly one replays the other recording over the
+// The 5-hour window replays a recorded week of 5-hour cycles from
+// session_shapes.json, one recording per seat: the cycles before the current
+// one keep their recorded readings and the gaps between them, laid back from
+// the current cycle's start, and sessionTemplate picks the recorded cycle the
+// current one follows up to the reading the snapshot carries.
+//
+// A weekly window's completed cycle is an estimate reconstructed from a token
+// log, as a backfilled file holds it: it replays the other recording over the
 // span ending at the cycle's start, at an hour a step, because a log is
 // coarser than a poll. Seats with seed%3 == 1
 // also start the current cycle as an estimate over its first 45%, so the chart
@@ -1066,7 +1119,6 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 	for _, c := range snap.AuthID {
 		seed = (seed*31 + int(c)) % 997
 	}
-	sessionShape := 0.8 + float64(seed%9)/10
 	store := quota.NewStore()
 	var saved []model.WindowHistory
 	for _, w := range snap.Windows {
@@ -1079,30 +1131,32 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 		}
 		walks := w.Kind != model.WindowSession
 		start := w.ResetsAt.Add(-w.Duration)
-		prevLanding := 0.55 + float64(seed%46)/100
-		if w.Kind == model.WindowSession {
-			prevLanding = 0.3 + float64(seed%60)/100
-		}
-		var prev, cur model.Cycle
-		prev.ResetsAt, prev.Estimated = start, true
+		var cur model.Cycle
 		cur.ResetsAt = w.ResetsAt
+		var past []model.Cycle
 		if walks {
+			prev := model.Cycle{ResetsAt: start, Estimated: true}
 			prevStep := time.Hour
 			prevStart := start.Add(-w.Duration)
+			prevLanding := 0.55 + float64(seed%46)/100
 			other := paceShapes[(shapeIdx+1)%len(paceShapes)]
 			for i, u := range paceCurve(other, 1, prevLanding, int(w.Duration/prevStep)+1) {
 				prev.Samples = append(prev.Samples, model.Sample{At: prevStart.Add(time.Duration(i) * prevStep), Utilization: u})
 			}
+			past = []model.Cycle{prev}
 		} else {
-			for t := start.Add(-w.Duration); t.Before(start); t = t.Add(step) {
-				e := 1 - start.Sub(t).Seconds()/w.Duration.Seconds()
-				prev.Samples = append(prev.Samples, model.Sample{At: t, Utilization: prevLanding * math.Pow(e, sessionShape)})
+			for _, c := range sessionShapes[seed%len(sessionShapes)] {
+				cs := start.Add(time.Duration(c.start * float64(time.Hour)))
+				pc := model.Cycle{ResetsAt: cs.Add(w.Duration)}
+				for _, p := range c.readings {
+					pc.Samples = append(pc.Samples, model.Sample{At: cs.Add(time.Duration(p.frac * float64(w.Duration))), Utilization: p.util})
+				}
+				past = append(past, pc)
 			}
 		}
 		span := now.Sub(start).Seconds()
-		steep := !walks && seed%3 == 0
-		idle := !walks && seed%3 == 2
-		knee := 1 - (40*time.Minute).Seconds()/span
+		elapsed := span / w.Duration.Seconds()
+		tmpl, gain := sessionTemplate(elapsed, w.Utilization, seed)
 		mixedUntil := start.Add(-time.Second)
 		if seed%3 == 1 {
 			mixedUntil = start.Add(time.Duration(0.45 * float64(now.Sub(start))))
@@ -1115,7 +1169,6 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 		n := int(now.Sub(start)/step) + 1
 		var curve []float64
 		if walks {
-			elapsed := span / w.Duration.Seconds()
 			curve = paceCurve(paceShapes[shapeIdx], elapsed, w.Utilization, n)
 		}
 		// The sample the provider cleared the window after, or -1. The replay
@@ -1132,25 +1185,18 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 		}
 		for i := 0; i < n; i++ {
 			t := start.Add(time.Duration(i) * step)
-			frac := t.Sub(start).Seconds() / span
-			u := w.Utilization * math.Pow(frac, sessionShape)
+			u := w.Utilization
 			if walks {
 				u = curve[i]
+			} else if i < n-1 && tmpl != nil {
+				u = math.Min(1, paceReading(tmpl, t.Sub(start).Seconds()/w.Duration.Seconds()).util*gain)
+			} else if i < n-1 {
+				u = w.Utilization * t.Sub(start).Seconds() / span
 			}
 			if ci >= 0 && i <= ci {
 				u = math.Min(1, 0.98*curve[i]/math.Max(curve[ci], 1e-9))
 			} else if ci >= 0 {
 				u = w.Utilization * float64(i-ci) / float64(n-1-ci)
-			}
-			if idle && frac > 0.25 && frac < 0.75 {
-				u = w.Utilization * math.Pow(0.25, sessionShape)
-			}
-			if steep && knee > 0 {
-				if frac < knee {
-					u = w.Utilization * 0.35 * frac / knee
-				} else {
-					u = w.Utilization * (0.35 + 0.65*(frac-knee)/(1-knee))
-				}
 			}
 			if !t.After(mixedUntil) {
 				cur.Samples = append(cur.Samples, model.Sample{At: t, Utilization: u})
@@ -1164,7 +1210,7 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 			}
 			put(t, u)
 		}
-		h := model.WindowHistory{Kind: w.Kind, Scope: w.Scope, Cycles: []model.Cycle{prev}}
+		h := model.WindowHistory{Kind: w.Kind, Scope: w.Scope, Cycles: past}
 		if len(cur.Samples) > 0 {
 			h.Cycles = append(h.Cycles, cur)
 		}
@@ -1176,6 +1222,83 @@ func (f *fixture) history(snap model.AuthSnapshot, now time.Time, shapeIdx int) 
 
 //go:embed pace_shapes.json
 var paceShapesJSON []byte
+
+//go:embed session_shapes.json
+var sessionShapesJSON []byte
+
+// sessionCycle is one recorded 5-hour cycle: start is when it opened, in hours
+// from the opening of the cycle that followed the recording, and readings are
+// its utilization by fraction of the window.
+type sessionCycle struct {
+	start    float64
+	readings []pacePoint
+}
+
+// sessionShapes are recorded weeks of 5-hour cycles, oldest first, carrying
+// nothing that identifies the seats they came from. A week holds the cycles
+// that were spent, the ones that filled early, the ones opened and barely
+// used, and the hours between them when no window was open.
+var sessionShapes = loadSessionShapes()
+
+func loadSessionShapes() [][]sessionCycle {
+	var rows [][][2]json.RawMessage
+	if err := json.Unmarshal(sessionShapesJSON, &rows); err != nil {
+		panic("webdev: decode session_shapes.json: " + err.Error())
+	}
+	out := make([][]sessionCycle, 0, len(rows))
+	for _, week := range rows {
+		cycles := make([]sessionCycle, 0, len(week))
+		for _, row := range week {
+			var c sessionCycle
+			var pts [][2]float64
+			if json.Unmarshal(row[0], &c.start) != nil || json.Unmarshal(row[1], &pts) != nil {
+				panic("webdev: decode session_shapes.json: malformed cycle")
+			}
+			for _, p := range pts {
+				c.readings = append(c.readings, pacePoint{frac: p[0], util: p[1]})
+			}
+			cycles = append(cycles, c)
+		}
+		out = append(out, cycles)
+	}
+	return out
+}
+
+// sessionTemplate is the recorded 5-hour cycle a current cycle elapsed into
+// its window follows, and the factor that lands it on reading at that point.
+// The search starts at a seed-chosen cycle and takes the first whose reading
+// there is within a third of the snapshot's, so seats with like readings
+// still follow different cycles; a full reading takes a cycle that had filled
+// by then. Without such a cycle it takes the nearest, and nil when no recorded
+// cycle had used anything by then.
+func sessionTemplate(elapsed, reading float64, seed int) ([]pacePoint, float64) {
+	var all [][]pacePoint
+	for _, week := range sessionShapes {
+		for _, c := range week {
+			all = append(all, c.readings)
+		}
+	}
+	var best []pacePoint
+	bestGain, bestDist := 0.0, math.Inf(1)
+	for k := range all {
+		c := all[(seed+k)%len(all)]
+		r := paceReading(c, elapsed).util
+		if r <= 0 || reading <= 0 {
+			continue
+		}
+		if reading >= 1 && r >= 1 {
+			return c, 1
+		}
+		gain := reading / r
+		if reading < 1 && gain >= 0.75 && gain <= 4.0/3 {
+			return c, gain
+		}
+		if d := math.Abs(math.Log(gain)); d < bestDist {
+			best, bestGain, bestDist = c, gain, d
+		}
+	}
+	return best, bestGain
+}
 
 // pacePoint is one reading of a recorded week: frac is how far through the
 // week it landed, util the utilization the provider reported then.

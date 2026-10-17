@@ -576,3 +576,22 @@ func TestStoreConcurrentAccess(t *testing.T) {
 		t.Fatalf("All returned %d snapshots, want %d", len(got), len(ids))
 	}
 }
+
+// A failed first fetch leaves an entry with no window. Headers merged into it
+// are the only reading the seat has, so the snapshot names them as its source:
+// a header reading holds only the windows a request touched.
+func TestHeadersMergedAfterAFailedFirstFetchAreAHeaderReading(t *testing.T) {
+	s := NewStore()
+	s.Put(model.AuthSnapshot{AuthID: "auth-1", ObservedAt: testNow, Source: model.SourceUsageEndpoint, Err: "timeout"})
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.4)}, testNow.Add(time.Minute))
+
+	snap := mustGet(t, s, "auth-1")
+	if snap.Source != model.SourceResponseHeaders {
+		t.Fatalf("source = %q, want %q for windows only headers reported", snap.Source, model.SourceResponseHeaders)
+	}
+
+	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), sessionWindow(0.5), weeklyWindow(0.1)))
+	if snap := mustGet(t, s, "auth-1"); snap.Source != model.SourceUsageEndpoint {
+		t.Fatalf("source after a successful fetch = %q, want %q", snap.Source, model.SourceUsageEndpoint)
+	}
+}

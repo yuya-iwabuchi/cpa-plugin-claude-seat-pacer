@@ -2,7 +2,8 @@
 // OAuth subscription seat's weekly quota before it resets: every new
 // conversation goes to the seat furthest behind a plan that spends its quota
 // steadily and finishes a little early, and each conversation stays on one seat
-// so Anthropic prompt caches keep hitting.
+// so Anthropic prompt caches keep hitting. A seat with no weekly cap on the
+// requested model goes ahead of every seat with one.
 //
 // This file is the C ABI boundary only: it installs the plugin vtable, guards
 // every entry point against panics, and forwards each call to

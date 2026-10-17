@@ -344,12 +344,18 @@ type Score struct {
 	// Cost is how much a request on this credential costs the pool: the
 	// weighted sum of how far each window runs over its target. Running over
 	// target counts against the credential and running under counts for it,
-	// so the lowest cost wins. Every term is one window's; nothing else
-	// enters it.
-	Cost     float64       `json:"cost"`
-	Windows  []WindowScore `json:"windows"`
-	Eligible bool          `json:"eligible"`
-	Reason   string        `json:"reason,omitempty"`
+	// so lower is better; SessionOnly orders credentials before Cost does.
+	// Every term is one window's; nothing else enters it.
+	Cost float64 `json:"cost"`
+	// SessionOnly marks a credential with no weekly cap on the requested
+	// model: no weekly window bears on it, so the 5-hour window is its only
+	// quota there. That window resets several times a day rather than running
+	// down over a week, so an eligible one ranks ahead of every credential
+	// with a weekly cap, whatever their costs.
+	SessionOnly bool          `json:"session_only,omitempty"`
+	Windows     []WindowScore `json:"windows"`
+	Eligible    bool          `json:"eligible"`
+	Reason      string        `json:"reason,omitempty"`
 }
 
 // Decision kinds.

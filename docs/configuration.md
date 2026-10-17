@@ -60,8 +60,8 @@ open conversation one prompt-cache miss.
         landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
-        session-weight: 0       # weight of the 5-hour window; it is a rate limit, not a budget
-        hysteresis-margin: 0.05 # cost gap a challenger must beat to move a binding when override-threshold is off
+        session-weight: 0       # 5-hour window weight on a seat with a weekly cap; a seat with none weighs it 1
+        hysteresis-margin: 0.05 # cost gap a challenger must beat to move a binding when override-threshold is off; a seat with no weekly cap takes a capped seat's binding without it
       quota:
         poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
         request-timeout: 10s    # one usage read; at most 1m

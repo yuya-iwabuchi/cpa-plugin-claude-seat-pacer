@@ -186,6 +186,44 @@ func TestPickSwitchesWhenOverrideThresholdOffAndWinnerClearsHysteresis(t *testin
 	}
 }
 
+// seatSessionOnly has a 5-hour window and a Fable weekly window but no
+// all-models weekly window, so outside Fable it is SessionOnly.
+func seatSessionOnly(t *testing.T) model.AuthSnapshot {
+	return seat("seat-session-only", testNow,
+		model.Window{Kind: model.WindowSession, Utilization: 0.6, ResetsAt: at(t, "2026-09-04T21:00:00Z"), Duration: model.SessionDuration},
+		model.Window{Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: 0.35, ResetsAt: at(t, "2026-09-11T18:59:59Z"), Duration: model.WeeklyDuration},
+	)
+}
+
+func TestColdPickPrefersASessionOnlySeat(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	tp.quota.Put(seatSessionOnly(t))
+
+	if resp := tp.pick(t, pickRequest("claude-opus-5", "k-opus", "seat-a", "seat-b", "seat-session-only")); resp.AuthID != "seat-session-only" {
+		t.Fatalf("opus response = %+v, want seat-session-only, which is SessionOnly on Opus", resp)
+	}
+	if resp := tp.pick(t, pickRequest(fableModel, "k-fable", "seat-a", "seat-b", "seat-session-only")); resp.AuthID != "seat-b" {
+		t.Fatalf("fable response = %+v, want the weekly pace winner seat-b, since seat-session-only has a Fable cap", resp)
+	}
+}
+
+func TestPickMovesABindingToASessionOnlySeatWhenOverrideThresholdOff(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML+"affinity:\n  override-threshold: false\n")
+	tp.seats(t)
+	tp.quota.Put(seatSessionOnly(t))
+	tp.bindings.Bind("claude", "claude-opus-5", "k", "seat-b", testNow)
+
+	resp := tp.pick(t, pickRequest("claude-opus-5", "k", "seat-a", "seat-b", "seat-session-only"))
+	if resp.AuthID != "seat-session-only" {
+		t.Fatalf("response = %+v, want seat-session-only", resp)
+	}
+	d := tp.lastDecision(t)
+	if d.Kind != model.DecisionFailover || d.PreviousAuthID != "seat-b" || !strings.Contains(d.Note, "no weekly cap") {
+		t.Errorf("decision = %+v, want a failover from seat-b naming the SessionOnly seat", d)
+	}
+}
+
 func TestPickFailsOverWhenBoundAuthIsAbsent(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)

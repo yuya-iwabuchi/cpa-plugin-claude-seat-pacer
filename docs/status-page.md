@@ -3,12 +3,15 @@
 The Management Center gains a "Claude Seat Pacer" entry: a live dashboard of
 what the plugin decides and the numbers behind it. The page calls a seat's
 plan its target, and ranks the eligible seats by cost: the weighted gap to
-target, negative while a seat is behind, so the lowest cost takes the next
-new conversation. A seat held off ranks below them, including one the host
-has disabled ("host disabled") or holds in a cooldown that covers every model
-("held by host", with the time the host lets it back). A seat whose served
-models the host cools on their own keeps its rank, since the host still
-offers it for other models, and its tooltip names the host status.
+target, negative while a seat is behind, so the lowest cost takes the next new
+conversation, except that an eligible seat with no weekly cap on the requested
+model ranks ahead of every seat with one. While such a seat is eligible on the
+serving tier, the ranking splits under "no weekly cap", "weekly cap" and "held
+off" headings. A seat held off ranks below the eligible seats, including one
+the host has disabled ("host disabled") or holds in a cooldown that covers
+every model ("held by host", with the time the host lets it back). A seat
+whose served models the host cools on their own keeps its rank, since the host
+still offers it for other models, and its tooltip names the host status.
 
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
@@ -28,11 +31,11 @@ offers it for other models, and its tooltip names the host status.
   is marked fallback, and a tier none of whose seats can take requests is
   skipped, with the reason: disabled in the host, held by host, refused by
   the provider, full, or not scored.
-- **Current window.** Each seat's use of its current window against the
-  curve, one window at a time: 7d Standard, each model family's 7-day cap the
-  cost weighs, and 5h Standard. A 7-day view ranks the seats by its family's
-  cost, each with where it is headed at its last 24 hours' rate; the 5-hour
-  view shows where each seat stands against the limit that can make it
+- **Current window.** Each seat's use of its current window against the curve,
+  one window at a time: 7d Standard, each model family's 7-day cap the cost
+  weighs, and 5h Standard. A 7-day view lists the seats in its family's
+  ranking order, each with where it is headed at its last 24 hours' rate; the
+  5-hour view shows where each seat stands against the limit that can make it
   ineligible. Pointing at a seat shows its gap to the target where the window
   is paced. A stretch in which the provider refused the seat is a hatched
   sleeve in the seat's colour around its line, under every seat still taking
