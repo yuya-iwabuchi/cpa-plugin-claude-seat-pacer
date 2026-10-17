@@ -247,11 +247,6 @@ func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
 		t.Fatalf("c-headroom: eligible=false reason=%q, want a thousandth of headroom to be budget",
 			headroomScore.Reason)
 	}
-	// A binding already on the spent seat moves too, rather than holding it
-	// until the provider refuses.
-	if !ShouldSwitch(cfg, spentScore, headroomScore) {
-		t.Fatal("ShouldSwitch(spent incumbent, headroom challenger) = false, want true")
-	}
 
 	best, ok := Best(ranked)
 	if !ok || best.AuthID != "c-headroom" {
@@ -671,13 +666,6 @@ func TestRankOrdersUnreadableCostsLast(t *testing.T) {
 	if !ok || best.AuthID != "good-high" {
 		t.Fatalf("winner = (%q, %v), want (good-high, true)", best.AuthID, ok)
 	}
-	// An unreadable incumbent yields rather than holding its binding forever.
-	if !ShouldSwitch(cfg, scoreOf(t, ranked, "nan-a"), best) {
-		t.Fatal("ShouldSwitch(unreadable incumbent, healthy challenger) = false, want true")
-	}
-	if ShouldSwitch(cfg, best, scoreOf(t, ranked, "nan-a")) {
-		t.Fatal("ShouldSwitch(healthy incumbent, unreadable challenger) = true, want false")
-	}
 }
 
 // Cost is the weighted window sum and nothing else: no penalty term, no
@@ -989,61 +977,6 @@ func TestBest(t *testing.T) {
 			best, ok := Best(tc.scores)
 			if ok != tc.ok || best.AuthID != tc.want {
 				t.Fatalf("Best = (%q, %v), want (%q, %v)", best.AuthID, ok, tc.want, tc.ok)
-			}
-		})
-	}
-}
-
-func TestShouldSwitch(t *testing.T) {
-	eligible := func(id string, cost float64) model.Score {
-		return model.Score{AuthID: id, Cost: cost, Eligible: true}
-	}
-
-	cases := []struct {
-		name       string
-		margin     float64
-		incumbent  model.Score
-		challenger model.Score
-		want       bool
-	}{
-		{"marginal saving holds the binding", 0.05, eligible("a", 0.50), eligible("b", 0.47), false},
-		// Quarters are exactly representable, so the boundary is the boundary
-		// rather than a rounding artefact.
-		{"exactly the margin holds the binding", 0.25, eligible("a", 0.50), eligible("b", 0.25), false},
-		{"a hair past the margin moves it", 0.25, eligible("a", 0.50), eligible("b", 0.24), true},
-		{"decisive saving moves it", 0.05, eligible("a", 0.50), eligible("b", 0.30), true},
-		{"a dearer challenger never moves it", 0.05, eligible("a", 0.50), eligible("b", 0.90), false},
-		{
-			"an ineligible incumbent always yields", 0.05,
-			model.Score{AuthID: "a", Cost: -1, Reason: model.ReasonStale},
-			eligible("b", 9),
-			true,
-		},
-		{
-			"an ineligible challenger never wins", 0.05,
-			eligible("a", 9),
-			model.Score{AuthID: "b", Cost: -5, Reason: model.ReasonRejected},
-			false,
-		},
-		{
-			"a SessionOnly seat takes a capped binding at any cost", 0.05,
-			eligible("a", -0.9),
-			model.Score{AuthID: "b", Cost: 0.4, Eligible: true, SessionOnly: true},
-			true,
-		},
-		{
-			"a capped seat never takes a SessionOnly binding", 0.05,
-			model.Score{AuthID: "a", Cost: 0.4, Eligible: true, SessionOnly: true},
-			eligible("b", -0.9),
-			false,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := model.Defaults().Pace
-			cfg.HysteresisMargin = tc.margin
-			if got := ShouldSwitch(cfg, tc.incumbent, tc.challenger); got != tc.want {
-				t.Fatalf("ShouldSwitch = %v, want %v", got, tc.want)
 			}
 		})
 	}

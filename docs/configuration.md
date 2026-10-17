@@ -39,10 +39,10 @@ plugins:
 
 ## All settings
 
-These keys go under `claude-seat-pacer:`. Every key is optional; `landing-target`, `affinity.ttl`, `override-threshold`
-and `poll-interval` are the ones worth tuning. The host applies changes live.
-Changing `affinity.ttl` or `max-sessions` clears the bindings, costing each
-open conversation one prompt-cache miss.
+These keys go under `claude-seat-pacer:`. Every key is optional;
+`landing-target`, `affinity.ttl` and `poll-interval` are the ones worth tuning.
+The host applies changes live. Changing `affinity.ttl` or `max-sessions` clears
+the bindings, costing each open conversation one prompt-cache miss.
 
 ```yaml
       providers: [claude]       # provider keys the plugin routes; others fall to the host
@@ -51,7 +51,6 @@ open conversation one prompt-cache miss.
         enabled: true
         ttl: 1h                 # idle time before a conversation's binding expires
         subagents: true         # a subagent on the same model shares its parent conversation's seat
-        override-threshold: true # keep a binding even when another seat is further behind its plan
         max-sessions: 65536     # bindings held before the least recently seen is dropped
       pace:
         shape: linear           # linear, power or sigmoid
@@ -61,7 +60,6 @@ open conversation one prompt-cache miss.
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
         session-weight: 0       # 5-hour window weight on a seat with a weekly cap; a seat with none weighs it 1
-        hysteresis-margin: 0.05 # cost gap a challenger must beat to move a binding when override-threshold is off; a seat with no weekly cap takes a capped seat's binding without it
       quota:
         poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
         request-timeout: 10s    # one usage read; at most 1m
@@ -74,14 +72,16 @@ open conversation one prompt-cache miss.
 ```
 
 Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a
-`request-timeout` above 1m or a `history-limit` above 10000 runs at that bound,
-and the status page says so, as it does when a `max-staleness` you set is under
-twice `poll-interval` and runs at twice it. A negative weight or
-`hysteresis-margin` counts as 0, and any other out-of-range value falls back to
-its default. `usage-url` receives every seat's token, so it must be `https` to
-`api.anthropic.com`, or `http` to a loopback host; anything else runs at the
-default, with a status-page warning. A block that doesn't parse loads the
-plugin disabled.
+`request-timeout` above 1m or a `history-limit` above 10000 runs at that
+bound, and the status page says so, as it does when a `max-staleness` you set
+is under twice `poll-interval` and runs at twice it. A negative weight counts
+as 0, and any other out-of-range value falls back to its default. `usage-url`
+receives every seat's token, so it must be `https` to `api.anthropic.com`, or
+`http` to a loopback host; anything else runs at the default, with a
+status-page warning. A block that doesn't parse loads the plugin disabled.
+`affinity.override-threshold` and `pace.hysteresis-margin` are no longer
+settings: a bound conversation stays on its seat however far another seat is
+behind its plan, and the status page warns while the block still sets either.
 
 The Management Center saves each field as a top-level dotted key, such as
 `affinity.ttl: 2h`, which wins over the nested form. When the two disagree the

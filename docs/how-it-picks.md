@@ -64,9 +64,9 @@ its parent's seat, even a full one, unless that seat has refused the model.
 
 Once bound, a conversation:
 
-- stays on its seat while the host still offers it, and with the default
-  `override-threshold` even when another seat is further behind or its own
-  runs out, because the cache hit is worth more than the rebalance;
+- stays on its seat while the host still offers it, even when another seat is
+  further behind or its own runs out, because the cache hit is worth more than
+  the rebalance;
 - moves when a request on its seat fails, a refusal included, and the host
   retries it on another seat, since the retry no longer offers the failed one;
 - otherwise moves after a refusal for its model only when another seat can

@@ -652,6 +652,5 @@ func finitePace(p model.PaceConfig) model.PaceConfig {
 	p.WeeklyWeight = finite(p.WeeklyWeight)
 	p.SessionWeight = finite(p.SessionWeight)
 	p.ScopedWeight = finite(p.ScopedWeight)
-	p.HysteresisMargin = finite(p.HysteresisMargin)
 	return p
 }

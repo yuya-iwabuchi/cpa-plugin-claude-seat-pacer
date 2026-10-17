@@ -65,16 +65,12 @@ func TestNormalizeDefaultsAndClamps(t *testing.T) {
 		t.Errorf("history limit = %d, want %d", cfg.Web.HistoryLimit, d.Web.HistoryLimit)
 	}
 
-	// A poll interval under the floor spins the loop, a negative hysteresis
-	// margin makes every challenger win, and a landing of nine is a
-	// misconfiguration rather than a policy.
-	cfg = Config{Quota: QuotaConfig{PollInterval: time.Second}, Pace: PaceConfig{HysteresisMargin: -1, LandingTarget: 9}}
+	// A poll interval under the floor spins the loop, and a landing of nine is
+	// a misconfiguration rather than a policy.
+	cfg = Config{Quota: QuotaConfig{PollInterval: time.Second}, Pace: PaceConfig{LandingTarget: 9}}
 	cfg.Normalize()
 	if cfg.Quota.PollInterval != d.Quota.PollInterval {
 		t.Errorf("poll interval = %v, want the default restored", cfg.Quota.PollInterval)
-	}
-	if cfg.Pace.HysteresisMargin != 0 {
-		t.Errorf("hysteresis margin = %v, want 0", cfg.Pace.HysteresisMargin)
 	}
 	if cfg.Pace.LandingTarget != d.Pace.LandingTarget {
 		t.Errorf("landing target = %v, want the default restored", cfg.Pace.LandingTarget)
@@ -154,13 +150,12 @@ func TestNormalizeRejectsNaNAndInf(t *testing.T) {
 	d := Defaults()
 	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		cfg := Config{Pace: PaceConfig{
-			CurveExponent:    bad,
-			Steepness:        bad,
-			LandingTarget:    bad,
-			WeeklyWeight:     bad,
-			SessionWeight:    bad,
-			ScopedWeight:     bad,
-			HysteresisMargin: bad,
+			CurveExponent: bad,
+			Steepness:     bad,
+			LandingTarget: bad,
+			WeeklyWeight:  bad,
+			SessionWeight: bad,
+			ScopedWeight:  bad,
 		}}
 		cfg.Normalize()
 		if cfg.Pace != d.Pace {

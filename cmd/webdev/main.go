@@ -809,8 +809,7 @@ func (f *fixture) collide() {
 // window, the last of them with its 5-hour window full. For Standard requests
 // the two eligible SessionOnly seats rank first, the busy one at a positive cost
 // ahead of the capped seat at a negative one; for Fable requests their caps
-// bear on the model and every eligible seat ranks by cost. A conversation the
-// leading SessionOnly seat took over from seat-1 heads the log.
+// bear on the model and every eligible seat ranks by cost.
 func (f *fixture) sessionOnly() {
 	f.growTo(3)
 	for _, ms := range []manySeat{
@@ -828,14 +827,6 @@ func (f *fixture) sessionOnly() {
 		ids = append(ids, a.AuthID)
 	}
 	f.decisions = f.manyDecisions(ids)
-	at := f.anchor.Add(-10 * time.Second)
-	scores := f.rankAt(f.snapshots, ids, modelOpus, at)
-	f.decisions = append([]model.Decision{{
-		At: at, Provider: "claude", Kind: model.DecisionFailover, SessionKey: "3e5d71c08fa29b46", Model: modelOpus,
-		ChosenAuthID: scores[0].AuthID, PreviousAuthID: manySeats[0].id,
-		Note:   "a seat with no weekly cap takes the binding",
-		Scores: scores,
-	}}, f.decisions...)
 }
 
 // unreadAfterClear is how long the cleared scenario leaves a seat's

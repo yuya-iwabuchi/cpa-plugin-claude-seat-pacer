@@ -11,7 +11,7 @@ import (
 
 // decodeConfig turns the plugin's YAML block into a normalized config and the
 // warnings raised over it: each dotted key that overrides a different nested
-// value, then Normalize's. Keys
+// value, each retired key the block still sets, then Normalize's. Keys
 // the block omits keep their defaults, because yaml.v3 leaves absent fields
 // untouched, and Normalize then clamps whatever the block did set. Duration
 // fields accept Go duration strings such as "2m" and "15m".
@@ -36,8 +36,9 @@ func decodeConfig(configYAML []byte) (model.Config, []string, error) {
 }
 
 // decodeYAML decodes a config block into cfg with its dotted keys expanded,
-// and returns expandDottedKeys' warnings. An empty block, or one holding only
-// comments, leaves cfg untouched.
+// and returns expandDottedKeys' warnings followed by one for each retired key
+// the block sets. An empty block, or one holding only comments, leaves cfg
+// untouched.
 func decodeYAML(configYAML []byte, cfg *model.Config) ([]string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(configYAML, &doc); err != nil {
@@ -52,8 +53,41 @@ func decodeYAML(configYAML []byte, cfg *model.Config) ([]string, error) {
 		if warnings, err = expandDottedKeys(root); err != nil {
 			return nil, err
 		}
+		for _, k := range retiredKeys {
+			if hasPath(root, k.path) {
+				warnings = append(warnings, k.warning)
+			}
+		}
 	}
 	return warnings, doc.Decode(cfg)
+}
+
+// retiredKeys are the keys the config no longer reads, each with the warning
+// a block that still sets it raises. The decoder ignores an unknown key, so
+// without the warning a retired key's value vanishes unremarked.
+var retiredKeys = []struct {
+	path    []string
+	warning string
+}{
+	{[]string{"affinity", "override-threshold"},
+		"affinity.override-threshold is no longer a setting: a bound conversation stays on its seat however far another seat is behind its plan"},
+	{[]string{"pace", "hysteresis-margin"},
+		"pace.hysteresis-margin is no longer a setting: a bound conversation stays on its seat however far another seat is behind its plan"},
+}
+
+// hasPath reports whether the nested mappings under m hold a value at path.
+func hasPath(m *yaml.Node, path []string) bool {
+	for _, segment := range path {
+		if m.Kind != yaml.MappingNode {
+			return false
+		}
+		at := valueIndex(m, segment)
+		if at < 0 {
+			return false
+		}
+		m = m.Content[at]
+	}
+	return true
 }
 
 // expandDottedKeys moves every key of the mapping that holds a dot into the

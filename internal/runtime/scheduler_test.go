@@ -168,24 +168,6 @@ func TestPickHonoursExistingBindingEvenWhenBehindPace(t *testing.T) {
 	}
 }
 
-func TestPickSwitchesWhenOverrideThresholdOffAndWinnerClearsHysteresis(t *testing.T) {
-	tp := newTestPlugin(t, testConfigYAML+"affinity:\n  override-threshold: false\n")
-	tp.seats(t)
-	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
-
-	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
-	if resp.AuthID != "seat-b" {
-		t.Fatalf("response = %+v, want the pace winner seat-b", resp)
-	}
-	d := tp.lastDecision(t)
-	if d.Kind != model.DecisionFailover || d.PreviousAuthID != "seat-a" || !strings.Contains(d.Note, "hysteresis") {
-		t.Errorf("decision = %+v", d)
-	}
-	if b, _ := tp.bindings.Lookup("claude", fableModel, "k", testNow); b.AuthID != "seat-b" {
-		t.Errorf("binding = %+v, want rebound to seat-b", b)
-	}
-}
-
 // seatSessionOnly has a 5-hour window and a Fable weekly window but no
 // all-models weekly window, so outside Fable it is SessionOnly.
 func seatSessionOnly(t *testing.T) model.AuthSnapshot {
@@ -208,19 +190,21 @@ func TestColdPickPrefersASessionOnlySeat(t *testing.T) {
 	}
 }
 
-func TestPickMovesABindingToASessionOnlySeatWhenOverrideThresholdOff(t *testing.T) {
-	tp := newTestPlugin(t, testConfigYAML+"affinity:\n  override-threshold: false\n")
+func TestPickKeepsACappedBindingWhenASessionOnlySeatIsOffered(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
 	tp.seats(t)
 	tp.quota.Put(seatSessionOnly(t))
 	tp.bindings.Bind("claude", "claude-opus-5", "k", "seat-b", testNow)
 
 	resp := tp.pick(t, pickRequest("claude-opus-5", "k", "seat-a", "seat-b", "seat-session-only"))
-	if resp.AuthID != "seat-session-only" {
-		t.Fatalf("response = %+v, want seat-session-only", resp)
+	if resp.AuthID != "seat-b" {
+		t.Fatalf("response = %+v, want the bound seat-b", resp)
 	}
-	d := tp.lastDecision(t)
-	if d.Kind != model.DecisionFailover || d.PreviousAuthID != "seat-b" || !strings.Contains(d.Note, "no weekly cap") {
-		t.Errorf("decision = %+v, want a failover from seat-b naming the SessionOnly seat", d)
+	if d := tp.lastDecision(t); d.Kind != model.DecisionAffinityHit || d.PreviousAuthID != "" {
+		t.Errorf("decision = %+v, want an affinity hit on seat-b", d)
+	}
+	if resp := tp.pick(t, pickRequest("claude-opus-5", "fresh", "seat-a", "seat-b", "seat-session-only")); resp.AuthID != "seat-session-only" {
+		t.Errorf("cold pick = %+v, want seat-session-only, which is SessionOnly on Opus", resp)
 	}
 }
 
@@ -739,12 +723,12 @@ func TestARefusedBindingDoesNotFailOverToASpentSeat(t *testing.T) {
 	}
 }
 
-// Affinity outranks fullness: with Affinity.OverrideThreshold on, an
-// established conversation stays on its seat even once the provider reports
-// the window full, because moving it costs a certain cache miss while the
-// reading may be one poll stale. The request is forwarded and the provider
-// decides. This pins the behaviour so a change to it is deliberate.
-func TestASpentBindingIsKeptWhileAffinityOverridesPace(t *testing.T) {
+// Affinity outranks fullness: an established conversation stays on its seat
+// even once the provider reports the window full, because moving it costs a
+// certain cache miss while the reading may be one poll stale. The request is
+// forwarded and the provider decides. This pins the behaviour so a change to
+// it is deliberate.
+func TestASpentBindingIsKept(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	spent := seatA(t)
 	spent.Windows[2].Utilization = 1.02
@@ -752,9 +736,6 @@ func TestASpentBindingIsKeptWhileAffinityOverridesPace(t *testing.T) {
 	tp.quota.Put(seatB(t))
 	tp.bindings.Bind("claude", fableModel, "k", "seat-a", testNow)
 
-	if !tp.config().Affinity.OverrideThreshold {
-		t.Fatal("override-threshold is off, so this test no longer covers what it claims")
-	}
 	resp := tp.pick(t, pickRequest(fableModel, "k", "seat-a", "seat-b"))
 	if resp.AuthID != "seat-a" {
 		t.Fatalf("response = %+v, want the binding kept on the spent seat", resp)

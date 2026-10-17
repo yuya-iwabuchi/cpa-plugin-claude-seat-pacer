@@ -40,11 +40,6 @@ type AffinityConfig struct {
 	// replay the parent's prefix, so sharing its credential is a large cache
 	// win at the cost of parallel spread.
 	Subagents bool `yaml:"subagents" json:"subagents"`
-	// OverrideThreshold serves an established binding even when the bound
-	// credential has fallen behind the pace curve. One extra request on a
-	// nearly-spent credential costs far less than rebuilding a cached prefix
-	// on another one.
-	OverrideThreshold bool `yaml:"override-threshold" json:"override_threshold"`
 }
 
 // PaceConfig governs cold-start credential choice.
@@ -97,12 +92,6 @@ type PaceConfig struct {
 	// requested model falls in that family. Both weekly windows are paced
 	// against the same curve and differ only in weight.
 	ScopedWeight float64 `yaml:"scoped-weight" json:"scoped_weight"`
-
-	// HysteresisMargin is the score gap a challenger must beat before an
-	// established binding moves between two credentials that are both
-	// SessionOnly or both not; a SessionOnly challenger takes another's
-	// binding without it. Zero makes routing flap at window edges.
-	HysteresisMargin float64 `yaml:"hysteresis-margin" json:"hysteresis_margin"`
 }
 
 // Curve shapes for PaceConfig.Shape.
@@ -152,21 +141,19 @@ func Defaults() Config {
 	return Config{
 		Providers: []string{"claude"},
 		Affinity: AffinityConfig{
-			Enabled:           true,
-			TTL:               time.Hour,
-			MaxSessions:       65536,
-			Subagents:         true,
-			OverrideThreshold: true,
+			Enabled:     true,
+			TTL:         time.Hour,
+			MaxSessions: 65536,
+			Subagents:   true,
 		},
 		Pace: PaceConfig{
-			Shape:            ShapeLinear,
-			CurveExponent:    1.0,
-			Steepness:        8.0,
-			LandingTarget:    1.10,
-			WeeklyWeight:     1.0,
-			SessionWeight:    0,
-			ScopedWeight:     0.5,
-			HysteresisMargin: 0.05,
+			Shape:         ShapeLinear,
+			CurveExponent: 1.0,
+			Steepness:     8.0,
+			LandingTarget: 1.10,
+			WeeklyWeight:  1.0,
+			SessionWeight: 0,
+			ScopedWeight:  0.5,
 		},
 		Quota: QuotaConfig{
 			PollInterval:   2 * time.Minute,
@@ -200,7 +187,6 @@ func (c *Config) Normalize() (warnings []string) {
 		{&c.Pace.WeeklyWeight, d.Pace.WeeklyWeight},
 		{&c.Pace.SessionWeight, d.Pace.SessionWeight},
 		{&c.Pace.ScopedWeight, d.Pace.ScopedWeight},
-		{&c.Pace.HysteresisMargin, d.Pace.HysteresisMargin},
 	} {
 		if math.IsNaN(*f.v) || math.IsInf(*f.v, 0) {
 			*f.v = f.def
@@ -261,9 +247,6 @@ func (c *Config) Normalize() (warnings []string) {
 		c.Pace.Shape = ShapePower
 	default:
 		c.Pace.Shape = d.Pace.Shape
-	}
-	if c.Pace.HysteresisMargin < 0 {
-		c.Pace.HysteresisMargin = 0
 	}
 	if c.Quota.PollInterval < 30*time.Second {
 		c.Quota.PollInterval = d.Quota.PollInterval

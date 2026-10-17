@@ -1500,12 +1500,6 @@ time[data-ts] { cursor: help; }
     return (Math.abs(v) * 100).toFixed(d) + " pts";
   }
 
-  function ptsRound(v) {
-    if (!num(v)) return "—";
-    var n = Math.round(v * 1000) / 10;
-    return (n % 1 === 0 ? String(n) : n.toFixed(1)) + " pts";
-  }
-
   /* A weight as every clause writes it, after the term it scales: " ×0.50",
      and nothing at 1, where the term counts as it stands. A weight of zero
      is said in words by the caller, as "weighs nothing". */
@@ -5030,11 +5024,6 @@ time[data-ts] { cursor: help; }
       (hasSessionOnly
         ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat for them, whatever " +
           "the costs, and is paced against its " + SESSION_SHORT + " window: the gap is its whole cost."
-        : "") +
-      (num(wts.hysteresis_margin)
-        ? " With affinity.override-threshold off, a challenger must undercut a bound seat's cost by " +
-          ptsRound(wts.hysteresis_margin) + " to take its conversation" +
-          (hasSessionOnly ? ", and a seat with no weekly cap takes a capped seat's conversation outright" : "") + "."
         : "")));
 
     var g = def(dl, "what makes a seat ineligible");
