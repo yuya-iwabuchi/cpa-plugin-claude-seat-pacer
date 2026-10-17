@@ -85,10 +85,10 @@ func sigmoid(k, elapsed float64) float64 {
 // contribute nothing, so the status UI renders the whole picture from one
 // value; a non-zero Weight marks a window that moved the score.
 //
-// A credential whose usage-endpoint reading holds no weekly window bearing on
-// the model is SessionOnly, and its 5-hour window is paced at the larger of
-// SessionWeight and WeeklyWeight. Response headers carry only the windows a
-// request touched, so a reading from them alone says nothing about a missing
+// A credential whose usage-endpoint reading holds a 5-hour window and no
+// weekly window bearing on the model is SessionOnly, and its 5-hour window
+// weighs 1 whatever SessionWeight is. Response headers carry only the windows
+// a request touched, so a reading from them alone says nothing about a missing
 // weekly window and never makes a credential SessionOnly.
 //
 // Snapshot age is not gated here; the caller applies QuotaConfig.MaxStaleness
@@ -170,7 +170,9 @@ func open(w model.Window) bool {
 }
 
 // sessionOnly reports whether a reading holds a 5-hour window and no weekly
-// window, all-models or scoped, bearing on family.
+// window, all-models or scoped, bearing on family. A family-scoped window
+// naming a family FamilyOf cannot place may be the cap on a model whose family
+// is unknown, so for such a model it counts as bearing.
 func sessionOnly(windows []model.Window, family string) bool {
 	session := false
 	for _, w := range windows {
@@ -178,6 +180,8 @@ func sessionOnly(windows []model.Window, family string) bool {
 		case w.Kind == model.WindowSession:
 			session = true
 		case w.BearsOn(family):
+			return false
+		case w.Kind == model.WindowWeeklyScoped && family == "" && model.FamilyOf(w.Scope) == "":
 			return false
 		}
 	}
@@ -189,7 +193,7 @@ func weightOf(cfg model.PaceConfig, w model.Window, onlySession bool) float64 {
 	switch w.Kind {
 	case model.WindowSession:
 		if onlySession {
-			return math.Max(cfg.SessionWeight, cfg.WeeklyWeight)
+			return 1
 		}
 		return cfg.SessionWeight
 	case model.WindowWeekly:
@@ -289,8 +293,8 @@ func better(a, b model.Score) bool {
 	return a.AuthID < b.AuthID
 }
 
-// Best is the cheapest eligible credential, and false when none is eligible.
-// The slice need not be sorted.
+// Best is the eligible credential better ranks first, and false when none is
+// eligible. The slice need not be sorted.
 func Best(scores []model.Score) (model.Score, bool) {
 	var best model.Score
 	found := false
