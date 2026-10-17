@@ -4092,6 +4092,21 @@ time[data-ts] { cursor: help; }
     });
   }
 
+  /* Where polyline v, read back from x on screen, came to the level at y:
+     the start of the unbroken run within half a pixel of y that reaches x,
+     or x where none does. A riser that shows, a clearing or the line's start
+     ends a run. */
+  function levelStart(v, x, y, xOf, Y) {
+    var out = x, from = null;
+    for (var i = 0; i + 1 < v.length; i++) {
+      var p = v[i], q = v[i + 1];
+      if (q.fresh || Math.abs(Y(p.u) - y) >= 0.5 || Math.abs(Y(q.u) - y) >= 0.5) { from = null; continue; }
+      if (from === null) from = xOf(p.t);
+      if (xOf(q.t) >= x - 0.5) out = Math.min(out, from);
+    }
+    return out;
+  }
+
   /* Sleeves the flat runs of a seat's line under its refusals, in parent, a
      layer under every seat's line. parts lists [spans, vertices] pairs, one
      per stretch of the line: a window, or the hold between two. Runs that
@@ -4102,8 +4117,8 @@ time[data-ts] { cursor: help; }
      refused one. mark, for a seat refused now whose present mark is drawn,
      is that mark's centre: a sleeve running into the mark reaches at least
      SLEEVE_MIN past the mark's ring, which would otherwise cover a brief one,
-     though never before its window's first reading. Reports whether it drew
-     any. */
+     though never before the line came to the mark's level. Reports whether
+     it drew any. */
   function lockSleeves(parent, parts, xOf, Y, col, lineG, mark) {
     var runs = [];
     parts.forEach(function (part) {
@@ -4125,14 +4140,10 @@ time[data-ts] { cursor: help; }
     if (mark) {
       bands.forEach(function (r) {
         if (Math.abs(r[2] - mark.y) < 1 && r[1] >= mark.x - 1) {
-          /* The stretch reaches no earlier than the first reading of the
-             window it ends in, the latest part to start by its end; it is
-             never cut short. */
-          var first = Math.max.apply(null, parts.map(function (part) {
-            var x = part[1].length ? xOf(part[1][0].t) : -Infinity;
-            return x <= r[1] + 0.5 ? x : -Infinity;
-          }));
-          r[0] = Math.min(r[0], Math.max(first + SLEEVE_W / 2, mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2));
+          /* The mark ends the last part's line. The stretch is never cut
+             short. */
+          var from = levelStart(parts[parts.length - 1][1], mark.x, r[2], xOf, Y);
+          r[0] = Math.min(r[0], Math.max(from + SLEEVE_W / 2, mark.x - (PT_R + PT_RING + 1) - SLEEVE_MIN + SLEEVE_W / 2));
         }
       });
     }
