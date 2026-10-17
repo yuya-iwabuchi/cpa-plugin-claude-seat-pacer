@@ -5050,9 +5050,8 @@ time[data-ts] { cursor: help; }
   /* The 5-hour window is a rate limit, and its view puts each seat's mark and
      recorded line on a 5-hour axis, against the 7-day views' target curve
      with a gap to it where some seat's cost weighs the window
-     (pace.session-weight, or on a SessionOnly seat the larger of it and
-     pace.weekly-weight), and against a straight reference line where none
-     does. Under that line here is headroom rather than a verdict, because the
+     (pace.session-weight, or any SessionOnly seat's), and against a straight
+     reference line where none does. Under that line here is headroom rather than a verdict, because the
      window resets several times a day and unused capacity is not carried;
      what that headroom is worth in a pick is the weights' to say, and the
      view's line, labels and note read the running value. What the window does
@@ -5947,11 +5946,16 @@ time[data-ts] { cursor: help; }
     var now = nowMs();
     /* A window the cost gives no weight has no target, as on the 5-hour
        chart: its dashed line is the curve, and on the 5-hour view the
-       straight line from nothing to full across each window. */
+       straight line from nothing to full across each window. A seat with no
+       weekly cap on Standard requests is paced against its 5-hour window, so
+       on that view it keeps its target. */
     var weightOf = { five_hour: pace.session_weight, seven_day: pace.weekly_weight, weekly_scoped: pace.scoped_weight };
     var reference = !termShown(weightOf[view.kind]);
-    var cyclePath = function (X, start, dur, Y) {
-      return reference && view.kind === "five_hour"
+    var targeted = function (a) {
+      return !reference || (view.kind === "five_hour" && sessionOnly(famScore(a, STANDARD)));
+    };
+    var cyclePath = function (X, start, dur, Y, a) {
+      return !targeted(a) && view.kind === "five_hour"
         ? "M" + X(start).toFixed(2) + " " + Y(0).toFixed(2) + "L" + X(start + dur).toFixed(2) + " " + Y(1).toFixed(2)
         : curvePath(pace, calendarX(X, start, dur), Y);
     };
@@ -6529,7 +6533,8 @@ time[data-ts] { cursor: help; }
         "class": "pace hist-tl", width: W, height: TOTAL, viewBox: "0 0 " + W + " " + TOTAL,
         role: "group", tabindex: 0, "data-fk": "hist-chart:" + view.id,
         "aria-label": view.label + (stacked ? " use stacked by seat against what the pool holds, "
-          : " use over time with its " + (reference ? "curve" : "target") + ", ") +
+          : " use over time with " + (data.every(function (sd) { return targeted(sd.a); }) ? "its target"
+            : data.some(function (sd) { return targeted(sd.a); }) ? "each seat's target or curve" : "its curve") + ", ") +
           absTime(new Date(t0)) + " to " + absTime(new Date(t1)) +
           ". Drag the plot or the strip below to pan; arrow keys step, plus and minus zoom, End returns to now."
       }, host);
@@ -6575,7 +6580,7 @@ time[data-ts] { cursor: help; }
         sd.done.forEach(function (c) {
           if (c.at < t0 || c.at - sd.dur > t1) return;
           if (cyclePx >= 40) {
-            svg("path", { "class": "hs-target hs-past", d: cyclePath(X, c.at - sd.dur, sd.dur, Y), stroke: sd.col }, gl);
+            svg("path", { "class": "hs-target hs-past", d: cyclePath(X, c.at - sd.dur, sd.dur, Y, sd.a), stroke: sd.col }, gl);
           }
           if (c.at > t1 || cyclePx < 16) return;
           var ex = X(c.at), ey = Y(c.u), left = Math.max(0, 1 - c.u);
@@ -6590,7 +6595,7 @@ time[data-ts] { cursor: help; }
           }
         });
         if (sd.resets) {
-          svg("path", { "class": "hs-target", d: cyclePath(X, sd.resets.getTime() - sd.dur, sd.dur, Y), stroke: sd.col }, gl);
+          svg("path", { "class": "hs-target", d: cyclePath(X, sd.resets.getTime() - sd.dur, sd.dur, Y, sd.a), stroke: sd.col }, gl);
         }
         /* A window's line holds its last reading to the reset, falls to zero
            there and holds zero to the next window's first reading; the last
@@ -6725,9 +6730,13 @@ time[data-ts] { cursor: help; }
         [SW_POOL, "what the pool holds"],
         [SW_WEEKEND, "weekend"]
       ] : [
-        [reference ? SW_CURVE : SW_TARGET, reference ? CURVE_KEY : "target"],
+        [SW_CURVE, CURVE_KEY],
+        [SW_TARGET, "target"],
         [SW_WEEKEND, "weekend"]
-      ]).forEach(function (it) { legendRow(leg, it[0], it[1]); });
+      ].filter(function (it) {
+        return it[0] === SW_CURVE ? !data.every(function (sd) { return targeted(sd.a); })
+          : it[0] === SW_TARGET ? data.some(function (sd) { return targeted(sd.a); }) : true;
+      })).forEach(function (it) { legendRow(leg, it[0], it[1]); });
       resetRow(leg);
       if (!stk) markLegend(leg, holds, anyEst, anyGap);
       if (stk ? data.some(function (sd) { return refusedSpans(sd.a, view, tMin, tMax, now).length; }) : anyLock) {
@@ -7073,7 +7082,7 @@ time[data-ts] { cursor: help; }
   }
 
   function rankList(st, seats, ranks, fam) {
-    var now = nowMs(), pace = (st.config && st.config.pace) || {};
+    var now = nowMs(), pace = famPace(st, fam);
     var known = ranks.known[fam];
     var block = h("div", "rank-fam");
     var head = h("p", "rank-fam-head pin");
@@ -7154,7 +7163,7 @@ time[data-ts] { cursor: help; }
       return sc && sc.eligible && rank !== undefined ? Math.max(n, rank + 1) : n;
     }, 1);
     ul.style.setProperty("--rank-ch", String(1 + String(shown).length));
-    var costOrder = byRank.some(function (x) { return sessionOnly(famScore(x, fam)); })
+    var costOrder = byRank.some(function (x) { return !offTier(x, fam, ranks) && sessionOnly(famScore(x, fam)); })
       ? "seats with no weekly cap first, then lowest cost first" : "lowest cost first";
     ul.setAttribute("aria-label", rankLabel(fam) + (ranks.tier.multi
       ? " ranking by priority tier; in the serving tier, " + costOrder : " ranking, " + costOrder));
@@ -7279,7 +7288,7 @@ time[data-ts] { cursor: help; }
       }
       var det = o ? outlookDetail(o, true) : blankDetail(why || "no reading");
       if (o && why) det.lines = [{ t: why, tone: "muted" }];
-      if (o && sessionOnlyRow && det.meter ) det.meter.tick = o.target;
+      if (o && sessionOnlyRow && det.meter) det.meter.tick = o.target;
       seatDetail(li.appendChild(h("div", "rank-detail", "")), a, det);
       ul.appendChild(li);
     });

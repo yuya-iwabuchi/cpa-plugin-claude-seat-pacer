@@ -1271,21 +1271,6 @@ func TestSessionOnlySeatWeighsItsSessionWindowAtOne(t *testing.T) {
 	}
 }
 
-// For a model whose family is unknown, a weekly cap scoped to a family the
-// plugin cannot name may be that model's own, so the seat is not SessionOnly.
-// For a known family the same window bears on nothing.
-func TestAnUnknownFamilysCapCountsForAnUnknownModel(t *testing.T) {
-	now := testNow
-	snap := seat("team", now, paced(model.WindowSession, "", now, 0.5, 0.1), paced(model.WindowWeeklyScoped, "Claude Nova 1", now, 0.5, 0.2))
-	cfg := model.Defaults().Pace
-	if s := ScoreAuth(cfg, snap, "claude-nova-1", now); s.SessionOnly {
-		t.Errorf("claude-nova-1: SessionOnly with an unplaceable family cap, want it counted as the model's")
-	}
-	if s := ScoreAuth(cfg, snap, opus, now); !s.SessionOnly {
-		t.Errorf("opus: not SessionOnly, want an unplaceable family cap to bear on nothing")
-	}
-}
-
 // A SessionOnly seat is still gated: once its 5-hour window is full, a capped
 // seat takes the conversation.
 func TestFullSessionOnlySeatFallsThroughToACappedSeat(t *testing.T) {

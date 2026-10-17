@@ -84,8 +84,8 @@ type PaceConfig struct {
 	// WeeklyWeight scales the weekly window's slack. The weekly window is the
 	// resource actually lost at reset, so it dominates.
 	WeeklyWeight float64 `yaml:"weekly-weight" json:"weekly_weight"`
-	// SessionWeight scales the 5-hour window's slack on a credential with a
-	// weekly window bearing on the requested model. It is zero: there the
+	// SessionWeight scales the 5-hour window's slack on a credential that is
+	// not SessionOnly. It is zero: there the
 	// weekly window is the budget lost at reset, and the 5-hour window, which
 	// resets several times a day, is a rate limit with nothing to pace
 	// against. A refusal recorded against it, a reading of it that is not
