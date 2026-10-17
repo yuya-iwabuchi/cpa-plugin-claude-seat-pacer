@@ -34,7 +34,8 @@ reason. This plugin is that pick.
   is behind.
 - **The seat furthest behind takes the next conversation.** A seat still
   holding quota near its reset goes first, and one that just reset waits until
-  the others are closer to their plans.
+  the others are closer to their plans. A seat with no weekly cap on the
+  model, whose 5-hour window is its only quota, goes ahead of them all.
 - **Conversations stay on their seat.** Each conversation, and its subagents
   on the same model, keeps its seat. It moves only if that seat refuses it,
   fails a request or drops out of the host's rotation, or after an hour idle.

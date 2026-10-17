@@ -91,8 +91,8 @@ type PaceConfig struct {
 	// against. A refusal recorded against it, a reading of it that is not
 	// finite, or a reading of it at full still gates the credential — each is
 	// an observation rather than a forecast. Non-zero restores a short-horizon
-	// term when weekly slack ties. A SessionOnly credential paces its 5-hour
-	// window at the larger of this and WeeklyWeight.
+	// term when weekly slack ties. A SessionOnly credential's 5-hour window
+	// weighs 1 whatever this is.
 	SessionWeight float64 `yaml:"session-weight" json:"session_weight"`
 	// ScopedWeight scales a model-family weekly window's slack when the
 	// requested model falls in that family. Both weekly windows are paced

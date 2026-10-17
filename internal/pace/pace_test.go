@@ -1239,8 +1239,8 @@ func TestSessionOnlySeatsRankAheadOfCappedSeats(t *testing.T) {
 			t.Errorf("%s: SessionOnly = %v, want %v", s.AuthID, s.SessionOnly, want)
 		}
 	}
-	if w := windowScoreOf(t, scoreOf(t, opusRank, "session-only-behind"), model.WindowSession, "").Weight; w != cfg.WeeklyWeight {
-		t.Errorf("session-only-behind 5-hour weight = %v, want the weekly weight %v", w, cfg.WeeklyWeight)
+	if w := windowScoreOf(t, scoreOf(t, opusRank, "session-only-behind"), model.WindowSession, "").Weight; w != 1 {
+		t.Errorf("session-only-behind 5-hour weight = %v, want 1", w)
 	}
 	if w := windowScoreOf(t, scoreOf(t, opusRank, "capped-behind"), model.WindowSession, "").Weight; w != cfg.SessionWeight {
 		t.Errorf("capped-behind 5-hour weight = %v, want the session weight %v", w, cfg.SessionWeight)
@@ -1257,15 +1257,32 @@ func TestSessionOnlySeatsRankAheadOfCappedSeats(t *testing.T) {
 	}
 }
 
-// A session-weight above the weekly weight is kept on a SessionOnly seat: the
-// seat paces its 5-hour window at the larger of the two.
-func TestSessionOnlySeatKeepsAHigherSessionWeight(t *testing.T) {
+// A SessionOnly seat's 5-hour window weighs 1 whatever the weights are, so
+// zero weights still pace it and a large one does not inflate its cost.
+func TestSessionOnlySeatWeighsItsSessionWindowAtOne(t *testing.T) {
 	now := testNow
+	for _, wts := range [][2]float64{{0, 0}, {3, 0}, {0, 5}} {
+		cfg := model.Defaults().Pace
+		cfg.SessionWeight, cfg.WeeklyWeight = wts[0], wts[1]
+		s := ScoreAuth(cfg, seat("session-only", now, paced(model.WindowSession, "", now, 0.5, 0.1)), opus, now)
+		if w := windowScoreOf(t, s, model.WindowSession, "").Weight; w != 1 {
+			t.Errorf("session-weight %v, weekly-weight %v: 5-hour weight = %v, want 1", wts[0], wts[1], w)
+		}
+	}
+}
+
+// For a model whose family is unknown, a weekly cap scoped to a family the
+// plugin cannot name may be that model's own, so the seat is not SessionOnly.
+// For a known family the same window bears on nothing.
+func TestAnUnknownFamilysCapCountsForAnUnknownModel(t *testing.T) {
+	now := testNow
+	snap := seat("team", now, paced(model.WindowSession, "", now, 0.5, 0.1), paced(model.WindowWeeklyScoped, "Claude Nova 1", now, 0.5, 0.2))
 	cfg := model.Defaults().Pace
-	cfg.SessionWeight = 3
-	s := ScoreAuth(cfg, seat("session-only", now, paced(model.WindowSession, "", now, 0.5, 0.1)), opus, now)
-	if w := windowScoreOf(t, s, model.WindowSession, "").Weight; w != 3 {
-		t.Fatalf("5-hour weight = %v, want 3", w)
+	if s := ScoreAuth(cfg, snap, "claude-nova-1", now); s.SessionOnly {
+		t.Errorf("claude-nova-1: SessionOnly with an unplaceable family cap, want it counted as the model's")
+	}
+	if s := ScoreAuth(cfg, snap, opus, now); !s.SessionOnly {
+		t.Errorf("opus: not SessionOnly, want an unplaceable family cap to bear on nothing")
 	}
 }
 

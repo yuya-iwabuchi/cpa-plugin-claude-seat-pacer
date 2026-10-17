@@ -261,8 +261,7 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 // windows the headers do not carry keep that reading rather than going blank.
 //
 // Source keeps naming the endpoint read when one exists, because the snapshot
-// still carries endpoint data for windows traffic has not touched; an entry
-// with no window yet takes the headers' Source. Err is left
+// still carries endpoint data for windows traffic has not touched. Err is left
 // alone too: clearing it here would hide a usage-endpoint failure the poll
 // loop is still hitting, and the next successful Put clears it anyway.
 func (s *Store) MergeHeaders(authID string, windows []model.Window, observedAt time.Time) {
