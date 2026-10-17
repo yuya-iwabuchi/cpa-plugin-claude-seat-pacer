@@ -79,15 +79,14 @@ type PaceConfig struct {
 	// WeeklyWeight scales the weekly window's slack. The weekly window is the
 	// resource actually lost at reset, so it dominates.
 	WeeklyWeight float64 `yaml:"weekly-weight" json:"weekly_weight"`
-	// SessionWeight scales the 5-hour window's slack on a credential that is
-	// not SessionOnly. It is zero: there the
-	// weekly window is the budget lost at reset, and the 5-hour window, which
-	// resets several times a day, is a rate limit with nothing to pace
-	// against. A refusal recorded against it, a reading of it that is not
-	// finite, or a reading of it at full still gates the credential — each is
-	// an observation rather than a forecast. Non-zero restores a short-horizon
-	// term when weekly slack ties. A SessionOnly credential's 5-hour window
-	// weighs 1 whatever this is.
+	// SessionWeight scales the 5-hour window's slack on a credential that is not
+	// SessionOnly. It is zero: there the weekly window is the budget lost at
+	// reset, and the 5-hour window, which resets several times a day, is a rate
+	// limit with nothing to pace against. A refusal recorded against it, a reading
+	// of it that is not finite, or a reading of it at full still gates the
+	// credential — each is an observation rather than a forecast. Non-zero
+	// restores a short-horizon term when weekly slack ties. A SessionOnly
+	// credential's 5-hour window weighs 1 whatever this is.
 	SessionWeight float64 `yaml:"session-weight" json:"session_weight"`
 	// ScopedWeight scales a model-family weekly window's slack when the
 	// requested model falls in that family. Both weekly windows are paced
