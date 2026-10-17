@@ -170,9 +170,7 @@ func open(w model.Window) bool {
 }
 
 // sessionOnly reports whether a reading holds a 5-hour window and no weekly
-// window, all-models or scoped, bearing on family. A family-scoped window
-// naming a family FamilyOf cannot place may be the cap on a model whose family
-// is unknown, so for such a model it counts as bearing.
+// window, all-models or scoped, bearing on family.
 func sessionOnly(windows []model.Window, family string) bool {
 	session := false
 	for _, w := range windows {
@@ -180,8 +178,6 @@ func sessionOnly(windows []model.Window, family string) bool {
 		case w.Kind == model.WindowSession:
 			session = true
 		case w.BearsOn(family):
-			return false
-		case w.Kind == model.WindowWeeklyScoped && family == "" && model.FamilyOf(w.Scope) == "":
 			return false
 		}
 	}

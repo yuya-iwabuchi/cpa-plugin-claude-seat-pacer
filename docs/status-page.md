@@ -7,11 +7,11 @@ target, negative while a seat is behind, so the lowest cost takes the next new
 conversation, except that an eligible seat with no weekly cap on the requested
 model ranks ahead of every seat with one. While such a seat is eligible on the
 serving tier, the ranking splits under "no weekly cap", "weekly cap" and "held
-off" headings. A seat held off ranks below them, including one the host has
-disabled ("host disabled") or holds in a cooldown that covers every model
-("held by host", with the time the host lets it back). A seat whose served
-models the host cools on their own keeps its rank, since the host still offers
-it for other models, and its tooltip names the host status.
+off" headings. A seat held off ranks below the eligible seats, including one
+the host has disabled ("host disabled") or holds in a cooldown that covers
+every model ("held by host", with the time the host lets it back). A seat
+whose served models the host cools on their own keeps its rank, since the host
+still offers it for other models, and its tooltip names the host status.
 
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
