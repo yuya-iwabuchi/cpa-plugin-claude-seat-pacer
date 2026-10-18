@@ -30,13 +30,17 @@ Some seats, Team seats among them, report no all-models weekly window, only a
 has no weekly cap: its 5-hour window is its only quota, and it resets several
 times a day. Every eligible seat with no weekly cap goes ahead of every seat
 with one, and a seat with a weekly cap takes a new conversation for that model
-only while no seat without one can. Among seats with no weekly cap, the one
-furthest behind its plan on the 5-hour window goes first, whatever the
-weights; a seat whose 5-hour window has not opened yet is neither behind nor
-ahead of its plan. On Fable these seats have a weekly cap like any other and
-are paced the usual way. No setting controls this: it follows each seat's
-latest readings, so a seat whose usage read or responses report an all-models
-weekly window is paced like any other.
+only while no seat without one can. Once a seat with no weekly cap has room
+again after its 5-hour reset, new conversations go back to it, and a
+conversation already bound to a seat with a weekly cap stays there. Among
+seats with no weekly cap, the one furthest behind its plan on the 5-hour
+window goes first, whatever the weights; a seat whose 5-hour window has not
+opened yet is neither behind nor ahead of its plan. On Fable these seats have
+a weekly cap like any other and are paced the usual way. No setting controls
+this: it follows each seat's latest readings, so a seat whose usage read or
+responses report an all-models weekly window is paced like any other, and a
+pool in which every seat has a weekly cap on the requested model is ranked on
+its weekly pacing alone.
 
 A seat is ineligible when:
 

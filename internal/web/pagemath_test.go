@@ -43,7 +43,7 @@ func TestPageMath(t *testing.T) {
 	src := "var H_HOUR = 3600000, H_DAY = 86400000;\n" +
 		"function num(v) { return typeof v === \"number\" && isFinite(v); }\n" +
 		pageFunctions(t, "bucketStart", "bucketAfter", "levelSteps", "stepAt", "stackSeries", "returnSchedule",
-			"poolSize", "mergeSpans", "intersectSpans", "spanTime", "histPresets", "histAhead") + `
+			"poolSize", "mergeSpans", "intersectSpans", "spanTime", "histPresets", "histAhead", "levelStart") + `
 var fails = [];
 function eq(name, got, want) {
   if (JSON.stringify(got) !== JSON.stringify(want)) fails.push(name + ": got " + JSON.stringify(got) + ", want " + JSON.stringify(want));
@@ -127,6 +127,23 @@ eq("pool size of a new seat", [poolSize([{ first: null, cur: 0.2 }], 50, 100), p
 // Every span leads by one share of itself.
 eq("leads", histPresets(true).concat(histPresets(false)).filter(function (p) { return p[1] !== Infinity; })
   .map(function (p) { return Math.round(histAhead(p[1]) / p[1] * 100); }), [15, 15, 15, 15, 15, 15, 15, 15, 15, 15]);
+
+// A line comes to its present level at the riser into it, at its first
+// reading, or after a clearing, and nowhere on a line at another level.
+var at = function (t) { return t; }, pct = function (u) { return u * 100; };
+var climb = [{ t: 0, u: 0.2 }, { t: 10, u: 0.2 }, { t: 10, u: 0.5 }, { t: 20, u: 0.5 }, { t: 20, u: 0.5 }, { t: 25, u: 0.5 }, { t: 25, u: 0.5 }];
+var flat = [{ t: 0, u: 0.5 }, { t: 10, u: 0.5 }, { t: 10, u: 0.5 }, { t: 25, u: 0.5 }];
+var cleared = [{ t: 0, u: 0.5 }, { t: 10, u: 0.5, fresh: true }, { t: 25, u: 0.5 }];
+// A rise under half a pixel does not end a run, and one of half a pixel or
+// more does.
+var crept = [{ t: 0, u: 0.5 }, { t: 10, u: 0.5 }, { t: 10, u: 0.502 }, { t: 25, u: 0.502 }];
+var stepped = [{ t: 0, u: 0.5 }, { t: 10, u: 0.5 }, { t: 10, u: 0.507 }, { t: 25, u: 0.507 }];
+// A run at the level that ends before x does not reach it.
+var dipped = [{ t: 0, u: 0.5 }, { t: 10, u: 0.5 }, { t: 10, u: 0.2, fresh: true }, { t: 20, u: 0.2 }, { t: 20, u: 0.5 }, { t: 25, u: 0.5 }];
+eq("level start", [levelStart(climb, 25, 50, at, pct), levelStart(flat, 25, 50, at, pct), levelStart(cleared, 25, 50, at, pct),
+  levelStart(climb, 25, 20, at, pct), levelStart(crept, 25, 50.2, at, pct), levelStart(stepped, 25, 50.7, at, pct), levelStart(dipped, 25, 50, at, pct),
+  levelStart([], 25, 50, at, pct)],
+  [10, 0, 10, 25, 0, 10, 20, 25]);
 
 if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
 `
