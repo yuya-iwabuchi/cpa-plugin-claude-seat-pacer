@@ -409,7 +409,7 @@ func TestPageHasElementsTheScriptNeeds(t *testing.T) {
 		"page-foot", "plugin-facts", "next-pick", "seat-total", "seat-eligible", "snapshot-age",
 		"refresh-toggle", "theme-toggle", "sync-now",
 		"live-dot", "next-sync",
-		"error-strip", "warnings", "loading", "empty-state", "fail-state", "fail-detail", "hidden-state", "show-all-seats", "app",
+		"error-strip", "warnings", "loading", "load-reply", "load-why", "load-note", "empty-state", "hidden-state", "show-all-seats", "app",
 		"sec-seats", "seats-sub",
 		"timeline", "timeline-legend", "timeline-marks", "tl-std-key",
 		"sec-pace", "pace-curve", "pace-legend", "pace-note",

@@ -152,7 +152,11 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* The plane under the body's gradient, so a page shorter than the window
+   ends in the same colour rather than a seam. */
+html { background: var(--plane); }
 body {
+  min-height: 100vh;
   background:
     radial-gradient(120% 60% at 12% -10%, var(--surface-2) 0%, transparent 62%),
     var(--plane);
@@ -209,10 +213,14 @@ a { color: inherit; }
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--rule);
 }
+/* The readouts hang from the bar's top, so a one-line value sits level with
+   the first line of a two-line one beside it; the controls centre on the
+   bar. */
 .livebar-inner {
   max-width: 1360px; margin: 0 auto; padding: 8px 28px;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 16px;
 }
+.livebar-inner > .ctl { align-self: center; }
 /* A page embedding this one may float its own controls over the frame; the
    Management Center pins its toolbar to its window's top-right corner. The
    bar's content keeps clear of whatever clearOverlays finds over it and
@@ -226,8 +234,9 @@ a { color: inherit; }
    bar is on screen at every scroll depth and a row of labels of its own would
    cost the page a section head's worth of height. */
 .lb { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* The key takes the value's line height, so the two share a first line. */
 .lb-key {
-  font: 600 9.5px/1.5 var(--mono); letter-spacing: .13em;
+  font: 600 9.5px/17.5px var(--mono); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-3); flex: none;
 }
 .lb-val { font: 500 12.5px/1.4 var(--mono); color: var(--ink-1); min-width: 0; overflow-wrap: anywhere; }
@@ -282,6 +291,12 @@ button {
 /* Trimmed vertical padding keeps the row inside the two text lines beside
    it. */
 .btn-row button { padding: 5px 11px; }
+/* The theme control is one icon for the scheme in force: auto, light or
+   dark, in the order a click cycles them. */
+.btn-row .theme-btn { padding: 3px 6px; line-height: 0; color: var(--ink-2); }
+.btn-row .theme-btn:hover { color: var(--ink-1); }
+.theme-btn g { display: none; }
+.theme-btn[data-pick="auto"] .ti-auto, .theme-btn[data-pick="light"] .ti-light, .theme-btn[data-pick="dark"] .ti-dark { display: inline; }
 button { white-space: nowrap; }
 button:hover { background: var(--surface-2); }
 /* A forced sync holds its button for the round trip, and a span preset
@@ -297,6 +312,15 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 .live-dot[data-live="paused"] { background: var(--ink-3); }
 .live-dot[data-live="stale"]  { background: var(--warning); }
 .live-dot[data-live="error"]  { background: var(--critical); }
+/* An attempt at a first reply is out. */
+.live-dot[data-live="connecting"] { background: var(--info); }
+@media (prefers-reduced-motion: no-preference) {
+  .live-dot[data-live="connecting"] { animation: beat 1.6s ease-in-out infinite; }
+}
+@keyframes beat {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--info) 55%, transparent); }
+  70% { box-shadow: 0 0 0 5px transparent; }
+}
 /* The sync readout while a status reply is late: the figures on the page are
    from the last reply, and the line says so in the ink a caution takes. */
 :root[data-stale="true"] #next-sync { color: var(--serious); font-weight: 600; }
@@ -995,14 +1019,102 @@ th[aria-sort] button { color: var(--ink-1); }
 }
 
 /* ---------------------------------------------------------------- states */
-.skel { display: grid; gap: 16px; }
-.skel-row { height: 76px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--hairline); }
-.skel-row:nth-child(2) { height: 220px; }
-@media (prefers-reduced-motion: no-preference) {
-  .skel-row { animation: pulse 1.6s ease-in-out infinite; }
-  .skel-row:nth-child(2) { animation-delay: .18s; }
+/* Until a first reply lands, the page is a blurred outline of its first two
+   sections under one card that says what it waits on. The card floats, so
+   nothing under it moves as its status line changes, and the outline keeps
+   the place the sections arrive in. */
+#loading { position: relative; }
+.ld-ghost { filter: blur(5px); opacity: .55; }
+.ld-ghost .sec-head h2 { color: var(--ink-3); }
+/* One outline bar. A single slow sweep runs across every bar on the page,
+   in the page's own ink. */
+.bone {
+  display: inline-block; height: 9px; border-radius: 3px; vertical-align: middle;
+  background: color-mix(in srgb, var(--ink-1) 7%, transparent);
 }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: no-preference) {
+  .bone {
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--ink-1) 6%, transparent) 0%,
+      color-mix(in srgb, var(--ink-1) 6%, transparent) 35%,
+      color-mix(in srgb, var(--ink-1) 12%, transparent) 50%,
+      color-mix(in srgb, var(--ink-1) 6%, transparent) 65%,
+      color-mix(in srgb, var(--ink-1) 6%, transparent) 100%) 0 0 / 300% 100% fixed;
+    animation: sweep 5s ease-in-out infinite;
+  }
+}
+@keyframes sweep { from { background-position: 100% 0; } to { background-position: -200% 0; } }
+.bone.name { height: 12px; }
+.bone.tag { width: 34px; height: 16px; border-radius: 5px; }
+.bone.meter { width: 100%; max-width: 124px; height: 10px; border-radius: 5px; }
+.bone.lane { height: 12px; border-radius: 4px; }
+.bone.tab { height: 26px; border-radius: 6px; }
+.ld-seat {
+  display: grid; grid-template-columns: minmax(320px, 37%) 1fr; column-gap: 24px;
+  padding: 12px 8px 10px 14px; margin: 8px 0;
+  border-left: 3px solid color-mix(in srgb, var(--ink-1) 9%, transparent);
+}
+.ld-seat + .ld-seat { margin-top: 14px; }
+.ld-name { display: flex; align-items: center; gap: 10px; height: 26px; }
+.ld-name i { width: 11px; height: 11px; border-radius: 50%; background: color-mix(in srgb, var(--ink-1) 12%, transparent); }
+.ld-win {
+  display: grid; grid-template-columns: 96px 46px 1fr 104px; gap: 14px;
+  align-items: center; height: 26px; padding-left: 8px;
+}
+.ld-win > :last-child { justify-self: end; }
+.ld-lane { display: flex; flex-direction: column; justify-content: flex-end; padding-top: 26px; }
+.ld-lane > span { height: 26px; display: flex; align-items: center; }
+.ld-pace { display: grid; grid-template-columns: 140px 1fr 70px; gap: 16px; align-items: center; height: 30px; }
+.ld-tabs { display: flex; gap: 6px; margin: 6px 0 12px; }
+@media (max-width: 620px) {
+  .ld-seat { grid-template-columns: 1fr; }
+  .ld-lane, .ld-win > :last-child { display: none; }
+  .ld-win { grid-template-columns: 70px 40px 1fr; }
+}
+.ld-card {
+  position: absolute; z-index: 2; top: 64px; left: 50%; transform: translateX(-50%);
+  width: min(560px, 100% - 32px);
+  display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px;
+  background: var(--surface-1); border: 1px solid var(--hairline); border-radius: 10px;
+  box-shadow: 0 18px 48px -16px rgba(0,0,0,.55), var(--shadow);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ld-card { animation: rise .3s ease both; }
+}
+@keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } }
+.ld-spin {
+  flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--info) 25%, transparent); border-top-color: var(--info);
+}
+@media (prefers-reduced-motion: no-preference) { .ld-spin { animation: spin .9s linear infinite; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ld-card h2 { margin: 0; font: 600 15px/1.3 var(--sans); color: var(--ink-1); }
+.ld-card p { margin: 4px 0 0; font: 400 12.5px/1.5 var(--sans); color: var(--ink-2); }
+/* The steps to a drawn page. The reply's step carries the only failure mark
+   on the card, and the line under it, always present so the card keeps its
+   height, says which attempt is out or when the next one goes. */
+.ld-steps { margin: 10px 0 0; padding: 0; list-style: none; font: 500 11.5px/1.9 var(--mono); color: var(--ink-3); }
+.ld-steps li::before { content: "○ "; }
+.ld-steps li.done::before { content: "✓ "; color: var(--good); }
+.ld-steps li.on, .ld-steps li.bad { color: var(--ink-1); }
+.ld-steps li.on::before { content: "● "; color: var(--info); }
+.ld-steps li.bad::before { content: "✕ "; color: var(--critical); }
+.ld-why { display: block; padding-left: 2ch; font-size: 11px; line-height: 1.5; color: var(--ink-3); }
+/* While the stage is up the bar's figures are outlines of the same lines,
+   and the sync readout holds one width whatever its countdown reads. */
+.lb-ghost { display: none; flex-direction: column; }
+.lb-ghost > span { height: 17.5px; display: flex; align-items: center; }
+:root[data-loading] .lb-ghost { display: flex; }
+:root[data-loading] :is(#next-pick, #seat-total, #seat-eligible) { display: none; }
+:root[data-loading] .lb-sync .lb-stack { min-width: 15ch; }
+/* The first reply replaces the stage in one crossfade. */
+::view-transition-old(root), ::view-transition-new(root) {
+  animation-duration: .38s; animation-timing-function: cubic-bezier(.2, 0, 0, 1);
+}
+::view-transition-old(root) { animation-name: vt-out; }
+::view-transition-new(root) { animation-name: vt-in; }
+@keyframes vt-out { to { opacity: 0; filter: blur(3px); } }
+@keyframes vt-in { from { opacity: 0; } }
 .empty { padding: 16px; }
 .empty p { margin: 0; max-width: 72ch; color: var(--ink-2); }
 .empty p + p { margin-top: 8px; }
@@ -1119,6 +1231,7 @@ time[data-ts] { cursor: help; }
     <div class="lb">
       <span class="lb-key">Next pick</span>
       <div class="lb-val" id="next-pick">&mdash;</div>
+      <div class="lb-val lb-ghost" aria-hidden="true"><span><span class="bone" style="width:170px"></span></span><span><span class="bone" style="width:150px"></span></span></div>
     </div>
     <div class="lb">
       <span class="lb-key">Seats</span>
@@ -1126,6 +1239,7 @@ time[data-ts] { cursor: help; }
         <span id="seat-total">&mdash;</span>
         <span id="seat-eligible"></span>
       </div>
+      <div class="lb-val lb-ghost" aria-hidden="true"><span><span class="bone" style="width:58px"></span></span><span><span class="bone" style="width:84px"></span></span></div>
     </div>
     <div class="spacer"></div>
     <!-- The sync readout sits with the controls that act on it, behind the
@@ -1134,6 +1248,8 @@ time[data-ts] { cursor: help; }
     <div class="ctl">
       <!-- Spoken once when a status reply runs late, and cleared when it lands. -->
       <span class="sr-only" id="stale-note" role="status" aria-live="polite"></span>
+      <!-- Spoken when an attempt at a first reply fails. -->
+      <span class="sr-only" id="load-note" role="status" aria-live="polite"></span>
       <div class="lb lb-sync">
         <span class="live-dot" id="live-dot" data-live="live" aria-hidden="true"></span>
         <span class="sr-only">Sync</span>
@@ -1147,7 +1263,14 @@ time[data-ts] { cursor: help; }
         <button type="button" id="refresh-toggle" aria-pressed="false">Pause refresh</button>
       </div>
       <div class="btn-row">
-        <button type="button" id="theme-toggle">Theme: auto</button>
+        <button type="button" id="theme-toggle" class="theme-btn" data-pick="auto" aria-label="Theme: auto" title="Theme: auto">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <g class="ti-auto"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></g>
+            <g class="ti-light"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g>
+            <g class="ti-dark"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></g>
+          </svg>
+        </button>
       </div>
     </div>
   </div>
@@ -1181,16 +1304,74 @@ time[data-ts] { cursor: help; }
     </form>
     <div id="warnings" role="status" hidden></div>
 
-    <div id="loading" class="skel" style="margin-top:24px">
-      <div class="skel-row"></div>
-      <div class="skel-row"></div>
-      <div class="skel-row"></div>
-    </div>
-
-    <div id="fail-state" class="card empty" hidden style="margin-top:24px">
-      <p><strong>No answer from the status endpoint.</strong>
-      <span id="fail-detail"></span>
-      Retrying.</p>
+    <div id="loading">
+      <div class="ld-card">
+        <span class="ld-spin" aria-hidden="true"></span>
+        <div>
+          <h2>Reading the seat pool</h2>
+          <p>Asking the plugin for each seat's quota and the next pick. Requests keep flowing while this page loads.</p>
+          <ul class="ld-steps">
+            <li class="done">Page loaded</li>
+            <li class="on" id="load-reply">Waiting on the status reply<span class="ld-why" id="load-why">First attempt</span></li>
+            <li>Drawing seats</li>
+          </ul>
+        </div>
+      </div>
+      <div class="ld-ghost" aria-hidden="true">
+        <section>
+          <div class="sec-head"><span class="sec-idx ld-idx">01</span><h2>Seats</h2><span class="bone" style="width:280px"></span><span class="sec-line"></span></div>
+          <div class="card">
+          <div class="ld-seat">
+            <div>
+              <div class="ld-name"><i></i><span class="bone name" style="width:74px"></span><span class="bone tag"></span></div>
+              <div class="ld-win"><span class="bone" style="width:76px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:90px"></span></div>
+              <div class="ld-win"><span class="bone" style="width:84px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:110px"></span></div>
+              <div class="ld-win"><span class="bone" style="width:70px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:110px"></span></div>
+            </div>
+            <div class="ld-lane">
+              <span><span class="bone lane" style="margin-left:50%;width:2%"></span></span>
+              <span><span class="bone lane" style="margin-left:32%;width:50%"></span></span>
+              <span><span class="bone lane" style="margin-left:32%;width:50%"></span></span>
+            </div>
+          </div>
+          <div class="ld-seat">
+            <div>
+              <div class="ld-name"><i></i><span class="bone name" style="width:80px"></span><span class="bone tag"></span></div>
+              <div class="ld-win"><span class="bone" style="width:76px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:96px"></span></div>
+              <div class="ld-win"><span class="bone" style="width:84px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:110px"></span></div>
+              <div class="ld-win"><span class="bone" style="width:70px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:110px"></span></div>
+            </div>
+            <div class="ld-lane">
+              <span><span class="bone lane" style="margin-left:51%;width:2%"></span></span>
+              <span><span class="bone lane" style="margin-left:18%;width:50%"></span></span>
+              <span><span class="bone lane" style="margin-left:18%;width:50%"></span></span>
+            </div>
+          </div>
+          <div class="ld-seat">
+            <div>
+              <div class="ld-name"><i></i><span class="bone name" style="width:70px"></span><span class="bone tag"></span></div>
+              <div class="ld-win"><span class="bone" style="width:76px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:96px"></span></div>
+              <div class="ld-win"><span class="bone" style="width:84px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:104px"></span></div>
+              <div class="ld-win"><span class="bone" style="width:70px"></span><span class="bone" style="width:42px"></span><span class="bone meter"></span><span class="bone" style="width:104px"></span></div>
+            </div>
+            <div class="ld-lane">
+              <span><span class="bone lane" style="margin-left:50%;width:2%"></span></span>
+              <span><span class="bone lane" style="margin-left:4%;width:50%"></span></span>
+              <span><span class="bone lane" style="margin-left:4%;width:50%"></span></span>
+            </div>
+          </div>
+          </div>
+        </section>
+        <section>
+          <div class="sec-head"><span class="sec-idx ld-idx">02</span><h2>Current window</h2><span class="bone" style="width:240px"></span><span class="sec-line"></span></div>
+          <div class="card" style="padding:12px 16px 14px">
+          <div class="ld-tabs"><span class="bone tab" style="width:118px"></span><span class="bone tab" style="width:96px"></span><span class="bone tab" style="width:108px"></span></div>
+          <div class="ld-pace"><span class="bone" style="width:110px"></span><span class="bone" style="width:72%"></span><span class="bone" style="width:48px"></span></div>
+          <div class="ld-pace"><span class="bone" style="width:96px"></span><span class="bone" style="width:58%"></span><span class="bone" style="width:48px"></span></div>
+          <div class="ld-pace"><span class="bone" style="width:120px"></span><span class="bone" style="width:84%"></span><span class="bone" style="width:48px"></span></div>
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- What a fresh install sees: what the page is waiting on, that requests
@@ -1367,6 +1548,9 @@ time[data-ts] { cursor: help; }
   var SVGNS = document.getElementById("svg-ns").namespaceURI;
   var REFRESH_MS = 10000;
   var FETCH_TIMEOUT_MS = REFRESH_MS * 1.5;
+  /* Until a first reply lands, each failed attempt waits twice as long as the
+     one before it, from one poll interval up to this. */
+  var RETRY_MAX_MS = 5 * 60 * 1000;
   /* A forced sync reads every seat's usage upstream before the response is
      built, so it is allowed longer than a fetch of what the poller already
      holds. */
@@ -1413,6 +1597,11 @@ time[data-ts] { cursor: help; }
     error: null,
     fetchedAt: null,
     inFlight: false,
+    /* When the current attempt went out; failed attempts in a row with
+       nothing fetched; when the next one goes, or 0 while none is waiting. */
+    attemptAt: 0,
+    failures: 0,
+    retryAt: 0,
     /* Server clock minus client clock. Every relative time on the page is
        measured from the clock Status.Now comes from, so a seat card and a
        timeline tooltip never disagree about the same instant. */
@@ -8013,7 +8202,7 @@ time[data-ts] { cursor: help; }
     var secs = $("app").querySelectorAll("section");
     var n = 0;
     for (var i = 0; i < secs.length; i++) {
-      var idx = secs[i].querySelector(".sec-idx");
+      var idx = secs[i].querySelector(".sec-idx:not(.ld-idx)");
       if (!idx) continue;
       n++;
       idx.textContent = (n < 10 ? "0" : "") + n;
@@ -8062,8 +8251,8 @@ time[data-ts] { cursor: help; }
     hideTip();
 
     $("loading").hidden = true;
-    $("fail-state").hidden = true;
     $("app").removeAttribute("aria-busy");
+    setLive();
     renderHeader(st, ranks);
     renderWarnings(st);
 
@@ -8098,21 +8287,44 @@ time[data-ts] { cursor: help; }
     if (active && active.getAttribute && active.getAttribute("data-tip")) { focusTip(active); tipByFocus = true; }
   }
 
-  /* With nothing ever fetched there is no content to fall back on, so the
-     skeleton gives way to the reason. */
-  function renderFailure() {
-    if (state.data) return;
-    $("loading").hidden = true;
-    $("app").removeAttribute("aria-busy");
-    $("fail-detail").textContent = state.error ? "Last attempt: " + state.error + "." : "";
-    $("fail-state").hidden = false;
+  /* The loading stage, while no reply has landed. Its card stays as it is;
+     the reply's step says whether an attempt is out, and the line under it
+     says which one, or when the next goes and why the last failed. The sync
+     readout says the same in the bar. Until a first attempt fails there is
+     nothing for the sync and pause buttons to act on. */
+  var loadNoted = 0;
+  function renderLoading() {
+    var on = !$("loading").hidden;
+    if (on) document.documentElement.setAttribute("data-loading", "");
+    else document.documentElement.removeAttribute("data-loading");
+    var hold = on && !state.data && state.inFlight && !state.failures;
+    $("refresh-toggle").disabled = hold;
+    $("sync-now").disabled = hold || syncing;
+    if (!on && loadNoted) { loadNoted = 0; $("load-note").textContent = ""; }
+    if (!on || state.data) return;
+    var n = state.failures, out = state.inFlight;
+    var took = durText(Math.max(0, Math.floor((Date.now() - state.attemptAt) / 1000)));
+    var left = state.retryAt && !state.paused ? durText(Math.max(0, Math.ceil((state.retryAt - Date.now()) / 1000))) : "";
+    var why = out ? (n ? "Retrying × " + n + " · " + took : "First attempt · " + took)
+      : left ? "Retry × " + n + " in " + left : "Retry × " + n + " paused";
+    if (n && state.error) why = "Last attempt: " + state.error + " · " + why;
+    $("live-dot").setAttribute("data-live", out ? "connecting" : "error");
+    $("snapshot-age").textContent = "connecting…";
+    $("next-sync").textContent = out ? "waiting " + took : left ? "retry in " + left : "retry paused";
+    $("load-reply").className = out ? "on" : "bad";
+    $("load-why").textContent = why;
+    if (n !== loadNoted) {
+      loadNoted = n;
+      if (n) $("load-note").textContent = "No status reply: " + state.error + ". Retry " + n + (left ? " in " + left : "") + ".";
+    }
   }
 
   function setError(err) {
     state.error = err;
     var strip = $("error-strip");
     strip.textContent = "";
-    if (!err) { strip.hidden = true; return; }
+    /* With nothing fetched the loading card carries the failure. */
+    if (!err || !state.data) { strip.hidden = true; return; }
     strip.hidden = false;
     var head = h("h2", "", "Status fetch failed");
     strip.appendChild(head);
@@ -8126,11 +8338,15 @@ time[data-ts] { cursor: help; }
      the plugin next reads upstream. With nothing fetched yet there is no
      reading to age, so the freshness readout says so instead. */
   function setLive() {
+    /* While the loading stage is up it owns the bar's sync readout, and a
+       reply waiting on its view transition leaves the stage as it was. */
+    if (!$("loading").hidden) { renderLoading(); return; }
     var dot = $("live-dot");
     var stale = document.documentElement.getAttribute("data-stale") === "true";
     dot.setAttribute("data-live", state.error ? "error" : awaitingKey() ? "paused" : stale ? "stale" : state.paused ? "paused" : "live");
     if (!state.data) $("snapshot-age").textContent = state.inFlight ? "loading…" : "never";
     renderSync();
+    renderLoading();
   }
 
   /* The late reply, in words as well as in the amber line: the sync readout
@@ -8249,10 +8465,46 @@ time[data-ts] { cursor: help; }
   /* The forced-read button while its fetch is out. The server answers a call
      it throttles from the state it already holds, so this clears on the round
      trip either way and never waits on a read that was refused. */
+  var syncing = false;
   function setSyncing(on) {
     var b = $("sync-now");
+    syncing = on;
     b.disabled = on;
     b.textContent = on ? "Syncing…" : "Sync now";
+  }
+
+  var retryTimer = null;
+
+  function clearRetry() {
+    if (retryTimer) { window.clearTimeout(retryTimer); retryTimer = null; }
+    state.retryAt = 0;
+  }
+
+  function resetRetry() {
+    clearRetry();
+    state.failures = 0;
+  }
+
+  function scheduleRetry() {
+    clearRetry();
+    state.failures++;
+    var wait = Math.min(REFRESH_MS * Math.pow(2, state.failures - 1), RETRY_MAX_MS);
+    state.retryAt = Date.now() + wait;
+    retryTimer = window.setTimeout(function () {
+      retryTimer = null;
+      state.retryAt = 0;
+      if (!state.paused) refresh(false);
+    }, wait);
+  }
+
+  /* The first reply replaces the loading stage under a view transition;
+     every later one redraws in place. */
+  var calm = window.matchMedia("(prefers-reduced-motion: reduce)");
+  function reveal(draw) {
+    if (!document.startViewTransition || calm.matches) { draw(); return; }
+    var t = document.startViewTransition(draw);
+    t.ready.catch(function () { /* skipped: the update still ran */ });
+    t.updateCallbackDone.catch(function (e) { setError(String(e && e.message ? e.message : e)); });
   }
 
   function endFetch() {
@@ -8301,10 +8553,12 @@ time[data-ts] { cursor: help; }
       inFlightCtl.abort();
       endFetch();
     }
+    clearRetry();
     var gen = ++generation;
     var ctl = new AbortController();
     inFlightCtl = ctl;
     state.inFlight = true;
+    state.attemptAt = Date.now();
     if (forceSync) setSyncing(true);
     if (state.data) {
       staleTimer = window.setTimeout(function () { setStale(true); }, STALE_CUE_MS);
@@ -8323,13 +8577,15 @@ time[data-ts] { cursor: help; }
     var sides = HOST_MOUNT ? [] : scopedFamilies(prior || {}).map(function (fam) { return fetchFamily(fam, prior, ctl.signal); });
 
     function commit(standard, others) {
+      var first = !state.data;
       state.keyVerified = true;
       state.data = mergeStatus(standard, others);
       var served = parseT(standard && standard.now);
       state.skew = served ? Date.now() - served.getTime() : 0;
       state.fetchedAt = new Date(nowMs());
       setError(null);
-      render();
+      resetRetry();
+      if (first) reveal(render); else render();
     }
 
     /* Only the Standard call asks for the forced read: the server runs it
@@ -8371,8 +8627,11 @@ time[data-ts] { cursor: help; }
           holdForKey(e && e.status === 404 ? KEY_NO_API : "Could not load data (" + reason + "). Check the key and try again.");
           return;
         }
+        if (!state.data) {
+          scheduleRetry();
+          $("app").removeAttribute("aria-busy");
+        }
         setError(reason);
-        renderFailure();
       })
       .then(function () {
         if (gen !== generation) return;
@@ -8402,7 +8661,7 @@ time[data-ts] { cursor: help; }
 
   /* Called on every refresh tick while the page waits for a key, so focus
      moves only when the form first appears. With nothing fetched yet the
-     loading skeleton gives way to the form: the page is waiting on the
+     loading stage gives way to the form: the page is waiting on the
      reader, not on the host. */
   function awaitingKey() {
     return !!HOST_MOUNT && (state.locked || !state.key);
@@ -8414,6 +8673,7 @@ time[data-ts] { cursor: help; }
     if (!state.data) {
       $("loading").hidden = true;
       $("app").removeAttribute("aria-busy");
+      renderLoading();
     }
     if (!gate.hidden) return;
     gate.hidden = false;
@@ -8435,6 +8695,7 @@ time[data-ts] { cursor: help; }
     state.keyVerified = false;
     state.key = "";
     state.queued = null;
+    resetRetry();
     try { window.sessionStorage.removeItem(KEY_STORE); } catch (err) { /* in-memory only */ }
     setError(null);
     showKeyGate(message);
@@ -8567,7 +8828,10 @@ time[data-ts] { cursor: help; }
   function applyTheme() {
     if (state.theme === "auto") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", state.theme);
-    themeBtn.textContent = "Theme: " + state.theme;
+    var next = THEMES[(THEMES.indexOf(state.theme) + 1) % THEMES.length];
+    themeBtn.setAttribute("data-pick", state.theme);
+    themeBtn.setAttribute("aria-label", "Theme: " + state.theme);
+    themeBtn.title = "Theme: " + state.theme + " (click for " + next + ")";
     try { window.localStorage.setItem("pacer-theme", state.theme); } catch (e) { /* ignored */ }
   }
   themeBtn.addEventListener("click", function () {
@@ -8583,7 +8847,8 @@ time[data-ts] { cursor: help; }
     resizeTimer = window.setTimeout(function () { if (state.data) render(); }, 160);
   });
 
-  window.setInterval(function () { if (!state.paused) refresh(false); }, REFRESH_MS);
+  /* The poll stands aside while a first reply is being retried. */
+  window.setInterval(function () { if (!state.paused && !state.failures) refresh(false); }, REFRESH_MS);
   /* The embedding page can move its covers with no event reaching this one,
      so the bar's clearance is measured again on every tick. */
   window.setInterval(function () { tickStamps(); setLive(); clearKey = ""; scheduleClear(); }, 1000);
