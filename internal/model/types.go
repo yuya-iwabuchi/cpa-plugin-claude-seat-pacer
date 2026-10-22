@@ -459,6 +459,63 @@ type AuthStatus struct {
 	// History is each window's recorded utilization, thinned to what a chart
 	// can draw, with every refusal span. No identity travels in it.
 	History []WindowHistory `json:"history"`
+	// Login is what the plugin can tell about the credential's OAuth login;
+	// nil for a credential with no OAuth login or none read yet.
+	Login *Login `json:"login,omitempty"`
+}
+
+// Login states, from what the host and the usage endpoint show of a seat's
+// login. The host renews a Claude access token LoginRefreshLead before it
+// runs out and keeps serving on it while a renewal fails, so a token closer
+// than that to its end means renewals are failing.
+const (
+	// LoginOK is a login whose access token the host keeps renewing.
+	LoginOK = "ok"
+	// LoginAgeing is a login the plugin saw made, old enough that its
+	// expected end is near.
+	LoginAgeing = "ageing"
+	// LoginFailing is a login whose renewals fail while some usage read
+	// reaches Anthropic: the seat serves until its access token runs out.
+	LoginFailing = "failing"
+	// LoginStalled is a seat whose renewal is overdue, or whose token ran out
+	// with no refusal from the host, while no usage read reaches Anthropic,
+	// as during a network outage.
+	LoginStalled = "stalled"
+	// LoginExpired is a login the host can no longer renew, or whose tokens
+	// Anthropic revoked: the seat serves nothing until someone logs in again.
+	LoginExpired = "expired"
+)
+
+// LoginRefreshLead is how long before a Claude access token runs out the
+// host renews it. Source: CLIProxyAPI sdk/auth/claude.go RefreshLead.
+const LoginRefreshLead = 4 * time.Hour
+
+// LoginLifetime is about how long a Claude login lasts from the moment it is
+// made. Anthropic publishes no figure; this one is observed.
+const LoginLifetime = 30 * 24 * time.Hour
+
+// LoginAgeingLead is how long before a login's expected end the plugin calls
+// it ageing.
+const LoginAgeingLead = 3 * 24 * time.Hour
+
+// Login is one seat's OAuth login as the plugin sees it.
+type Login struct {
+	State string `json:"state"`
+	// Team is the organization the login belongs to, which a new login has
+	// to pick again to replace the same file.
+	Team string `json:"team,omitempty"`
+	// TeamID is a keyed digest of Team the page's copy carries, so the page
+	// can tell teams apart that read the same once masked.
+	TeamID string `json:"team_id,omitempty"`
+	// AccessExpiresAt is when the seat's current access token runs out: the
+	// instant a failing seat stops serving, or the one an expired seat
+	// stopped at.
+	AccessExpiresAt *time.Time `json:"access_expires_at,omitempty"`
+	// LoggedInAt is when the plugin saw the current login made; nil when it
+	// was made before the plugin was watching.
+	LoggedInAt *time.Time `json:"logged_in_at,omitempty"`
+	// EndsAround is when a login made at LoggedInAt is expected to end.
+	EndsAround *time.Time `json:"ends_around,omitempty"`
 }
 
 // Status is the complete state the status app renders. It carries no

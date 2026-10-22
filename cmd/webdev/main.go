@@ -20,6 +20,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,13 +39,14 @@ func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
 		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, session-only, "+
-			"cleared, exhausted, replay or empty")
+			"cleared, exhausted, logins, logins-all, logins-network, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
 		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
 			`each a list of {"kind", "scope", "from", "to", "cut_by_success"} with Unix-second ends`)
 	at := flag.String("at", "", "instant the replay scenario renders the page as of, local time, 2006-01-02T15:04")
 	seats := flag.Int("seats", 6, "credential count for the many scenario")
+	legacy := flag.Bool("legacy", false, "serve the login scenarios without login state, as a plugin that does not report it")
 	latency := flag.Duration("latency", 0, "delay every status response, to see the loading state")
 	failAfter := flag.Int("fail-after", -1,
 		"fail status requests after this many successes; 0 fails the first, -1 never fails")
@@ -150,6 +152,12 @@ func main() {
 		if err := src.replay(*historyPath, *locksPath, replayNow); err != nil {
 			log.Fatalf("replay: %v", err)
 		}
+	case "logins":
+		src.logins()
+	case "logins-all":
+		src.loginsAll()
+	case "logins-network":
+		src.loginsNetwork()
 	case "empty":
 		src.auths = nil
 		src.bindings = nil
@@ -158,12 +166,15 @@ func main() {
 	default:
 		log.Fatalf("unknown scenario %q", *scenario)
 	}
+	if *legacy {
+		src.stripLogins()
+	}
 	src.rebuildWarnings()
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           faults(framed(web.NewHandler(src)), *latency, *failAfter),
+		Handler:           faults(newLoginSim(src).wrap(framed(web.NewHandler(src))), *latency, *failAfter),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("status app on http://%s/", addr)
@@ -240,6 +251,9 @@ const (
 // fixture is a Source with a fixed scenario. Reset instants are anchored to
 // process start, so the page's countdowns run for real while it is open.
 type fixture struct {
+	// mu guards the pool against the simulated logins, which change it
+	// while the page reads it.
+	mu        sync.Mutex
 	anchor    time.Time
 	cfg       model.Config
 	plugin    model.PluginInfo
@@ -489,6 +503,7 @@ func (f *fixture) rebuildWarnings() {
 			PollErr:      snap.Err,
 			PollCategory: snap.ErrCategory,
 			Hold:         f.holds[row.AuthID],
+			LoginExpired: row.Login != nil && row.Login.State == model.LoginExpired,
 		}
 	}
 	var single []string
@@ -559,6 +574,8 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 
 // Status evaluates every fixture credential for modelID at now.
 func (f *fixture) Status(now time.Time, modelID string) model.Status {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	now = now.Add(f.shift)
 	if modelID == "" {
 		modelID = modelFable

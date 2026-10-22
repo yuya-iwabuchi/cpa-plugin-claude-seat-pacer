@@ -264,6 +264,15 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 		a.History = finiteHistory(a.History)
 		a.Score = finiteScore(a.Score)
 		a.Score.AuthID = publish(a.Score.AuthID)
+		if a.Login != nil {
+			// A personal account's organization is named after its email.
+			login := *a.Login
+			if login.Team != "" {
+				login.TeamID = publish("team:" + login.Team)
+			}
+			login.Team = bareEmail.ReplaceAllStringFunc(login.Team, maskEmail)
+			a.Login = &login
+		}
 		auths[i] = a
 	}
 	st.Auths = auths
@@ -306,15 +315,15 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 	return st
 }
 
-// publicIDBytes is how much of an HMAC-SHA256 a published credential id or
-// conversation key carries: 8 bytes, so 16 hex characters. Across the 65536
+// publicIDBytes is how much of an HMAC-SHA256 a published credential id,
+// conversation key or login team carries: 8 bytes, so 16 hex characters. Across the 65536
 // bindings affinity.max-sessions allows by default, the birthday bound on 64
 // bits stays near 1e-10, so the published form is injective in practice and the
 // joins between the page's tables hold.
 const publicIDBytes = 8
 
-// publicID is the form this route publishes a credential id or conversation
-// key in, keyed with key. CLIProxyAPI names a Claude OAuth credential file
+// publicID is the form this route publishes a credential id, conversation key
+// or login team in, keyed with key. CLIProxyAPI names a Claude OAuth credential file
 // after the account and falls back to that name for the id, so the real id is
 // routinely an email address. An empty id stays empty, which is how a decision
 // records having no previous credential or no session.

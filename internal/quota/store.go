@@ -9,9 +9,10 @@ import (
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
-// Store holds the newest snapshot per credential and is safe for concurrent
-// use. Every read hands back a copy, so a caller on the pick path cannot
-// mutate stored state and needs no lock of its own.
+// Store holds the newest snapshot per credential, with its history and when
+// its current login was seen made, and is safe for concurrent use. Every read
+// hands back a copy, so a caller on the pick path cannot mutate stored state
+// and needs no lock of its own.
 type Store struct {
 	mu      sync.RWMutex
 	entries map[string]*entry
@@ -23,8 +24,14 @@ type Store struct {
 	// snapshot is the credential's last reading, and is zero when none was
 	// kept.
 	pending map[string]*entry
-	// history counts every change to the recorded histories, so a writer can
-	// tell an unchanged store from one worth flushing.
+	// logins is when the plugin saw each credential's current login made,
+	// and loginDevices the digest of the device id that login left in the
+	// file, both kept with the histories so they outlast a restart.
+	logins       map[string]time.Time
+	loginDevices map[string]string
+	// history counts every change to the recorded histories and login
+	// instants, so a writer can tell an unchanged store from one worth
+	// flushing.
 	history uint64
 }
 
@@ -102,7 +109,7 @@ func mergeHeaderReading(dst *model.Window, src model.Window) {
 
 // NewStore returns an empty store.
 func NewStore() *Store {
-	return &Store{entries: make(map[string]*entry), pending: make(map[string]*entry)}
+	return &Store{entries: make(map[string]*entry), pending: make(map[string]*entry), logins: make(map[string]time.Time), loginDevices: make(map[string]string)}
 }
 
 // adopt seeds a new entry's history from a pending one.
@@ -453,7 +460,8 @@ func (s *Store) All() []model.AuthSnapshot {
 // adopts the history it already had, refusal and served admissions included,
 // and Restore can bring back its last reading, instead of restarting from
 // empty. A pending history whose credential the following prune does not keep
-// is forgotten, which bounds what a departed credential holds.
+// is forgotten, which bounds what a departed credential holds. A login instant
+// stays while its credential is kept or holds a pending history.
 func (s *Store) Prune(keep map[string]struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -472,6 +480,15 @@ func (s *Store) Prune(keep map[string]struct{}) {
 		}
 		delete(s.entries, id)
 		s.history++
+	}
+	for id := range s.logins {
+		_, kept := keep[id]
+		_, held := s.pending[id]
+		if !kept && !held {
+			delete(s.logins, id)
+			delete(s.loginDevices, id)
+			s.history++
+		}
 	}
 }
 
@@ -495,11 +512,41 @@ func (s *Store) History(authID string, max int, now time.Time) []model.WindowHis
 	return out
 }
 
-// HistoryVersion counts the changes made to the recorded histories so far.
+// HistoryVersion counts the changes made to the recorded histories and login
+// instants so far.
 func (s *Store) HistoryVersion() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.history
+}
+
+// SetLoggedIn records when the plugin saw a credential's current login made,
+// and the digest of the device id in its file, empty when it holds none.
+func (s *Store) SetLoggedIn(authID string, at time.Time, device string) {
+	if authID == "" || at.IsZero() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if prev, ok := s.logins[authID]; ok && prev.Equal(at) && s.loginDevices[authID] == device {
+		return
+	}
+	s.logins[authID] = at
+	if device == "" {
+		delete(s.loginDevices, authID)
+	} else {
+		s.loginDevices[authID] = device
+	}
+	s.history++
+}
+
+// LoggedIn reports when the plugin saw a credential's current login made, and
+// the digest of its device id, as recorded this run or in the history file.
+func (s *Store) LoggedIn(authID string) (at time.Time, device string, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	at, ok = s.logins[authID]
+	return at, s.loginDevices[authID], ok
 }
 
 // ExportHistory copies every credential's whole recorded history as of now,

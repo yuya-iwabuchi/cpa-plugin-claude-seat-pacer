@@ -470,6 +470,15 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 		if id == "" || entry.AuthIndex == "" {
 			continue
 		}
+		if ctx.Err() != nil {
+			break
+		}
+		// The host answers from its own store, so every seat's file is read
+		// on every poll, whether its usage is read or not.
+		auth, authErr := p.host.authGet(ctx, entry.AuthIndex)
+		if authErr == nil {
+			p.readLogin(id, hostRefusal(entry), auth.JSON)
+		}
 		// A restored reading that still describes its seat stands until the
 		// next poll, and a throttle answers every seat the sweep has not
 		// reached yet: each keeps the outcome it already had.
@@ -477,14 +486,11 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 			keep[id] = struct{}{}
 			continue
 		}
-		if ctx.Err() != nil {
-			break
-		}
 		if fetched > 0 && !p.wait(ctx, p.fetchStagger) {
 			break
 		}
 		fetched++
-		snap, err := p.fetchOne(ctx, client, id, entry)
+		snap, err := p.fetchOne(ctx, client, id, entry, auth, authErr)
 		if snap.AuthID == "" {
 			// Not an OAuth credential: nothing to poll and nothing to route on.
 			continue
@@ -534,6 +540,11 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 			delete(p.polls, id)
 		}
 	}
+	for id := range p.logins {
+		if _, ok := listed[id]; !ok {
+			delete(p.logins, id)
+		}
+	}
 	// Cache counters follow the host's listing rather than the fetch set, so a
 	// credential the plugin serves but does not poll keeps its status row.
 	for id := range p.cache {
@@ -542,6 +553,7 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 		}
 	}
 	p.mu.Unlock()
+	p.reportLogins(governed)
 	p.releaseHolds(ctx, governed, read)
 	return cfg.Quota.PollInterval, false
 }
@@ -606,13 +618,106 @@ func (p *Plugin) warnSingleCandidate() {
 	}
 }
 
-// fetchOne reads one credential's access token from the host and fetches its
-// usage. The credential JSON carries refresh tokens as well; only access_token
-// is decoded, and neither the payload nor the token is ever logged. A
-// credential without an access token is not OAuth and yields a zero snapshot.
-func (p *Plugin) fetchOne(ctx context.Context, client *quota.Client, id string, entry HostAuthFileEntry) (model.AuthSnapshot, error) {
+// readLogin folds one credential file's login, and the host's refusal of its
+// refresh token, into the seat's track: its access token's end, its last
+// renewal, its organization and a digest of its device id. Nothing else in
+// the file is decoded, and the file is never logged.
+func (p *Plugin) readLogin(id string, r refusal, file json.RawMessage) {
+	f, ok := parseLoginFile(file)
+	if !ok {
+		return
+	}
+	saved, savedDevice, hasSaved := p.quota.LoggedIn(id)
+	p.mu.Lock()
+	var last *loginTrack
+	if prev, had := p.logins[id]; had {
+		last = &prev
+	}
+	next, kept, ok := observeLogin(last, f, r, p.now())
+	if ok {
+		// A saved instant, loaded before this reading or after it, dates the
+		// current login unless its device digest names another login.
+		sameLogin := savedDevice == "" || next.device == "" || savedDevice == next.device
+		if next.loggedInAt.IsZero() && hasSaved && sameLogin && !saved.After(next.lastRefresh) {
+			next.loggedInAt = saved
+		}
+		p.logins[id] = next
+	}
+	p.mu.Unlock()
+	if ok && !next.loggedInAt.IsZero() {
+		p.quota.SetLoggedIn(id, next.loggedInAt, next.device)
+	}
+	if kept {
+		p.host.log("warn", "claude-seat-pacer: a seat renewed a refresh token the host had refused, keeping its device id; the plugin sees a login only by a new one", map[string]any{
+			"auth_id": id,
+			"hint":    "report this to the plugin's issue tracker with the host's version",
+		})
+	}
+}
+
+// loginNews is the host log's line for each login state a seat enters.
+var loginNews = map[string]struct{ level, msg string }{
+	model.LoginOK:      {"info", "claude-seat-pacer: a seat's login renews again"},
+	model.LoginAgeing:  {"info", "claude-seat-pacer: a seat's login is expected to end within days; log in again to its team"},
+	model.LoginFailing: {"warn", "claude-seat-pacer: a seat's login renewal is failing; it stops serving when its access token runs out unless someone logs in again to its team"},
+	model.LoginStalled: {"info", "claude-seat-pacer: a seat's login renewal is overdue while no usage read reaches Anthropic; the host looks cut off, not logged out"},
+	model.LoginExpired: {"warn", "claude-seat-pacer: a seat's login has expired; it serves nothing until someone logs in again to its team"},
+}
+
+// reportLogins writes a host log line for each listed seat whose login state
+// changed since the last line, and one for each login the plugin saw made. A
+// seat first seen renewing normally gets no line.
+func (p *Plugin) reportLogins(governed []HostAuthFileEntry) {
+	type line struct {
+		news   string
+		fields map[string]any
+	}
+	var lines []line
+	p.mu.Lock()
+	logins := seatLogins(governed, p.logins, p.polls, p.now())
+	for _, entry := range governed {
+		id := authID(entry)
+		l, ok := logins[id]
+		if !ok {
+			continue
+		}
+		track := p.logins[id]
+		fields := map[string]any{"auth_id": id, "team": l.Team}
+		if l.AccessExpiresAt != nil {
+			fields["access_expires_at"] = l.AccessExpiresAt.UTC().Format(time.RFC3339)
+		}
+		made := track.reported != "" && track.loggedInAt.After(track.reportedLogin)
+		if made {
+			lines = append(lines, line{"made", map[string]any{"auth_id": id, "team": l.Team, "logged_in_at": track.loggedInAt.UTC().Format(time.RFC3339)}})
+		}
+		track.reportedLogin = track.loggedInAt
+		// A seat entering ok gets a line only when it had stopped renewing and
+		// no login seen made already says so.
+		stopped := track.reported == model.LoginFailing || track.reported == model.LoginStalled || track.reported == model.LoginExpired
+		if l.State != track.reported && (l.State != model.LoginOK || stopped && !made) {
+			lines = append(lines, line{l.State, fields})
+		}
+		track.reported = l.State
+		p.logins[id] = track
+	}
+	p.mu.Unlock()
+	for _, ln := range lines {
+		if ln.news == "made" {
+			p.host.log("info", "claude-seat-pacer saw a seat logged in again", ln.fields)
+			continue
+		}
+		news := loginNews[ln.news]
+		p.host.log(news.level, news.msg, ln.fields)
+	}
+}
+
+// fetchOne fetches one credential's usage with the access token in auth, its
+// file as host.auth.get returned it, or records err, the read's failure. The
+// credential JSON carries refresh tokens as well; only access_token is
+// decoded, and neither the payload nor the token is ever logged. A credential
+// without an access token is not OAuth and yields a zero snapshot.
+func (p *Plugin) fetchOne(ctx context.Context, client *quota.Client, id string, entry HostAuthFileEntry, auth HostAuthGetResponse, err error) (model.AuthSnapshot, error) {
 	label := authLabel(entry)
-	auth, err := p.host.authGet(ctx, entry.AuthIndex)
 	if err != nil {
 		return model.AuthSnapshot{
 			AuthID:      id,

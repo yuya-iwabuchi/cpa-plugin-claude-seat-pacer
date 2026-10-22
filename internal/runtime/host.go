@@ -205,7 +205,7 @@ func (h host) authList(ctx context.Context) ([]HostAuthFileEntry, error) {
 }
 
 // authGet returns the raw credential file for an auth index. The result
-// carries tokens: callers read one field and drop the rest.
+// carries tokens: callers decode only the fields they name and drop the rest.
 func (h host) authGet(ctx context.Context, authIndex string) (HostAuthGetResponse, error) {
 	var resp HostAuthGetResponse
 	err := h.invokeCtx(ctx, MethodHostAuthGet, HostAuthGetRequest{AuthIndex: authIndex}, &resp)

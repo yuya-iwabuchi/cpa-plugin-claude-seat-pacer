@@ -575,7 +575,7 @@ type HostAuthGetRequest struct {
 // Casing: snake_case. Source: internal/pluginhost/auth_callbacks.go:27.
 //
 // JSON is the raw credential file, access and refresh tokens included. Never
-// log it, and read only the field needed to call the provider.
+// log it, and read only the fields fetchOne and readLogin name.
 type HostAuthGetResponse struct {
 	AuthIndex string          `json:"auth_index"`
 	Name      string          `json:"name,omitempty"`
