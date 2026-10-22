@@ -57,7 +57,13 @@ fi
   GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 CC="clang -arch x86_64" \
   "$goroot/bin/go" build -trimpath -buildmode=c-shared -o "$library" .)
 
-otool -tv "$library" | awk '/%gs:0x30/ {stock++} /%gs:0x58/ {patched++}
+# runtime.text opens with the Go build ID, a hash otool decodes as
+# instructions, and its ASCII can read as a %gs access; the count starts at
+# the first function after it. Each stock access is printed with its function.
+otool -tv "$library" | awk '/:$/ {fn = $0; skip = (fn == "_runtime.text:"); next}
+  skip {next}
+  /%gs:0x30/ {stock++; print "stock slot access in " fn " " $0}
+  /%gs:0x58/ {patched++}
   END {
     printf "goroutine accesses: %%gs:0x58 x%d, %%gs:0x30 x%d\n", patched, stock
     exit !(patched > 0 && stock == 0)
