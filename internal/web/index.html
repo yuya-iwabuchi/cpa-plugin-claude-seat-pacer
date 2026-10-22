@@ -4022,16 +4022,16 @@ time[data-ts] { cursor: help; }
   var UNRECORDED_KEY = "not recorded after an early reset";
   var SW_LOCK = "box-sizing:border-box;width:16px;height:6px;border-radius:3px;border:1.25px solid var(--ink-2);" +
     "background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink-2) 75%, transparent) 0 1.1px, transparent 1.1px 3px)";
-  var LOCK_KEY = "refused";
-  /* Stacked, a refused seat's band, struck through in the card's colour. */
-  /* Stacked's refusal stripes: their period and width in px, which the
-     swatch repeats. */
+  var LOCK_KEY = "refused or full";
+  /* Stacked, a refused or full seat's band, struck through in the card's colour. */
+  /* Stacked's stripes over refused or full stretches: their period and
+     width in px, which the swatch repeats. */
   var HS_HATCH_P = 4.4, HS_HATCH_W = 1.6;
   var SW_STACK_LOCK = "height:10px;background:repeating-linear-gradient(135deg, var(--surface-1) 0 " + HS_HATCH_W + "px, " +
     "var(--ink-3) " + HS_HATCH_W + "px " + HS_HATCH_P + "px)";
   var SW_ALL_REFUSED = "height:10px;background:linear-gradient(var(--critical) 0 2px, " +
     "color-mix(in srgb, var(--critical) 14%, transparent) 2px)";
-  var ALL_REFUSED_KEY = "every seat refused";
+  var ALL_REFUSED_KEY = "every seat refused or full";
   /* The ring every mark swatch and the reset swatch share; then a present
      mark, one held now, and one the host has disabled. */
   var SW_RING = "box-sizing:border-box;width:13px;height:13px;margin:-.5px .5px;border-radius:50%;border:1.5px solid var(--ink-2);";
@@ -4146,29 +4146,107 @@ time[data-ts] { cursor: help; }
 
   /* The lock spans bearing on a mark whose window runs start to end, in ms:
      the 5-hour and 7-day windows' on every mark, since both cap every
-     request, and a family cap's on its own mark alone. drawn holds each
-     with its own ends, from and to, for its tooltip, and t0 and t1 clipped
-     to the window and to now, the line's present; live holds the spans
-     covering now. A span ending within RESET_TOLERANCE_MS of the window's
-     start is the window before's, and draws nothing. ended is what the
-     store recorded as ending a span: "reset", "served" or "cleared", and ""
-     while it is ongoing, when to is the reset its latest refusal expected,
-     so an ongoing span whose to has passed ran to that reset. */
+     request, and a family cap's on its own mark alone. A lock is a refusal
+     the store recorded, or a stretch the window read full outside one: the
+     scheduler starts no new conversation on a full seat, so the provider may
+     never be asked to refuse it, though a bound conversation can still land
+     there. drawn holds each with its own ends, from and to, for its
+     tooltip, and t0 and t1 clipped to the window and to now, the line's
+     present; live holds the refusals covering now, since whether a window
+     is full now is the snapshot's reading, not the history's. A span ending
+     within RESET_TOLERANCE_MS of the window's start is the window before's,
+     and draws nothing. Each span carries windowLocks' fields. */
   function lockSpans(a, ws, start, end, now) {
     var out = { drawn: [], live: [] };
     var kinds = [historyFor(a, "five_hour", ""), historyFor(a, "seven_day", "")];
     if (ws.kind === "weekly_scoped") kinds.push(historyFor(a, ws.kind, ws.scope));
     kinds.forEach(function (hist) {
-      ((hist && hist.locks) || []).forEach(function (l) {
-        if (!l || !num(l.from) || !num(l.to)) return;
-        var from = l.from * 1000, to = l.to * 1000;
-        var sp = {
-          from: from, to: to, kind: hist.kind, scope: hist.scope || "",
-          ended: l.end || (to <= now ? "reset" : ""),
-          t0: Math.max(from, start), t1: Math.min(to, end, now)
-        };
-        if (sp.t1 > sp.t0 && to > start + RESET_TOLERANCE_MS) out.drawn.push(sp);
-        if (!sp.ended && from <= now && to > start) out.live.push(sp);
+      if (!hist) return;
+      windowLocks(hist, fullRunsOf(hist), now).forEach(function (r) {
+        var sp = Object.assign(r, { kind: hist.kind, scope: hist.scope || "", t0: Math.max(r.from, start), t1: Math.min(r.to, end, now) });
+        if (sp.t1 > sp.t0 && r.to > start + RESET_TOLERANCE_MS) out.drawn.push(sp);
+        if (!sp.ended && !sp.full && r.from <= now && r.to > start) out.live.push(sp);
+      });
+    });
+    return out;
+  }
+
+  /* One window's locks from its history hist and its fullRuns, as {from,
+     to, ended, full, keepStart} in ms. ended is what ended a lock:
+     "reset", "served", "cleared", or for a full one "refused" or "fell",
+     and "" while it is ongoing, when to is the reset it expects, so an
+     ongoing lock whose to has passed ran to that reset. full marks a full
+     stretch. keepStart marks a lock that keeps its drawn start rather than
+     settling on the line: a full stretch, since a full seat still serves
+     its bound conversations, and a refusal a full stretch of its window
+     runs into, since the seat was held from that stretch's start. */
+  function windowLocks(hist, runs, now) {
+    var refused = [];
+    (hist.locks || []).forEach(function (l) {
+      if (!l || !num(l.from) || !num(l.to)) return;
+      var from = l.from * 1000, to = l.to * 1000;
+      refused.push({ from: from, to: to, ended: l.end || (to <= now ? "reset" : "") });
+    });
+    return refused.concat(cutFull(runs, refused, now)).map(function (r) {
+      return { from: r.from, to: r.to, ended: r.ended, full: !!r.full, keepStart: !!(r.full || r.afterFull) };
+    });
+  }
+
+  /* The stretches in which hist's window read full, as {from, to, end} in
+     ms, from its recorded readings; an estimate is no reading. A stretch
+     runs from the first reading at full to the first under it, ending
+     "fell", or else to its cycle's reset, ending "reset". A cycle the next
+     opens more than RESET_TOLERANCE_MS ahead of its reset was cleared
+     early, and its stretch ends at that cycle's first reading, "cleared". */
+  function fullRuns(hist) {
+    var out = [], cycles = hist.cycles || [];
+    cycles.forEach(function (c, i) {
+      var reset = parseT(c.resets_at);
+      if (!reset) return;
+      var end = reset.getTime(), how = "reset";
+      var next = cycles[i + 1], first = next && next.samples && next.samples[0];
+      if (first && num(first[0]) && first[0] * 1000 < end - RESET_TOLERANCE_MS) { end = first[0] * 1000; how = "cleared"; }
+      var from = null;
+      (c.samples || []).forEach(function (s) {
+        if (!s || !num(s[0]) || !num(s[1]) || estimatedAt(c, { t: s[0] * 1000 })) return;
+        if (s[1] >= 1) { if (from === null) from = s[0] * 1000; }
+        else if (from !== null) { out.push({ from: from, to: s[0] * 1000, end: "fell" }); from = null; }
+      });
+      if (from !== null && end > from) out.push({ from: from, to: end, end: how });
+    });
+    return out;
+  }
+
+  /* fullRuns of hist, worked out once per history: every render reads each
+     seat's spans many times over. */
+  var FULL_RUNS = new WeakMap();
+  function fullRunsOf(hist) {
+    if (!FULL_RUNS.has(hist)) FULL_RUNS.set(hist, fullRuns(hist));
+    return FULL_RUNS.get(hist);
+  }
+
+  /* Full runs as lock spans {from, to, ended, full} outside the refusals of
+     the same window, which say more. A run reaching its reset is ongoing,
+     ended "", until now passes that reset. A refusal cuts a run, and the
+     piece before it ends "refused". A piece shorter than
+     RESET_TOLERANCE_MS is dropped: it is a reading that preceded a refusal
+     by moments, or the edge between a refusal's end and the reset. Each
+     piece kept sets afterFull on the refusal it runs into. */
+  function cutFull(runs, refused, now) {
+    var out = [];
+    runs.forEach(function (run) {
+      var pieces = [{ from: run.from, to: run.to, ended: run.end === "reset" && run.to > now ? "" : run.end }];
+      refused.forEach(function (r) {
+        pieces = [].concat.apply([], pieces.map(function (p) {
+          if (r.to <= p.from || r.from >= p.to) return [p];
+          return (r.from > p.from ? [{ from: p.from, to: r.from, ended: "refused", into: r }] : [])
+            .concat(r.to < p.to ? [{ from: r.to, to: p.to, ended: p.ended }] : []);
+        }));
+      });
+      pieces.forEach(function (p) {
+        if (p.to - p.from < RESET_TOLERANCE_MS) return;
+        if (p.into) p.into.afterFull = true;
+        out.push({ from: p.from, to: p.to, ended: p.ended, full: true });
       });
     });
     return out;
@@ -4188,14 +4266,15 @@ time[data-ts] { cursor: help; }
     return last && uNow > last.u && tNow > t0 ? Math.min(tNow, t1) : t0;
   }
 
-  /* Moves each span's drawn start to where it settles on the line. */
+  /* Moves each lock's drawn start to where it settles on the line, but for
+     one lockSpans marks keepStart. */
   function settleSpans(spans, samples, tNow, uNow) {
-    if (samples.length) spans.forEach(function (sp) { sp.t0 = settledStart(sp.t0, sp.t1, samples, tNow, uNow); });
+    if (samples.length) spans.forEach(function (sp) { if (!sp.keepStart) sp.t0 = settledStart(sp.t0, sp.t1, samples, tNow, uNow); });
   }
 
-  /* The stretches from start to end, up to now, in which the provider
-     refused seat a on ws's window or one bearing on it, as merged [start,
-     end] pairs. */
+  /* The stretches from start to end, up to now, in which seat a was
+     refused, or read full, on ws's window or one bearing on it, as merged
+     [start, end] pairs. */
   function refusedSpans(a, ws, start, end, now) {
     return mergeSpans(lockSpans(a, ws, start, end, now).drawn.map(function (sp) { return [sp.t0, sp.t1]; }));
   }
@@ -4220,9 +4299,10 @@ time[data-ts] { cursor: help; }
   }
 
   /* The flat runs of a polyline between instants a and b, as [t0, t1, u]
-     triples. A refused seat takes no work, so its line only runs flat under
-     a lock; risers and the stretch across a clearing are left out. Empty
-     where no flat run meets the stretch. */
+     triples. A refused seat takes no work, so its line runs flat under a
+     refusal; a full one can still climb under its bound conversations.
+     Risers and the stretch across a clearing are left out. Empty where no
+     flat run meets the stretch. */
   function flatRuns(v, a, b) {
     var out = [];
     for (var i = 0; i + 1 < v.length; i++) {
@@ -4340,14 +4420,14 @@ time[data-ts] { cursor: help; }
     return out;
   }
 
-  /* Sleeves the flat runs of a seat's line under its refusals, in parent, a
+  /* Sleeves the flat runs of a seat's line under its locks, in parent, a
      layer under every seat's line. parts lists [spans, vertices] pairs, one
      per stretch of the line: a window, or the hold between two. Runs that
      meet at one level, from one span, from spans end to end or across parts,
      make one sleeve. A run under a pixel wide draws nothing, since it would
      sleeve a climb. The seat's line, lineG, leaves its sleeves to a copy
      drawn through them in parent, so every other seat's line passes over a
-     refused one. mark, for a seat refused now whose present mark is drawn,
+     held one. mark, for a seat refused now whose present mark is drawn,
      is that mark's centre: a sleeve running into the mark reaches at least
      SLEEVE_MIN past the mark's ring, which would otherwise cover a brief one,
      though never before the line came to the mark's level. Reports whether
@@ -4398,12 +4478,12 @@ time[data-ts] { cursor: help; }
      of its own, from the last sample before it to the first after it:
      "unrec" where the two lie UNRECORDED_MS or more apart, otherwise "usage"
      with clear set, a climb from zero. Elsewhere a section is "limit" for
-     each continuous stretch in which the provider refused the seat, whatever
-     spans were in force across it, "usage" for each run of rises nearer
-     than idleMs apart, and "idle" for the rest. A usage run takes in a
+     each continuous stretch in which the seat was refused or read full,
+     whatever spans were in force across it, "usage" for each run of rises
+     nearer than idleMs apart, and "idle" for the rest. A usage run takes in a
      stretch under idleMs between it and a limit, a clearing or the line's
      ends, and is a single instant where one rise stands alone. spans lists
-     the refusals a section holds: every one in force across a limit, and
+     the locks a section holds: every one in force across a limit, and
      those overlapping a clearing. Every span is held by a section, the
      nearest one where none overlaps it. */
   function lineSections(samples, start, tNow, uNow, spans, idleMs) {
@@ -4519,33 +4599,44 @@ time[data-ts] { cursor: help; }
   }
 
   /* The badge each type of section carries in its tooltip; a limit's names
-     the refusing windows (limitLabel). */
+     the windows that refused or read full (limitLabel). */
   var SECTION_LABEL = { usage: "usage", idle: "idle", unrec: "not recorded" };
 
   /* What ended a span, as a limit's line reads it. */
   var LOCK_ENDED = {
     reset: "until the window reset",
     served: "until the seat served a request again",
-    cleared: "until an early reset"
+    cleared: "until an early reset",
+    refused: "until the provider refused it",
+    fell: "until a reading under full"
   };
 
-  /* A limit as a tooltip line reads it: its window, whether the provider is
-     refusing it still and what ended it, with the span's own ends where
-     ranged is set. */
+  /* A limit as a tooltip line reads it: its window, whether it is refusing
+     or full still and what ended it, with the span's own ends where ranged
+     is set. */
   function lockLine(sp, now, ranged) {
     var w = windowShort(sp);
     if (!sp.ended) {
-      return { b: w, t: "refusing" + (ranged ? " since " + spanClock(sp.from) : ""), alert: resetText(new Date(sp.to), now) };
+      return { b: w, t: (sp.full ? "full" : "refusing") + (ranged ? " since " + spanClock(sp.from) : ""), alert: resetText(new Date(sp.to), now) };
     }
     return { b: w, t: (ranged ? spanClock(sp.from) + " – " + spanClock(sp.to, sp.from) + ": " : "") +
-      "refused " + LOCK_ENDED[sp.ended] };
+      (sp.full ? "full " : "refused ") + LOCK_ENDED[sp.ended] };
   }
 
-  /* A limit section's badge: the windows that refused, each once. */
+  /* A limit section's badge: the windows that refused, then those only
+     full, each once. */
   function limitLabel(spans) {
-    var names = [];
-    spans.forEach(function (sp) { var n = windowShort(sp); if (names.indexOf(n) < 0) names.push(n); });
-    return names.join(" + ") + " refused";
+    var refused = [], full = [];
+    spans.forEach(function (sp) {
+      var n = windowShort(sp);
+      if (!sp.full && refused.indexOf(n) < 0) refused.push(n);
+    });
+    spans.forEach(function (sp) {
+      var n = windowShort(sp);
+      if (sp.full && refused.indexOf(n) < 0 && full.indexOf(n) < 0) full.push(n);
+    });
+    return [[refused, " refused"], [full, " full"]].filter(function (p) { return p[0].length; })
+      .map(function (p) { return p[0].join(" + ") + p[1]; }).join(" + ");
   }
 
   /* A section's tooltip: the line, what the section is and when, then what
@@ -4598,7 +4689,8 @@ time[data-ts] { cursor: help; }
       spec.lines.push(lockLine(sp, now, sec.type !== "limit" || sec.spans.length > 1));
     });
     if (sec.type === "limit" && !rose && sec.spans.every(function (sp) { return sp.kind !== head.kind || (sp.scope || "") !== (head.scope || ""); })) {
-      spec.lines.push({ t: "flat because a refused seat takes no requests" });
+      spec.lines.push({ t: sec.spans.every(function (sp) { return sp.full; })
+        ? "flat because a held seat takes no new conversations" : "flat because a refused seat takes no requests" });
     }
     return spec;
   }
@@ -5127,9 +5219,10 @@ time[data-ts] { cursor: help; }
      gap, in words, that ends a usage stretch. */
   function sectionsText(idle) {
     return "Point at a stretch of a line to see what happened in it: usage (rises less than " + idle +
-      " apart), idle, not recorded (a climb after an early reset that no reading covers), or refused (a " +
-      "hatched sleeve around the line, badged with the window that refused). A rise the first reading of a " +
-      "refusal shows is use from before it, and counts as usage. A mark with a pause where its dot would be is " +
+      " apart), idle, not recorded (a climb after an early reset that no reading covers), or refused or full (a " +
+      "hatched sleeve around the line, badged with the window that refused or read full). A rise the first reading of a " +
+      "refusal shows is use from before it, and counts as usage, unless the window read full up to the refusal. " +
+      "A mark with a pause where its dot would be is " +
       "a seat held now (refused, full or held by host); a mark with a cross is a seat the host has disabled. " +
       "\u21bb marks an early reset.";
   }
@@ -5186,7 +5279,7 @@ time[data-ts] { cursor: help; }
 
     var sec = def(dl, "stretches, refusals and resets");
     sec.appendChild(document.createTextNode(sectionsText(PACE_IDLE_MS / 3600000 + " hours") +
-      " Reset marks and refused stretches take keyboard focus."));
+      " Reset marks and refused or full stretches take keyboard focus."));
 
     var q = def(dl, "cost and ranking");
     /* The sum the formula line states, in words: one clause per term the
@@ -5556,7 +5649,7 @@ time[data-ts] { cursor: help; }
       "is not a number. When a pick went elsewhere for no reason the 7-day views show, look here."));
     var sec = def(dl, "stretches, refusals and resets");
     sec.appendChild(document.createTextNode(sectionsText(SESSION_IDLE_MS / 60000 + " minutes") +
-      " Usage stretches, reset marks and refused stretches take keyboard focus."));
+      " Usage stretches, reset marks and refused or full stretches take keyboard focus."));
     var q = def(dl, "which conversation used it");
     q.appendChild(document.createTextNode("Use is counted per seat, not per conversation, so no line belongs to " +
       "one conversation. A steep stretch with one conversation on it is that conversation; with several, any of " +
@@ -6010,6 +6103,31 @@ time[data-ts] { cursor: help; }
     return out;
   }
 
+  /* A seat's locks as Stacked strikes them, as merged [from, to] pairs:
+     the locks that settle merged first, each then from where it settles on
+     the line of the window it starts in, and those marked keepStart from
+     their own start. drawn is lockSpans' drawn; wins the seat's windows,
+     each with start, end, samples and endU. */
+  function stackLocks(drawn, wins) {
+    var clip = function (sp) { return [sp.t0, sp.t1]; };
+    var kept = function (sp) { return sp.keepStart; };
+    var settled = mergeSpans(drawn.filter(function (sp) { return !kept(sp); }).map(clip)).map(function (sp) {
+      var w = wins.filter(function (win) { return win.start <= sp[0] && sp[0] < win.end; })[0];
+      return w ? [settledStart(sp[0], sp[1], w.samples, w.end, w.endU), sp[1]] : sp;
+    });
+    return mergeSpans(settled.concat(drawn.filter(kept).map(clip)));
+  }
+
+  /* The stretches a seat is off the roster for the 7d Standard spans in
+     spans, as merged [from, to] pairs, each to where it ended or, while
+     ongoing, the reset it expects. An ongoing full stretch runs past now
+     only while fullNow, the snapshot's reading the scheduler goes by, says
+     the window is full. */
+  function rosterOff(spans, fullNow, now) {
+    return mergeSpans(spans.filter(function (sp) { return sp.kind === "seven_day"; })
+      .map(function (sp) { return [sp.from, sp.full && !sp.ended && !fullNow ? now : sp.to]; }));
+  }
+
   /* Where two merged span lists overlap, merged. */
   function intersectSpans(p, q) {
     var out = [], i = 0, j = 0;
@@ -6026,8 +6144,8 @@ time[data-ts] { cursor: help; }
     return spans.reduce(function (n, sp) { return n + Math.max(0, Math.min(sp[1], t1) - Math.max(sp[0], t0)); }, 0);
   }
 
-  /* The stretches from t0 to now or t1, whichever is first, in which the
-     provider refused every seat in the pool on the view's window or one
+  /* The stretches from t0 to now or t1, whichever is first, in which every
+     seat in the pool was refused or full on the view's window or one
      bearing on it, as merged [from, to] spans: a seat is in the pool from
      its first reading of the window on record, and no stretch before start,
      the first seat's, counts. */
@@ -6220,14 +6338,15 @@ time[data-ts] { cursor: help; }
     data.forEach(function (sd) { if (sd.wins.length) tMin = Math.min(tMin, sd.wins[0].samples[0].t); });
     tMin = Math.floor(tMin / H_HOUR) * H_HOUR;
     /* On any window but 7d Standard, a seat the provider refuses on 7d
-       Standard, which gates every request, cannot spend this window: it is
-       off the roster, from the refusal to the weekly reset it expects.
-       offOf lists each seat's stretches off, merged. */
+       Standard, which gates every request, or whose 7d Standard reads full,
+       cannot spend this window: it is off the roster from the refusal or
+       the full reading (rosterOff). offOf lists each seat's stretches off,
+       merged. */
     var offOf = data.map(function (sd) {
       if (view.kind === "seven_day") return [];
       var ls = lockSpans(sd.a, { kind: "seven_day", scope: "" }, 0, Infinity, now);
-      return mergeSpans(ls.drawn.concat(ls.live).filter(function (sp) { return sp.kind === "seven_day"; })
-        .map(function (sp) { return [sp.from, sp.to]; }));
+      var w7 = windowOf(sd.a, "seven_day", "");
+      return rosterOff(ls.drawn.concat(ls.live), !!w7 && num(w7.utilization) && w7.utilization >= 1, now);
     });
     var offAt = function (i, t) { return offOf[i].some(function (sp) { return t >= sp[0] && t < sp[1]; }); };
     /* The windows the pool holds at t: one per seat on record by then and
@@ -6362,8 +6481,8 @@ time[data-ts] { cursor: help; }
        every rise counted once and summed across resets, with "~" where an
        estimate is in it; then, on a weekly window, the resets in the range
        and what they left unused, or on the 5-hour one how often it reached
-       full; and how long the provider refused it there, on this window
-       or any other that bears on it, from each refusal's own start. */
+       full; and how long it was refused or full there, on this window or
+       any other that bears on it, from each stretch's own start. */
     function rangeRow(sd, t0, t1) {
       var used = 0, est = false, hits = 0, resets = 0, lost = 0, lostKnown = true;
       sd.rises.forEach(function (r) {
@@ -6390,7 +6509,7 @@ time[data-ts] { cursor: help; }
       } else {
         lines.push({ t: hits ? "full " + hits + "\u00D7" : "never full" });
       }
-      if (refused >= 60000) lines.push({ t: "refused for " + durText(Math.round(refused / 1000)) });
+      if (refused >= 60000) lines.push({ t: "refused or full for " + durText(Math.round(refused / 1000)) });
       return { a: sd.a, figure: (est ? "~" : "") + pct(used, 0), meter: null, lines: lines,
         sum: { used: used, est: est, hits: hits, resets: resets, lost: lost, lostKnown: lostKnown } };
     }
@@ -6398,7 +6517,7 @@ time[data-ts] { cursor: help; }
     /* The rows' figures summed over every seat: the budget used in the range,
        in seats' windows, and the resets and what they left unused, or the
        times at full; against them, what the pool renews over the range, and
-       how long the provider refused every seat at once. */
+       how long every seat was refused or full at once. */
     function rangeTotal(rows, t0, t1) {
       var t = { used: 0, est: false, hits: 0, resets: 0, lost: 0, lostKnown: true };
       rows.forEach(function (r) {
@@ -6423,7 +6542,7 @@ time[data-ts] { cursor: help; }
         lines.push({ t: t.hits ? "full " + t.hits + "\u00D7" : "never full" });
       }
       var none = spanTime(pool, t0, t1);
-      if (none >= 60000) lines.push({ t: "every seat refused for " + durText(Math.round(none / 1000)), tone: "critical" });
+      if (none >= 60000) lines.push({ t: "every seat refused or full for " + durText(Math.round(none / 1000)), tone: "critical" });
       return { label: "All seats", figure: (t.est ? "~" : "") + pct(t.used, 0), lines: lines };
     }
 
@@ -6434,18 +6553,13 @@ time[data-ts] { cursor: help; }
        Pointing anywhere in the plot shows the stack at that instant, and a
        seat's band lifts that seat. */
     function drawStack(root, layer, X, Y, t0, t1, m, pw, ph) {
-      /* Each seat's refusals, merged, bottom first, each from where it
-         settles on the seat's line and at least two stripe periods wide
-         about its middle, so a brief one reads as a stroke rather than a
-         seam; their ends are breakpoints of the stack so the stripes cover
-         exactly that stretch. */
+      /* Each seat's stackLocks, bottom first, each at least two stripe
+         periods wide about its middle, so a brief one reads as a stroke
+         rather than a seam; their ends are breakpoints of the stack so the
+         stripes cover exactly that stretch. */
       var minT = 2 * HS_HATCH_P * (t1 - t0) / pw;
       var refused = order.map(function (i) {
-        var wins = data[i].wins;
-        return mergeSpans(refusedSpans(data[i].a, view, t0, t1, now).map(function (sp) {
-          var w = wins.filter(function (win) { return win.start <= sp[0] && sp[0] < win.end; })[0];
-          return w ? [settledStart(sp[0], sp[1], w.samples, w.end, w.endU), sp[1]] : sp;
-        }).filter(function (sp) { return sp[1] > sp[0]; }).map(function (sp) {
+        return mergeSpans(stackLocks(lockSpans(data[i].a, view, t0, t1, now).drawn, data[i].wins).map(function (sp) {
           if (sp[1] - sp[0] >= minT) return sp;
           var mid = (sp[0] + sp[1]) / 2;
           return [Math.max(t0, mid - minT / 2), Math.min(t1, mid + minT / 2)];
@@ -6458,7 +6572,7 @@ time[data-ts] { cursor: help; }
       var g = svg("g", {}, layer);
       svg("rect", { "class": "hs-hit", x: m.l, y: m.t, width: pw, height: ph }, g);
       /* Three layers: every band's fill, then stripes in the card's colour
-         struck through a band while the provider refused its seat, its own
+         struck through a band while its seat was refused or full, its own
          colour showing between them, then every band's edge over both. */
       var gFill = svg("g", {}, g), gShade = svg("g", {}, g), gEdge = svg("g", {}, g);
       order.forEach(function (i, k) {
@@ -6625,7 +6739,7 @@ time[data-ts] { cursor: help; }
       if (share < BAL_LOW) fig.setAttribute("data-tone", share < BAL_LOW / 2 ? "critical" : "serious");
       bal.appendChild(h("span", "bal-of", "of " + pct(size, 0) + " used"));
       bal.appendChild(h("span", "bal-left", pct(left, 0) + " left"));
-      if (off) fam.appendChild(h("p", "bal-off", off + (off === 1 ? " seat" : " seats") + " off, refused on " + WEEKLY_SHORT));
+      if (off) fam.appendChild(h("p", "bal-off", off + (off === 1 ? " seat" : " seats") + " off, refused or full on " + WEEKLY_SHORT));
       if (!schedule.length) {
         fam.appendChild(h("p", "bal-none", spent > 0.005 ? "no reset ahead on record" : "nothing spent"));
         list.scrollTop = top;
@@ -6665,7 +6779,7 @@ time[data-ts] { cursor: help; }
         if (!out) spent += u;
         var due = future && u > 0 && sd.resets && sd.resets.getTime() > t ? sd.resets.getTime() : null;
         rows.push({ col: sd.col, name: seatLabel(sd.a), on: sd.a.auth_id === on, value: out ? "off" : pct(u, 0),
-          note: out ? "refused on " + WEEKLY_SHORT : due ? "↻ " + spanClock(due, now) : "", tone: out ? "critical" : "" });
+          note: out ? "refused or full on " + WEEKLY_SHORT : due ? "↻ " + spanClock(due, now) : "", tone: out ? "critical" : "" });
       });
       var lines = [];
       if (future) {
@@ -7075,9 +7189,9 @@ time[data-ts] { cursor: help; }
   }
 
   /* What the seats in uses did on view's window from t0 to t1, up to now:
-     each seat's use and how long the provider refused it, the pool's use,
+     each seat's use and how long it was refused or full, the pool's use,
      what the pool renews there in full and so far, and how long no seat
-     could take a request, from pool, poolRefusals' spans. A bucket opening
+     could take a new conversation, from pool, poolRefusals' spans. A bucket opening
      before start, the first reading on record, is partial. */
   function bucketTally(uses, view, pool, start, t0, t1, now) {
     var t = {
@@ -7102,8 +7216,8 @@ time[data-ts] { cursor: help; }
 
   /* A bracket's tooltip: the day or week it covers, the pool's use against
      what it renewed, and for the current bucket what it renews in full,
-     each seat's use and refused time, top of the stack first, and how long
-     no seat could take a request. */
+     each seat's use and time refused or full, top of the stack first, and
+     how long no seat could take a new conversation. */
   function barTip(b, view, unit, now) {
     var live = b.t1 > now;
     var when = unit === "week"
@@ -7111,7 +7225,7 @@ time[data-ts] { cursor: help; }
         new Date(b.t1 - H_DAY).toLocaleDateString(undefined, { month: "short", day: "numeric" })
       : new Date(b.t0).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     var lines = [];
-    if (b.none >= 60000) lines.push({ t: "every seat refused", alert: durText(Math.round(b.none / 1000)) });
+    if (b.none >= 60000) lines.push({ t: "every seat refused or full", alert: durText(Math.round(b.none / 1000)) });
     return {
       seat: "All seats", win: view.label, type: "usage", label: unit, when: when,
       dur: live ? "so far" : b.partial ? "since the first reading" : "",
@@ -7120,7 +7234,7 @@ time[data-ts] { cursor: help; }
       rows: b.seats.filter(function (s) { return s.used > 0 || s.refused >= 60000; }).map(function (s) {
         return {
           col: s.u.col, name: seatLabel(s.u.a),
-          note: s.refused >= 60000 ? "refused " + durText(Math.round(s.refused / 1000)) : "", tone: s.refused >= 60000 ? "critical" : "",
+          note: s.refused >= 60000 ? "refused or full " + durText(Math.round(s.refused / 1000)) : "", tone: s.refused >= 60000 ? "critical" : "",
           value: (s.est ? "~" : "") + pct(s.used, 0)
         };
       }),

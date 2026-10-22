@@ -37,26 +37,29 @@ still offers it for other models, and its tooltip names the host status.
   ranking order, each with where it is headed at its last 24 hours' rate; the
   5-hour view shows where each seat stands against the limit that can make it
   ineligible. Pointing at a seat shows its gap to the target where the window
-  is paced. A stretch in which the provider refused the seat is a hatched
-  sleeve in the seat's colour around its line, under every seat still taking
-  work. A seat held now (refused, full or held by host) has a pause in place
-  of its mark's dot, and one the host has disabled a cross.
+  is paced. A stretch in which the provider refused the seat, or a window
+  bearing on the line read full, is a hatched sleeve in the seat's colour
+  around its line, under every seat still taking work: a full seat takes no
+  new conversation, so the provider may never be asked to refuse it. A seat
+  held now (refused, full or held by host) has a pause in place of its mark's
+  dot, and one the host has disabled a cross.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per
-  seat able to spend it, strikes through each seat's refused stretches, and
-  runs past now to show what comes back at each reset if no more is used.
-  Lines draws each seat's use, with each refusal sleeved as on Current window
-  and what ended it, and its side list totals the pool's use in seats' worth a
-  week. Both shade the stretches in which every seat was refused at once, and
-  mark each reset with ↻. On a weekly window, brackets over the plot give the
-  pool's use per local day, or per week from Monday once days are too narrow
-  to label, and each bracket's tooltip sets that against what the pool renews
-  and splits it by seat. If every seat is on the same plan, these figures
-  show whether the pool has enough seats, though use understates demand
-  while every seat is refused.
+  seat able to spend it, strikes through each seat's refused or full
+  stretches, and runs past now to show what comes back at each reset if no
+  more is used. Lines draws each seat's use, with each refused or full stretch
+  sleeved as on Current window and what ended it, and its side list totals the
+  pool's use in seats' worth a week. Both shade the stretches in which every
+  seat was refused or full at once, and mark each reset with ↻. On a weekly
+  window, brackets over the plot give the pool's use per local day, or per
+  week from Monday once days are too narrow to label, and each bracket's
+  tooltip sets that against what the pool renews and splits it by seat. If
+  every seat is on the same plan, these figures show whether the pool has
+  enough seats, though use understates demand while every seat is refused or
+  full.
 
-  <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
+  <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, each band hatched where its seat was full, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
 
   <img src="over-time-lines.png" width="900" alt="The same chart in its Lines form: each seat's use of 7d Standard against its target over two weeks, with day brackets above and a side list giving the pool's total use, what it renewed and its seats' worth a week, then each seat's total.">
 
