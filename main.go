@@ -198,7 +198,7 @@ func cliproxyPluginShutdown() {
 	// The runtime is joined first, so the callbacks it still has outstanding
 	// finish while the host's callback table is valid. The pointer is dropped
 	// after: a callback that outlived the join then fails instead of touching
-	// the struct the host frees as soon as this returns.
+	// the struct the host may free once this returns.
 	plugin.Shutdown()
 	C.store_host_api(nil)
 }

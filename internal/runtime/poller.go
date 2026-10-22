@@ -205,16 +205,18 @@ func (p *Plugin) stopPoller() {
 }
 
 // Shutdown stops the poll loop and then drains the host calls it left
-// outstanding. It is idempotent.
+// outstanding. It is idempotent. Only the unload reaches it, and by then the
+// host has waited for every in-flight plugin call to return
+// (internal/pluginhost/client_guard.go:112-122), so nothing can start another
+// callback beside it.
 //
-// The drain is what makes the unload safe: the host frees its callback table
-// and dlcloses this library as soon as cliproxy_plugin_shutdown returns, so a
-// goroutine still parked in a host call would resume in unmapped memory. Only
-// the unload reaches it, and by then the host has waited for every in-flight
-// plugin call to return (internal/pluginhost/client_guard.go:112-122), so
-// nothing can start another callback beside it. plugin.quiesce precedes a
-// replacement rather than an unload, and runs while the host is still counting
-// its own call, so it only stops the loop.
+// An unloaded library can stay mapped until the process exits, so the stopped
+// loop is what keeps a detached plugin from polling on. The drain keeps the
+// unload safe for every host call that ends within it, against the hazard
+// named on the host type.
+//
+// plugin.quiesce precedes a replacement rather than an unload, and runs while
+// the host is still counting its own call, so it only stops the loop.
 func (p *Plugin) Shutdown() {
 	p.stopPoller()
 	p.host.drain(hostDrainTimeout)

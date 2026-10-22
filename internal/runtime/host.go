@@ -19,10 +19,9 @@ type HostFunc func(method string, payload []byte) ([]byte, error)
 //
 // A host callback is synchronous and takes no context, so a callback that has
 // to respect a deadline runs on its own goroutine and is abandoned when the
-// deadline passes. tracker counts the abandoned goroutines, because the host
-// frees its callback table and dlcloses this library as soon as
-// cliproxy_plugin_shutdown returns: a goroutine that wakes after that runs
-// plugin code in unmapped memory.
+// deadline passes. tracker counts the abandoned goroutines, because a callback
+// still in flight when cliproxy_plugin_shutdown returns can touch memory the
+// host then frees or unmaps.
 type host struct {
 	call    HostFunc
 	tracker *callTracker

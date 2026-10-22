@@ -14,8 +14,9 @@ import (
 // Every method is safe for concurrent use, because the pick path runs with no
 // serialization from the host. There is no background goroutine: expiry is
 // driven by the caller through Sweep, and by Lookup dropping the entry it
-// happens to touch. A goroutine here would outlive nothing the host can
-// cancel and would block dlclose.
+// happens to touch. A goroutine here would answer to nothing the host can
+// cancel and would run on after the plugin's shutdown, in unmapped code on a
+// host that unmaps the library.
 //
 // A binding is scoped per provider and model as well as per conversation,
 // because a model can be served by a different credential set than its

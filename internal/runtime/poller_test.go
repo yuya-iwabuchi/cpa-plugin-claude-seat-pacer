@@ -291,8 +291,7 @@ func TestShutdownWaitsForAnAbandonedHostCall(t *testing.T) {
 	}
 
 	// The call is still parked in the host, so the drain does not return until
-	// it does: after this point the host frees its callback table and unloads
-	// the library.
+	// it does: after this point the host may unmap the library.
 	drained := make(chan struct{})
 	go func() {
 		hst.drain(2 * time.Second)

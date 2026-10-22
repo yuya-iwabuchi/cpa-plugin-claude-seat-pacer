@@ -2,7 +2,7 @@
 
 Host line references are to CLIProxyAPI v7.2.149 source (tag `v7.2.149`, commit
 `2a6b87ac`) unless they name another version. The host-driven tests pass
-against v7.3.10, v7.3.15, v8.0.4, v8.0.13, v8.0.15 and v8.0.20. The
+against v7.3.10, v7.3.15, v8.0.4, v8.0.13, v8.0.15, v8.0.20 and v8.0.35. The
 deployment target is 7.2.145+, a lower bound nothing in this repository
 tests.
 
@@ -51,9 +51,20 @@ the run. Do not remove that test.
 ## Host invariants that constrain the code
 
 - **`scheduler.pick` has no timeout.** Context cancellation does not unwind the
-  plugin, so a blocking call there parks a goroutine permanently and blocks
-  `dlclose`. The pick reads in-memory state only; all fetching happens on a
-  background goroutine.
+  plugin, so a blocking call there parks a goroutine permanently and holds
+  off the plugin's unload, which waits for every call in flight. The pick
+  reads in-memory state only; all fetching happens on a background goroutine.
+- **Only a macOS host before 8.0.31 unmaps a plugin library.** Host 8.0.31+
+  loads each one from a content-addressed copy and, on unload, only detaches
+  it: the image and its globals stay resident until the host restarts, and
+  loading the same bytes under the same plugin id again reuses them. Earlier
+  Windows hosts never release a loaded DLL on unload either, and Go links a
+  Linux library with `-z nodelete`, so `dlclose` leaves it mapped. `Shutdown`
+  therefore stops the poll loop. A host before 8.0.31 also frees its callback
+  table once `cliproxy_plugin_shutdown` returns, and on macOS unmaps the
+  library, so before it returns `Shutdown` waits a bounded time for
+  outstanding host calls; one the host holds past the wait can still outlive
+  it.
 - **An escaped panic terminates the proxy.** `recover()` does not cross the C
   boundary, and the host's guard runs in its own Go runtime. Every exported
   entry point in `main.go` recovers, `runtime.Plugin.Call` recovers again, and
@@ -236,4 +247,5 @@ management route behind the key.
    plugin registry's Validate workflow (`workflow_dispatch`) to confirm the
    release installs on every platform. Plugin Store installs offer the update
    within about an hour; the operator applies it with Update, and the new file
-   loads without a host restart.
+   loads without a host restart; a macOS host older than 8.0.31 then needs
+   one, as `docs/install.md` says.

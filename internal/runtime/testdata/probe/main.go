@@ -177,7 +177,7 @@ func cliproxyPluginFree(ptr unsafe.Pointer, _ C.size_t) {
 
 //export cliproxyPluginShutdown
 func cliproxyPluginShutdown() {
-	// The host frees the host_api struct after shutdown, so leaving the
+	// The host may free the host_api struct after shutdown, so leaving the
 	// pointer in place would make any later callback a use-after-free.
 	C.store_host_api(nil)
 }
@@ -468,8 +468,9 @@ func handlePick(payload []byte) ([]byte, error) {
 	record(entry)
 	// Blocking on a host callback inside the pick is an anti-pattern the real
 	// plugin must not copy: scheduler.pick has no timeout, so a stalled call
-	// here parks a goroutine for the process lifetime and blocks dlclose. The
-	// probe accepts that to get a second, host-side record of the round trip.
+	// here parks a goroutine for the process lifetime and holds off the
+	// unload. The probe accepts that to get a second, host-side record of the
+	// round trip.
 	hostLog("probe scheduler_pick", entry)
 	// Handled:false is the only answer that cannot alter routing.
 	return okEnvelope(runtime.SchedulerPickResponse{Handled: false})

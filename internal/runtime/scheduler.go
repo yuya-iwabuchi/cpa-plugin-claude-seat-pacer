@@ -90,7 +90,7 @@ func (in pickInput) refused(authID string) bool {
 
 // pick is the routing decision. It performs in-memory reads only: the host
 // gives it no timeout, so any blocking call here would park a goroutine for
-// good and block dlclose.
+// good and hold off the host's unload, which waits for every call in flight.
 //
 // Rules, in order:
 //

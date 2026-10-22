@@ -1,8 +1,8 @@
 # Install
 
 The host must be CLIProxyAPI 7.2.145 or newer; the plugin is tested against
-7.3.10, 7.3.15, 8.0.4, 8.0.13, 8.0.15 and 8.0.20. Ending a cooldown that an
-early quota reset made stale needs 8.0.12 or newer.
+7.3.10, 7.3.15, 8.0.4, 8.0.13, 8.0.15, 8.0.20 and 8.0.35. Ending a cooldown
+that an early quota reset made stale needs 8.0.12 or newer.
 
 ## From the Plugin Store
 
@@ -61,5 +61,10 @@ restart the host (`brew services restart cliproxyapi` on Homebrew).
 
 Uninstall by deleting the plugin in the Management Center. A new version
 starts with no conversation bindings, costing each open conversation one
-prompt-cache miss. On macOS, restart the host after uninstalling: an unloaded
-Go library can leave a thread running in the host.
+prompt-cache miss. CLIProxyAPI 8.0.31 and later keep each version of the
+plugin they have loaded, an uninstalled or replaced one included, in memory
+until the host restarts; a version no longer in use does no work there. On a
+macOS host older than 8.0.31, restart the host after updating, disabling or
+uninstalling the plugin: the Go library it unloads leaves its signal handler
+behind, and a Go plugin loaded beside it, the plugin's own new version
+included, can then hold a CPU core at 100% until the restart.
