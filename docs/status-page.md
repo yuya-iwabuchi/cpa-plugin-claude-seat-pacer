@@ -78,6 +78,51 @@ A warning banner names anything that leaves the plugin inert or degraded, such
 as a seat alone on the top priority tier, a seat not read yet, a failing
 usage poll, or a seat the host keeps cooled after its quota came back.
 
+The banner leads with a card for each seat whose Claude login needs you:
+
+- **login expired**: the host can no longer renew the seat's token, so it
+  serves nothing, and its conversations have moved to other seats.
+- **login expired** also covers a seat whose tokens Anthropic revoked, which
+  the host stops using at once.
+- **login failing**: the seat's token has stayed inside the host's renewal
+  window for at least 10 minutes while some usage read still reaches
+  Anthropic. The seat serves until its token runs out, at most 4 hours, and
+  the card counts the conversations that would move then.
+- **login ends soon**: a login the plugin saw made is about 27 days old.
+  Logins last about 30 days by observation; Anthropic publishes no figure.
+
+When no usage read reaches Anthropic, as during a VPN or network outage, an
+overdue renewal is no login's fault: the banner says so in one line instead of
+a card, with the first seat that stops if the outage lasts, and nothing needs
+a new login.
+
+Each card's **Log in** button opens Claude's sign-in in a new tab through the
+host's own OAuth routes. Sign in with the seat's own account and choose the
+seat's team when Claude asks for an organization: the login replaces the
+seat's file and keeps its priority and note. Another team's login replaces
+that team's seat or adds a new one, and a login under another account of the
+same team renews that account's seat or adds a seat of its own; the card says
+which happened. From a browser on another machine, where Claude's redirect to
+the host's `localhost` callback cannot load, paste the address the tab lands
+on into the card.
+`cliproxyapi -config <the host's config> -claude-login` on the host does the
+same as the button.
+
+The plugin knows a login was made when the device id the host keeps in the
+seat's file changes: the host gives every login a new one and keeps it through
+renewals. A file from a login before host 7.2.116 holds no device id until the
+host's next request with it adds one, and until then the plugin falls back on
+timing: a login is a change to the file that a scheduled renewal cannot
+explain, well before the renewal is due or after renewals had been failing.
+There a login close to its renewal looks like a renewal, so the card reports
+the sign-in without a date and gets no **login ends soon** card, and a renewal
+the host forces early looks like a login. A device id that changed while the
+plugin was not running marks a login it cannot date, and a dated login still
+renewing past its expected end drops the date. On host 8.0+, should a seat
+renew after the host refused its refresh token without its device id
+changing, the host log gets a warning: the host may have stopped giving each
+login a new device id, and the plugin then misses logins.
+
 The page names a window by its length and the requests it gates. `5h Standard`
 and `7d Standard` are the 5-hour and all-models weekly windows, which apply to
 every request; `7d Fable` is a model family's weekly window, which applies to

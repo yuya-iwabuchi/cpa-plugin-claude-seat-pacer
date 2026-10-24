@@ -655,6 +655,13 @@ func TestSeatIdentityIsReduced(t *testing.T) {
 	st.Auths[0].Email = "quota.bot@acme-corp.example"
 	st.Auths[0].Name = "claude-quota.bot@acme-corp.example-primary.json"
 	st.Auths[0].Snapshot.Label = "quota.bot@acme-corp.example"
+	login := &model.Login{State: model.LoginOK, Team: "quota.bot@acme-corp.example's Organization"}
+	st.Auths[0].Login = login
+	// Another personal account whose address masks the same way.
+	other := st.Auths[0]
+	other.AuthID, other.Name, other.Label, other.Email = "claude-other.json", "claude-other.json", "other", ""
+	other.Login = &model.Login{State: model.LoginOK, Team: "quiet.one@acme-corp.example's Organization"}
+	st.Auths = append(st.Auths, other)
 
 	rec := get(t, testHandler(&stubSource{status: st}), "/api/status")
 	if body := rec.Body.String(); strings.Contains(body, "quota.bot") {
@@ -673,6 +680,18 @@ func TestSeatIdentityIsReduced(t *testing.T) {
 	}
 	if a.Email != "q…@acme-corp.example" {
 		t.Errorf("email = %q, want it masked", a.Email)
+	}
+	if a.Login == nil || a.Login.Team != "q…@acme-corp.example's Organization" {
+		t.Errorf("login = %+v, want the team's address masked", a.Login)
+	}
+	if b := got.Auths[1].Login; b == nil || b.Team != a.Login.Team || b.TeamID == "" || b.TeamID == a.Login.TeamID {
+		t.Errorf("two teams masked alike = %+v and %+v, want distinct team ids", a.Login, b)
+	}
+	if strings.Contains(a.Login.TeamID, "quota") {
+		t.Errorf("team id = %q, want a digest", a.Login.TeamID)
+	}
+	if login.Team != "quota.bot@acme-corp.example's Organization" {
+		t.Errorf("the source's login was rewritten in place: %q", login.Team)
 	}
 }
 

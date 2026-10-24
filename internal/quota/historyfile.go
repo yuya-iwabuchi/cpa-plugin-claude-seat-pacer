@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -40,8 +41,9 @@ func (e *CorruptHistoryError) Unwrap() error { return e.Err }
 // historyFile is the on-disk form of every credential's recorded utilization.
 // It carries credential ids, which are file names or account addresses,
 // utilization fractions, the spans in which the provider refused each window
-// with what ended each, and each credential's last reading: nothing else, and
-// no token.
+// with what ended each, each credential's last reading, and when the plugin
+// saw each credential's current login made with a digest of its device id:
+// nothing else, and no token.
 type historyFile struct {
 	Version int `json:"version"`
 	// Auths is keyed by credential id. The JSON key is "seats", the name the
@@ -50,6 +52,12 @@ type historyFile struct {
 	// Readings is each credential's last reading, keyed by credential id. A
 	// build that does not know the key ignores it.
 	Readings map[string]savedReading `json:"readings,omitempty"`
+	// Logins is when the plugin saw each credential's current login made,
+	// keyed by credential id. A build that does not know the key ignores it.
+	Logins map[string]time.Time `json:"logins,omitempty"`
+	// LoginDevices is the digest of the device id each of those logins left
+	// in its file, keyed by credential id.
+	LoginDevices map[string]string `json:"login_devices,omitempty"`
 }
 
 // savedReading is a credential's last reading as the history file holds it.
@@ -117,8 +125,32 @@ func (s *Store) importReadings(saved map[string]savedReading, now time.Time) {
 	}
 }
 
-// SaveHistory writes the store's whole history as of now, and every
-// credential's last reading, to path, by writing and syncing a temporary file
+// exportLogins copies every recorded login instant and device digest.
+func (s *Store) exportLogins() (map[string]time.Time, map[string]string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.logins), maps.Clone(s.loginDevices)
+}
+
+// importLogins takes saved login instants, each with its device digest, for
+// credentials this run has seen no login made on. An instant after now was
+// stamped under a clock since set back, and is dropped.
+func (s *Store) importLogins(saved map[string]time.Time, devices map[string]string, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, at := range saved {
+		if _, live := s.logins[id]; live || id == "" || at.IsZero() || at.After(now) {
+			continue
+		}
+		s.logins[id] = at
+		if device := devices[id]; device != "" {
+			s.loginDevices[id] = device
+		}
+	}
+}
+
+// SaveHistory writes the store's whole history as of now, every credential's
+// last reading and every login instant to path, by writing and syncing a temporary file
 // of its own in the same directory and renaming it into place, so a reader
 // never sees a partial file and two writers never share a temporary one. The
 // directory is created as needed.
@@ -127,7 +159,8 @@ func (s *Store) SaveHistory(path string, now time.Time) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now), Readings: s.exportReadings()})
+	logins, devices := s.exportLogins()
+	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now), Readings: s.exportReadings(), Logins: logins, LoginDevices: devices})
 	if err != nil {
 		return err
 	}
@@ -171,6 +204,7 @@ func (s *Store) LoadHistory(path string, now time.Time) error {
 	case parseErr == nil && f.Version == historyFileVersion:
 		s.ImportHistory(f.Auths, now)
 		s.importReadings(f.Readings, now)
+		s.importLogins(f.Logins, f.LoginDevices, now)
 		return nil
 	case parseErr == nil && f.Version > historyFileVersion:
 		return ErrHistoryVersion

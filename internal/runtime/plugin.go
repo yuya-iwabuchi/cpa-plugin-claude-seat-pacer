@@ -67,8 +67,10 @@ type Plugin struct {
 	cache       map[string]model.CacheStats
 	auths       []HostAuthFileEntry
 	polls       map[string]pollState
-	listErr     string
-	fetchErr    string
+	// logins is each Claude seat's login as the polls saw it.
+	logins   map[string]loginTrack
+	listErr  string
+	fetchErr string
 	// configWarnings are the warnings decodeConfig raised over the live
 	// config.
 	configWarnings []string
@@ -138,6 +140,7 @@ func New(opts Options) *Plugin {
 		quota:            quota.NewStore(),
 		cache:            make(map[string]model.CacheStats),
 		polls:            make(map[string]pollState),
+		logins:           make(map[string]loginTrack),
 		singleCandidates: make(map[string]int),
 		singleLogged:     make(map[string]bool),
 		holdResets:       make(map[string]staleHold),

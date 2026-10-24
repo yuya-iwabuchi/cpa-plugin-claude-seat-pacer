@@ -133,6 +133,38 @@ the run. Do not remove that test.
   it. The host bans a client address, loopback included, for 30 minutes after
   five failed key checks, a request with no key among them, so the page never
   sends a request without a key and stops at the first refusal.
+- **The Log in button drives the host's own Claude sign-in.** The page calls
+  `anthropic-auth-url`, `get-auth-status`, `oauth-callback` and
+  `oauth-session` under the host's `/v0/management/` with the key it already
+  holds, and the plugin proxies none of them. Those routes answer unescaped
+  whatever schema the plugin declares, and sign-ins share one callback port.
+  The host saves a login under a file name it derives from the account and the
+  organization (7.2.158+; the email alone before), replacing that file and
+  moving an older-named one to the new name, so a login under another
+  account, or onto a renamed file, lands as a seat of its own.
+- **A seat's login is read from its file, never from its token.**
+  `readLogin` decodes only `expired`, `last_refresh`, `organization_name` and
+  `claude_device_ids`, and keeps a digest of the device id, never the id. The
+  host keeps no login time, so the plugin dates logins by host behaviour no
+  contract states, read from v8.0.41 source:
+  - every login writes a new device id (`ExchangeCodeForTokens` in
+    `internal/auth/claude/anthropic_auth.go` calls `GenerateDeviceIDPool`,
+    7.2.116+), which `MergeExistingAuthMetadata`
+    (`sdk/cliproxy/auth/metadata_merge.go`) keeps when the login is saved over
+    an existing file;
+  - a renewal keeps the id (`Refresh` in
+    `internal/runtime/executor/claude_executor_auth.go`);
+  - a file with no valid id gets one, without a renewal, on its next request
+    (`ensureDeviceIDPoolLocked` in `internal/auth/claude/identity.go`).
+
+  So a new id is a login, dated by a `last_refresh` that moved forward and
+  undated otherwise. Without an id on both readings the plugin falls back on
+  timing (a renewal well before `model.LoginRefreshLead`, or after renewals
+  failed), which takes a forced renewal for a login and misses one close to a
+  renewal. A refresh token the host lists refused (8.0+) should renew only
+  through a login, so `readLogin` logs a warning when one renews under the
+  same id. When that warning appears, or when adding a host version to the
+  tested list, re-read the functions above and reconsider the signal.
 
 ## Wire format
 
@@ -151,7 +183,7 @@ which is which. Do not "normalise" the tags.
 main.go              cgo boundary, panic guard, method dispatch
 internal/model       domain types + config; imports nothing else here
 internal/httpx       case-insensitive header index; imports nothing else here
-internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history and refusal spans
+internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history, refusal spans and login instants
 internal/pace        the scoring curve and the staleness gates; pure functions over model types
 internal/session     conversation identity extraction + binding store
 internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
@@ -170,12 +202,13 @@ and unit-testable without the host.
 - Never log a token, a refresh token, or a request body.
 - The usage URL receives every seat's token, so `model.Config.Normalize`
   admits only `https://api.anthropic.com` and loopback `http`.
-- The page publishes credential ids and conversation keys as an HMAC under
-  the install key in `page-id.key`, or a random per-process key when that file
-  cannot be used. Never fall back to an unkeyed hash: a credential id is
-  routinely an account address and a conversation key can digest a prompt, and
-  an unkeyed digest lets a screenshot confirm a guess. Emails are masked to
-  their first letter and domain, and an operator's `note` appears as written.
+- The page publishes credential ids, conversation keys and login team ids as
+  an HMAC under the install key in `page-id.key`, or a random per-process key
+  when that file cannot be used. Never fall back to an unkeyed hash: a
+  credential id is routinely an account address and a conversation key can
+  digest a prompt, and an unkeyed digest lets a screenshot confirm a guess.
+  Emails are masked to their first letter and domain, and an operator's `note`
+  appears as written.
 - A comment states a present-tense fact the code cannot show. Change history
   and rationale go in the commit or PR.
 - Config bounds live in `model.Config.Normalize`: give a new setting its range

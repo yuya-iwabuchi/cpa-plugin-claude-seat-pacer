@@ -39,6 +39,10 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	for id, state := range p.polls {
 		polls[id] = state
 	}
+	logins := make(map[string]loginTrack, len(p.logins))
+	for id, track := range p.logins {
+		logins[id] = track
+	}
 	cache := make(map[string]model.CacheStats, len(p.cache))
 	for id, stats := range p.cache {
 		cache[id] = stats
@@ -94,6 +98,7 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 	}
 	sort.Strings(ordered)
 
+	seatLogin := seatLogins(auths, logins, polls, now)
 	rows := make([]model.AuthStatus, 0, len(ordered))
 	for _, id := range ordered {
 		entry, listed := entries[id]
@@ -125,15 +130,21 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 				row.HostHeldUntil = &until
 			}
 			ApplyHostState(&row)
+			row.Login = seatLogin[id]
 		}
 		rows = append(rows, row)
+	}
+	expired := make(map[string]bool)
+	for _, row := range rows {
+		expired[row.AuthID] = row.Login != nil && row.Login.State == model.LoginExpired
 	}
 
 	seats := make(map[string]SeatWarningState, len(ordered))
 	for _, id := range ordered {
 		entry, listed := entries[id]
 		snap, hasSnap := snapshots[id]
-		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap, HasReading: len(snap.Windows) > 0}
+		state := SeatWarningState{Listed: listed, Disabled: listed && entry.Disabled, HasSnapshot: hasSnap, HasReading: len(snap.Windows) > 0,
+			LoginExpired: expired[id]}
 		if poll, ok := polls[id]; ok {
 			state.PollErr, state.PollCategory = poll.err, poll.category
 		}
@@ -277,6 +288,11 @@ type SeatWarningState struct {
 	// Hold is a host cooldown still standing on a credential whose quota the
 	// provider has given back; nil when there is none.
 	Hold *HoldWarning
+	// LoginExpired marks a credential whose login the host can no longer
+	// renew. The usage endpoint refuses its dead token with 401 and then
+	// mostly 429, so its reads say nothing about the endpoint or the pool,
+	// and the status page states the login itself.
+	LoginExpired bool
 }
 
 // HoldWarning describes a stale host cooldown as of the status view's now.
@@ -315,7 +331,7 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 	throttled, kept := false, false
 	for _, row := range rows {
 		if seat := seats[row.AuthID]; seat.Listed && !seat.Disabled {
-			throttled = throttled || seat.PollCategory == string(quota.CategoryRateLimited)
+			throttled = throttled || (seat.PollCategory == string(quota.CategoryRateLimited) && !seat.LoginExpired)
 			kept = kept || seat.HasReading
 		}
 	}
@@ -327,7 +343,7 @@ func Warnings(enabled bool, configWarnings []string, listErr string, singleCandi
 	}
 	for _, row := range rows {
 		seat := seats[row.AuthID]
-		if !seat.Listed || seat.Disabled {
+		if !seat.Listed || seat.Disabled || seat.LoginExpired {
 			continue
 		}
 		// A throttled seat that keeps a reading is covered by ThrottleWarning;

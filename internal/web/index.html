@@ -339,6 +339,47 @@ button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1);
 .banner ul { margin: 0; padding-left: 16px; }
 .banner li { margin: 4px 0; color: var(--ink-1); }
 .banner.err { border-left-color: var(--critical); }
+/* ------------------------------------------------ logins */
+/* The login cards lead the warning banner: one plain plate per seat, its
+   chip carrying the tone as on the seat cards, the banner's edge the worst
+   of them. */
+.banner.serious { border-left-color: var(--serious); }
+.banner.good { border-left-color: var(--good); }
+.la { margin: 2px 0 4px; }
+.la + ul { border-top: 1px solid var(--hairline); padding-top: 10px; margin-top: 6px; }
+.la-pool { margin: 0 0 8px; font-size: 14px; color: var(--ink-1); max-width: 120ch; }
+.la-pool b { font-weight: 600; }
+.la-item {
+  display: grid; grid-template-columns: 200px minmax(0, 1fr) auto; gap: 0 16px; align-items: center;
+  margin: 0 0 4px; padding: 8px 10px 8px 12px; border-radius: 6px; background: var(--surface-2);
+}
+.la-side { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.la-side .seat-mark { font-weight: 600; color: var(--ink-1); }
+.la-main { min-width: 0; }
+.la-l1, .la-l2 { margin: 0; }
+.la-l1 { color: var(--ink-1); }
+.la-l2 { font-size: 13px; color: var(--ink-2); }
+.la-l2 b { font-weight: 600; color: var(--ink-1); }
+.la-item[data-flow] .la-l2 { color: var(--ink-1); }
+.la-item > button, .la-ctl button, .la-paste button { padding: 5px 11px; }
+.la-ctl { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 660px) { .la-ctl { flex-direction: column; align-items: stretch; } }
+.la-paste { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }
+.la-paste .la-link {
+  font: inherit; color: var(--ink-2); background: none; border: 0; padding: 0;
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; white-space: normal;
+}
+.la-paste .la-link:hover { color: var(--ink-1); background: none; }
+.la-paste-h { color: var(--ink-2); }
+.la-paste-in {
+  flex: 1 1 280px; min-width: 200px;
+  font: 500 12.5px/1 var(--mono); color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 6px 10px;
+}
+.la-paste-err { color: var(--neg-text); }
+.la-foot { margin: 8px 0 0; font: 400 12.5px/1.6 var(--sans); color: var(--ink-2); }
+.la-foot b { font-weight: 600; color: var(--ink-1); }
+.la-foot code { font: 500 12px var(--mono); color: var(--ink-1); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 /* The key gate: the page's one form, shown until a management key is entered
    and whenever the host refuses one. */
 .key-gate p { margin: 0; color: var(--ink-1); max-width: 72ch; }
@@ -3027,6 +3068,14 @@ time[data-ts] { cursor: help; }
       : agree ? [{ ok: true, lead: ranked[0].lead, label: ranked[0].text }]
       : ranked.map(function (p) { return { ok: true, lead: p.lead, label: rankLabel(p.fam) + " " + p.text }; });
     if (tierRole(a, ranks) === "fallback") chips.unshift({ ok: true, label: "fallback" });
+    var lg = loginOf(a);
+    if (lg && lg.state === "failing" && lg.access_expires_at) {
+      var stopT = parseT(lg.access_expires_at);
+      chips.push({ ok: false, tone: "warn", key: "login", label: "login stops " + relText(stopT, now), word: "login renewal failing",
+        lift: "stops serving at " + clockAt(stopT, now), win: "", tip: "login renewal failing · stops serving at " + clockAt(stopT, now) });
+    } else if (lg && lg.state === "ageing" && lg.ends_around) {
+      chips.push({ ok: true, label: "login ends ~" + dayAt(parseT(lg.ends_around)) });
+    }
     holds.forEach(function (hc) {
       var some = fams.length > 1 && hc.fams.length < fams.length;
       var label = some && !hc.window ? andList(hc.fams.map(rankLabel)) + " " + hc.label : hc.label;
@@ -3048,7 +3097,7 @@ time[data-ts] { cursor: help; }
       return { label: holdLabel(w), lift: r ? resetText(r, now) : "", window: true, known: true, pause: true };
     });
     var named = out.length && (reason === "spent" || reason === "provider-rejected");
-    var lifts = !!CANNOT_SERVE[reason] && !hostDisabled(a);
+    var lifts = !!CANNOT_SERVE[reason] && !hostDisabled(a) && !loginIs(a, "expired");
     return named ? out : [{ label: v.word, lift: v.lift, window: false, known: !!sc, pause: lifts }].concat(out);
   }
 
@@ -3060,7 +3109,7 @@ time[data-ts] { cursor: help; }
 
   /* A chip's text as it is set: a rank bare, a hold led by its glyph, a
      pause taking the room of two spaces. */
-  function chipText(c) { return (c.ok ? "" : c.pause ? "\u00a0\u00a0" : CROSS_GLYPH + " ") + c.label; }
+  function chipText(c) { return (c.ok ? "" : c.tone === "warn" ? "! " : c.pause ? "\u00a0\u00a0" : CROSS_GLYPH + " ") + c.label; }
 
   /* One chip on a seat's header row: a plate behind a short label, a hold's
      led by its glyph, drawn at the origin so the caller can slide it beside the
@@ -3073,7 +3122,7 @@ time[data-ts] { cursor: help; }
     else if (c.ok) g.setAttribute("data-quiet", "true");
     var t = svgText(g, 7, y, "", "fam-text", { "font-size": 9.5 });
     if (!c.ok) {
-      var gl = svg("tspan", { fill: "var(--critical)" }, t);
+      var gl = svg("tspan", { fill: c.tone === "warn" ? "var(--serious)" : "var(--critical)" }, t);
       gl.textContent = chipText(c).slice(0, 2);
       if (c.pause) pauseGlyph(g, 11.5, y - 3.25, "var(--critical)", 6.5);
     }
@@ -8066,6 +8115,7 @@ time[data-ts] { cursor: help; }
      at full names the windows. */
   function holdWord(a, reason, fam, back, now) {
     if (reason === "not-a-candidate") {
+      if (loginIs(a, "expired")) return "login expired";
       return hostDisabled(a) ? "host disabled" : holdText(reason, back, now);
     }
     var named = reason === "spent" || reason === "provider-rejected";
@@ -8146,13 +8196,573 @@ time[data-ts] { cursor: help; }
       else if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
       else if (seats && overflow) {
-        span.appendChild(tipOnly(h("span", "pick-none pick-wrap", OVERFLOW_TEXT), OVERFLOW_TIP));
+        span.appendChild(tipOnly(h("span", "pick-none pick-wrap",
+          loginFacts(st).all ? "every login expired · using another credential" : OVERFLOW_TEXT), OVERFLOW_TIP));
       } else {
         span.appendChild(h("span", "pick-none pick-wrap",
           seats ? blockedText(st, fam, ranks) : "—"));
       }
       next.appendChild(span);
     });
+  }
+
+  /* ------------------------------------------------ logins */
+
+  function loginOf(a) { return a && a.login || null; }
+  function loginIs(a, s) { var l = loginOf(a); return !!l && l.state === s; }
+  var LOGIN_LEAD_MS = 4 * H_HOUR;
+
+  /* An instant as a clock time, led by its weekday when it is not today. */
+  function clockAt(d, now) {
+    var day = function (t) { var x = new Date(t); x.setHours(0, 0, 0, 0); return x.getTime(); };
+    var off = Math.round((day(d.getTime()) - day(now)) / 86400000);
+    var t = clockText(d.getTime());
+    return off === 0 ? t : off === -1 ? t + " yesterday" : off === 1 ? t + " tomorrow"
+      : d.toLocaleDateString(undefined, { weekday: "short" }) + " " + t;
+  }
+  function dayAt(d) { return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); }
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  /* Conversations the log shows leaving a seat since an instant. */
+  function movedOff(st, a, since) {
+    return (st.decisions || []).filter(function (d) {
+      var at = parseT(d.at);
+      return d.kind === "failover" && d.previous_auth_id === a.auth_id && (!since || (at && at >= since));
+    }).length;
+  }
+
+  function loginFacts(st) {
+    var seats = (st.auths || []).filter(function (a) { return !hostDisabled(a) && loginOf(a); });
+    var by = { expired: [], failing: [], ageing: [], stalled: [], seats: seats };
+    seats.forEach(function (a) { var l = loginOf(a); if (by[l.state]) by[l.state].push(a); });
+    var bare = (st.auths || []).filter(function (a) { return !hostDisabled(a) && !loginOf(a); }).length;
+    by.all = seats.length > 0 && !bare && by.expired.length === seats.length;
+    return by;
+  }
+
+  var LOGIN_HOW_CLI = "cliproxyapi -config <the host's config> -claude-login";
+  var LOGIN_KEEPS = "Signing in with the seat's own account replaces its file and keeps its priority and note.";
+
+  /* A seat's team as the cards name it; a file without one names none. */
+  function teamOf(l) { return l && l.team || "the seat's team"; }
+
+  /* Every login message, most urgent first: what happened, what it costs, the
+     fix. Tones: critical (not serving), serious (stops soon), muted (ends in
+     days), info (no login at fault). */
+  function loginMessages(st) {
+    var f = loginFacts(st), now = nowMs(), out = [];
+    /* A revoked seat stops before its access token runs out. */
+    var stoppedAt = function (a) {
+      var t = parseT(a.login.access_expires_at);
+      return t && t.getTime() <= now ? t : null;
+    };
+    var live = f.seats.length - f.expired.length - f.stalled.filter(stoppedAt).length;
+    if (f.all) {
+      /* A revoked seat's stop is unknown, and so is the pool's. */
+      var last = null, known = true;
+      f.expired.forEach(function (a) { var t = stoppedAt(a); if (!t) known = false; else if (!last || t > last) last = t; });
+      if (!known) last = null;
+      out.push({ tone: "critical", pool: true,
+        head: "Every seat is logged out",
+        what: (last ? "Since " + clockAt(last, now) + " the" : "The") + " host sends all Claude traffic to its next priority tier, usually a pay-per-token API key.",
+        cost: "", fix: "The first seat you log in again takes new conversations." });
+    } else if (f.expired.length) {
+      out.push({ tone: "critical", pool: true,
+        head: f.expired.length + " of " + f.seats.length + " seats are logged out",
+        what: live ? "The other " + live + " carry their traffic and reach their limits sooner." : "", cost: "", fix: "" });
+    }
+    f.expired.forEach(function (a) {
+      var l = a.login, at = stoppedAt(a), moved = at ? movedOff(st, a, at) : 0;
+      out.push({ tone: "critical", seat: a, tag: "login expired", team: teamOf(l),
+        what: at ? "Stopped serving at " + clockAt(at, now) + "." : "Anthropic refused its login, so it serves nothing.",
+        cost: !moved ? "" : plural(moved, "conversation", "conversations") +
+          (f.all ? " moved to another credential." : " moved and rebuilt " + (moved === 1 ? "its cache." : "their caches.")),
+        fix: "Log in again to " + teamOf(l) + "." });
+    });
+    f.failing.forEach(function (a) {
+      var l = a.login, at = parseT(l.access_expires_at), since = new Date(at.getTime() - LOGIN_LEAD_MS);
+      var n = a.bindings || 0;
+      out.push({ tone: "serious", seat: a, tag: "login failing", team: teamOf(l),
+        what: "Login renewal failing since " + clockAt(since, now) + ". Stops serving at " + clockAt(at, now) + ".",
+        cost: n ? plural(n, "conversation moves", "conversations move") + " then." : "",
+        fix: "Log in again to " + teamOf(l) + " before " + clockAt(at, now) + (n ? " to keep " + (n === 1 ? "it" : "them") + " here." : ".") });
+    });
+    f.ageing.forEach(function (a) {
+      var l = a.login, end = parseT(l.ends_around), began = parseT(l.logged_in_at);
+      out.push({ tone: "muted", seat: a, tag: "login ends soon", team: teamOf(l),
+        what: "Logged in " + dayShort(began) + ". Logins last about 30 days, so this one ends around " + dayShort(end) + ".",
+        cost: "",
+        fix: "Log in again to " + teamOf(l) + " any time before then. Nothing moves." });
+    });
+    if (f.stalled.length) {
+      var due = null, first = null, stopped = 0;
+      f.stalled.forEach(function (a) {
+        var t = parseT(a.login.access_expires_at);
+        if (!t) return;
+        var d = new Date(t.getTime() - LOGIN_LEAD_MS);
+        if (!due || d < due) due = d;
+        if (t.getTime() <= now) stopped++;
+        else if (!first || t < first) first = t;
+      });
+      out.push({ tone: "info", pool: true,
+        head: "Login renewals overdue since " + clockAt(due, now),
+        what: "Usage reads fail on every seat too, so the host probably can't reach Anthropic. The logins are fine and renew once it can.",
+        cost: stopped ? plural(stopped, "seat has", "seats have") + " stopped serving until then."
+          : "If it lasts, the first seat stops at " + clockAt(first, now) + ".", fix: "" });
+    }
+    return out;
+  }
+
+  function dayShort(d) { return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+
+  /* A login card's state chip: the seat cards' chip, with the glyph the
+     timeline's chip gives the same state. */
+  var LOGIN_GLYPH = { critical: CROSS_GLYPH, serious: "!", good: "\u2713" };
+  function loginChip(text, tone) { return chip(text, tone, LOGIN_GLYPH[tone]); }
+
+  function warningsBox() {
+    var host = $("warnings");
+    var box = host.querySelector(".banner");
+    if (!box) {
+      box = h("div", "banner");
+      box.appendChild(h("h2", "", ""));
+      host.appendChild(box);
+    }
+    host.hidden = false;
+    return box;
+  }
+
+  /* Text with the team set in bold. */
+  function withTeam(text, team) {
+    var el = h("span", "");
+    var i = team ? text.indexOf(team) : -1;
+    if (i < 0) { el.textContent = text; return el; }
+    el.appendChild(document.createTextNode(text.slice(0, i)));
+    el.appendChild(h("b", "", team));
+    el.appendChild(document.createTextNode(text.slice(i + team.length)));
+    return el;
+  }
+
+
+  /* ------------------------------------------------ the Log in button */
+
+  /* The host's Claude sign-ins share one callback port, and a new one takes it
+     over, so the page runs at most one. LOGIN_API is the host's management mount, or
+     cmd/webdev's simulation of it. The host's own routes answer unescaped,
+     whatever schema the plugin declares. */
+  var LOGIN_API = HOST_MOUNT ? HOST_MOUNT[1] + "/v0/management/" : "api/";
+  var LOGIN_DONE_MS = 20000, LOGIN_CHECK_MS = 90000;
+  var loginRun = null;
+
+  function loginActive() {
+    return !!loginRun && (loginRun.phase === "starting" || loginRun.phase === "waiting" || loginRun.phase === "checking");
+  }
+
+  /* The host counts a request with no key, or a refused one, toward its ban,
+     so a sign-in call waits for an accepted key and a refusal ends the key as
+     a status read's does. */
+  function mgmtCall(method, path, body) {
+    if (awaitingKey()) return Promise.reject(new Error("the page has no management key"));
+    var headers = { "Accept": "application/json" };
+    if (HOST_MOUNT) headers["Authorization"] = "Bearer " + state.key;
+    if (body) headers["Content-Type"] = "application/json";
+    return fetch(LOGIN_API + path, { method: method, headers: headers, cache: "no-store", body: body ? JSON.stringify(body) : undefined })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          var e = new Error((data && data.error) || "HTTP " + res.status);
+          if (HOST_MOUNT && (res.status === 401 || res.status === 403)) {
+            e.status = res.status;
+            refuseKey(e);
+            render();
+          }
+          if (!res.ok) throw e;
+          return data;
+        });
+      });
+  }
+
+  /* Opens the tab inside the click, where no pop-up blocker refuses it, and
+     points it at Claude once the host has the sign-in ready. */
+  function startLogin(m) {
+    if (loginActive()) return;
+    var tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
+    var before = Object.create(null);
+    (state.data.auths || []).forEach(function (a) { var l = loginOf(a); before[a.auth_id] = l && l.logged_in_at || ""; });
+    var run = { seat: m.seat.auth_id, mark: m.seat, team: m.team, teamId: (loginOf(m.seat) || {}).team_id || "",
+      phase: "starting", before: before, startedAt: nowMs(), paste: "", pasteOpen: false, misses: 0 };
+    loginRun = run;
+    render();
+    focusKey("login-flow:Cancel");
+    mgmtCall("GET", "anthropic-auth-url?is_webui=true").then(function (r) {
+      if (loginRun !== run) {
+        if (tab) tab.close();
+        if (r.state) mgmtCall("DELETE", "oauth-session?state=" + encodeURIComponent(r.state)).catch(function () { /* ignored */ });
+        return;
+      }
+      run.state = r.state;
+      run.phase = "waiting";
+      if (tab) tab.location.href = r.url; else run.url = r.url;
+      render();
+      pollLogin(run);
+    }, function (e) {
+      if (tab) tab.close();
+      if (loginRun !== run) return;
+      run.phase = "failed";
+      run.error = e.message;
+      render();
+    });
+  }
+
+  function pollLogin(run) {
+    if (loginRun !== run || run.phase !== "waiting") return;
+    mgmtCall("GET", "get-auth-status?state=" + encodeURIComponent(run.state)).then(function (r) {
+      if (loginRun !== run || run.phase !== "waiting") return;
+      run.misses = 0;
+      if (r.status === "wait") { run.timer = window.setTimeout(function () { pollLogin(run); }, 2000); return; }
+      if (r.status === "ok") {
+        run.phase = "checking";
+        run.signedAt = nowMs();
+        render();
+        checkLogin(run);
+        return;
+      }
+      run.phase = "failed";
+      run.error = r.error || "the host reported no reason";
+      render();
+    }, function (e) {
+      if (loginRun !== run) return;
+      /* A request that failed in transit says nothing of the sign-in, which
+         may still finish on the host. */
+      if (!e.status && !awaitingKey() && ++run.misses < 4) {
+        run.timer = window.setTimeout(function () { pollLogin(run); }, 2000);
+        return;
+      }
+      run.phase = "failed";
+      run.error = e.message;
+      render();
+    });
+  }
+
+  /* Once the host has the login, readings are forced until one shows the seat
+     it landed on or the check runs out: the plugin refuses a forced read
+     within 10s of the last, and its own polls may be minutes apart. */
+  function checkLogin(run) {
+    if (loginRun !== run || run.phase !== "checking") return;
+    if (nowMs() - run.signedAt > LOGIN_CHECK_MS) { render(); return; }
+    refresh(true, true);
+    run.timer = window.setTimeout(function () { checkLogin(run); }, 12000);
+  }
+
+  function cancelLogin() {
+    var run = loginRun;
+    if (!run) return;
+    window.clearTimeout(run.timer);
+    loginRun = null;
+    if (run.state) mgmtCall("DELETE", "oauth-session?state=" + encodeURIComponent(run.state)).catch(function () { /* ignored */ });
+    render();
+    focusKey("login:" + run.seat);
+  }
+
+  /* Puts focus back on the control a rebuild replaced the clicked one with. */
+  function focusKey(key) {
+    var el = document.querySelector('[data-fk="' + key.replace(/["\\]/g, "\\$&") + '"]');
+    if (el) el.focus();
+  }
+
+  function submitPaste() {
+    var run = loginRun;
+    if (!run || !run.paste) return;
+    run.pasteError = "";
+    mgmtCall("POST", "oauth-callback", { provider: "anthropic", redirect_url: run.paste.trim() }).then(function () {
+      run.pasteOpen = false;
+      render();
+    }, function (e) {
+      run.pasteError = e.message;
+      render();
+    });
+  }
+
+  /* Once the host reports the sign-in done, the next reading says which seat
+     it landed on: the seat asked for, a new seat (another account of the
+     team, or a team no seat held), or another seat it renewed. Teams compare
+     by the keyed id, since two can read the same once masked. */
+  function resolveLogin(st) {
+    var run = loginRun;
+    if (!run || run.phase !== "checking") return;
+    var auths = st.auths || [];
+    var target = auths.filter(function (a) { return a.auth_id === run.seat; })[0];
+    var fresh = function (a) {
+      var l = loginOf(a);
+      if (!(a.auth_id in run.before)) return true;
+      return !!l && !!l.logged_in_at && l.logged_in_at !== run.before[a.auth_id] && parseT(l.logged_in_at).getTime() >= run.startedAt - 5000;
+    };
+    var landed = auths.filter(function (a) { return a.auth_id !== run.seat && fresh(a); })[0];
+    var hit = target && fresh(target) ? target : landed;
+    if (hit) {
+      var hl = loginOf(hit) || {}, added = !(hit.auth_id in run.before);
+      var sameTeam = !hl.team_id || !run.teamId || hl.team_id === run.teamId;
+      if (sameTeam && (hit === target || added)) {
+        run.phase = "done";
+        run.doneAt = nowMs();
+        run.left = added && !!target;
+        run.mark = hit;
+        return;
+      }
+      run.phase = "wrong";
+      run.sameTeam = sameTeam;
+      run.otherTeam = teamOf(hl);
+      run.otherLabel = seatLabel(hit);
+      run.added = added;
+      run.replaced = hit === target;
+      return;
+    }
+    if (nowMs() - run.signedAt > LOGIN_CHECK_MS) { run.phase = "done"; run.unconfirmed = true; run.doneAt = nowMs(); }
+  }
+
+  /* The card's second line and its control while a login runs for its seat;
+     null leaves the card as the seat's state draws it. */
+  function loginFlow(m) {
+    var run = loginRun;
+    if (!run || run.seat !== m.seat.auth_id) return null;
+    var line = h("p", "la-l2"), more = null, ctl;
+    switch (run.phase) {
+      case "starting":
+        line.textContent = "Opening Claude's sign-in…";
+        ctl = flowButton("Cancel", cancelLogin);
+        break;
+      case "waiting":
+        if (run.url) {
+          var a = h("a", "", "Open Claude's sign-in");
+          a.href = run.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          line.appendChild(a);
+          line.appendChild(document.createTextNode(" (the browser blocked the new tab). "));
+        } else line.appendChild(document.createTextNode("Finish in the Claude tab. "));
+        line.appendChild(withTeam("Choose " + run.team + " when it asks for an organization.", run.team));
+        more = pasteRow(run);
+        ctl = flowButton("Cancel", cancelLogin);
+        break;
+      case "checking":
+        line.textContent = "Signed in. Checking which seat the login landed on…";
+        ctl = flowButton("Cancel", cancelLogin, true);
+        break;
+      case "wrong":
+        line.appendChild(withTeam(run.sameTeam
+          ? "That login was " + run.otherLabel + "'s account and renewed that seat. Log in again with this seat's account."
+          : run.replaced
+          ? "That login went to " + run.otherTeam + " and replaced this seat's. Log in again and choose " + run.team + "."
+          : run.added
+          ? "That login went to " + run.otherTeam + " and added it as a new seat. Log in again and choose " + run.team + "."
+          : "That login went to " + run.otherTeam + ", " + run.otherLabel + "'s team. Log in again and choose " + run.team + ".", run.team));
+        ctl = loginButton(m, "Log in again");
+        break;
+      case "failed":
+        line.textContent = loginErrorText(run.error);
+        ctl = loginButton(m, "Try again");
+        break;
+      default:
+        return null;
+    }
+    return { line: line, more: more, ctl: ctl };
+  }
+
+  /* The host's sign-in errors in the page's words. */
+  function loginErrorText(err) {
+    var e = String(err || "");
+    if (/timeout/i.test(e)) return "No sign-in came back within 5 minutes.";
+    if (/^bad request$/i.test(e)) return "Claude returned no sign-in. It was denied or the tab was closed.";
+    if (/unknown or expired state/i.test(e)) return "The host no longer knows this sign-in, as after a restart.";
+    if (/state/i.test(e)) return "The sign-in answered an older request.";
+    return "Sign-in failed: " + e.replace(/\.$/, "") + ".";
+  }
+
+  function flowButton(label, fn, disabled) {
+    var b = h("button", "", label);
+    b.type = "button";
+    b.setAttribute("data-fk", "login-flow:" + label);
+    b.disabled = !!disabled;
+    b.addEventListener("click", fn);
+    return b;
+  }
+
+  function loginButton(m, label) {
+    var b = h("button", "", label || "Log in");
+    b.type = "button";
+    b.setAttribute("data-fk", "login:" + m.seat.auth_id);
+    if (loginActive()) {
+      b.disabled = true;
+      b.title = "Another login is in progress";
+    } else if (awaitingKey()) {
+      b.disabled = true;
+      b.title = "Enter the management key first";
+    }
+    b.addEventListener("click", function () { startLogin(m); });
+    return b;
+  }
+
+  /* The fallback for a browser on another machine, where Claude's redirect to
+     the host's localhost callback cannot load: paste the address it shows. */
+  function pasteRow(run) {
+    var row = h("div", "la-paste");
+    if (!run.pasteOpen) {
+      var open = h("button", "la-link", "Signing in from another machine?");
+      open.type = "button";
+      open.addEventListener("click", function () {
+        run.pasteOpen = true;
+        render();
+        var input = document.querySelector("[data-login-paste]");
+        if (input) input.focus();
+      });
+      row.appendChild(open);
+      return row;
+    }
+    row.appendChild(h("span", "la-paste-h", "Paste the address the tab lands on"));
+    var input = h("input", "la-paste-in");
+    input.type = "url";
+    input.placeholder = "localhost:54545/callback?code=…";
+    input.value = run.paste;
+    input.setAttribute("data-login-paste", "");
+    input.addEventListener("input", function () { run.paste = input.value; });
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") submitPaste(); });
+    row.appendChild(input);
+    row.appendChild(flowButton("Submit", submitPaste));
+    if (run.pasteError) row.appendChild(h("span", "la-paste-err", run.pasteError));
+    return row;
+  }
+
+  /* A seat whose login just came back keeps a card for a moment, so the
+     reader sees the click land. */
+  function loginDoneCard() {
+    var run = loginRun;
+    if (!run || run.phase !== "done") return null;
+    if (nowMs() - run.doneAt > LOGIN_DONE_MS) { loginRun = null; return null; }
+    if (!run.doneTimer) run.doneTimer = window.setTimeout(render, LOGIN_DONE_MS + 100);
+    var a = (state.data.auths || []).filter(function (x) { return x.auth_id === run.mark.auth_id; })[0] || run.mark;
+    var r = h("div", "la-item");
+    var side = h("div", "la-side");
+    side.appendChild(seatMark(a));
+    side.appendChild(loginChip(run.unconfirmed ? "signed in" : "logged in", "good"));
+    r.appendChild(side);
+    var main = h("div", "la-main");
+    if (run.unconfirmed) {
+      main.appendChild(h("p", "la-l1", "Signed in. No reading has shown the login land yet."));
+      main.appendChild(withTeamP("la-l2", "If you chose " + run.team + " with the seat's own account, the seat is done; its card clears at the next reading.", run.team));
+    } else {
+      main.appendChild(withTeamP("la-l1", "Logged in to " + run.team + ".", run.team));
+      main.appendChild(h("p", "la-l2", run.left
+        ? "The login added " + seatLabel(a) + " as a seat of its own, under another account. Delete the old seat's file in Auth Files."
+        : seatLabel(a) + " takes new conversations again."));
+    }
+    r.appendChild(main);
+    r.appendChild(flowButton("Dismiss", dismissLogin));
+    return r;
+  }
+
+  /* Ends a finished run's card, with focus on its seat's Log in, or on the
+     first card's control when the seat has no card left. */
+  function dismissLogin() {
+    var run = loginRun;
+    loginRun = null;
+    render();
+    if (run) focusKey("login:" + run.seat);
+    if (document.activeElement === document.body) {
+      var next = document.querySelector("#warnings .la-item button:not(:disabled)");
+      if (next) next.focus();
+    }
+  }
+
+  function withTeamP(cls, text, team) {
+    var p = h("p", cls);
+    p.appendChild(withTeam(text, team));
+    return p;
+  }
+
+  /* The paste field survives the rebuild every reading brings. */
+  function keepPasteFocus(fn) {
+    var el = document.activeElement, had = !!el && el.hasAttribute && el.hasAttribute("data-login-paste");
+    var pos = had ? el.selectionStart : 0;
+    fn();
+    if (!had) return;
+    var next = document.querySelector("[data-login-paste]");
+    if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+  }
+
+  /* The warning list leads with one card per seat, two lines each: what
+     happened, then what it costs and the fix, with a Log in button that runs
+     the host's Claude sign-in for that seat. Pool lines above the cards say
+     what the logged-out seats cost together, and when no login is at fault. */
+  function renderLoginCards(st, msgs) {
+    var acts = msgs.filter(function (m) { return m.tone !== "info"; });
+    var done = loginDoneCard();
+    var pools = msgs.filter(function (m) { return m.pool; });
+    var seats = acts.filter(function (m) { return m.seat; });
+    /* A run whose seat has no card of its own keeps one until it is
+       dismissed or done. */
+    var run = loginRun, ended = !!run && (run.phase === "failed" || run.phase === "wrong");
+    if (run && run.phase !== "done" && !seats.some(function (m) { return m.seat.auth_id === run.seat; })) {
+      seats.unshift({ tone: "muted", seat: run.mark, team: run.team,
+        tag: ended ? "login" : "logging in",
+        what: ended ? "The login for this seat didn't finish as asked." : "Logging in to " + run.team + ".", cost: "", fix: "" });
+    }
+    if (!seats.length && !done && !pools.length) return;
+    var box = warningsBox();
+    var own = box.querySelectorAll(":scope > ul > li").length;
+    var wrap = h("div", "la");
+    pools.forEach(function (pool) {
+      var ph = h("p", "la-pool");
+      ph.appendChild(h("b", "", pool.head + "."));
+      ph.appendChild(document.createTextNode(" " + [pool.what, pool.cost, pool.fix].filter(Boolean).join(" ")));
+      wrap.appendChild(ph);
+    });
+    if (done) wrap.appendChild(done);
+    seats.forEach(function (m) {
+      var r = h("div", "la-item");
+      var side = h("div", "la-side");
+      side.appendChild(seatMark(m.seat));
+      side.appendChild(loginChip(m.tag, m.tone));
+      r.appendChild(side);
+      var main = h("div", "la-main");
+      main.appendChild(h("p", "la-l1", m.what));
+      var flow = loginFlow(m);
+      if (flow) {
+        r.setAttribute("data-flow", loginRun.phase);
+        main.appendChild(flow.line);
+        if (flow.more) main.appendChild(flow.more);
+      } else {
+        var l2 = h("p", "la-l2");
+        l2.appendChild(withTeam([m.cost, m.fix].filter(Boolean).join(" "), m.team));
+        main.appendChild(l2);
+      }
+      r.appendChild(main);
+      if (flow && ended) {
+        var ctl = h("div", "la-ctl");
+        ctl.appendChild(flow.ctl);
+        ctl.appendChild(flowButton("Dismiss", dismissLogin));
+        r.appendChild(ctl);
+      } else r.appendChild(flow ? flow.ctl : loginButton(m));
+      wrap.appendChild(r);
+    });
+    if (seats.length) {
+      var foot = h("p", "la-foot");
+      foot.appendChild(h("b", "", "Log in"));
+      foot.appendChild(document.createTextNode(" opens Claude's sign-in in a new tab. " + LOGIN_KEEPS + " From a terminal, "));
+      foot.appendChild(h("code", "", LOGIN_HOW_CLI));
+      foot.appendChild(document.createTextNode(" does the same."));
+      wrap.appendChild(foot);
+    }
+    box.insertBefore(wrap, box.querySelector("h2").nextSibling);
+    var n = seats.length + own;
+    box.querySelector("h2").textContent = !n ? (pools.length ? "Logins" : "Login") : n === 1 ? "Warning" : n + " warnings";
+    if (acts.some(function (m) { return m.tone === "critical"; })) box.classList.add("err");
+    else if (acts.some(function (m) { return m.tone === "serious"; })) box.classList.add("serious");
+    else if (done) box.classList.add("good");
+  }
+
+  function renderLogins(st) {
+    resolveLogin(st);
+    renderLoginCards(st, loginMessages(st));
   }
 
   /* Every warning comes from the plugin: only it sees what the host offered,
@@ -8368,7 +8978,10 @@ time[data-ts] { cursor: help; }
     $("app").removeAttribute("aria-busy");
     setLive();
     renderHeader(st, ranks);
-    renderWarnings(st);
+    keepPasteFocus(function () {
+      renderWarnings(st);
+      renderLogins(st);
+    });
 
     var empty = !seats.length;
     var pooled = !!(st.auths || []).length;
