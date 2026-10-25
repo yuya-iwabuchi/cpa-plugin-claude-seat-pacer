@@ -29,6 +29,11 @@
   --track:        #e6e5df;
   --track-edge:   #4f4e4a;
   --emph:         rgba(42,120,214,.07);
+  /* A seat row eligible for no family: red for a hold the provider or host
+     put on it, amber for a seat the plugin cannot score. As thin as
+     --emph, so the muted ink on the row keeps 4.5:1. */
+  --down-held:    rgba(208,59,59,.07);
+  --down-unread:  rgba(214,140,10,.09);
 
   /* The four tones a chip can take carry the non-colour encoding — glyph, bar
      fill, meter fill — so each clears 3:1 against both the card and the
@@ -86,6 +91,8 @@
     --track-edge: #999892;
     --critical:   #e05050;
     --emph:       rgba(57,135,229,.12);
+    --down-held:  rgba(224,80,80,.12);
+    --down-unread: rgba(250,178,25,.10);
     --good:       #0ca30c;
     --serious:    #ec835a;
     --info:       #3987e5;
@@ -121,6 +128,8 @@
   --track:      #2c2c2a;
   --track-edge: #999892;
   --emph:       rgba(57,135,229,.12);
+  --down-held:  rgba(224,80,80,.12);
+  --down-unread: rgba(250,178,25,.10);
   --critical:   #e05050;
   --good:       #0ca30c;
   --serious:    #ec835a;
@@ -438,6 +447,12 @@ section { margin-top: 24px; border-radius: 12px; }
 }
 .sec-idx { font: 600 10.5px/1 var(--mono); color: var(--ink-3); letter-spacing: .1em; }
 .sec-sub { font: 400 12px/1.35 var(--sans); color: var(--ink-2); }
+svg.tl rect.row-down[data-down="held"] { fill: var(--down-held); }
+svg.tl rect.row-down[data-down="unread"] { fill: var(--down-unread); }
+svg.tl text.down-note { font-size: 11.5px; }
+svg.tl text.down-note .dn-what { font-weight: 600; fill: var(--ink-1); }
+svg.tl text.down-note .dn-when { fill: var(--ink-2); }
+#seats-sub .sub-none { font-weight: 600; color: var(--neg-text); }
 .sec-line { flex: 1 1 40px; height: 1px; background: var(--rule); }
 .sec-tools { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .sec-tools button { padding: 5px 9px; font-size: 10.5px; }
@@ -1813,7 +1828,14 @@ time[data-ts] { cursor: help; }
     return "next in " + durText(Math.floor(ms / 1000));
   }
 
-  var STAMP_MODES = { rel: relText, reset: resetText, up: upText, sync: syncText };
+  var STAMP_MODES = { rel: relText, reset: resetText, up: upText, sync: syncText,
+    next: nextResetText };
+
+  /* When the pool next has a seat back, overdue once it passes, as any
+     reset is. */
+  function nextResetText(d, base) {
+    return "next seat " + resetText(d, base);
+  }
 
   /* A <time> that keeps ticking: the stamp loop rewrites every [data-ts].
      Its tooltip names the exact instant. */
@@ -1997,9 +2019,8 @@ time[data-ts] { cursor: help; }
   };
 
   /* Where the traffic goes with no seat left to take it, another credential,
-     and what that credential is. The live bar, the ranking's head and the
-     routing log all print these, so the page has one voice for the state and
-     defines the term in every place it uses it. */
+     and what that credential is. The ranking's head prints the state; the
+     head and the routing log's "other credential" mark share the definition. */
   var OVERFLOW_TEXT = "no seat eligible · using another credential";
   var OVERFLOW_TIP = "A credential outside this plugin, usually an API key in the host's next " +
     "priority tier. The host sends requests to it when no seat can take them. It is not ranked here.";
@@ -3246,6 +3267,62 @@ time[data-ts] { cursor: help; }
     return w;
   }
 
+  /* Whether a seat is eligible for no family now, and why: "held" for a hold
+     the provider or host put on it, which lifts at a known time; "unread" for
+     a seat the plugin cannot score, which the scheduler still sends new
+     conversations while no seat is eligible. A seat held off only some
+     families is neither, and a seat the host has disabled says so in its own
+     chip. A hold on a seat whose login has expired waits on a sign-in rather
+     than a reset. Only a stale reading names its age: a failed first read
+     stamps the snapshot's time with no windows. */
+  function seatDown(a, ranks) {
+    if (hostDisabled(a) || anyEligible(a, ranks.fams)) return null;
+    var sc = famScore(a, STANDARD), reason = sc && sc.reason, snap = a.snapshot || {};
+    if (CANNOT_SERVE[reason]) return { kind: "held", back: seatReturnsAt(a, STANDARD), expired: loginIs(a, "expired") };
+    var stale = reason === "stale-snapshot" && (snap.windows || []).length;
+    return { kind: "unread", reason: reason, obs: stale ? parseT(snap.observed_at) : null };
+  }
+
+  /* A down seat's note: what keeps it out, then when that ends. An unscored
+     seat names its reason, or the age of the reading it is stuck on, rather
+     than a consequence, since the scheduler can still pick it. */
+  function downText(down, now) {
+    if (down.kind === "held") {
+      return { what: "takes no new conversations", when: down.expired ? "login expired"
+        : down.back ? resetText(down.back, now) : "no return time known" };
+    }
+    if (!down.obs) return { what: reasonText(down.reason || "no-snapshot"), when: "not scored" };
+    var ago = Math.max(0, Math.floor((now - down.obs.getTime()) / 1000));
+    return { what: "last read " + down.obs.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+      " (" + durText(ago) + " ago)", when: "not scored" };
+  }
+
+  /* The note on a down seat's header strip, behind the glyph its chips carry:
+     a pause for a hold that lifts on its own, a cross for one that waits on
+     someone. A return time ticks like every other reset on the page. The box
+     it returns, sized for the widest the countdown can read, is where the now
+     line breaks so it never runs through the words. */
+  function downNote(parent, x, y, down, now) {
+    var d = downText(down, now), held = down.kind === "held";
+    if (held && !down.expired) pauseGlyph(parent, x + 4, y - 4, "var(--critical)", 8);
+    else svgText(parent, x, y, CROSS_GLYPH, "down-note", {}).style.fill = "var(--critical)";
+    var tx = x + (held && !down.expired ? 14 : 13);
+    var t = svgText(parent, tx, y, "", "down-note", {});
+    svg("tspan", { "class": "dn-what" }, t).textContent = d.what;
+    svg("tspan", { "class": "dn-when" }, t).textContent = " \u00b7 ";
+    var when = svg("tspan", { "class": "dn-when" }, t);
+    when.textContent = "overdue by 23h\u00a059m";
+    var wide = t.getComputedTextLength();
+    when.textContent = d.when;
+    var len = t.getComputedTextLength();
+    if (held && down.back && !down.expired) {
+      when.setAttribute("data-ts", String(down.back.getTime()));
+      when.setAttribute("data-ts-mode", "reset");
+      len = Math.max(len, wide);
+    }
+    return { x0: x - 4, x1: tx + len + 4, y0: y - 12, y1: y + 5 };
+  }
+
   function renderTimeline(st, seats, ranks) {
     var host = $("timeline");
     host.textContent = "";
@@ -3320,6 +3397,7 @@ time[data-ts] { cursor: help; }
        the same as any other. */
     var gRows = svg("g", {}, root);
     var gNow = svg("g", {}, root);
+    var noteBoxes = [];
 
     /* Day gridlines and the bottom axis. Every day rules a line; the dates
        are set every DAY_LABEL_PX of plot, because two that run together read
@@ -3396,7 +3474,16 @@ time[data-ts] { cursor: help; }
       var leads = leadsOf(a, ranks);
       var lead = leads.length > 0;
       var col = seatColor(a);
+      var down = seatDown(a, ranks);
 
+      /* A seat eligible for no family is tinted whole, the shape the leading
+         row's tint takes; the two never meet, since a leader is eligible. */
+      if (down) {
+        svg("rect", {
+          "class": "row-down", "data-down": down.kind, x: 6, y: row.top - geo.inset, width: width - 12,
+          height: row.bottom - row.top + geo.inset + padB, rx: 8
+        }, gBack);
+      }
       if (lead) {
         svg("rect", {
           x: 6, y: row.top - geo.inset, width: width - 12, height: row.bottom - row.top + geo.inset + padB,
@@ -3414,7 +3501,8 @@ time[data-ts] { cursor: help; }
       var gRow = svg("g", { "class": "row" }, gRows);
       var gh = svg("g", { "class": "head", tabindex: 0, role: "img" }, gRow);
       gh.setAttribute("data-fk", "seat:" + a.auth_id);
-      gh.setAttribute("aria-label", seatAria(a, ranks));
+      var dt = down && downText(down, nowMs());
+      gh.setAttribute("aria-label", seatAria(a, ranks) + (dt ? ", " + dt.what + ", " + dt.when : ""));
       setTip(gh, seatTip(a, ranks));
       svg("rect", { "class": "hit", x: 12, y: row.top - 4, width: gut - 26, height: geo.head + 2, rx: 4, fill: "transparent" }, gh);
       svg("circle", { cx: 22, cy: headY - 5, r: 5, fill: col }, gh);
@@ -3438,6 +3526,7 @@ time[data-ts] { cursor: help; }
       });
 
       hideControl(gRow, gut - 14 - HIDE_W, headY - 4, a);
+      if (down) noteBoxes.push(downNote(gRow, gut + 8, headY, down, nowMs()));
 
       row.lanes.forEach(function (lane) {
         var w = lane.w;
@@ -3477,8 +3566,15 @@ time[data-ts] { cursor: help; }
         if (!resets || durMs <= 0 || X(resets.getTime()) <= gut) {
           g.setAttribute("aria-label", laneAria(a, w, ws, stt));
           setTip(g, laneTip(a, w, ws, stt, false, false));
-          svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
-          if (resets) resetStamp(gRow, cy, a, w, resets, rstX);
+          /* With no reset to name, the reset column says why; a reset long
+             past keeps the column, and the plot says it instead. */
+          if (resets) {
+            svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
+            resetStamp(gRow, cy, a, w, resets, rstX);
+          } else {
+            svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W, height: 18, rx: 3, fill: "transparent" }, g);
+            svgText(g, rstX, cy + 3.5, "no open window", "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+          }
           return;
         }
 
@@ -3556,9 +3652,16 @@ time[data-ts] { cursor: help; }
       li.hidden = !li.getAttribute("data-states").split(" ").some(function (k) { return drawnStates[k]; });
     });
 
-    /* One now line across every row. */
-    var nx = X(now.getTime());
-    svg("line", { x1: nx, x2: nx, y1: 0, y2: plotH, stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: .5 }, gNow);
+    /* One now line across every row, broken where a down seat's note sits. */
+    var nx = X(now.getTime()), lineY = 0;
+    var nowSeg = function (y0, y1) {
+      if (y1 > y0) svg("line", { x1: nx, x2: nx, y1: y0, y2: y1, stroke: "var(--ink-1)", "stroke-width": 1.5, opacity: .5 }, gNow);
+    };
+    noteBoxes.filter(function (b) { return b.x0 <= nx && nx <= b.x1; }).forEach(function (b) {
+      nowSeg(lineY, b.y0);
+      lineY = Math.max(lineY, b.y1);
+    });
+    nowSeg(lineY, plotH);
     var nowLabel = svgText(gNow, nx + 5, 9, "NOW", "t-mono", { "font-size": 9.5, "letter-spacing": ".14em", "font-weight": 600 });
     var lw = nowLabel.getComputedTextLength();
     svg("rect", { x: nx + 2, y: 1, width: lw + 6, height: 11, fill: "var(--surface-1)" }, gNow);
@@ -7440,9 +7543,8 @@ time[data-ts] { cursor: help; }
     var head = h("p", "rank-fam-head pin");
     head.appendChild(h("span", "rank-fam-name", rankLabel(fam)));
     /* With no seat left to take the family the head says where the work
-       goes, in the live bar's own words: the other credential where the
-       log shows traffic on one, else the seat the scheduler's least-bound
-       pick takes. */
+       goes: the other credential where the log shows traffic on one, else
+       the seat the scheduler's least-bound pick takes. */
     if (!known) head.appendChild(h("span", "rank-fam-note", "ranking unknown · fetch failed"));
     else if (!ranks.lead[fam]) {
       head.appendChild(overflowInLog(st)
@@ -8050,40 +8152,41 @@ time[data-ts] { cursor: help; }
 
     renderPicks(st, ranks);
 
-    /* Scoring is per request family, so with a family cap in the pool each
-       seat carries one rank per family. */
-    var fams = scopedFamilies(st);
-    $("seats-sub").textContent = (ranks.tier.multi ? "seats by priority, then name · " : "seats by name · ") +
-      (fams.length ? "each family's #1 takes its next new conversation" : "#1 takes the next new conversation");
+    renderSeatsSub(st, ranks);
   }
 
-  /* Where the next new conversation lands, one line per request family and
-     every line named: scoring differs by family, so an unlabelled seat would
-     leave the reader to work out which ranking it won. A family whose ranking
-     is unknown this refresh reads as unknown, never as the last answer. With
-     no seat left to take the family and the log showing traffic on an
-     ungoverned credential, the requests are landing on that other
-     credential rather than failing, and the line says so. With no eligible
-     seat and no other credential the seat carrying the fewest live
-     conversations still takes it: the scheduler picks past its own pace
-     rather than refuse the request. */
-  /* Why no seat can take this family, in the space of one narrow line. The
-     reason every seat it is waiting on shares is the fact worth reading:
-     a refusal says the provider is turning the work away and when it comes
-     back, a window at full says the budget is gone and when it returns, and
-     an unread credential says nothing about the cap at all. The plugin still
-     forwards the request; the routing log is where that is recorded. */
-  function blockedText(st, fam, ranks) {
-    var reasons = Object.create(null), n = 0;
-    stableAuths(st.auths).forEach(function (a) {
-      var sc = famScore(a, fam);
-      if (!sc || sc.eligible || !waitsOn(a, fam, ranks)) return;
-      n++;
-      reasons[sc.reason || ""] = true;
+  /* The Seats subtitle: how the rows are ordered and which seat takes the
+     next new conversation, or, while no seat can take a Standard request,
+     that state and the first seat back, as the top bar counts it. A family
+     whose return differs has its own line in the top bar, so the subtitle
+     then names the family it speaks for. Scoring is per request family, so
+     with a family cap in the pool each seat carries one rank per family. */
+  function renderSeatsSub(st, ranks) {
+    var el = $("seats-sub"), order = ranks.tier.multi ? "seats by priority, then name · " : "seats by name · ";
+    var off = !!(st.config && st.config.enabled === false);
+    el.textContent = "";
+    if (off || !stableAuths(st.auths).length || ranks.lead[STANDARD] || !ranks.known[STANDARD]) {
+      el.textContent = order + (scopedFamilies(st).length ? "each family's #1 takes its next new conversation"
+        : "#1 takes the next new conversation");
+      return;
+    }
+    if (ranks.tier.multi) el.appendChild(document.createTextNode(order));
+    el.appendChild(h("span", "sub-none", "no seat eligible"));
+    if (loginFacts(st).all) {
+      el.appendChild(document.createTextNode(" · every login expired"));
+      return;
+    }
+    var first = firstBack(st, STANDARD, ranks);
+    var at = first ? first.at.getTime() : null;
+    var differs = ranks.fams.some(function (f) {
+      if (f === STANDARD || ranks.lead[f] || !ranks.known[f]) return false;
+      var r = returnsAt(st, f, ranks);
+      return (r ? r.getTime() : null) !== at;
     });
-    var only = Object.keys(reasons);
-    if (!n || only.length !== 1) return "no seat eligible";
-    return holdText(only[0], returnsAt(st, fam, ranks), nowMs());
+    if (!first) return;
+    el.appendChild(document.createTextNode(" · " + (differs ? "for Standard, " : "")));
+    el.appendChild(stamp(first.at, "", "next"));
+    el.appendChild(document.createTextNode(" (" + seatLabel(first.a) + ")"));
   }
 
   /* A hold in the page's words, with the instant it lifts where one is known:
@@ -8135,13 +8238,16 @@ time[data-ts] { cursor: help; }
   /* When this seat can serve the family again: the latest of the end of the
      host's cooldown, for a seat the host does not offer, and the resets of the
      windows holding it back, because the soonest would promise capacity that
-     another hold still withholds. Null where nothing holds it back, and where
-     a hold names no instant, since an unknown return cannot be claimed as a
-     time. */
+     another hold still withholds. Null where nothing holds it back, where the
+     seat is out for a reason other than a hold (an unscored reading's full
+     window promises nothing), where its login has expired, since no reset
+     brings it back, and where a hold names no instant, since an unknown
+     return cannot be claimed as a time. */
   function seatReturnsAt(a, fam) {
     var sc = famScore(a, fam);
+    if (!sc || !CANNOT_SERVE[sc.reason] || loginIs(a, "expired")) return null;
     var last = null, unknown = false;
-    if (sc && sc.reason === "not-a-candidate") {
+    if (sc.reason === "not-a-candidate") {
       last = parseT(a.host_held_until);
       if (!last) return null;
     }
@@ -8160,16 +8266,21 @@ time[data-ts] { cursor: help; }
     return !!ranks.tier.none[fam] || !offTier(a, fam, ranks);
   }
 
-  /* When the pool can serve this family again: the earliest return among
-     the seats the family is waiting on. */
-  function returnsAt(st, fam, ranks) {
-    var soonest = null;
+  /* The seat the family gets back first, among the seats it is waiting on,
+     and when: the instant the pool can serve the family again. */
+  function firstBack(st, fam, ranks) {
+    var first = null;
     stableAuths(st.auths).forEach(function (a) {
       if (!waitsOn(a, fam, ranks)) return;
       var back = seatReturnsAt(a, fam);
-      if (back && (!soonest || back < soonest)) soonest = back;
+      if (back && (!first || back < first.at)) first = { a: a, at: back };
     });
-    return soonest;
+    return first;
+  }
+
+  function returnsAt(st, fam, ranks) {
+    var first = firstBack(st, fam, ranks);
+    return first ? first.at : null;
   }
 
   /* Where traffic goes while the plugin is switched off in the host config:
@@ -8180,12 +8291,20 @@ time[data-ts] { cursor: help; }
   var DISABLED_TIP = "plugins.configs.claude-seat-pacer.enabled is false, or that block does not parse. " +
     "The host routes every request by its own priority and binds nothing; this page still ranks the seats.";
 
+  /* Where the next new conversation lands, one line per request family and
+     every line named: scoring differs by family, so an unlabelled seat would
+     leave the reader to work out which ranking it won. A family whose ranking
+     is unknown this refresh reads as unknown, never as the last answer. With
+     no seat left to take the family the line says so, and counts down to the
+     first seat back; where the requests go meanwhile, another credential or
+     the seat with the fewest live conversations, is the ranking's and the
+     routing log's to say. Every seat's login expired is the one cause that
+     no countdown ends, so the line names it instead. */
   function renderPicks(st, ranks) {
     var next = $("next-pick");
     next.textContent = "";
     var byID = Object.create(null);
     stableAuths(st.auths).forEach(function (a) { byID[a.auth_id] = a; });
-    var overflow = overflowInLog(st);
     var seats = stableAuths(st.auths).length;
     var off = !!(st.config && st.config.enabled === false);
     ranks.fams.forEach(function (fam) {
@@ -8195,12 +8314,15 @@ time[data-ts] { cursor: help; }
       if (off) span.appendChild(tipOnly(h("span", "pick-none pick-wrap", DISABLED_TEXT), DISABLED_TIP));
       else if (!known && seats) span.appendChild(h("span", "pick-none", "unknown"));
       else if (ranks.lead[fam]) span.appendChild(seatMark(byID[ranks.lead[fam]]));
-      else if (seats && overflow) {
-        span.appendChild(tipOnly(h("span", "pick-none pick-wrap",
-          loginFacts(st).all ? "every login expired · using another credential" : OVERFLOW_TEXT), OVERFLOW_TIP));
-      } else {
-        span.appendChild(h("span", "pick-none pick-wrap",
-          seats ? blockedText(st, fam, ranks) : "—"));
+      else if (!seats) span.appendChild(h("span", "pick-none pick-wrap", "—"));
+      else {
+        var none = h("span", "pick-none pick-wrap", "no seat eligible"), back = returnsAt(st, fam, ranks);
+        if (loginFacts(st).all) none.appendChild(document.createTextNode(" · every login expired"));
+        else if (back) {
+          none.appendChild(document.createTextNode(" · "));
+          none.appendChild(stamp(back, "", "next"));
+        }
+        span.appendChild(none);
       }
       next.appendChild(span);
     });

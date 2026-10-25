@@ -15,17 +15,31 @@ still offers it for other models, and its tooltip names the host status.
 
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
-  a weekly window of its own, or that no seat is eligible, with the reason
-  when the seats on the tier taking requests, or every seat while no tier
-  can, share one. It shows how many seats are eligible on each family's tier
-  taking requests and the age of the newest reading, and its Sync now button
+  a weekly window of its own, or that no seat is eligible. While none is, it
+  counts down to the first seat back ("next seat resets in 8m"): the latest of
+  the resets and host cooldown holding that seat, among the seats on the tier
+  taking requests, or every seat while no tier can. When every seat's login
+  has expired, it says so instead, since no reset brings one back. It shows
+  how many seats are eligible on each family's tier taking requests and the
+  age of the newest reading, and its Sync now button
   reads every seat at once; once it finishes, the next scheduled read is timed
   from it.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
   showing each window's current cycle. A window holding its seat off, full or
   refused, is hatched red and marked with a pause, and that seat's other
-  windows turn grey, as every window of a seat the host holds does.
+  windows turn grey, as every window of a seat the host holds does. A
+  window with no reset to name says "no open window" where its reset would
+  sit. A seat eligible for no family is tinted whole: red, with "takes no
+  new conversations" and the time it is back ("no return time known" where
+  no hold names one, "login expired" where a sign-in is due), when the
+  provider or host holds it; amber, with "not scored" and the reason or the
+  age of the reading it is stuck on, when the plugin cannot score it. A seat
+  still eligible for some family keeps its plain row. While no seat is
+  eligible, the scheduler can still send a new conversation to a seat the
+  host offers, preferring one the provider has not refused or reported full
+  for the requested model. While no seat can take a Standard request, the
+  section's subtitle says so and names the first seat back.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is
