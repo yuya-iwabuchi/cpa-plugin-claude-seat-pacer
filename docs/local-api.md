@@ -41,6 +41,8 @@ all optional:
 |---|---|
 | `session` | A Claude Code session id. The answer's `binding` names the seat that session is on. |
 | `model` | The model the seats are scored for. A bracketed suffix such as `[1m]` is dropped, as Claude Code drops it from its requests. With no model, the model the plugin last routed, or `claude-opus-5` before its first request. |
+| `since` | An RFC 3339 instant within the last 8 days. Each window then carries `used_since`. Write a `+` offset as `%2B`. |
+| `since_five_hour` | The same, for the 5-hour window in place of `since`. |
 
 The plugin answers from memory and makes no request of its own. Its figures
 change when it reads usage, every `quota.poll-interval` (2 minutes by
@@ -71,7 +73,7 @@ that returns the same figures.
       "eligible": true,
       "slack": 0.043,
       "windows": [
-        { "kind": "five_hour", "utilization": 0.31, "resets_at": "2026-10-28T01:36:30-04:00" },
+        { "kind": "five_hour", "utilization": 0.31, "resets_at": "2026-10-28T01:36:30-04:00", "used_since": 0.155 },
         { "kind": "seven_day", "utilization": 0.35, "resets_at": "2026-11-01T11:56:30-05:00" },
         { "kind": "weekly_scoped", "scope": "Fable", "utilization": 0.28, "resets_at": "2026-11-01T11:56:30-05:00" }
       ]
@@ -105,6 +107,7 @@ the name the page shows. A field that does not apply is left out.
 | `windows[].scope` | The model family of a `weekly_scoped` window, as the usage endpoint names it, such as `Opus`, `Sonnet` or `Fable`. |
 | `windows[].utilization` | How much of the window is used, as a fraction; above 1 past the cap, `null` for a reading that is not a number. |
 | `windows[].resets_at` | When the window resets. |
+| `windows[].used_since` | How much of the window was used after `since` (or `since_five_hour`), when the plugin's history covers the window. |
 | `warnings` | The status page's warnings. |
 
 ## A Claude Code status line

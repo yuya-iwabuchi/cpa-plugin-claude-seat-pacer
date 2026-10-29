@@ -179,3 +179,77 @@ func TestSeatsNextPutsASeatWithNoWeeklyCapFirst(t *testing.T) {
 		t.Errorf("next = %q, want auth-a, the seat with no weekly cap, over the cheaper auth-b", g.Next)
 	}
 }
+
+func TestSeatsGivesEachWindowItsUseSince(t *testing.T) {
+	now := time.Now()
+	st := seatsStatus()
+	st.Auths[0].History = []model.WindowHistory{{Kind: model.WindowWeekly, Cycles: []model.Cycle{{
+		ResetsAt: now.Add(48 * time.Hour),
+		Samples: []model.Sample{
+			{At: now.Add(-30 * time.Hour), Utilization: 0.30},
+			{At: now.Add(-20 * time.Hour), Utilization: math.NaN()},
+			{At: now.Add(-2 * time.Hour), Utilization: 0.42},
+		},
+	}}}}
+	h := testHandler(&stubSource{status: st})
+	since := now.Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	g := answerOfResponse(t, get(t, h, "/api/seats?since="+since))
+	a := g.Seats[0]
+	var week *AnswerWindow
+	for i := range a.Windows {
+		if a.Windows[i].Kind == model.WindowWeekly {
+			week = &a.Windows[i]
+		}
+	}
+	if week == nil || week.UsedSince == nil || math.Abs(*week.UsedSince-0.12) > 1e-9 {
+		t.Fatalf("weekly window = %+v, want 0.12 used since", week)
+	}
+	if b := g.Seats[1]; b.Windows[0].UsedSince != nil {
+		t.Errorf("seat b = %+v, want no use since without a history", b)
+	}
+	for _, bad := range []string{"yesterday", now.Add(time.Hour).UTC().Format(time.RFC3339), now.Add(-9 * 24 * time.Hour).UTC().Format(time.RFC3339)} {
+		g := answerOfResponse(t, get(t, h, "/api/seats?since="+bad))
+		if g.Seats[0].Windows[0].UsedSince != nil {
+			t.Errorf("since %q gave a use since", bad)
+		}
+	}
+}
+
+func TestSeatsUsedSinceReadsTheFiveHourWindowAndAPlusOffset(t *testing.T) {
+	now := time.Now()
+	st := seatsStatus()
+	st.Auths[1].Snapshot.Windows = append(st.Auths[1].Snapshot.Windows, model.Window{Kind: model.WindowSession, Utilization: 0.4, ResetsAt: now.Add(time.Hour)})
+	// The 5-hour window opened four hours ago, after since, so it counts from
+	// nothing; a weekly length would read it as open at since.
+	st.Auths[1].History = []model.WindowHistory{{Kind: model.WindowSession, Cycles: []model.Cycle{{
+		ResetsAt: now.Add(time.Hour),
+		Samples:  []model.Sample{{At: now.Add(-3 * time.Hour), Utilization: 0.1}, {At: now.Add(-time.Minute), Utilization: 0.4}},
+	}}}}
+	zone := time.FixedZone("plus9", 9*3600)
+	since := now.Add(-6 * time.Hour).In(zone).Format(time.RFC3339)
+	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats?since="+since))
+	five := g.Seats[1].Windows[len(g.Seats[1].Windows)-1]
+	if five.Kind != model.WindowSession || five.UsedSince == nil || math.Abs(*five.UsedSince-0.4) > 1e-9 {
+		t.Fatalf("5-hour window = %+v, want 0.4 used since %s", five, since)
+	}
+}
+
+func TestSeatsGivesTheFiveHourWindowItsOwnSince(t *testing.T) {
+	now := time.Now()
+	st := seatsStatus()
+	st.Auths[1].Snapshot.Windows = append(st.Auths[1].Snapshot.Windows, model.Window{Kind: model.WindowSession, Utilization: 0.4, ResetsAt: now.Add(time.Hour)})
+	st.Auths[1].History = []model.WindowHistory{
+		{Kind: model.WindowSession, Cycles: []model.Cycle{{ResetsAt: now.Add(time.Hour),
+			Samples: []model.Sample{{At: now.Add(-3 * time.Hour), Utilization: 0.1}, {At: now.Add(-50 * time.Minute), Utilization: 0.3}, {At: now.Add(-time.Minute), Utilization: 0.4}}}}},
+		{Kind: model.WindowWeekly, Cycles: []model.Cycle{{ResetsAt: now.Add(48 * time.Hour),
+			Samples: []model.Sample{{At: now.Add(-30 * time.Hour), Utilization: 0.2}, {At: now.Add(-time.Minute), Utilization: 0.25}}}}},
+	}
+	q := "/api/seats?since=" + now.Add(-24*time.Hour).UTC().Format(time.RFC3339) + "&since_five_hour=" + now.Add(-time.Hour).UTC().Format(time.RFC3339)
+	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), q))
+	for _, w := range g.Seats[1].Windows {
+		want := map[model.WindowKind]float64{model.WindowSession: 0.3, model.WindowWeekly: 0.05}[w.Kind]
+		if w.UsedSince == nil || math.Abs(*w.UsedSince-want) > 1e-9 {
+			t.Errorf("%s used since = %v, want %v", w.Kind, w.UsedSince, want)
+		}
+	}
+}

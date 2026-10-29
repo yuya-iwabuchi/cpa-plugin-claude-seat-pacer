@@ -12,6 +12,10 @@ import (
 // Code session id is a 36-character UUID.
 const maxSessionIDLength = 128
 
+// maxSinceAge bounds how far back a request's since may reach: the history the
+// status carries spans about nine days.
+const maxSinceAge = 8 * 24 * time.Hour
+
 // SessionBinder is a Source that can name the binding a Claude Code session's
 // root agent holds for a model, and when that binding expires unless used
 // again: zero when bindings never expire. A Source without it answers every
@@ -64,18 +68,25 @@ type AnswerSeat struct {
 }
 
 // AnswerWindow is one window reading. Utilization is a fraction, above 1 past
-// the cap, and null when the reading is not a finite number.
+// the cap, and null when the reading is not a finite number. UsedSince is how
+// much of the window was used after the request's since, present when it
+// named one and the history holds the window.
 type AnswerWindow struct {
 	Kind        model.WindowKind `json:"kind"`
 	Scope       string           `json:"scope,omitempty"`
 	Utilization float64          `json:"utilization"`
 	ResetsAt    time.Time        `json:"resets_at"`
+	UsedSince   *float64         `json:"used_since,omitempty"`
 }
 
 // serveSeats answers the seats route: the status for the model the request
 // names, reduced as the page's route reduces it, and the session's binding for
-// the model the status is scored for. It never syncs: the poll loop keeps the
-// readings fresh on its own cadence, however often a client asks.
+// the model the status is scored for. since gives each window its use after
+// that instant, and since_five_hour does so for the 5-hour window in its
+// place. One that is no RFC 3339 instant within maxSinceAge before now is
+// ignored; a "+" offset left unescaped decodes as a space and reads as "+". It
+// never syncs: the poll loop keeps the readings fresh on its own cadence,
+// however often a client asks.
 func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) {
 	q := r.URL.Query()
 	sessionID := q.Get("session")
@@ -86,6 +97,11 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 	}
 	now := time.Now()
 	st := src.Status(now, requestModel(q.Get("model")))
+	since := sinceOf(q.Get("since"), now)
+	fiveSince := sinceOf(q.Get("since_five_hour"), now)
+	if fiveSince.IsZero() {
+		fiveSince = since
+	}
 	var binding *AnswerBinding
 	if binder, ok := src.(SessionBinder); ok && sessionID != "" {
 		if b, expires, ok := binder.SessionBinding(sessionID, st.Model); ok {
@@ -95,7 +111,7 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 			}
 		}
 	}
-	body, err := encodeData(answerOf(reduceForPage(st, key), binding))
+	body, err := encodeData(answerOf(reduceForPage(st, key), binding, since, fiveSince))
 	if err != nil {
 		setCommonHeaders(w)
 		http.Error(w, "seats answer encode failed", http.StatusInternalServerError)
@@ -121,8 +137,10 @@ func requestModel(modelID string) string {
 // page. Next is the eligible seat of the top priority tier the pick ranks
 // first, the one a new conversation goes to: a seat with no weekly cap ahead,
 // then the lowest cost. Seats arrive in credential id order, so a tie goes to
-// the lower id, as the pick breaks it.
-func answerOf(st model.Status, binding *AnswerBinding) SeatsAnswer {
+// the lower id, as the pick breaks it. A non-zero since gives each window the
+// use its history records after it, and a non-zero fiveSince does so for the
+// 5-hour window in its place.
+func answerOf(st model.Status, binding *AnswerBinding, since, fiveSince time.Time) SeatsAnswer {
 	g := SeatsAnswer{
 		Version:  LocalAPIVersion,
 		Now:      st.Now,
@@ -158,7 +176,15 @@ func answerOf(st model.Status, binding *AnswerBinding) SeatsAnswer {
 			}
 		}
 		for _, w := range a.Snapshot.Windows {
-			seat.Windows = append(seat.Windows, AnswerWindow{Kind: w.Kind, Scope: w.Scope, Utilization: w.Utilization, ResetsAt: w.ResetsAt})
+			gw := AnswerWindow{Kind: w.Kind, Scope: w.Scope, Utilization: w.Utilization, ResetsAt: w.ResetsAt}
+			from := since
+			if w.Kind == model.WindowSession {
+				from = fiveSince
+			}
+			if !from.IsZero() {
+				gw.UsedSince = usedSince(a.History, w, from)
+			}
+			seat.Windows = append(seat.Windows, gw)
 		}
 		g.Seats = append(g.Seats, seat)
 		if a.Priority == top && a.Score.Eligible && (best == nil || ahead(a.Score, best.Score)) {
@@ -184,4 +210,29 @@ func ahead(a, b model.Score) bool {
 		return true
 	}
 	return a.Cost < b.Cost
+}
+
+// usedSince is how much of a window its history records as used after since,
+// or nil when the history holds no record of the window.
+func usedSince(history []model.WindowHistory, w model.Window, since time.Time) *float64 {
+	length := model.WeeklyDuration
+	if w.Kind == model.WindowSession {
+		length = model.SessionDuration
+	}
+	for _, h := range history {
+		if h.Kind == w.Kind && h.Scope == w.Scope {
+			rise := h.Rise(since, length)
+			return &rise
+		}
+	}
+	return nil
+}
+
+// sinceOf reads a since parameter, zero when it is absent or out of bounds.
+func sinceOf(raw string, now time.Time) time.Time {
+	since, err := time.Parse(time.RFC3339, strings.Replace(raw, " ", "+", 1))
+	if err != nil || since.After(now) || since.Before(now.Add(-maxSinceAge)) {
+		return time.Time{}
+	}
+	return since
 }
