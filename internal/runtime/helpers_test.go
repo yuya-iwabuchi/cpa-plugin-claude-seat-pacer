@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -278,6 +279,19 @@ type testPlugin struct {
 
 const testConfigYAML = "enabled: true\npriority: 100\n"
 
+// shortSocketPath is a socket path inside a fresh directory of its own, short
+// enough to bind: a test's own temporary directory on macOS runs past the
+// 103 bytes a socket path allows.
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "api.sock")
+}
+
 // newTestPlugin registers a plugin at testNow with the given YAML block. The
 // first poll is pushed out of reach so it cannot race a test's assertions.
 func newTestPlugin(t *testing.T, configYAML string) *testPlugin {
@@ -292,6 +306,7 @@ func newTestPlugin(t *testing.T, configYAML string) *testPlugin {
 		Now:        func() time.Time { return testNow },
 		// A real home directory must never be read or written by a test.
 		HistoryFile: filepath.Join(t.TempDir(), "history.json"),
+		APISocket:   shortSocketPath(t),
 		NewBindingStore: func(ttl time.Duration, max int) BindingStore {
 			tp.built++
 			tp.bindings = newFakeBindings(ttl, max)

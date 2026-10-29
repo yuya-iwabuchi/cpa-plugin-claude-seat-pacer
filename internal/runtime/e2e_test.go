@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -58,6 +59,8 @@ routing:
 		pluginSettings: `      quota:
         poll-interval: 30s
         request-timeout: 2s
+      web:
+        socket: true
 `,
 		modelID:       modelID,
 		clientTimeout: 10 * time.Second,
@@ -129,6 +132,30 @@ routing:
 	}
 	t.Logf("session two: kind=%s auth=%s key=%s; bindings=%d", newest.Kind, newest.ChosenAuthID, newest.SessionKey, len(second.Bindings))
 	t.Logf("warnings: %v", second.Warnings)
+
+	// The local API socket names each session's seat from inside the real host.
+	socket := filepath.Join(host.home, ".cli-proxy-api", "plugins", pluginID, "api.sock")
+	if info, err := os.Stat(socket); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("local API socket at %s: %v, mode %v", socket, err, info)
+	}
+	boundSeat := func(sessionID string) string {
+		code, body := socketGet(t, socket, "/api/seats?session="+sessionID+"&model="+modelID)
+		var g struct {
+			Binding *struct {
+				AuthID string `json:"auth_id"`
+			} `json:"binding"`
+			Seats []struct {
+				AuthID string `json:"auth_id"`
+			} `json:"seats"`
+		}
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &g) != nil || g.Binding == nil || len(g.Seats) != 2 {
+			t.Fatalf("seats answer for %s = %d %s", sessionID, code, body)
+		}
+		return g.Binding.AuthID
+	}
+	if one, two := boundSeat(sessionOne), boundSeat(sessionTwo); one == two || one == "" {
+		t.Errorf("the answers name seats %q and %q, want the two sessions' different seats", one, two)
+	}
 
 	// No resource route carries data: the host serves resource routes with no
 	// key, and an undeclared path never reaches the plugin.

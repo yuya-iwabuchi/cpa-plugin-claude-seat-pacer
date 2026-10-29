@@ -34,6 +34,9 @@ type Options struct {
 	// quota.persist-history is on. Empty selects the default beside the
 	// host's plugin directory.
 	HistoryFile string
+	// APISocket is where web.socket binds the local API socket. Empty selects
+	// api.sock beside the history file.
+	APISocket string
 }
 
 // Plugin owns every piece of runtime state and answers every host method.
@@ -109,6 +112,13 @@ type Plugin struct {
 	historyLoaded  bool
 	historyRefused bool
 	historySaved   uint64
+
+	// localAPIMu serializes starting and stopping the socket. localAPI is
+	// the running server, nil while the socket is closed, and localAPIErr, under
+	// mu, why the last start failed.
+	localAPIMu  sync.Mutex
+	localAPI    *localAPIServer
+	localAPIErr string
 }
 
 // resourceHandler wraps an http.Handler so it fits an atomic.Pointer.
@@ -249,6 +259,7 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 		return p.configure(payload)
 	case MethodPluginQuiesce:
 		p.stopPoller()
+		p.stopLocalAPI()
 		return okEnvelope(emptyResult)
 	case MethodPluginShutdown:
 		p.Shutdown()
@@ -298,6 +309,7 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 	p.mu.Unlock()
 
 	p.startPoller()
+	p.syncLocalAPI()
 	return okEnvelope(RegisterResult{
 		SchemaVersion: SchemaVersion,
 		Metadata:      p.metadata(),

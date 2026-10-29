@@ -596,6 +596,23 @@ func (f *fixture) Status(now time.Time, modelID string) model.Status {
 	}
 }
 
+var _ web.SessionBinder = (*fixture)(nil)
+
+// SessionBinding names the fixture's most recently seen binding for any session
+// id and model, so a local API client pointed at the fixture shows a
+// conversation's seat; the fixture records no session ids of its own, and its
+// bindings never expire.
+func (f *fixture) SessionBinding(sessionID, _ string) (model.Binding, time.Time, bool) {
+	var found model.Binding
+	ok := false
+	for _, b := range f.bindings {
+		if sessionID != "" && (!ok || b.LastSeen.After(found.LastSeen)) {
+			found, ok = b, true
+		}
+	}
+	return found, time.Time{}, ok
+}
+
 // decisionSpec is one scripted routing outcome, offset back from the anchor.
 type decisionSpec struct {
 	ago      time.Duration

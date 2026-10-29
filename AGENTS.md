@@ -60,18 +60,21 @@ the run. Do not remove that test.
   loading the same bytes under the same plugin id again reuses them. Earlier
   Windows hosts never release a loaded DLL on unload either, and Go links a
   Linux library with `-z nodelete`, so `dlclose` leaves it mapped. `Shutdown`
-  therefore stops the poll loop. A host before 8.0.31 also frees its callback
-  table once `cliproxy_plugin_shutdown` returns, and on macOS unmaps the
-  library, so before it returns `Shutdown` waits a bounded time for
-  outstanding host calls; one the host holds past the wait can still outlive
-  it.
+  therefore stops the poll loop and closes the local API socket. A host before
+  8.0.31 also frees its callback table once `cliproxy_plugin_shutdown`
+  returns, and on macOS unmaps the library, so before it returns `Shutdown`
+  waits a bounded time for outstanding host calls; one the host holds past
+  the wait can still outlive it.
 - **An escaped panic terminates the proxy.** `recover()` does not cross the C
   boundary, and the host's guard runs in its own Go runtime. Every exported
   entry point in `main.go` recovers, `runtime.Plugin.Call` recovers again, and
   every goroutine the plugin starts runs its work under a recover: a host
   callback's panic becomes that call's error, the poll loop runs through
   `guard`, the usage fetch turns one into a failed fetch, and `host.spawn`
-  drops whatever else escapes.
+  drops whatever else escapes. The local API socket's per-connection goroutines
+  belong to net/http, which recovers a handler's panic; its handler makes no
+  host callback, and the server stops passing its own log lines to the host
+  once it starts closing.
 - **Never return an error envelope from `scheduler.pick`.** It hard-fails the
   request with no fallback to the host's selector. `Handled: false` is the safe
   decline and the answer to anything the plugin is unsure about;
@@ -186,8 +189,8 @@ internal/httpx       case-insensitive header index; imports nothing else here
 internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history, refusal spans and login instants
 internal/pace        the scoring curve and the staleness gates; pure functions over model types
 internal/session     conversation identity extraction + binding store
-internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings
-internal/web         embedded status app: page on the resource route, data behind the key
+internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings, local API socket
+internal/web         embedded status app: page on the resource route, data behind the key, the local API's seats answer
 cmd/webdev           fixture server that renders the status app from synthetic seats or a recorded history file
 ```
 
@@ -229,6 +232,10 @@ and unit-testable without the host.
   at that indent, and runs them under node with only `H_HOUR`, `H_DAY`,
   `RESET_TOLERANCE_MS` and `num` defined, so each stays a top-level function of
   that shape that calls only the functions the test names.
+- The local API's JSON is a published format, documented field by field in
+  `docs/local-api.md`. Adding a field, or a new value of a field, keeps
+  `web.LocalAPIVersion`; removing a field or changing its meaning raises it.
+  Update the doc with either.
 - `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
   script from the file's bytes, and the HTML tokenizer rewrites both
   (`TestPageHoldsNoRewrittenByte`).
@@ -267,7 +274,10 @@ the library at its root, and `release.yml`'s assemble step fails on any other
 set. The resource route serves the static page alone
 (`TestManagementRegisterDeclaresRoutesAndResources`,
 `TestManagementAdapterStripsResourcePrefix`): new data or actions go on a
-management route behind the key.
+management route behind the key. The local API, off by
+default, is the one route the management key does not guard; file permissions
+guard it instead. It is a read-only Unix socket only the host's own user can
+open, serving the status page's masked view of one conversation's seat.
 
 1. Set `pluginVersion` in `main.go` to the new version and merge it to `main`.
 2. On an up-to-date, clean `main`, run `make release-tag`. It refuses another

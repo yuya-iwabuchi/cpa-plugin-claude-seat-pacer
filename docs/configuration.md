@@ -69,6 +69,7 @@ the bindings, costing each open conversation one prompt-cache miss.
       web:
         enabled: true           # serve the status page
         history-limit: 500      # routing decisions kept for the page; 1 to 10000
+        socket: false           # with enabled, serve the read-only local API on api.sock (macOS and Linux); see Local API
 ```
 
 Durations take Go syntax (`30s`, `2m`, `1h`). A weight above 100, a

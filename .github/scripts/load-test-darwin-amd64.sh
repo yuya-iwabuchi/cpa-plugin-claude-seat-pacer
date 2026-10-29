@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Loads a darwin/amd64 library into the official CLIProxyAPI darwin/amd64
 # release and fails unless the host loads it, serves its status and page
-# routes, and stays alive through a soak with GOGC=10, where a runtime reading
-# the other's goroutine corrupts the heap within seconds.
+# routes and its local API socket, and stays alive through a soak with GOGC=10,
+# where a runtime reading the other's goroutine corrupts the heap within
+# seconds.
 #
 # The host runs with an empty auth-dir, so the plugin holds no seat and reads
 # no usage, and its proxy variables name a closed loopback port, so the
@@ -19,7 +20,9 @@ SOAK_SECONDS=${SOAK_SECONDS:-120}
 PLUGIN=claude-seat-pacer
 
 library=${1:?usage: load-test-darwin-amd64.sh <library>}
-work=$(mktemp -d)
+# The work directory sits under /tmp: one under macOS's TMPDIR puts the
+# socket's path past the 103 bytes a socket allows.
+work=$(mktemp -d /tmp/seat-pacer-load.XXXXXX)
 pid=
 log=$work/host.log
 fail() {
@@ -70,6 +73,8 @@ plugins:
   configs:
     $PLUGIN:
       enabled: true
+      web:
+        socket: true
 EOF
 
 launch=()
@@ -81,6 +86,8 @@ pid=$!
 
 status_url=http://127.0.0.1:$port/v0/management/plugins/$PLUGIN/status
 page_url=http://127.0.0.1:$port/v0/resource/plugins/$PLUGIN/index.html
+socket=$work/home/.cli-proxy-api/plugins/$PLUGIN/api.sock
+seats=(--unix-socket "$socket" http://localhost/api/seats)
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$@" || true; }
 check_log() {
   if grep -E 'failed to load plugin|fatal|panic|SIGSEGV|SIGBUS' "$log"; then fail "the host log reports a failure"; fi
@@ -96,7 +103,9 @@ got=$(code -H "Authorization: Bearer $key" "$status_url")
 [ "$got" = 200 ] || fail "GET status answered $got"
 got=$(code "$page_url")
 [ "$got" = 200 ] || fail "GET index.html answered $got"
-echo "loaded: status 200, index.html 200"
+got=$(code "${seats[@]}")
+[ "$got" = 200 ] || fail "GET /api/seats answered $got"
+echo "loaded: status 200, index.html 200, seats 200"
 
 polls=0
 end=$((SECONDS + SOAK_SECONDS))
@@ -106,8 +115,10 @@ while [ "$SECONDS" -lt "$end" ]; do
   [ "$got" = 200 ] || fail "GET status answered $got after $polls polls"
   got=$(code "$page_url")
   [ "$got" = 200 ] || fail "GET index.html answered $got after $polls polls"
+  got=$(code "${seats[@]}")
+  [ "$got" = 200 ] || fail "GET /api/seats answered $got after $polls polls"
   polls=$((polls + 1))
 done
 kill -0 "$pid" 2>/dev/null || fail "the host exited at the end of the soak"
 check_log
-echo "soak: host alive after $polls polls of both routes over ${SOAK_SECONDS}s with GOGC=10"
+echo "soak: host alive after $polls polls of all three routes over ${SOAK_SECONDS}s with GOGC=10"

@@ -107,10 +107,11 @@ type Source interface {
 	Status(now time.Time, modelID string) model.Status
 }
 
-// NewHandler serves the app at app-relative paths: "/index.html" for the page
-// and "/api/status" for its data, which the plugin reaches from the page-status
-// management route. A bare "/" reaches it only from cmd/webdev: the host
-// matches a resource route by exact path and refuses an empty one
+// NewHandler serves the app at app-relative paths: "/index.html" for the page,
+// "/api/status" for its data, which the plugin reaches from the page-status
+// management route, and "/api/seats" for one conversation's seat, which only
+// the plugin's Unix socket reaches. A bare "/" reaches it only from cmd/webdev:
+// the host matches a resource route by exact path and refuses an empty one
 // (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
 	return newHandler(src, newIDKey(src).get)
@@ -131,6 +132,11 @@ func newHandler(src Source, key func() []byte) http.Handler {
 				return
 			}
 			serveStatus(w, r, src, key())
+		case "/api/seats":
+			if !allowRead(w, r) {
+				return
+			}
+			serveSeats(w, r, src, key())
 		default:
 			setCommonHeaders(w)
 			http.Error(w, "not found", http.StatusNotFound)
@@ -180,7 +186,7 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte)
 
 	// The body is built before any header is written so an encoding failure
 	// can still produce a 500 rather than a truncated 200.
-	body, err := encodeStatus(status)
+	body, err := encodeData(status)
 	if err != nil {
 		setCommonHeaders(w)
 		http.Error(w, "status encode failed", http.StatusInternalServerError)
@@ -195,7 +201,7 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte)
 
 // nonFiniteSentinel stands in for a float64 that JSON has no literal for. A
 // utilization reading never reaches it, and the encoder renders it as one
-// exact literal, which encodeStatus rewrites to null so the page reads the
+// exact literal, which encodeData rewrites to null so the page reads the
 // value as absent rather than as zero.
 const nonFiniteSentinel = -math.MaxFloat64
 
@@ -205,10 +211,10 @@ var nonFiniteLiteral = []byte("-1.7976931348623157e+308")
 
 var jsonNull = []byte("null")
 
-func encodeStatus(status model.Status) ([]byte, error) {
+func encodeData(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	if err := enc.Encode(status); err != nil {
+	if err := enc.Encode(v); err != nil {
 		return nil, err
 	}
 	return bytes.ReplaceAll(buf.Bytes(), nonFiniteLiteral, jsonNull), nil
@@ -590,7 +596,7 @@ func maskEmail(addr string) string {
 	return string(first) + "…@" + domain
 }
 
-// finite replaces a value JSON cannot express with the sentinel encodeStatus
+// finite replaces a value JSON cannot express with the sentinel encodeData
 // turns into null.
 func finite(f float64) float64 {
 	if math.IsNaN(f) || math.IsInf(f, 0) {

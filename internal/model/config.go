@@ -128,6 +128,10 @@ type WebConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// HistoryLimit caps retained routing decisions, at most 10000.
 	HistoryLimit int `yaml:"history-limit" json:"history_limit"`
+	// Socket serves the local API, a read-only Unix socket beside the
+	// history file that only the host's own user can open, while Enabled
+	// is on too.
+	Socket bool `yaml:"socket" json:"socket"`
 }
 
 // DefaultUsageURL reports per-window utilization for a subscription credential
@@ -165,6 +169,7 @@ func Defaults() Config {
 		Web: WebConfig{
 			Enabled:      true,
 			HistoryLimit: 500,
+			Socket:       false,
 		},
 	}
 }
