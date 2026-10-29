@@ -72,6 +72,8 @@ that returns the same figures.
       "host_status": "active",
       "eligible": true,
       "slack": 0.043,
+      "weekly_per_usd": 0.00001,
+      "five_hour_per_usd": 0.0001,
       "windows": [
         { "kind": "five_hour", "utilization": 0.31, "resets_at": "2026-10-28T01:36:30-04:00", "used_since": 0.155 },
         { "kind": "seven_day", "utilization": 0.35, "resets_at": "2026-11-01T11:56:30-05:00" },
@@ -103,6 +105,8 @@ the name the page shows. A field that does not apply is left out.
 | `seats[].eligible` | Whether the seat can take a new conversation on `model`. |
 | `seats[].reason` | Why it cannot: `spent`, `provider-rejected`, `stale-snapshot`, `no-snapshot`, `fetch-failed`, `no-bearing-window`, `bad-reading` or `not-a-candidate`. |
 | `seats[].slack` | How far the seat's 7-day use is behind its plan, as a fraction of the window; negative when it is ahead. |
+| `seats[].weekly_per_usd` | How much of the 7-day window one dollar of list-price spend used on this seat lately, as a fraction. Multiply a session's own list-price cost by it to estimate that session's share of the window. Absent until the plugin has seen the seat's use rise with its spend. |
+| `seats[].five_hour_per_usd` | The same for the 5-hour window. |
 | `windows[].kind` | `five_hour`, `seven_day`, or `weekly_scoped` for a model family's weekly cap. |
 | `windows[].scope` | The model family of a `weekly_scoped` window, as the usage endpoint names it, such as `Opus`, `Sonnet` or `Fable`. |
 | `windows[].utilization` | How much of the window is used, as a fraction; above 1 past the cap, `null` for a reading that is not a number. |
@@ -147,4 +151,6 @@ first request.
 
 Claude Desktop runs Claude Code sessions, so a Claude Code mod can draw the
 same figures in a band above the prompt box. A mod reaches the socket with
-`$.http.fetch` and its `socketPath` option.
+`$.http.fetch` and its `socketPath` option. To show a session's share of each
+window, it can keep the session's cost over time and multiply each stretch by
+the seat's `weekly_per_usd` and `five_hour_per_usd`.

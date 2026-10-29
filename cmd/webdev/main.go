@@ -613,6 +613,21 @@ func (f *fixture) SessionBinding(sessionID, _ string) (model.Binding, time.Time,
 	return found, time.Time{}, ok
 }
 
+var _ web.SpendRater = (*fixture)(nil)
+
+// SpendRates gives every seat the same synthetic use per dollar, so a local API
+// client pointed at the fixture can show its estimates.
+func (f *fixture) SpendRates(time.Time) map[string]model.SpendRates {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	weekly, fiveHour := 0.00001, 0.0001
+	rates := make(map[string]model.SpendRates, len(f.auths))
+	for _, a := range f.auths {
+		rates[a.AuthID] = model.SpendRates{Weekly: &weekly, FiveHour: &fiveHour}
+	}
+	return rates
+}
+
 // decisionSpec is one scripted routing outcome, offset back from the anchor.
 type decisionSpec struct {
 	ago      time.Duration

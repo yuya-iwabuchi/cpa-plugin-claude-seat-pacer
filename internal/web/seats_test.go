@@ -30,6 +30,14 @@ func (s *binderSource) SessionBinding(sessionID, modelID string) (model.Binding,
 	return b, b.LastSeen.Add(time.Hour), true
 }
 
+// raterSource is a stubSource that also gives seats their rates.
+type raterSource struct {
+	stubSource
+	rates map[string]model.SpendRates
+}
+
+func (s *raterSource) SpendRates(time.Time) map[string]model.SpendRates { return s.rates }
+
 // seatsStatus is a pool of three seats on two priority tiers: an eligible
 // seat named by its account address, a cheaper eligible seat, and a spent one,
 // plus a fallback seat on a lower tier that is cheapest of all.
@@ -180,9 +188,10 @@ func TestSeatsNextPutsASeatWithNoWeeklyCapFirst(t *testing.T) {
 	}
 }
 
-func TestSeatsGivesEachWindowItsUseSince(t *testing.T) {
+func TestSeatsGivesEachWindowItsUseSinceAndEachSeatItsRate(t *testing.T) {
 	now := time.Now()
 	st := seatsStatus()
+	rate, fiveRate := 0.004, 0.03
 	st.Auths[0].History = []model.WindowHistory{{Kind: model.WindowWeekly, Cycles: []model.Cycle{{
 		ResetsAt: now.Add(48 * time.Hour),
 		Samples: []model.Sample{
@@ -191,10 +200,16 @@ func TestSeatsGivesEachWindowItsUseSince(t *testing.T) {
 			{At: now.Add(-2 * time.Hour), Utilization: 0.42},
 		},
 	}}}}
-	h := testHandler(&stubSource{status: st})
+	h := testHandler(&raterSource{
+		stubSource: stubSource{status: st},
+		rates:      map[string]model.SpendRates{"auth-a": {Weekly: &rate, FiveHour: &fiveRate}},
+	})
 	since := now.Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	g := answerOfResponse(t, get(t, h, "/api/seats?since="+since))
 	a := g.Seats[0]
+	if a.WeeklyPerUSD == nil || *a.WeeklyPerUSD != rate || a.FiveHourPerUSD == nil || *a.FiveHourPerUSD != fiveRate {
+		t.Errorf("rates = %v, %v; want %v, %v", a.WeeklyPerUSD, a.FiveHourPerUSD, rate, fiveRate)
+	}
 	var week *AnswerWindow
 	for i := range a.Windows {
 		if a.Windows[i].Kind == model.WindowWeekly {
@@ -204,8 +219,8 @@ func TestSeatsGivesEachWindowItsUseSince(t *testing.T) {
 	if week == nil || week.UsedSince == nil || math.Abs(*week.UsedSince-0.12) > 1e-9 {
 		t.Fatalf("weekly window = %+v, want 0.12 used since", week)
 	}
-	if b := g.Seats[1]; b.Windows[0].UsedSince != nil {
-		t.Errorf("seat b = %+v, want no use since without a history", b)
+	if b := g.Seats[1]; b.Windows[0].UsedSince != nil || b.WeeklyPerUSD != nil || b.FiveHourPerUSD != nil {
+		t.Errorf("seat b = %+v, want no use since and no rate without a history or rate", b)
 	}
 	for _, bad := range []string{"yesterday", now.Add(time.Hour).UTC().Format(time.RFC3339), now.Add(-9 * 24 * time.Hour).UTC().Format(time.RFC3339)} {
 		g := answerOfResponse(t, get(t, h, "/api/seats?since="+bad))

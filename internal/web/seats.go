@@ -24,6 +24,13 @@ type SessionBinder interface {
 	SessionBinding(sessionID, modelID string) (b model.Binding, expiresAt time.Time, ok bool)
 }
 
+// SpendRater is a Source that can give each seat's use per dollar of
+// list-price spend, by credential id. A Source without it answers every
+// request with no rates.
+type SpendRater interface {
+	SpendRates(now time.Time) map[string]model.SpendRates
+}
+
 // LocalAPIVersion is the local API's format version. It rises when a field goes
 // away or changes meaning, and not when a field or a field's value is added.
 const LocalAPIVersion = 1
@@ -57,14 +64,19 @@ type AnswerBinding struct {
 // stands with it, and its windows. Slack is the 7-day plan's lead over the
 // seat's use, absent where the seat is unscored.
 type AnswerSeat struct {
-	AuthID     string         `json:"auth_id"`
-	Label      string         `json:"label"`
-	Priority   int            `json:"priority"`
-	HostStatus string         `json:"host_status,omitempty"`
-	Eligible   bool           `json:"eligible"`
-	Reason     string         `json:"reason,omitempty"`
-	Slack      *float64       `json:"slack,omitempty"`
-	Windows    []AnswerWindow `json:"windows"`
+	AuthID     string   `json:"auth_id"`
+	Label      string   `json:"label"`
+	Priority   int      `json:"priority"`
+	HostStatus string   `json:"host_status,omitempty"`
+	Eligible   bool     `json:"eligible"`
+	Reason     string   `json:"reason,omitempty"`
+	Slack      *float64 `json:"slack,omitempty"`
+	// WeeklyPerUSD is how much of the 7-day window a dollar of list-price
+	// spend used on this seat lately, absent until the plugin knows.
+	WeeklyPerUSD *float64 `json:"weekly_per_usd,omitempty"`
+	// FiveHourPerUSD is the same for the 5-hour window.
+	FiveHourPerUSD *float64       `json:"five_hour_per_usd,omitempty"`
+	Windows        []AnswerWindow `json:"windows"`
 }
 
 // AnswerWindow is one window reading. Utilization is a fraction, above 1 past
@@ -111,7 +123,14 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 			}
 		}
 	}
-	body, err := encodeData(answerOf(reduceForPage(st, key), binding, since, fiveSince))
+	var rates map[string]model.SpendRates
+	if rater, ok := src.(SpendRater); ok {
+		rates = make(map[string]model.SpendRates)
+		for id, r := range rater.SpendRates(now) {
+			rates[publicID(key, id)] = r
+		}
+	}
+	body, err := encodeData(answerOf(reduceForPage(st, key), binding, rates, since, fiveSince))
 	if err != nil {
 		setCommonHeaders(w)
 		http.Error(w, "seats answer encode failed", http.StatusInternalServerError)
@@ -139,8 +158,8 @@ func requestModel(modelID string) string {
 // then the lowest cost. Seats arrive in credential id order, so a tie goes to
 // the lower id, as the pick breaks it. A non-zero since gives each window the
 // use its history records after it, and a non-zero fiveSince does so for the
-// 5-hour window in its place.
-func answerOf(st model.Status, binding *AnswerBinding, since, fiveSince time.Time) SeatsAnswer {
+// 5-hour window in its place. rates are by published id.
+func answerOf(st model.Status, binding *AnswerBinding, rates map[string]model.SpendRates, since, fiveSince time.Time) SeatsAnswer {
 	g := SeatsAnswer{
 		Version:  LocalAPIVersion,
 		Now:      st.Now,
@@ -161,13 +180,15 @@ func answerOf(st model.Status, binding *AnswerBinding, since, fiveSince time.Tim
 	var best *model.AuthStatus
 	for i, a := range st.Auths {
 		seat := AnswerSeat{
-			AuthID:     a.AuthID,
-			Label:      a.Label,
-			Priority:   a.Priority,
-			HostStatus: a.HostStatus,
-			Eligible:   a.Score.Eligible,
-			Reason:     a.Score.Reason,
-			Windows:    make([]AnswerWindow, 0, len(a.Snapshot.Windows)),
+			AuthID:         a.AuthID,
+			Label:          a.Label,
+			Priority:       a.Priority,
+			HostStatus:     a.HostStatus,
+			Eligible:       a.Score.Eligible,
+			Reason:         a.Score.Reason,
+			WeeklyPerUSD:   rates[a.AuthID].Weekly,
+			FiveHourPerUSD: rates[a.AuthID].FiveHour,
+			Windows:        make([]AnswerWindow, 0, len(a.Snapshot.Windows)),
 		}
 		for _, ws := range a.Score.Windows {
 			if ws.Kind == model.WindowWeekly && ws.Scope == "" && ws.Slack != nonFiniteSentinel {

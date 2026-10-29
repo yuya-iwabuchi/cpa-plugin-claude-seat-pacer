@@ -277,7 +277,8 @@ set. The resource route serves the static page alone
 management route behind the key. The local API, off by
 default, is the one route the management key does not guard; file permissions
 guard it instead. It is a read-only Unix socket only the host's own user can
-open, serving the status page's masked view of one conversation's seat.
+open, serving the status page's masked view of one conversation's seat, with
+each seat's use per dollar.
 
 1. Set `pluginVersion` in `main.go` to the new version and merge it to `main`.
 2. On an up-to-date, clean `main`, run `make release-tag`. It refuses another

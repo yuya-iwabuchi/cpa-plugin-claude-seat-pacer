@@ -92,6 +92,11 @@ var _ web.Syncer = (*runtime.Plugin)(nil)
 // silence, leaving every answer with a null binding.
 var _ web.SessionBinder = (*runtime.Plugin)(nil)
 
+// The answer gives each seat its use per dollar only for a Source that can
+// work it out, through a type assertion that would otherwise fail in silence,
+// leaving every seat without a rate.
+var _ web.SpendRater = (*runtime.Plugin)(nil)
+
 // Plugin identity. The host rejects a plugin with any of these blank. The
 // Makefile reads pluginVersion from this line to name the installed library.
 const (

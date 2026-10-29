@@ -503,6 +503,14 @@ type AuthStatus struct {
 	Login *Login `json:"login,omitempty"`
 }
 
+// SpendRates is how much of a seat's 7-day window, and of its 5-hour window,
+// one US dollar of list-price spend used on it lately, each a fraction; nil
+// until the plugin has seen enough of both.
+type SpendRates struct {
+	Weekly   *float64
+	FiveHour *float64
+}
+
 // Login states, from what the host and the usage endpoint show of a seat's
 // login. The host renews a Claude access token LoginRefreshLead before it
 // runs out and keeps serving on it while a renewal fails, so a token closer

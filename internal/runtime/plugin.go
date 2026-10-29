@@ -68,6 +68,7 @@ type Plugin struct {
 	hostSchema  uint32
 	lastModel   string
 	cache       map[string]model.CacheStats
+	spend       map[string]spendLedger
 	auths       []HostAuthFileEntry
 	polls       map[string]pollState
 	// logins is each Claude seat's login as the polls saw it.
@@ -149,6 +150,7 @@ func New(opts Options) *Plugin {
 		now:              opts.Now,
 		quota:            quota.NewStore(),
 		cache:            make(map[string]model.CacheStats),
+		spend:            make(map[string]spendLedger),
 		polls:            make(map[string]pollState),
 		logins:           make(map[string]loginTrack),
 		singleCandidates: make(map[string]int),

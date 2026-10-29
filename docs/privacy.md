@@ -18,9 +18,12 @@ On macOS and Linux, turning on `web.socket` (off by default) while
 beside `history.json`. It answers `GET /api/seats?session=<Claude Code session
 id>&model=<model>` with the seat that session is bound to and every seat's
 windows, in the page's form: masked names, keyed-hash ids and the page's
-warnings. [Local API](local-api.md) describes the answer. It never listens on
-the network: the plugin makes its directory the host user's alone (no group or
-other permission, owned by that user, not a link) and the socket `0600`, so
+warnings. It adds each seat's use per dollar, worked out from the token counts
+on the responses the plugin sees, priced at list price. The plugin keeps the
+dollar amounts as hourly totals per seat, in memory only, and reads the last
+day of them. [Local API](local-api.md) describes the answer. It never listens
+on the network: the plugin makes its directory the host user's alone (no group
+or other permission, owned by that user, not a link) and the socket `0600`, so
 only the user the host runs as can connect, the user who can already read
 `history.json`. A failure to bind it is a status-page warning. Windows serves
 no socket.
