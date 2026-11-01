@@ -6324,10 +6324,10 @@ time[data-ts] { cursor: help; }
   }
 
   /* A time axis whose tick is the finest from 30 minutes to four weeks
-     that leaves each label DAY_LABEL_PX. On a ruled axis, midnights are
-     ruled wherever a day is 5px or wider. Under a day a tick is timed and a
+     that leaves each label DAY_LABEL_PX. Under a day a tick is timed and a
      midnight dated; at a day each day is dated at its middle; past a day
-     every k-th midnight is dated. */
+     every k-th midnight is dated. On a ruled axis, every midnight is ruled
+     while each day is dated, and past a day only the dated ones. */
   function timeAxis(g, t0, t1, X, pw, top, bottom, labelY, ruled) {
     var per = (t1 - t0) / pw;
     var steps = [30, 60, 120, 180, 360, 720].map(function (n) { return n * 60000; })
@@ -6341,9 +6341,10 @@ time[data-ts] { cursor: help; }
     for (var d = bucketStart(t0, "day"); d <= t1; d = bucketAfter(d, "day")) {
       var next = bucketAfter(d, "day");
       if (inside(d)) {
-        if (ruled && H_DAY / per >= 5) svg("line", { "class": "hs-midnight", x1: X(d), x2: X(d), y1: top, y2: bottom }, g);
+        var dated = step > H_DAY && Math.round((d - H_WEEK0) / H_DAY) % Math.round(step / H_DAY) === 0;
+        if (ruled && (step <= H_DAY || dated)) svg("line", { "class": "hs-midnight", x1: X(d), x2: X(d), y1: top, y2: bottom }, g);
         if (step < H_DAY) label(d, new Date(d).toLocaleDateString(undefined, dayFmt), true);
-        else if (step > H_DAY && Math.round((d - H_WEEK0) / H_DAY) % Math.round(step / H_DAY) === 0) {
+        else if (dated) {
           label(d, new Date(d).toLocaleDateString(undefined, dayFmt));
         }
       }
@@ -7329,8 +7330,8 @@ time[data-ts] { cursor: help; }
   /* The start of the day or week holding t, and from a bucket's start the
      start of the one after: a day opens at the first instant of its local
      date, which is 1 AM where a daylight-saving change skips midnight, and a
-     week at its Monday's, so each bucket's edges are the plot's midnight
-     lines. */
+     week at its Monday's, so each bucket's edges fall on the plot's
+     midnights. */
   function bucketStart(t, unit) {
     var d = new Date(t);
     return new Date(d.getFullYear(), d.getMonth(), d.getDate() - (unit === "week" ? (d.getDay() + 6) % 7 : 0)).getTime();
