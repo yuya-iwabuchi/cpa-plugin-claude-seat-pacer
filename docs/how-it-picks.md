@@ -42,6 +42,11 @@ responses report an all-models weekly window is paced like any other, and a
 pool in which every seat has a weekly cap on the requested model is ranked on
 its weekly pacing alone.
 
+A seat whose plan has no 5-hour limit reports its weekly windows and no
+5-hour window. It is paced on its weekly windows like any other seat with a
+weekly cap, and no 5-hour window can make it ineligible, so it keeps taking
+new conversations while other seats wait out a full 5-hour window.
+
 A seat is ineligible when:
 
 - Anthropic has refused a request on a window covering the requested model's
@@ -51,16 +56,16 @@ A seat is ineligible when:
 - its usage read has never succeeded, or
 - its reading is older than `max-staleness`.
 
-A seat's reading comes from two sources. The usage endpoint reports the 5-hour
-window, the weekly all-models window and each model family's weekly window;
-the plugin reads it every `poll-interval`, two minutes by default, and again a
-few seconds after each reset. Between reads, the rate-limit headers on every
-completed response update the 5-hour, weekly and Fable weekly windows and
-record any refusal, so the seat taking new conversations closes its gap as it
-works, and once another seat outranks it, new conversations go there. A seat
-refused or full on a window takes no new conversation for the models that
-window caps while another seat has room, until a later reading shows room on
-it.
+A seat's reading comes from two sources. The usage endpoint reports each window
+the seat has: the 5-hour window, the weekly all-models window and each model
+family's weekly window; the plugin reads it every `poll-interval`, two minutes
+by default, and again a few seconds after each reset. Between reads, the
+rate-limit headers on every completed response update the 5-hour, weekly and
+Fable weekly windows and record any refusal, so the seat taking new
+conversations closes its gap as it works, and once another seat outranks it,
+new conversations go there. A seat refused or full on a window takes no new
+conversation for the models that window caps while another seat has room, until
+a later reading shows room on it.
 
 CLIProxyAPI's own session affinity never binds a conversation a plugin routes,
 so the plugin binds each one itself. A new subagent on the same model joins

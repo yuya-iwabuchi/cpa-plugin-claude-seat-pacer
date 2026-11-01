@@ -38,7 +38,7 @@ const failoverNote = "bound credential not offered"
 func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
-		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, session-only, "+
+		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, session-only, no-session, "+
 			"cleared, exhausted, logins, logins-all, logins-network, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
@@ -124,6 +124,12 @@ func main() {
 		// for Standard requests whatever their costs, one capped seat behind
 		// its plan included.
 		src.sessionOnly()
+	case "no-session":
+		// Two seats reporting weekly windows and no 5-hour window, as a plan
+		// without a 5-hour limit does: one behind its weekly plan, which ranks
+		// first, and one ahead of it. Nothing gates either short of its weekly
+		// caps, so both stay eligible while a capped seat is spent.
+		src.noSession()
 	case "cleared":
 		// A seat whose provider cleared both weekly windows half a day ago and
 		// kept their reset instant, so its recorded lines climb to near full,
@@ -846,6 +852,26 @@ func (f *fixture) sessionOnly() {
 	f.decisions = f.manyDecisions(ids)
 }
 
+// noSession builds the no-session scenario: the first three manySeats rows
+// and two seats whose usage carries an all-models weekly window and a Fable
+// cap and no 5-hour window.
+func (f *fixture) noSession() {
+	f.growTo(3)
+	for _, ms := range []manySeat{
+		{id: "claude-no-5h-behind.json", label: "no-5h-behind", name: "claude-no-5h-behind.json",
+			weekly: 0.48, scoped: 0.20, elapsedDays: 5.5, state: "no-session"},
+		{id: "claude-no-5h-ahead.json", label: "no-5h-ahead", name: "claude-no-5h-ahead.json",
+			weekly: 0.62, scoped: 0.35, elapsedDays: 3, state: "no-session"},
+	} {
+		f.addManySeat(len(f.auths), ms)
+	}
+	ids := make([]string, 0, len(f.auths))
+	for _, a := range f.auths {
+		ids = append(ids, a.AuthID)
+	}
+	f.decisions = f.manyDecisions(ids)
+}
+
 // unreadAfterClear is how long the cleared scenario leaves a seat's
 // all-models window unread after its clearing.
 const unreadAfterClear = 6 * time.Hour
@@ -1033,6 +1059,11 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 			// An unopened 5-hour window reports nothing used and no reset.
 			snap.Windows[0].Utilization, snap.Windows[0].ResetsAt, snap.Windows[0].Active = 0, time.Time{}, false
 		}
+	case "no-session":
+		// A seat the provider reports with no 5-hour window, so only its
+		// weekly windows bear on a request and the all-models one binds.
+		snap.Windows = slices.Delete(snap.Windows, 0, 1)
+		snap.Windows[0].Active = true
 	}
 	if ms.state != "nosnap" && ms.state != "disabled" {
 		f.snapshots[ms.id] = snap

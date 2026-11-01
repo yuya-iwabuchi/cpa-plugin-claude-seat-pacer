@@ -3,6 +3,9 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -846,4 +849,66 @@ func TestOnlyASpentBindingRecordsWhyItWasKept(t *testing.T) {
 			t.Errorf("note = %q, want none so the status view marks only the deliberate case", d.Note)
 		}
 	})
+}
+
+// A seat whose usage read reports weekly windows and no 5-hour window, as a
+// plan without a 5-hour limit does, is picked on its weekly pacing. A 429
+// whose headers carry only the weekly family, with the claim naming it,
+// refuses that seat, and the next conversation goes to the other seat.
+func TestPickRoutesASeatWithNoSessionWindowUntilItsWeeklyRefusal(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	reset := at(t, "2026-09-05T06:00:00Z")
+	tp.quota.Put(seat("seat-u", testNow,
+		model.Window{Kind: model.WindowWeekly, Utilization: 0.3, ResetsAt: reset, Duration: model.WeeklyDuration},
+		model.Window{Kind: model.WindowWeeklyScoped, Scope: model.FamilyFable, Utilization: 0.1, ResetsAt: reset, Duration: model.WeeklyDuration},
+	))
+	tp.quota.Put(seatA(t))
+
+	if out := tp.pick(t, pickRequest(fableModel, "k1", "seat-a", "seat-u")); !out.Handled || out.AuthID != "seat-u" {
+		t.Fatalf("cold pick = %+v, want seat-u, furthest behind its weekly plan", out)
+	}
+	for _, s := range tp.lastDecision(t).Scores {
+		if s.AuthID == "seat-u" && (!s.Eligible || s.SessionOnly) {
+			t.Fatalf("seat-u score = %+v, want an eligible capped seat", s)
+		}
+	}
+
+	epoch := strconv.FormatInt(reset.Unix(), 10)
+	tp.callOK(t, MethodUsageHandle, mustJSON(t, UsageRecord{
+		Provider: "claude", Model: fableModel, AuthID: "seat-u", AuthIndex: "idx-u",
+		RequestedAt: testNow, Latency: time.Second,
+		Failed: true, Failure: UsageFailure{StatusCode: http.StatusTooManyRequests},
+		ResponseHeaders: http.Header{
+			"Anthropic-Ratelimit-Unified-Status":               {"rejected"},
+			"Anthropic-Ratelimit-Unified-Reset":                {epoch},
+			"Anthropic-Ratelimit-Unified-Representative-Claim": {"seven_day"},
+			"Anthropic-Ratelimit-Unified-7d-Status":            {"rejected"},
+			"Anthropic-Ratelimit-Unified-7d-Utilization":       {"1.0"},
+			"Anthropic-Ratelimit-Unified-7d-Reset":             {epoch},
+		},
+	}), nil)
+
+	if out := tp.pick(t, pickRequest(fableModel, "k2", "seat-a", "seat-u")); !out.Handled || out.AuthID != "seat-a" {
+		t.Fatalf("pick after the weekly refusal = %+v, want seat-a", out)
+	}
+	for _, s := range tp.lastDecision(t).Scores {
+		if s.AuthID == "seat-u" && (s.Eligible || s.Reason != model.ReasonRejected) {
+			t.Errorf("seat-u score = %+v, want ineligible with reason %q", s, model.ReasonRejected)
+		}
+	}
+	snap, _ := tp.quota.Get("seat-u")
+	if _, ok := snap.Window(model.WindowSession, ""); ok {
+		t.Errorf("seat-u windows = %+v, want no 5-hour window from a weekly-only refusal", snap.Windows)
+	}
+	var locks []model.Lock
+	for _, row := range tp.Status(testNow, "").Auths {
+		for _, h := range row.History {
+			if row.AuthID == "seat-u" && h.Kind == model.WindowWeekly {
+				locks = h.Locks
+			}
+		}
+	}
+	if want := []model.Lock{{From: testNow.Add(time.Second).Unix(), To: reset.Unix()}}; !reflect.DeepEqual(locks, want) {
+		t.Errorf("seat-u weekly locks = %+v, want an ongoing span to the reset, %+v", locks, want)
+	}
 }

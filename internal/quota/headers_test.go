@@ -56,6 +56,29 @@ func TestParseResponseHeaders(t *testing.T) {
 			},
 		},
 		{
+			name: "a seat with no 5-hour window reports the weekly window as binding",
+			headers: map[string][]string{
+				"Anthropic-Ratelimit-Unified-Status":                 {"allowed_warning"},
+				"Anthropic-Ratelimit-Unified-Reset":                  {epochDay(10, 14)},
+				"Anthropic-Ratelimit-Unified-Representative-Claim":   {"seven_day"},
+				"Anthropic-Ratelimit-Unified-Upgrade-Paths":          {"overage"},
+				"Anthropic-Ratelimit-Unified-7d-Status":              {"allowed_warning"},
+				"Anthropic-Ratelimit-Unified-7d-Utilization":         {"0.86"},
+				"Anthropic-Ratelimit-Unified-7d-Reset":               {epochDay(10, 14)},
+				"Anthropic-Ratelimit-Unified-7d-Surpassed-Threshold": {"0.75"},
+			},
+			want: []model.Window{
+				{
+					Kind:        model.WindowWeekly,
+					Utilization: 0.86,
+					ResetsAt:    day(10, 14),
+					Duration:    model.WeeklyDuration,
+					Status:      model.StatusAllowedWarning,
+					Active:      true,
+				},
+			},
+		},
+		{
 			name: "utilization past the cap is carried through unscaled",
 			headers: map[string][]string{
 				"anthropic-ratelimit-unified-5h-utilization": {"1.0421"},

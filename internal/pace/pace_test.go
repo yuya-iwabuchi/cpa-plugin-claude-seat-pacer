@@ -1243,3 +1243,53 @@ func TestHeaderOnlyReadingIsNeverSessionOnly(t *testing.T) {
 		t.Fatalf("SessionOnly on a header-only reading, want a missing weekly window to count only from the usage endpoint")
 	}
 }
+
+// A seat whose usage-endpoint reading holds weekly windows and no 5-hour
+// window is a capped seat: it is not SessionOnly, and its cost is its weekly
+// terms, the all-models window's and on Fable its family cap's.
+func TestSeatWithNoSessionWindowPacesOnItsWeeklyWindows(t *testing.T) {
+	now := testNow
+	cfg := model.Defaults().Pace
+	snap := seat("no-session", now, weekly(now, 0.5, 0.3), paced(model.WindowWeeklyScoped, model.FamilyFable, now, 0.5, 0.1))
+	target := Target(cfg, 0.5)
+	for _, tc := range []struct {
+		modelID string
+		want    float64
+	}{
+		{opus, -cfg.WeeklyWeight * (target - 0.3)},
+		{fable, -cfg.WeeklyWeight*(target-0.3) - cfg.ScopedWeight*(target-0.1)},
+	} {
+		s := ScoreAuth(cfg, snap, tc.modelID, now)
+		if !s.Eligible || s.SessionOnly {
+			t.Fatalf("%s: eligible=%v SessionOnly=%v reason=%q, want an eligible capped seat", tc.modelID, s.Eligible, s.SessionOnly, s.Reason)
+		}
+		if math.Abs(s.Cost-tc.want) > 1e-12 {
+			t.Errorf("%s: cost = %v, want the weekly terms, %v", tc.modelID, s.Cost, tc.want)
+		}
+	}
+}
+
+// A seat with no 5-hour window ranks among capped seats on weekly pacing,
+// behind any SessionOnly seat and ahead of a capped seat further behind its
+// weekly plan whose 5-hour window is full. Once its weekly window is full it
+// is gated like any other seat.
+func TestSeatWithNoSessionWindowRanksAmongCappedSeats(t *testing.T) {
+	now := testNow
+	cfg := model.Defaults().Pace
+	pool := snapshots(
+		seat("capped-behind", now, paced(model.WindowSession, "", now, 0.5, 0.1), weekly(now, 0.9, 0.1)),
+		seat("capped-spent", now, paced(model.WindowSession, "", now, 0.5, 1.0), weekly(now, 0.9, 0.05)),
+		seat("no-session", now, weekly(now, 0.6, 0.3)),
+		seat("session-only", now, paced(model.WindowSession, "", now, 0.5, 0.6)),
+	)
+	ids := []string{"capped-behind", "capped-spent", "no-session", "session-only"}
+	ranked := Rank(cfg, pool, ids, opus, now)
+	if got, want := rankedIDs(ranked), []string{"session-only", "capped-behind", "no-session", "capped-spent"}; !slices.Equal(got, want) {
+		t.Fatalf("ranked %v, want %v", got, want)
+	}
+
+	full := ScoreAuth(cfg, seat("no-session-full", now, weekly(now, 0.6, 1.0)), opus, now)
+	if full.Eligible || full.Reason != model.ReasonSpent {
+		t.Fatalf("full weekly window: eligible=%v reason=%q, want %q", full.Eligible, full.Reason, model.ReasonSpent)
+	}
+}

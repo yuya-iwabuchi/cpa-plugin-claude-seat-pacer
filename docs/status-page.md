@@ -47,16 +47,17 @@ still offers it for other models, and its tooltip names the host status.
   the provider, full, or not scored.
 - **Current window.** Each seat's use of its current window against the curve,
   one window at a time: 7d Standard, each model family's 7-day cap the cost
-  weighs, and 5h Standard. A 7-day view lists the seats in its family's
-  ranking order, each with where it is headed at its last 24 hours' rate; the
-  5-hour view shows where each seat stands against the limit that can make it
-  ineligible. Pointing at a seat shows its gap to the target where the window
-  is paced. A stretch in which the provider refused the seat, or a window
-  bearing on the line read full, is a hatched sleeve in the seat's colour
-  around its line, under every seat still taking work: a full seat takes no
-  new conversation, so the provider may never be asked to refuse it. A seat
-  held now (refused, full or held by host) has a pause in place of its mark's
-  dot, and one the host has disabled a cross.
+  weighs, and 5h Standard. A 7-day view lists the seats in its family's ranking
+  order, each with where it is headed at its last 24 hours' rate; the 5-hour
+  view shows where each seat stands against the limit that can make it
+  ineligible, and lists a seat whose plan has no 5-hour limit as such. Pointing
+  at a seat shows its gap to the target where the window is paced. A stretch in
+  which the provider refused the seat, or a window bearing on the line read
+  full, is a hatched sleeve in the seat's colour around its line, under every
+  seat still taking work: a full seat takes no new conversation, so the
+  provider may never be asked to refuse it. A seat held now (refused, full or
+  held by host) has a pause in place of its mark's dot, and one the host has
+  disabled a cross.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per
