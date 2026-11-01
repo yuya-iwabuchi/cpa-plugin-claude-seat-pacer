@@ -25,7 +25,7 @@ before its reset. Set `landing-target: 1.0` to plan each seat to finish at its
 reset instead. For an even spread, disable the plugin; the host's own strategy,
 round-robin by default, takes over.
 
-Some seats, Team seats among them, report no all-models weekly window, only a
+Some seats, including some Team seats, report no all-models weekly window, only a
 5-hour window and a Fable weekly window. On a model outside Fable such a seat
 has no weekly cap: its 5-hour window is its only quota, and it resets several
 times a day. Every eligible seat with no weekly cap goes ahead of every seat
@@ -42,10 +42,14 @@ responses report an all-models weekly window is paced like any other, and a
 pool in which every seat has a weekly cap on the requested model is ranked on
 its weekly pacing alone.
 
-A seat whose plan has no 5-hour limit reports its weekly windows and no
-5-hour window. It is paced on its weekly windows like any other seat with a
-weekly cap, and no 5-hour window can make it ineligible, so it keeps taking
-new conversations while other seats wait out a full 5-hour window.
+A seat whose usage read reports weekly windows and no 5-hour window, as a plan
+with no 5-hour limit does, has no 5-hour limit to gate it. It is ranked on its
+weekly windows alone, so it stays eligible while seats with a 5-hour limit wait
+out a full one, though a seat with no weekly cap on the model still goes first.
+With a `session-weight` above 0, the seats it is compared with carry a 5-hour
+term it does not. A refusal of the 5-hour window it had before ends at the
+first read that no longer reports the window, and the plugin then ends the
+host's cooldown from that refusal as it does after an early reset.
 
 A seat is ineligible when:
 

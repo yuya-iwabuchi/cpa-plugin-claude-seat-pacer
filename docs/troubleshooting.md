@@ -24,20 +24,23 @@ management API only once `management.secret-key` is set
 (`remote-management.secret-key` before 8.0). Set it, restart the host, and
 enter that key on the page.
 
-**Every new conversation lands on one seat.** Either that seat is alone on
-the top `priority` tier, or the other seats on its tier, or every seat on the
-tiers above it, are unavailable to the host or refused upstream. The status
-page warns which, and names the seats when it is the tier layout.
+**Every new conversation lands on one seat.** Either that seat is alone on the
+top `priority` tier, or the other seats on its tier, or every seat on the tiers
+above it, are unavailable to the host or refused upstream. The status page
+warns which, and names the seats when it is the tier layout. It can also be by
+design: a seat with no weekly cap on the model ranks ahead of every seat with
+one, and a seat with no 5-hour limit is the only one with room while the others
+wait out a full 5-hour window. Current window shows which.
 
 **A seat whose quota came back early still gets no requests.** The host keeps
 the cooldown from the 429 the seat had until the reset that 429 named. When
 that cooldown ends at the reset the plugin saw refused, the plugin ends it
-within a poll or two of a usage read showing the quota back. The page warns
-when it cannot: on a host older than 8.0.12, when the reset fails, or when the
-host cools the seat again right after. Then, or for a cooldown the page does
-not mention, reset the seat with
-`POST /v0/management/reset-quota {"auth_index": …}`, or restart the host,
-which drops every cooldown unless
+within a poll or two of a usage read showing the quota back, or no longer
+reporting the refused window, as when a plan drops its 5-hour limit. The page
+warns when it cannot: on a host older than 8.0.12, when the reset fails, or
+when the host cools the seat again right after. Then, or for a cooldown the
+page does not mention, reset the seat with `POST /v0/management/reset-quota
+{"auth_index": …}`, or restart the host, which drops every cooldown unless
 `routing.cooldown.save-cooldown-status` (`save-cooldown-status` before 8.0) is
 on.
 
