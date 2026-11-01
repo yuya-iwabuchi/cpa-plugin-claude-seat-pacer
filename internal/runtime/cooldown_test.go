@@ -211,6 +211,35 @@ func TestAClearingIsFoundOnItsConfirmingRead(t *testing.T) {
 	}
 }
 
+// TestAHoldOnAWindowTheReadDroppedIsReleased drives the quota store through a
+// 5-hour refusal and then usage reads with no 5-hour window, as a plan that
+// drops its 5-hour limit reports: the cooldown the refusal set is stale, with
+// the quota back from the read that dropped the window.
+func TestAHoldOnAWindowTheReadDroppedIsReleased(t *testing.T) {
+	const id = "claude-a.json"
+	store := quota.NewStore()
+	weekly := model.Window{Kind: model.WindowWeekly, Utilization: 0.3, ResetsAt: weeklyReset}
+	put := func(at time.Time, windows ...model.Window) model.AuthSnapshot {
+		store.Put(model.AuthSnapshot{AuthID: id, ObservedAt: at, Source: model.SourceUsageEndpoint, Windows: windows})
+		snap, _ := store.Get(id)
+		return snap
+	}
+	refusedAt, sessionReset := testNow.Add(-2*time.Hour), testNow.Add(3*time.Hour)
+	full := model.Window{Kind: model.WindowSession, Utilization: 1, ResetsAt: sessionReset, Status: model.StatusRejected}
+	put(refusedAt, full, weekly)
+	store.RecordRefusals(id, []model.Window{full}, refusedAt, refusedAt)
+
+	droppedAt := testNow.Add(-2 * time.Minute)
+	put(droppedAt, weekly)
+	hold, ok := findStaleHold(heldEntry(sessionReset.Add(20*time.Second)), put(testNow, weekly), store.History(id, 1, testNow), testNow)
+	if !ok {
+		t.Fatalf("no stale cooldown found; history = %+v", store.History(id, 1, testNow))
+	}
+	if !hold.released.Equal(droppedAt) || hold.span != refusedAt.Unix() {
+		t.Errorf("hold = %+v, want released at the read that dropped the window and keyed by the refusal", hold)
+	}
+}
+
 // staleHoldFixture is pollFixture with claude-a.json cooled by the host until
 // the weekly reset, after a refusal span the provider cleared an hour ago.
 func staleHoldFixture(t *testing.T, tp *testPlugin) {

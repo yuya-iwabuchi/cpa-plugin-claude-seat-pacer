@@ -106,6 +106,63 @@ func TestStorePutReplacesTheWindowSetWholesale(t *testing.T) {
 	}
 }
 
+// TestStorePutEndsTheRefusalOfAWindowItDrops covers a plan dropping its
+// 5-hour limit while the provider refuses that window: the read with no
+// 5-hour window ends the refusal as cleared, a header reading older than the
+// latest such read cannot bring the window back, and a newer one can.
+func TestStorePutEndsTheRefusalOfAWindowItDrops(t *testing.T) {
+	s := NewStore()
+	full := sessionWindow(1)
+	full.Status = model.StatusRejected
+	s.Put(endpointSnapshot("auth-1", testNow, full, weeklyWindow(0.3)))
+	s.RecordRefusals("auth-1", []model.Window{full}, testNow, testNow)
+
+	read := testNow.Add(time.Hour)
+	s.Put(endpointSnapshot("auth-1", read, weeklyWindow(0.31)))
+	s.Put(endpointSnapshot("auth-1", read.Add(2*time.Minute), weeklyWindow(0.31)))
+	s.MergeHeaders("auth-1", []model.Window{full}, read.Add(time.Minute))
+
+	if snap := mustGet(t, s, "auth-1"); len(snap.Windows) != 1 {
+		t.Fatalf("windows = %+v, want only the weekly window", snap.Windows)
+	}
+	var locks []model.Lock
+	for _, h := range s.History("auth-1", 1, read) {
+		if h.Kind == model.WindowSession {
+			locks = h.Locks
+		}
+	}
+	if len(locks) != 1 || locks[0].End != model.LockEndCleared || locks[0].To != read.Unix() || locks[0].Expected != at(21, 0).Unix() {
+		t.Fatalf("session locks = %+v, want the refusal ended as cleared at the read", locks)
+	}
+
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.1)}, read.Add(3*time.Minute))
+	if got := utilizationOf(t, mustGet(t, s, "auth-1"), model.WindowSession, ""); got != 0.1 {
+		t.Errorf("session utilization = %v, want the newer header's 0.1", got)
+	}
+}
+
+// TestStorePutKeepsARefusalAReadDoesNotSettle covers reads that say nothing
+// about the 5-hour and weekly windows: a failed fetch, and a read carrying
+// only a family cap, leave a refusal of the 5-hour window running.
+func TestStorePutKeepsARefusalAReadDoesNotSettle(t *testing.T) {
+	s := NewStore()
+	full := sessionWindow(1)
+	full.Status = model.StatusRejected
+	s.Put(endpointSnapshot("auth-1", testNow, full, weeklyWindow(0.3)))
+	s.RecordRefusals("auth-1", []model.Window{full}, testNow, testNow)
+
+	failed := endpointSnapshot("auth-1", testNow.Add(time.Minute))
+	failed.Err = "usage endpoint: 500"
+	s.Put(failed)
+	s.Put(endpointSnapshot("auth-1", testNow.Add(2*time.Minute), fableWindow(0.2)))
+
+	for _, h := range s.History("auth-1", 1, testNow.Add(2*time.Minute)) {
+		if h.Kind == model.WindowSession && (len(h.Locks) != 1 || h.Locks[0].End != "") {
+			t.Errorf("session locks = %+v, want the refusal still running", h.Locks)
+		}
+	}
+}
+
 func TestStorePutWithAnErrorRetainsPriorReadings(t *testing.T) {
 	s := NewStore()
 	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.5), weeklyWindow(0.1)))

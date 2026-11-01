@@ -240,6 +240,24 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 			newest = at
 		}
 	}
+	// A 5-hour or weekly window a successful read carrying either of them no
+	// longer reports, as when a plan drops its 5-hour limit, has nothing left
+	// to refuse: its ongoing refusal span ends as cleared at the read, and a
+	// reading of it older than the read cannot bring it back. A family cap is
+	// left alone, since the headers report refusals of a cap the read does
+	// not carry.
+	if snap.Err == "" && slices.ContainsFunc(stored.Windows, func(w model.Window) bool { return w.Scope == "" }) {
+		for _, key := range e.order {
+			if key.scope != "" || slices.ContainsFunc(stored.Windows, hasKey(key)) {
+				continue
+			}
+			e.history[key].end(observedAt, model.LockEndCleared)
+			e.seenAt[key] = observedAt
+			if exists && prior.seenAt[key].After(observedAt) {
+				e.seenAt[key] = prior.seenAt[key]
+			}
+		}
+	}
 	e.snap.ObservedAt = newest
 	s.history++
 	s.entries[snap.AuthID] = e

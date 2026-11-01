@@ -113,9 +113,10 @@ the run. Do not remove that test.
   `host.routing.reset_cooldown` (host 8.0.12+) ends the cooldown without
   writing the credential file, and clears the seat's other per-model cooldowns
   with it. The plugin calls it only for a cooldown `findStaleHold` ties to an
-  ended 5-hour or weekly refusal whose window has since cleared or rolled, at
-  most once per refusal span. An older host answers `unsupported host
-  callback`, and the status page warns instead.
+  ended 5-hour or weekly refusal whose window has since cleared or rolled, or
+  that a usage read no longer reports, at most once per refusal span. An
+  older host answers `unsupported host callback`, and the status page warns
+  instead.
 - **Only one scheduler plugin is ever consulted**: the first non-fused one by
   plugin priority, then id.
 - **Home mode bypasses the scheduler hook entirely**, while
