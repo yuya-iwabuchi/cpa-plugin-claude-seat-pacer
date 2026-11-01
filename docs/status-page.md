@@ -50,7 +50,7 @@ still offers it for other models, and its tooltip names the host status.
   weighs, and 5h Standard. A 7-day view lists the seats in its family's ranking
   order, each with where it is headed at its last 24 hours' rate; the 5-hour
   view shows where each seat stands against the limit that can make it
-  ineligible, and lists a seat whose plan has no 5-hour limit as such. Pointing
+  ineligible, and lists a seat whose plan has no 5-hour limit last, as such. Pointing
   at a seat shows its gap to the target where the window is paced. A stretch in
   which the provider refused the seat, or a window bearing on the line read
   full, is a hatched sleeve in the seat's colour around its line, under every

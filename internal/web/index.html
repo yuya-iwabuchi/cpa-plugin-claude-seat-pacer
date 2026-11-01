@@ -5750,9 +5750,10 @@ time[data-ts] { cursor: help; }
   /* The 5-hour list's rows. A seat the host holds, or whose reading the
      scorer cannot use, too old or never taken, says so in the 7-day lists'
      word; any other says where it is headed and when it resets, on one
-     line. */
+     line. A seat whose plan has no 5-hour limit comes last. */
   function sessionRows(seats, paceCfg, now) {
-    return seats.map(function (a) {
+    var ordered = seats.filter(function (a) { return !noSessionLimit(a); }).concat(seats.filter(noSessionLimit));
+    return ordered.map(function (a) {
       var w = sessionWindow(a), o = currentOutlook(a, "five_hour", "", paceCfg, now);
       var v = famVerdict(a, STANDARD, now), sc = famScore(a, STANDARD);
       var unread = hostHolds(a) || (!v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot")) ? v.word : "";
