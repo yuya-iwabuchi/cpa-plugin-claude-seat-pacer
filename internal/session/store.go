@@ -2,6 +2,7 @@ package session
 
 import (
 	"container/list"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -139,6 +140,36 @@ func (s *Store) Bind(provider, modelID, sessionKey, authID string, now time.Time
 	s.counts[authID]++
 	s.evict()
 	return e.binding
+}
+
+// Restore files bindings an earlier run saved and reports how many it kept.
+// Each keeps its credential, bind time, last-seen time and hit count. A binding
+// naming no conversation or credential, seen after now, or idle past the TTL
+// at now is skipped, as is one for a conversation the table already binds on
+// that provider and model, which is the newer. Restored bindings file behind
+// every binding already held, most recently seen first, and the cap then drops
+// the least recently seen.
+func (s *Store) Restore(saved []model.Binding, now time.Time) int {
+	sorted := slices.Clone(saved)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].LastSeen.After(sorted[j].LastSeen) })
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n := 0
+	for _, b := range sorted {
+		if b.SessionKey == "" || b.AuthID == "" || b.LastSeen.After(now) {
+			continue
+		}
+		e := &entry{index: indexKey(b.Provider, b.Model, b.SessionKey), binding: b}
+		if _, held := s.index[e.index]; held || s.expired(e, now) {
+			continue
+		}
+		s.index[e.index] = s.order.PushBack(e)
+		s.counts[b.AuthID]++
+		n++
+	}
+	return n - s.evict()
 }
 
 // DropAuth unbinds every session on a credential and returns how many it
@@ -280,17 +311,20 @@ func (s *Store) remove(el *list.Element) {
 	}
 }
 
-// evict drops least-recently-seen bindings until the table is within cap.
-// Callers hold the lock.
-func (s *Store) evict() {
+// evict drops least-recently-seen bindings until the table is within cap and
+// reports how many it dropped. Callers hold the lock.
+func (s *Store) evict() int {
 	if s.max <= 0 {
-		return
+		return 0
 	}
+	n := 0
 	for len(s.index) > s.max {
 		el := s.order.Back()
 		if el == nil {
-			return
+			break
 		}
 		s.remove(el)
+		n++
 	}
+	return n
 }

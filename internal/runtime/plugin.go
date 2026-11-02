@@ -32,7 +32,7 @@ type Options struct {
 	Now func() time.Time
 	// HistoryFile is where the utilization history is kept between runs when
 	// quota.persist-history is on. Empty selects the default beside the
-	// host's plugin directory.
+	// host's plugin directory. Its directory also holds the bindings file.
 	HistoryFile string
 }
 
@@ -67,6 +67,12 @@ type Plugin struct {
 	cache       map[string]model.CacheStats
 	auths       []HostAuthFileEntry
 	polls       map[string]pollState
+	// handedOver marks a build whose shutdown must not save its bindings: one
+	// the host has quiesced for a replacement, or one already shut down. The
+	// host shuts a replaced build down after the build that replaced it, and
+	// a host that loads a library again reuses its memory, so such a save
+	// would overwrite the live table with a stale one. A configure clears it.
+	handedOver bool
 	// logins is each Claude seat's login as the polls saw it.
 	logins   map[string]loginTrack
 	listErr  string
@@ -246,9 +252,13 @@ func Degrade(method, code, message string) ([]byte, bool) {
 func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 	switch method {
 	case MethodPluginRegister, MethodPluginReconfigure:
-		return p.configure(payload)
+		return p.configure(payload, method == MethodPluginRegister)
 	case MethodPluginQuiesce:
+		p.mu.Lock()
+		p.handedOver = true
+		p.mu.Unlock()
 		p.stopPoller()
+		p.saveBindings()
 		return okEnvelope(emptyResult)
 	case MethodPluginShutdown:
 		p.Shutdown()
@@ -273,8 +283,11 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 // configure answers plugin.register and plugin.reconfigure. Both carry the
 // same payload and the host re-issues reconfigure on every config reload and
 // several times during startup, so the work here is a config swap and a
-// no-op poller start.
-func (p *Plugin) configure(payload []byte) ([]byte, error) {
+// no-op poller start. A register also restores the saved bindings. Either
+// marks the build live, so a quiesced build saves its bindings again at its
+// next stop once the host reconfigures it, which is how the host rolls back
+// a replacement that failed to load.
+func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 	var req LifecycleRequest
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, &req); err != nil {
@@ -289,8 +302,12 @@ func (p *Plugin) configure(payload []byte) ([]byte, error) {
 		p.host.log("warn", "claude-seat-pacer config is invalid; plugin is inert", map[string]any{"error": err.Error()})
 	}
 	p.applyConfig(cfg, configWarnings)
+	if register {
+		p.restoreBindings(cfg)
+	}
 
 	p.mu.Lock()
+	p.handedOver = false
 	p.hostSchema = req.SchemaVersion
 	if p.startedAt.IsZero() {
 		p.startedAt = p.now()
@@ -337,10 +354,17 @@ func (p *Plugin) applyConfig(cfg model.Config, warnings []string) {
 	p.cfg.Store(&cfg)
 	p.configWarnings = warnings
 	if p.bindings == nil || p.bindingsTTL != cfg.Affinity.TTL || p.bindingsMax != cfg.Affinity.MaxSessions {
-		p.bindings = p.opts.NewBindingStore(cfg.Affinity.TTL, cfg.Affinity.MaxSessions)
-		p.bindingsTTL = cfg.Affinity.TTL
-		p.bindingsMax = cfg.Affinity.MaxSessions
+		p.newBindingsLocked(cfg)
 	}
+}
+
+// newBindingsLocked replaces the binding table with an empty one sized by cfg
+// and returns it. The caller holds mu.
+func (p *Plugin) newBindingsLocked(cfg model.Config) BindingStore {
+	p.bindings = p.opts.NewBindingStore(cfg.Affinity.TTL, cfg.Affinity.MaxSessions)
+	p.bindingsTTL = cfg.Affinity.TTL
+	p.bindingsMax = cfg.Affinity.MaxSessions
+	return p.bindings
 }
 
 // bindingStore returns the live binding table.
@@ -348,10 +372,7 @@ func (p *Plugin) bindingStore() BindingStore {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.bindings == nil {
-		cfg := p.cfg.Load()
-		p.bindings = p.opts.NewBindingStore(cfg.Affinity.TTL, cfg.Affinity.MaxSessions)
-		p.bindingsTTL = cfg.Affinity.TTL
-		p.bindingsMax = cfg.Affinity.MaxSessions
+		return p.newBindingsLocked(*p.cfg.Load())
 	}
 	return p.bindings
 }

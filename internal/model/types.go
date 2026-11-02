@@ -362,7 +362,9 @@ type Score struct {
 const (
 	// DecisionAffinityHit reuses an existing session binding.
 	DecisionAffinityHit = "affinity-hit"
-	// DecisionColdPick selects a credential for a session with no binding.
+	// DecisionColdPick selects a credential without following a binding: for
+	// a request with no live binding, or for a pinned request routed off its
+	// binding's seat, which leaves the binding in place.
 	DecisionColdPick = "cold-pick"
 	// DecisionFailover rebinds because the bound credential is not among the
 	// candidates the host offered.
@@ -396,7 +398,8 @@ type Decision struct {
 // A binding is scoped per provider and model as well as per conversation,
 // because prompt caches are per model and different models may be served by
 // different credential sets. SessionKey is the bare conversation key, the same
-// value Decision.SessionKey carries.
+// value Decision.SessionKey carries. The JSON names are also the bindings
+// file's format, so renaming one drops every saved binding at the next update.
 type Binding struct {
 	SessionKey string    `json:"session_key"`
 	Provider   string    `json:"provider"`

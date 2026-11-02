@@ -50,8 +50,9 @@ the bindings, costing each open conversation one prompt-cache miss.
       affinity:
         enabled: true
         ttl: 1h                 # idle time before a conversation's binding expires
-        subagents: true         # a subagent on the same model shares its parent conversation's seat
+        subagents: true         # a subagent on the same model with no live binding joins its parent conversation's seat
         max-sessions: 65536     # bindings held before the least recently seen is dropped
+        persist: true           # keep live bindings across a plugin update or host restart
       pace:
         shape: linear           # linear, power or sigmoid
         curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early

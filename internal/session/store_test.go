@@ -512,3 +512,49 @@ func TestStoreConcurrentAccess(t *testing.T) {
 		t.Errorf("All returned %d bindings, Len = %d", len(s.All()), s.Len())
 	}
 }
+
+// Restore keeps what each saved binding carried, skips what a live table must
+// not hold, never displaces a binding made since the save, and files restored
+// bindings behind the live ones, so the cap drops the oldest restored first.
+func TestStoreRestore(t *testing.T) {
+	s := NewStore(time.Hour, 3)
+	now := at(2 * time.Hour)
+	bind(s, "live", "auth-new", now)
+
+	saved := func(key, authID string, lastSeen time.Duration) model.Binding {
+		return model.Binding{SessionKey: key, Provider: "claude", Model: "opus", AuthID: authID, BoundAt: t0, LastSeen: at(lastSeen), Hits: 7}
+	}
+	n := s.Restore([]model.Binding{
+		saved("oldest", "auth-2", 70*time.Minute),
+		saved("live", "auth-old", 90*time.Minute),
+		saved("recent", "auth-1", 100*time.Minute),
+		saved("older", "auth-2", 80*time.Minute),
+		saved("expired", "auth-1", 30*time.Minute),
+		saved("future", "auth-1", 3*time.Hour),
+		saved("", "auth-1", 100*time.Minute),
+		saved("no-credential", "", 100*time.Minute),
+	}, now)
+	if n != 2 {
+		t.Errorf("Restore = %d, want 2: recent and older, with oldest dropped by the cap", n)
+	}
+
+	got := make(map[string]model.Binding)
+	for _, b := range s.All() {
+		got[b.SessionKey] = b
+	}
+	if len(got) != 3 {
+		t.Fatalf("table = %+v, want live, recent and older", got)
+	}
+	if got["live"].AuthID != "auth-new" {
+		t.Errorf("live = %+v, want the binding made since the save", got["live"])
+	}
+	if want := saved("recent", "auth-1", 100*time.Minute); got["recent"] != want {
+		t.Errorf("recent = %+v, want it as saved %+v", got["recent"], want)
+	}
+	if _, ok := got["older"]; !ok {
+		t.Error("older was not restored")
+	}
+	if counts := s.CountByAuth(now); !reflect.DeepEqual(counts, map[string]int{"auth-new": 1, "auth-1": 1, "auth-2": 1}) {
+		t.Errorf("CountByAuth = %v", counts)
+	}
+}

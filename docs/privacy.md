@@ -25,5 +25,19 @@ nothing. The team name appears on the status page so you know which
 organization to pick when logging in again, with any email address in it
 masked as the seat's is.
 An unreadable file is set aside as `history.json.corrupt-<unix-ts>` and a
-fresh one starts. No token, refresh token or request body is ever logged, and
-an error that would carry a token is scrubbed first.
+fresh one starts.
+
+`bindings.state` in the same directory keeps the live conversation bindings
+across a plugin update or host restart: for each, the provider, model,
+conversation key, credential id, when it was made and last used, and its hit
+count. A conversation key is a digest of the ids the client sends or of the
+conversation's opening, never the text itself. The file follows
+`affinity.persist`, not `persist-history`; with `affinity.persist` or
+`affinity.enabled` off, the plugin deletes it when the host next stops the
+plugin.
+
+Uninstalling the plugin leaves these files in place; delete the directory to
+remove them.
+
+No token, refresh token or request body is ever logged, and an error that
+would carry a token is scrubbed first.
