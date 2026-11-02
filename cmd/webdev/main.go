@@ -127,8 +127,8 @@ func main() {
 	case "no-session":
 		// Two seats reporting weekly windows and no 5-hour window, as a plan
 		// without a 5-hour limit does: one behind its weekly plan, which ranks
-		// first, and one ahead of it. Nothing gates either short of its weekly
-		// caps, so both stay eligible while a capped seat is spent.
+		// first, and one ahead of it. Nothing short of its weekly caps gates
+		// either.
 		src.noSession()
 	case "cleared":
 		// A seat whose provider cleared both weekly windows half a day ago and
@@ -834,15 +834,21 @@ func (f *fixture) collide() {
 // ahead of the capped seat at a negative one; for Fable requests their caps
 // bear on the model and every eligible seat ranks by cost.
 func (f *fixture) sessionOnly() {
-	f.growTo(3)
-	for _, ms := range []manySeat{
-		{id: "claude-session-only-busy.json", label: "session-only-busy", name: "claude-session-only-busy.json",
+	f.threeAnd(
+		manySeat{id: "claude-session-only-busy.json", label: "session-only-busy", name: "claude-session-only-busy.json",
 			session: 0.80, scoped: 0.30, elapsedDays: 3, state: "session-only"},
-		{id: "claude-session-only-unopened.json", label: "session-only-unopened", name: "claude-session-only-unopened.json",
+		manySeat{id: "claude-session-only-unopened.json", label: "session-only-unopened", name: "claude-session-only-unopened.json",
 			scoped: 0.05, elapsedDays: 1, state: "session-only-unopened"},
-		{id: "claude-session-only-full.json", label: "session-only-full", name: "claude-session-only-full.json",
+		manySeat{id: "claude-session-only-full.json", label: "session-only-full", name: "claude-session-only-full.json",
 			session: 1.0, scoped: 0.40, elapsedDays: 4, state: "session-only"},
-	} {
+	)
+}
+
+// threeAnd builds the first three manySeats rows and the seats given, with a
+// routing log across all of them.
+func (f *fixture) threeAnd(extra ...manySeat) {
+	f.growTo(3)
+	for _, ms := range extra {
 		f.addManySeat(len(f.auths), ms)
 	}
 	ids := make([]string, 0, len(f.auths))
@@ -856,20 +862,12 @@ func (f *fixture) sessionOnly() {
 // and two seats whose usage carries an all-models weekly window and a Fable
 // cap and no 5-hour window.
 func (f *fixture) noSession() {
-	f.growTo(3)
-	for _, ms := range []manySeat{
-		{id: "claude-no-5h-behind.json", label: "no-5h-behind", name: "claude-no-5h-behind.json",
+	f.threeAnd(
+		manySeat{id: "claude-no-5h-behind.json", label: "no-5h-behind", name: "claude-no-5h-behind.json",
 			weekly: 0.48, scoped: 0.20, elapsedDays: 5.5, state: "no-session"},
-		{id: "claude-no-5h-ahead.json", label: "no-5h-ahead", name: "claude-no-5h-ahead.json",
+		manySeat{id: "claude-no-5h-ahead.json", label: "no-5h-ahead", name: "claude-no-5h-ahead.json",
 			weekly: 0.62, scoped: 0.35, elapsedDays: 3, state: "no-session"},
-	} {
-		f.addManySeat(len(f.auths), ms)
-	}
-	ids := make([]string, 0, len(f.auths))
-	for _, a := range f.auths {
-		ids = append(ids, a.AuthID)
-	}
-	f.decisions = f.manyDecisions(ids)
+	)
 }
 
 // unreadAfterClear is how long the cleared scenario leaves a seat's

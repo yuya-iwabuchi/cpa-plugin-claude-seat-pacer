@@ -10,7 +10,7 @@ A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for pooling
 
 ## Why
 
-A Claude subscription has weekly limits, most plans a 5-hour limit too, and
+A Claude subscription has weekly limits, and most plans add a 5-hour limit;
 weekly quota left at the reset is gone. More seats raise the ceiling, and
 CLIProxyAPI, a proxy that puts several subscription logins behind one API
 endpoint, makes pooling them easy. Its fill-first and round-robin strategies

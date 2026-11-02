@@ -25,22 +25,22 @@ before its reset. Set `landing-target: 1.0` to plan each seat to finish at its
 reset instead. For an even spread, disable the plugin; the host's own strategy,
 round-robin by default, takes over.
 
-Some seats, including some Team seats, report no all-models weekly window, only a
-5-hour window and a Fable weekly window. On a model outside Fable such a seat
+Some seats, including some Team seats, report no all-models weekly window, only
+a 5-hour window and a Fable weekly window. On a model outside Fable such a seat
 has no weekly cap: its 5-hour window is its only quota, and it resets several
 times a day. Every eligible seat with no weekly cap goes ahead of every seat
 with one, and a seat with a weekly cap takes a new conversation for that model
 only while no seat without one can. Once a seat with no weekly cap has room
 again after its 5-hour reset, new conversations go back to it, and a
-conversation already bound to a seat with a weekly cap stays there. Among
-seats with no weekly cap, the one furthest behind its plan on the 5-hour
-window goes first, whatever the weights; a seat whose 5-hour window has not
-opened yet is neither behind nor ahead of its plan. On Fable these seats have
-a weekly cap like any other and are paced the usual way. No setting controls
-this: it follows each seat's latest readings, so a seat whose usage read or
-responses report an all-models weekly window is paced like any other, and a
-pool in which every seat has a weekly cap on the requested model is ranked on
-its weekly pacing alone.
+conversation already bound to a seat with a weekly cap stays there. Among seats
+with no weekly cap, the one furthest behind its plan on the 5-hour window goes
+first, whatever the weights; a seat whose 5-hour window has not opened yet is
+neither behind nor ahead of its plan. On Fable these seats have a weekly cap
+like any other and are paced the usual way. No setting controls this: it
+follows each seat's latest readings, so a seat whose usage read or responses
+report an all-models weekly window is paced like any other, and a pool in which
+every seat has a weekly cap on the requested model is ranked on its weekly
+pacing alone.
 
 A seat whose usage read reports weekly windows and no 5-hour window, as a plan
 with no 5-hour limit does, has no 5-hour limit to gate it. It is ranked on its

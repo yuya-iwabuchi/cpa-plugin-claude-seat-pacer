@@ -51,8 +51,7 @@ still offers it for other models, and its tooltip names the host status.
   order, each with where it is headed at its last 24 hours' rate; the 5-hour
   view shows where each seat stands against the limit that can make it
   ineligible, and lists last in its priority tier, marked "no 5h Standard
-  limit", a seat whose latest usage read reports no 5-hour window; while no
-  seat shown has a 5-hour window, the 5h Standard view is not offered. Pointing
+  limit", a seat whose latest usage read reports no 5-hour window. Pointing
   at a seat shows its gap to the target where the window is paced. A stretch in
   which the provider refused the seat, or a window bearing on the line read
   full, is a hatched sleeve in the seat's colour around its line, under every
@@ -76,6 +75,11 @@ still offers it for other models, and its tooltip names the host status.
   understates demand while every seat is refused or full. The 5h Standard view
   leaves out a seat whose latest usage read reports no 5-hour window, whatever
   it recorded before, and names it under the list.
+
+  Each section drops its 5h Standard view while a seat it draws has a latest
+  usage read reporting no 5-hour window and none of them has one. Over time
+  draws no seat the host has disabled, so it can drop the view while Current
+  window keeps it.
 
   <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, each band hatched where its seat was full, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
 

@@ -898,7 +898,7 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 .bal-left { margin-left: auto; font: 500 12px/1.3 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .bal-off { margin: 6px 8px; font: 500 11.5px/1.4 var(--sans); color: var(--critical); }
 .bal-none { margin: 8px; font: 400 11.5px/1.4 var(--sans); color: var(--ink-3); }
-.bal-none span { white-space: nowrap; }
+.bal-none span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .bal-list { margin: 6px 0 0; padding: 0; list-style: none; }
 .bal-row { font: 400 12px/1.45 var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .bal-row + .bal-row { margin-top: 1px; }
@@ -3646,7 +3646,7 @@ time[data-ts] { cursor: help; }
     $("tl-cut-key").hidden = !anyCut;
     var stdKey = $("tl-std-key");
     stdKey.hidden = ranks.fams.length < 2;
-    stdKey.textContent = "Standard windows apply to every request; " + onTopText(ranks.fams);
+    stdKey.textContent = "Standard windows apply to every request on a seat that has them; " + onTopText(ranks.fams);
     $("tl-held-key").hidden = !anyHeld;
     $("tl-curve-key").hidden = !anyCurve;
     [].forEach.call($("timeline-states").querySelectorAll("[data-states]"), function (li) {
@@ -5465,7 +5465,7 @@ time[data-ts] { cursor: help; }
           " gap is a short-horizon term that separates seats whose weekly gaps tie" +
           (shown.some(noSessionLimit) ? "; a seat with no " + SESSION_SHORT + " limit has no such term." : ".")
         : noSession
-          ? " No seat shown has a " + SESSION_SHORT + " limit."
+          ? " No seat shown reports a " + SESSION_SHORT + " window."
         : hasSessionOnly
           ? " On a capped seat the " + SESSION_SHORT + " window weighs nothing: it resets several times " +
             "a day, so it only gates, and the weekly window is the quota lost at reset."
@@ -5474,7 +5474,7 @@ time[data-ts] { cursor: help; }
       " The eligible seat with the lowest cost takes the next new conversation" +
       (fams.length ? " of its family, so each family has its own ranking: " + fams.join(" and ") +
         " for models with their own 7d window, Standard for the rest. The Standard windows apply to every " +
-        "request; " + onTopText(fams) : "") +
+        "request on a seat that has them; " + onTopText(fams) : "") +
       "." +
       (hasSessionOnly
         ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat for them, whatever " +
@@ -5811,8 +5811,8 @@ time[data-ts] { cursor: help; }
     var l = def(dl, "the list");
     l.appendChild(document.createTextNode("Each row is a seat's use of the window now. The meter runs solid to that " +
       "and faint to where the seat's last hour's rate takes it by the reset, which the line under it gives with " +
-      "the time left. A seat whose usage read reports no " + SESSION_SHORT + " window has no limit here: its row " +
-      "says so, last in its priority tier."));
+      "the time left." + (stableAuths(st.auths).some(noSessionLimit) ? " A seat whose usage read reports no " +
+      SESSION_SHORT + " window has no limit here: its row says so, last in its priority tier." : "")));
     var capped = termShown(wts.session_weight)
       ? " Its gap counts" + weightTag(wts.session_weight) + " in " + (hasSessionOnly ? "that seat's cost" : "the cost of every seat with the window") +
         " and separates seats whose weekly gaps tie."
@@ -7177,7 +7177,10 @@ time[data-ts] { cursor: help; }
       }
       if (limitless.length) {
         var out = list.appendChild(h("p", "bal-none", "left out, with no " + SESSION_SHORT + " limit: "));
-        limitless.forEach(function (a, i) { out.appendChild(h("span", "", seatLabel(a) + (i < limitless.length - 1 ? ", " : ""))); });
+        limitless.forEach(function (a, i) {
+          if (i) out.appendChild(document.createTextNode(" "));
+          out.appendChild(h("span", "", seatLabel(a) + (i < limitless.length - 1 ? "," : ""))).title = seatLabel(a);
+        });
       }
       /* Under the plot, measured at no height, so the list's own rows set it;
          a change of layout starts the measure again. */
