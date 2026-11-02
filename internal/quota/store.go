@@ -50,6 +50,9 @@ type entry struct {
 	// the order the windows were first seen so exports are stable.
 	history map[windowKey]*ring
 	order   []windowKey
+	// read lists the windows the latest usage read reporting a 5-hour or
+	// weekly window carried.
+	read []windowKey
 }
 
 // observe records one accepted reading in the window's history.
@@ -213,7 +216,14 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 
 	observedAt := snap.ObservedAt
 	newest := observedAt
+	var read []windowKey
+	if exists {
+		read = prior.read
+	} else if p, held := s.pending[snap.AuthID]; held {
+		read = p.read
+	}
 	e := newEntry(stored, len(stored.Windows))
+	e.read = read
 	if exists {
 		e.history, e.order = prior.history, prior.order
 	} else {
@@ -240,22 +250,28 @@ func (s *Store) Put(snap model.AuthSnapshot) {
 			newest = at
 		}
 	}
-	// A 5-hour or weekly window a successful read carrying either of them no
-	// longer reports, as when a plan drops its 5-hour limit, has nothing left
-	// to refuse: its ongoing refusal span ends as cleared at the read, and a
-	// reading of it older than the read cannot bring it back. A family cap is
-	// left alone, since the headers report refusals of a cap the read does
-	// not carry.
-	if snap.Err == "" && slices.ContainsFunc(stored.Windows, func(w model.Window) bool { return w.Scope == "" }) {
+	// When a read that reports a 5-hour or weekly window omits the other one,
+	// as after a plan drops its 5-hour limit, a reading of the omitted window
+	// older than the read cannot bring it back, and an ongoing refusal of it
+	// ends as cleared at the read if the previous such read reported the
+	// window. A window only the headers ever reported, and a family cap, keep
+	// their refusals: the headers report windows the read does not carry.
+	if slices.ContainsFunc(stored.Windows, func(w model.Window) bool { return w.Scope == "" }) {
 		for _, key := range e.order {
 			if key.scope != "" || slices.ContainsFunc(stored.Windows, hasKey(key)) {
 				continue
 			}
-			e.history[key].end(observedAt, model.LockEndCleared)
+			if slices.Contains(read, key) {
+				e.history[key].end(observedAt, model.LockEndCleared)
+			}
 			e.seenAt[key] = observedAt
 			if exists && prior.seenAt[key].After(observedAt) {
 				e.seenAt[key] = prior.seenAt[key]
 			}
+		}
+		e.read = nil
+		for _, w := range stored.Windows {
+			e.read = append(e.read, keyOf(w))
 		}
 	}
 	e.snap.ObservedAt = newest

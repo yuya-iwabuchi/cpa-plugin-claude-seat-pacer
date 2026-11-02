@@ -66,9 +66,10 @@ func within(until time.Time, l model.Lock) bool {
 
 // reopened reports whether a window reopened after a span ended: its history
 // opened a cycle at or after the span's end, as the provider clearing the
-// window or its rolling onto a new reset does, or the usage read in snap no
-// longer reports the window and the read ended the span as cleared. A span a
-// served request ended shows only that one request got through.
+// window or its rolling onto a new reset does, or the span ended as cleared
+// on a window snap no longer carries, as a usage read that stops reporting
+// the window ends it. A span a served request ended shows only that one
+// request got through.
 func reopened(snap model.AuthSnapshot, h model.WindowHistory, l model.Lock) bool {
 	_, ok := reopenedAt(snap, h, l)
 	return ok
@@ -81,7 +82,7 @@ func reopenedAt(snap model.AuthSnapshot, h model.WindowHistory, l model.Lock) (t
 			return c.Samples[0].At, true
 		}
 	}
-	if _, carried := snap.Window(h.Kind, h.Scope); !carried && l.End == model.LockEndCleared && snap.Source == model.SourceUsageEndpoint {
+	if _, carried := snap.Window(h.Kind, h.Scope); !carried && l.End == model.LockEndCleared {
 		return time.Unix(l.To, 0), true
 	}
 	return time.Time{}, false

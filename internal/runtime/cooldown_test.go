@@ -77,6 +77,7 @@ func TestFindStaleHold(t *testing.T) {
 	held := heldEntry(weeklyReset.Add(20 * time.Second))
 	clearedSpan := weekly(ended(refused, cleared, model.LockEndCleared, weeklyReset))
 	soon := testNow.Add(5 * time.Minute)
+	weeklyOnly := freshSnap(model.Window{Kind: model.WindowWeekly, Utilization: 0.02, ResetsAt: weeklyReset})
 	cases := []struct {
 		name    string
 		entry   HostAuthFileEntry
@@ -92,6 +93,12 @@ func TestFindStaleHold(t *testing.T) {
 		{"a span a served request ended, a clearing before it", held, freshSnap(),
 			[]model.WindowHistory{reopenAt(window(model.WindowWeekly, "", ended(refused, cleared, model.LockEndServed, weeklyReset)), cleared.Add(-time.Second))}, false},
 		{"a 5-hour span that rolled early", held, freshSnap(), []model.WindowHistory{session(ended(refused, cleared, model.LockEndReset, weeklyReset))}, true},
+		{"a 5-hour span the read ended by no longer reporting the window", held, weeklyOnly,
+			[]model.WindowHistory{{Kind: model.WindowSession, Locks: []model.Lock{ended(refused, cleared, model.LockEndCleared, weeklyReset)}}}, true},
+		{"a 5-hour span ended as cleared on a window the read still reports, never reopened", held, freshSnap(),
+			[]model.WindowHistory{{Kind: model.WindowSession, Locks: []model.Lock{ended(refused, cleared, model.LockEndCleared, weeklyReset)}}}, false},
+		{"a 5-hour span a served request ended, on a window the read no longer reports", held, weeklyOnly,
+			[]model.WindowHistory{session(ended(refused, cleared, model.LockEndServed, weeklyReset))}, false},
 		{"a 429 on both windows, only the 5-hour one rolled since", held, freshSnap(), []model.WindowHistory{
 			reopenAt(session(ended(refused, refused.Add(time.Second), model.LockEndServed, refused.Add(2*time.Hour))), refused.Add(2*time.Hour)),
 			window(model.WindowWeekly, "", ended(refused, refused.Add(time.Second), model.LockEndServed, weeklyReset)),

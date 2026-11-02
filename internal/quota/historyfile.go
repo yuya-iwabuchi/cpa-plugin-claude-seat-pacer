@@ -65,6 +65,15 @@ type savedReading struct {
 	ObservedAt time.Time      `json:"observed_at"`
 	Source     string         `json:"source,omitempty"`
 	Windows    []model.Window `json:"windows"`
+	// Read lists the windows the latest usage read reporting a 5-hour or
+	// weekly window carried.
+	Read []savedKey `json:"read,omitempty"`
+}
+
+// savedKey names a window as the history file holds it.
+type savedKey struct {
+	Kind  model.WindowKind `json:"kind"`
+	Scope string           `json:"scope,omitempty"`
 }
 
 // exportReadings copies every credential's last reading, pending ones
@@ -84,7 +93,11 @@ func (s *Store) exportReadings() map[string]savedReading {
 				return
 			}
 		}
-		out[id] = savedReading{ObservedAt: e.snap.ObservedAt, Source: e.snap.Source, Windows: slices.Clone(e.snap.Windows)}
+		r := savedReading{ObservedAt: e.snap.ObservedAt, Source: e.snap.Source, Windows: slices.Clone(e.snap.Windows)}
+		for _, key := range e.read {
+			r.Read = append(r.Read, savedKey{Kind: key.kind, Scope: key.scope})
+		}
+		out[id] = r
 	}
 	for id, e := range s.pending {
 		add(id, e)
@@ -122,6 +135,10 @@ func (s *Store) importReadings(saved map[string]savedReading, now time.Time) {
 		}
 		p.snap = model.AuthSnapshot{AuthID: id, Windows: slices.Clone(r.Windows), ObservedAt: r.ObservedAt, Source: r.Source}
 		p.seenAt = nil
+		p.read = nil
+		for _, key := range r.Read {
+			p.read = append(p.read, windowKey{kind: key.Kind, scope: key.Scope})
+		}
 	}
 }
 
