@@ -167,18 +167,23 @@ func (s *Store) importLogins(saved map[string]time.Time, devices map[string]stri
 }
 
 // SaveHistory writes the store's whole history as of now, every credential's
-// last reading and every login instant to path, by writing and syncing a temporary file
-// of its own in the same directory and renaming it into place, so a reader
-// never sees a partial file and two writers never share a temporary one. The
-// directory is created as needed.
+// last reading and every login instant to path through WriteFile.
 func (s *Store) SaveHistory(path string, now time.Time) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	logins, devices := s.exportLogins()
 	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now), Readings: s.exportReadings(), Logins: logins, LoginDevices: devices})
 	if err != nil {
+		return err
+	}
+	return WriteFile(path, body)
+}
+
+// WriteFile writes body to path, readable by the owner alone, by writing and
+// syncing a temporary file of its own in the same directory and renaming it
+// into place, so a reader never sees a partial file and two writers never
+// share a temporary one. The directory is created as needed.
+func WriteFile(path string, body []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")

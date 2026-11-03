@@ -72,8 +72,10 @@ conversation for the models that window caps while another seat has room, until
 a later reading shows room on it.
 
 CLIProxyAPI's own session affinity never binds a conversation a plugin routes,
-so the plugin binds each one itself. A new subagent on the same model joins
-its parent's seat, even a full one, unless that seat has refused the model.
+so the plugin binds each one itself. A subagent on the same model with no
+live binding of its own joins its parent's seat, even a full one, unless that
+seat has refused the model. Once bound, it keeps its own seat like any
+conversation, even after its parent moves.
 
 Once bound, a conversation:
 
@@ -84,13 +86,18 @@ Once bound, a conversation:
   retries it on another seat, since the retry no longer offers the failed one;
 - otherwise moves after a refusal for its model only when another seat can
   take that model;
-- loses its binding once idle past `affinity.ttl`: the binding stops counting
-  as live at once and is cleared after the next background poll.
+- loses its binding once neither it nor, with `affinity.subagents` on, its
+  subagents on the same model have sent a request for `affinity.ttl`: the
+  binding stops counting as live at once and is cleared after the next
+  background poll.
 
 Bindings are per model, so a conversation that switches model is placed
-separately for the new one. They live in memory, so a host restart, a new
-plugin version, or a change to `affinity.ttl` or `max-sessions` starts with
-none.
+separately for the new one. With `affinity.persist` on, the default, they
+outlast a new plugin version and a host restart: the plugin saves the live ones
+when the host stops it and reads them back when it starts. After a host
+exits without stopping the plugin, the plugin restores only what the last stop
+saved, and a change to `affinity.ttl` or `max-sessions` while the plugin runs
+starts with none.
 
 When no seat is eligible, a conversation still gets one stable seat: first one
 Anthropic has neither refused nor reported full, then the one with the fewest

@@ -97,12 +97,13 @@ func (in pickInput) refused(authID string) bool {
 //  1. Decline (Handled false) when the plugin is disabled, no governed
 //     provider is on the route, the model is not governed, no candidate
 //     remains, or there is neither a session key nor a usable snapshot.
-//  2. With a session key and affinity on: a subagent inherits its parent's
-//     credential when that credential is a candidate and its snapshot shows no
-//     window the provider already rejected for this model; otherwise the
-//     session's own binding is honoured under those same two conditions. A
-//     binding that fails either fails over to the cold pick, except that a
-//     rejected binding stands when no other candidate can take the model.
+//  2. With a session key and affinity on: the session's own binding is
+//     honoured when its credential is a candidate and its snapshot shows no
+//     window the provider already rejected for this model. A binding that
+//     fails either fails over to the cold pick, except that a rejected binding
+//     stands when no other candidate can take the model. A subagent with no
+//     live binding of its own inherits its parent's credential under those
+//     same two conditions.
 //  3. Cold pick: pace.Rank over the candidates with stale snapshots marked
 //     ineligible; the pace winner takes the session. When nothing is eligible
 //     but a session key exists, the candidate with the fewest live bindings
@@ -187,26 +188,15 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 	bindings := p.bindingStore()
 	id := in.identity
-
-	if in.cfg.Affinity.Subagents && id.Subagent && id.ParentKey != "" {
-		parent, ok := bindings.Lookup(in.provider, in.req.Model, id.ParentKey, in.now)
-		// A credential the provider has already rejected is no better a home
-		// for the child than for the parent.
-		if ok && in.isCandidate(parent.AuthID) && !blockedFor(in.snaps[parent.AuthID], in.req.Model) {
-			if !in.pinned {
-				bindings.Bind(in.provider, in.req.Model, id.Key, parent.AuthID, in.now)
-			}
-			return p.decide(in, model.Decision{
-				ChosenAuthID: parent.AuthID,
-				Kind:         model.DecisionAffinityHit,
-				Note:         "follows the parent session",
-			}), true
-		}
-	}
-
 	bound, ok := bindings.Lookup(in.provider, in.req.Model, id.Key, in.now)
 	if !ok {
-		return SchedulerPickResponse{}, false
+		return p.pickByParent(in)
+	}
+	// A parent sits idle while its subagents work, and its prompt cache can
+	// outlive the binding's idle TTL, so a subagent's request keeps the
+	// parent's binding alive as well as its own.
+	if in.cfg.Affinity.Subagents && id.Subagent && id.ParentKey != "" {
+		bindings.Lookup(in.provider, in.req.Model, id.ParentKey, in.now)
 	}
 	if !in.isCandidate(bound.AuthID) {
 		note := "bound credential not offered"
@@ -255,8 +245,36 @@ func (p *Plugin) pickByAffinity(in pickInput) (SchedulerPickResponse, bool) {
 	}), true
 }
 
+// pickByParent places a subagent that holds no live binding of its own on its
+// parent's credential. A child's own binding outranks its parent's: the seat
+// holding a child's cache is the one it last ran on, which differs from the
+// parent's once either has moved. It reports false when the parent decides
+// nothing.
+func (p *Plugin) pickByParent(in pickInput) (SchedulerPickResponse, bool) {
+	id := in.identity
+	if !in.cfg.Affinity.Subagents || !id.Subagent || id.ParentKey == "" {
+		return SchedulerPickResponse{}, false
+	}
+	bindings := p.bindingStore()
+	parent, ok := bindings.Lookup(in.provider, in.req.Model, id.ParentKey, in.now)
+	// A credential the provider has already rejected is no better a home for
+	// the child than for the parent.
+	if !ok || !in.isCandidate(parent.AuthID) || blockedFor(in.snaps[parent.AuthID], in.req.Model) {
+		return SchedulerPickResponse{}, false
+	}
+	if !in.pinned {
+		bindings.Bind(in.provider, in.req.Model, id.Key, parent.AuthID, in.now)
+	}
+	return p.decide(in, model.Decision{
+		ChosenAuthID: parent.AuthID,
+		Kind:         model.DecisionAffinityHit,
+		Note:         "follows the parent session",
+	}), true
+}
+
 // pickCold applies rule 3. previous names the credential a binding is moving
-// away from, which turns the decision into a failover.
+// away from, which turns the decision into a failover unless the request is
+// pinned and so moves no binding.
 func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResponse {
 	chosen := ""
 	if best, ok := pace.Best(in.scores); ok {
@@ -270,7 +288,7 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 	}
 
 	d := model.Decision{ChosenAuthID: chosen, Kind: model.DecisionColdPick, Note: note, Scores: in.scores}
-	if previous != "" {
+	if previous != "" && !in.pinned {
 		d.Kind = model.DecisionFailover
 		d.PreviousAuthID = previous
 	}

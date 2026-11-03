@@ -36,10 +36,15 @@ type AffinityConfig struct {
 	TTL time.Duration `yaml:"ttl" json:"ttl"`
 	// MaxSessions caps the binding table, evicting least-recently-seen.
 	MaxSessions int `yaml:"max-sessions" json:"max_sessions"`
-	// Subagents pins a subagent request to its parent's credential. Subagents
-	// replay the parent's prefix, so sharing its credential is a large cache
-	// win at the cost of parallel spread.
+	// Subagents places a subagent that holds no live binding of its own on its
+	// parent's credential. Subagents replay the parent's prefix, so sharing its
+	// credential is a large cache win at the cost of parallel spread. Once
+	// bound, a subagent keeps its own credential like any conversation, and its
+	// requests keep its parent's binding on the same model alive.
 	Subagents bool `yaml:"subagents" json:"subagents"`
+	// Persist carries the live bindings across a plugin update and a host
+	// restart, in a file beside the history file.
+	Persist bool `yaml:"persist" json:"persist"`
 }
 
 // PaceConfig governs cold-start credential choice.
@@ -145,6 +150,7 @@ func Defaults() Config {
 			TTL:         time.Hour,
 			MaxSessions: 65536,
 			Subagents:   true,
+			Persist:     true,
 		},
 		Pace: PaceConfig{
 			Shape:         ShapeLinear,

@@ -440,9 +440,7 @@ func TestSubagentPinsToParent(t *testing.T) {
 	// The parent lives on seat-a, the cold-pick loser.
 	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
 
-	req := pickRequest(fableModel, "child", "seat-a", "seat-b")
-	req.Options.Headers[HeaderSessionParent] = []string{"parent"}
-	req.Options.Headers[HeaderSubagent] = []string{"1"}
+	req := subagentRequest("child", "parent", "seat-a", "seat-b")
 	resp := tp.pick(t, req)
 	if resp.AuthID != "seat-a" {
 		t.Fatalf("response = %+v, want the parent's seat-a", resp)
@@ -480,15 +478,105 @@ func TestSubagentDoesNotInheritABlockedParent(t *testing.T) {
 	tp.quota.Put(seatB(t))
 	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
 
-	req := pickRequest(fableModel, "child", "seat-a", "seat-b")
-	req.Options.Headers[HeaderSessionParent] = []string{"parent"}
-	req.Options.Headers[HeaderSubagent] = []string{"1"}
+	req := subagentRequest("child", "parent", "seat-a", "seat-b")
 	resp := tp.pick(t, req)
 	if resp.AuthID != "seat-b" {
 		t.Fatalf("response = %+v, want the child routed away from the rejected seat-a", resp)
 	}
 	if b, _ := tp.bindings.Lookup("claude", fableModel, "child", testNow); b.AuthID != "seat-b" {
 		t.Errorf("child binding = %+v, want seat-b", b)
+	}
+}
+
+// TestSubagentStaysWhereItFailedOver covers a subagent whose request failed on
+// its parent's seat and was retried elsewhere: once the parent's seat is
+// offered again, the subagent keeps the seat now holding its cache.
+func TestSubagentStaysWhereItFailedOver(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	// Parent and child share seat-a, the cold-pick loser.
+	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
+	tp.bindings.Bind("claude", fableModel, "child", "seat-a", testNow)
+
+	// The child's request fails on seat-a and the host retries it.
+	retry := subagentRequest("child", "parent", "seat-a", "seat-b")
+	retry.Options.Metadata[MetadataSelectedAuthID] = "seat-a"
+	if resp := tp.pick(t, retry); resp.AuthID != "seat-b" {
+		t.Fatalf("retry pick = %+v, want seat-b", resp)
+	}
+
+	// While seat-a cools the host leaves it out.
+	if resp := tp.pick(t, subagentRequest("child", "parent", "seat-b")); resp.AuthID != "seat-b" {
+		t.Fatalf("pick during the cooldown = %+v, want seat-b", resp)
+	}
+
+	// seat-a is offered again and the parent still holds it.
+	resp := tp.pick(t, subagentRequest("child", "parent", "seat-a", "seat-b"))
+	if resp.AuthID != "seat-b" {
+		t.Fatalf("pick after the cooldown = %+v, want the child kept on seat-b", resp)
+	}
+	if d := tp.lastDecision(t); d.Kind != model.DecisionAffinityHit || strings.Contains(d.Note, "parent") {
+		t.Errorf("decision = %+v, want an affinity hit on the child's own binding", d)
+	}
+	if b, _ := tp.bindings.Lookup("claude", fableModel, "child", testNow); b.AuthID != "seat-b" {
+		t.Errorf("child binding = %+v, want seat-b", b)
+	}
+
+	// The parent's own requests stay on seat-a.
+	if resp := tp.pick(t, pickRequest(fableModel, "parent", "seat-a", "seat-b")); resp.AuthID != "seat-a" {
+		t.Errorf("parent pick = %+v, want seat-a", resp)
+	}
+}
+
+// TestSubagentKeepsItsSeatWhenTheParentMoves covers a parent rebound to
+// another seat: a child already holding a binding keeps it, and only a child
+// with none joins the parent's new seat.
+func TestSubagentKeepsItsSeatWhenTheParentMoves(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	tp.bindings.Bind("claude", fableModel, "parent", "seat-b", testNow)
+	tp.bindings.Bind("claude", fableModel, "child", "seat-a", testNow)
+
+	if resp := tp.pick(t, subagentRequest("child", "parent", "seat-a", "seat-b")); resp.AuthID != "seat-a" {
+		t.Errorf("bound child = %+v, want its own seat-a", resp)
+	}
+	if resp := tp.pick(t, subagentRequest("new-child", "parent", "seat-a", "seat-b")); resp.AuthID != "seat-b" {
+		t.Errorf("unbound child = %+v, want the parent's seat-b", resp)
+	}
+}
+
+// TestBoundSubagentKeepsItsParentBindingAlive covers a parent idle while its
+// subagent works: the subagent's requests refresh the parent's binding, so it
+// does not expire before the parent's next turn. With affinity.subagents off
+// they leave it alone.
+func TestBoundSubagentKeepsItsParentBindingAlive(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		yaml     string
+		lastSeen time.Time
+	}{
+		{"subagents on", testConfigYAML, testNow},
+		{"subagents off", testConfigYAML + "affinity:\n  subagents: false\n", testNow.Add(-50 * time.Minute)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tp := newTestPlugin(t, tc.yaml)
+			tp.seats(t)
+			tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow.Add(-50*time.Minute))
+			tp.bindings.Bind("claude", fableModel, "child", "seat-b", testNow.Add(-time.Minute))
+
+			if resp := tp.pick(t, subagentRequest("child", "parent", "seat-a", "seat-b")); resp.AuthID != "seat-b" {
+				t.Fatalf("child pick = %+v, want its own seat-b", resp)
+			}
+			for _, b := range tp.bindings.All() {
+				if b.SessionKey == "parent" {
+					if b.AuthID != "seat-a" || !b.LastSeen.Equal(tc.lastSeen) {
+						t.Errorf("parent binding = %+v, want seat-a seen at %v", b, tc.lastSeen)
+					}
+					return
+				}
+			}
+			t.Error("the parent binding is gone")
+		})
 	}
 }
 
@@ -569,6 +657,9 @@ func TestPinnedRequestLeavesTheBindingAlone(t *testing.T) {
 	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
 		t.Fatalf("response = %+v, want the pinned seat-a", resp)
 	}
+	if d := tp.lastDecision(t); d.Kind == model.DecisionFailover || d.PreviousAuthID != "" {
+		t.Errorf("decision = %+v, want no failover: a pinned request moves no binding", d)
+	}
 	if b, _ := tp.bindings.Lookup("claude", fableModel, "k", testNow); b.AuthID != "seat-b" {
 		t.Errorf("binding = %+v, want it left on seat-b", b)
 	}
@@ -583,10 +674,8 @@ func TestPinnedRequestLeavesTheBindingAlone(t *testing.T) {
 
 	// Nor does a pinned subagent that inherits its parent's credential.
 	tp.bindings.Bind("claude", fableModel, "parent", "seat-a", testNow)
-	req = pickRequest(fableModel, "child", "seat-a")
+	req = subagentRequest("child", "parent", "seat-a")
 	req.Options.Metadata[MetadataPinnedAuthID] = "seat-a"
-	req.Options.Headers[HeaderSessionParent] = []string{"parent"}
-	req.Options.Headers[HeaderSubagent] = []string{"1"}
 	if resp := tp.pick(t, req); resp.AuthID != "seat-a" {
 		t.Fatalf("pinned subagent = %+v, want the parent's seat-a", resp)
 	}
