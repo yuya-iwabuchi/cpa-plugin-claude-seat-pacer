@@ -205,7 +205,7 @@ func (p *Plugin) stopPoller() {
 }
 
 // Shutdown stops the poll loop and the local API socket and then drains the host
-// calls the loop left outstanding. It is idempotent. Only the unload reaches
+// calls they left outstanding. It is idempotent. Only the unload reaches
 // it, and by then the host has waited for every in-flight plugin call to
 // return (internal/pluginhost/client_guard.go:112-122), so nothing can start
 // another callback beside it.
@@ -216,7 +216,8 @@ func (p *Plugin) stopPoller() {
 // named on the host type.
 //
 // plugin.quiesce precedes a replacement rather than an unload, and runs while
-// the host is still counting its own call, so it only stops the loop.
+// the host is still counting its own call, so it stops the loop and the socket
+// without the drain.
 func (p *Plugin) Shutdown() {
 	p.stopPoller()
 	p.stopLocalAPI()

@@ -109,8 +109,9 @@ type Source interface {
 
 // NewHandler serves the app at app-relative paths: "/index.html" for the page,
 // "/api/status" for its data, which the plugin reaches from the page-status
-// management route, and "/api/seats" for one conversation's seat, which only
-// the plugin's Unix socket reaches. A bare "/" reaches it only from cmd/webdev:
+// management route, and "/api/seats" for one conversation's seat, which the
+// plugin serves only on its Unix socket and cmd/webdev serves for its own
+// fixtures. A bare "/" reaches it only from cmd/webdev:
 // the host matches a resource route by exact path and refuses an empty one
 // (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
@@ -193,6 +194,11 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte)
 		return
 	}
 
+	writeJSON(w, body)
+}
+
+// writeJSON sends body as a 200 JSON response.
+func writeJSON(w http.ResponseWriter, body []byte) {
 	setCommonHeaders(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

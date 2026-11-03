@@ -51,9 +51,9 @@ type localAPIServer struct {
 }
 
 // ownsPath reports whether path still holds the socket file the server bound.
-func (gs *localAPIServer) ownsPath(path string) bool {
+func (s *localAPIServer) ownsPath(path string) bool {
 	info, err := os.Lstat(path)
-	return err == nil && os.SameFile(info, gs.file)
+	return err == nil && os.SameFile(info, s.file)
 }
 
 // SessionBinding returns the binding a Claude Code session's root agent holds
@@ -134,14 +134,14 @@ func (p *Plugin) syncLocalAPI() {
 	}
 	switch {
 	case want:
-		gs, err := p.startLocalAPI()
+		server, err := p.startLocalAPI()
 		p.mu.Lock()
 		p.localAPIErr = ""
 		if err != nil {
 			p.localAPIErr = err.Error()
 		}
 		p.mu.Unlock()
-		p.localAPI = gs
+		p.localAPI = server
 	default:
 		p.stopLocalAPILocked()
 		p.mu.Lock()
@@ -162,21 +162,21 @@ func (p *Plugin) stopLocalAPI() {
 // only while it is still the one the server bound: another process may have
 // bound the path since.
 func (p *Plugin) stopLocalAPILocked() {
-	gs := p.localAPI
-	if gs == nil {
+	server := p.localAPI
+	if server == nil {
 		return
 	}
 	p.localAPI = nil
-	gs.stopped.Store(true)
-	if !gs.ownsPath(p.APISocketPath()) {
-		gs.ln.SetUnlinkOnClose(false)
+	server.stopped.Store(true)
+	if !server.ownsPath(p.APISocketPath()) {
+		server.ln.SetUnlinkOnClose(false)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), localAPIStopTimeout)
 	defer cancel()
-	if gs.srv.Shutdown(ctx) != nil {
-		_ = gs.srv.Close()
+	if server.srv.Shutdown(ctx) != nil {
+		_ = server.srv.Close()
 	}
-	<-gs.done
+	<-server.done
 }
 
 // startLocalAPI binds the socket and serves the seats route on it. The socket
@@ -191,31 +191,31 @@ func (p *Plugin) startLocalAPI() (*localAPIServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	gs := &localAPIServer{ln: ln, file: file, done: make(chan struct{})}
-	gs.srv = &http.Server{
+	server := &localAPIServer{ln: ln, file: file, done: make(chan struct{})}
+	server.srv = &http.Server{
 		Handler:           http.HandlerFunc(p.serveLocalAPI),
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      5 * time.Second,
 		IdleTimeout:       30 * time.Second,
-		ErrorLog:          log.New(localAPILog{p, gs}, "", 0),
+		ErrorLog:          log.New(localAPILog{p, server}, "", 0),
 	}
 	go func() {
-		defer close(gs.done)
-		p.guard("local API socket", func() { _ = gs.srv.Serve(ln) })
+		defer close(server.done)
+		p.guard("local API socket", func() { _ = server.srv.Serve(ln) })
 	}()
-	return gs, nil
+	return server, nil
 }
 
 // localAPILog carries the socket server's own error lines to the host's log,
 // and drops them once the server is closing: a handler can outlast the stop's
 // wait, and the host may by then have unloaded the plugin.
 type localAPILog struct {
-	p  *Plugin
-	gs *localAPIServer
+	p      *Plugin
+	server *localAPIServer
 }
 
 func (l localAPILog) Write(b []byte) (int, error) {
-	if l.gs.stopped.Load() {
+	if l.server.stopped.Load() {
 		return len(b), nil
 	}
 	line := strings.TrimSpace(string(b))
@@ -244,41 +244,41 @@ func (p *Plugin) serveLocalAPI(w http.ResponseWriter, r *http.Request) {
 // fails. It returns the listener and the socket file it bound.
 func listenLocalAPI(path string) (*net.UnixListener, os.FileInfo, error) {
 	if len(path) > maxSocketPath {
-		return nil, nil, fmt.Errorf("the local API socket path is %d bytes, past the %d a socket allows", len(path), maxSocketPath)
+		return nil, nil, fmt.Errorf("the socket path is %d bytes, past the %d a socket allows", len(path), maxSocketPath)
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, nil, fmt.Errorf("create the local API socket's directory: %w", err)
+		return nil, nil, fmt.Errorf("create the socket's directory: %w", err)
 	}
 	if err := privateDir(dir); err != nil {
 		return nil, nil, err
 	}
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode().Type() != fs.ModeSocket {
-			return nil, nil, errors.New("the local API socket path holds a file that is not a socket")
+			return nil, nil, errors.New("the socket path holds a file that is not a socket")
 		}
 		if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
 			_ = conn.Close()
-			return nil, nil, errors.New("another process is serving the local API socket")
+			return nil, nil, errors.New("another process is serving the socket")
 		}
 		if err := os.Remove(path); err != nil {
-			return nil, nil, fmt.Errorf("remove a stale local API socket: %w", err)
+			return nil, nil, fmt.Errorf("remove a stale socket: %w", err)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, fmt.Errorf("inspect the local API socket path: %w", err)
+		return nil, nil, fmt.Errorf("inspect the socket path: %w", err)
 	}
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
-		return nil, nil, fmt.Errorf("bind the local API socket: %w", err)
+		return nil, nil, fmt.Errorf("bind the socket: %w", err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = ln.Close()
-		return nil, nil, fmt.Errorf("restrict the local API socket: %w", err)
+		return nil, nil, fmt.Errorf("restrict the socket: %w", err)
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		_ = ln.Close()
-		return nil, nil, fmt.Errorf("inspect the local API socket: %w", err)
+		return nil, nil, fmt.Errorf("inspect the socket: %w", err)
 	}
 	return ln, info, nil
 }

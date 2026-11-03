@@ -140,7 +140,7 @@ routing:
 	}
 	boundSeat := func(sessionID string) string {
 		code, body := socketGet(t, socket, "/api/seats?session="+sessionID+"&model="+modelID)
-		var g struct {
+		var answer struct {
 			Binding *struct {
 				AuthID string `json:"auth_id"`
 			} `json:"binding"`
@@ -148,10 +148,10 @@ routing:
 				AuthID string `json:"auth_id"`
 			} `json:"seats"`
 		}
-		if code != http.StatusOK || json.Unmarshal([]byte(body), &g) != nil || g.Binding == nil || len(g.Seats) != 2 {
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &answer) != nil || answer.Binding == nil || len(answer.Seats) != 2 {
 			t.Fatalf("seats answer for %s = %d %s", sessionID, code, body)
 		}
-		return g.Binding.AuthID
+		return answer.Binding.AuthID
 	}
 	if one, two := boundSeat(sessionOne), boundSeat(sessionTwo); one == two || one == "" {
 		t.Errorf("the answers name seats %q and %q, want the two sessions' different seats", one, two)

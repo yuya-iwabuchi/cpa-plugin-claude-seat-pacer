@@ -26,6 +26,14 @@ const (
 	WindowWeeklyScoped WindowKind = "weekly_scoped"
 )
 
+// Length is how long one cycle of a window of kind k lasts.
+func (k WindowKind) Length() time.Duration {
+	if k == WindowSession {
+		return SessionDuration
+	}
+	return WeeklyDuration
+}
+
 // Model families. The usage endpoint names them in scope.model.display_name
 // and WindowWeeklyScoped.Scope carries the same spelling, so both parsers and
 // the scorer key on these exact strings.
@@ -148,6 +156,13 @@ type Sample struct {
 	Utilization float64
 }
 
+// Usable reports whether the sample's utilization is a finite, non-negative
+// fraction; the status page's stand-in for a reading that is not a number is
+// not.
+func (s Sample) Usable() bool {
+	return s.Utilization >= 0 && !math.IsInf(s.Utilization, 1)
+}
+
 // MarshalJSON writes [unix_seconds, utilization].
 func (s Sample) MarshalJSON() ([]byte, error) {
 	if math.IsNaN(s.Utilization) || math.IsInf(s.Utilization, 0) {
@@ -244,15 +259,14 @@ func (l Lock) ExpectedEnd() int64 {
 // within each cycle, its last level less its level at since, and a cycle
 // that began after since counts from nothing. A cycle's level at an instant
 // is its latest sample at or before it, and a cycle with no sample by since
-// counts from its first. A sample that is no finite, non-negative fraction,
-// as the status page's stand-in for one is not, is skipped.
-func (h WindowHistory) Rise(since time.Time, length time.Duration) float64 {
+// counts from its first. A sample that is not Usable is skipped.
+func (h WindowHistory) Rise(since time.Time) float64 {
 	rise := 0.0
 	for _, c := range h.Cycles {
 		var first, atSince, last *Sample
 		for i := range c.Samples {
 			s := &c.Samples[i]
-			if !(s.Utilization >= 0) || math.IsInf(s.Utilization, 0) {
+			if !s.Usable() {
 				continue
 			}
 			if first == nil {
@@ -268,7 +282,7 @@ func (h WindowHistory) Rise(since time.Time, length time.Duration) float64 {
 		}
 		base := 0.0
 		switch {
-		case !c.ResetsAt.Add(-length).Before(since):
+		case !c.ResetsAt.Add(-h.Kind.Length()).Before(since):
 		case atSince != nil:
 			base = atSince.Utilization
 		default:

@@ -19,7 +19,7 @@ type binderSource struct {
 	asked    string
 }
 
-// SessionBinding names the session's binding, lapsing an hour after it was last
+// SessionBinding names the session's binding, expiring an hour after it was last
 // seen.
 func (s *binderSource) SessionBinding(sessionID, modelID string) (model.Binding, time.Time, bool) {
 	s.asked = sessionID + " " + modelID
@@ -71,11 +71,11 @@ func answerOfResponse(t *testing.T, rec *httptest.ResponseRecorder) SeatsAnswer 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
-	var g SeatsAnswer
-	if err := json.Unmarshal(rec.Body.Bytes(), &g); err != nil {
+	var answer SeatsAnswer
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body)
 	}
-	return g
+	return answer
 }
 
 func TestSeatsNamesTheSessionsSeatInThePagesForm(t *testing.T) {
@@ -87,31 +87,31 @@ func TestSeatsNamesTheSessionsSeatInThePagesForm(t *testing.T) {
 	// Claude Code names a 1M-context model with a suffix its requests drop;
 	// the binding is looked up for the model the status was scored for.
 	rec := get(t, testHandler(src), "/api/seats?session="+session+"&model=claude-fable-5%5B1m%5D")
-	g := answerOfResponse(t, rec)
+	answer := answerOfResponse(t, rec)
 
-	if g.Version != LocalAPIVersion {
-		t.Errorf("version = %d, want %d", g.Version, LocalAPIVersion)
+	if answer.Version != LocalAPIVersion {
+		t.Errorf("version = %d, want %d", answer.Version, LocalAPIVersion)
 	}
 	if src.asked != session+" claude-opus-5" || src.gotModl != "claude-fable-5" {
 		t.Errorf("asked session %q for model %q", src.asked, src.gotModl)
 	}
-	if g.Binding == nil || g.Binding.AuthID != testID("auth-a") || g.Binding.Model != "claude-opus-5" {
-		t.Fatalf("binding = %+v, want auth-a's published id", g.Binding)
+	if answer.Binding == nil || answer.Binding.AuthID != testID("auth-a") || answer.Binding.Model != "claude-opus-5" {
+		t.Fatalf("binding = %+v, want auth-a's published id", answer.Binding)
 	}
-	if g.Binding.ExpiresAt == nil || !g.Binding.ExpiresAt.Equal(base.Add(time.Hour)) {
-		t.Errorf("expires at = %v, want an hour after it was last seen", g.Binding.ExpiresAt)
+	if answer.Binding.ExpiresAt == nil || !answer.Binding.ExpiresAt.Equal(base.Add(time.Hour)) {
+		t.Errorf("expires at = %v, want an hour after it was last seen", answer.Binding.ExpiresAt)
 	}
-	if g.Next != testID("auth-b") {
-		t.Errorf("next = %q, want the cheaper eligible seat of the top tier", g.Next)
+	if answer.Next != testID("auth-b") {
+		t.Errorf("next = %q, want the cheaper eligible seat of the top tier", answer.Next)
 	}
-	if len(g.Seats) != 4 {
-		t.Fatalf("seats = %d, want 4", len(g.Seats))
+	if len(answer.Seats) != 4 {
+		t.Fatalf("seats = %d, want 4", len(answer.Seats))
 	}
-	a := g.Seats[0]
+	a := answer.Seats[0]
 	if a.AuthID != testID("auth-a") || strings.Contains(a.Label, "alice") || a.Slack == nil || *a.Slack != 0.12 {
 		t.Errorf("seat a = %+v, want a published id, a masked name and its slack", a)
 	}
-	if c := g.Seats[2]; c.Eligible || c.Reason != model.ReasonSpent {
+	if c := answer.Seats[2]; c.Eligible || c.Reason != model.ReasonSpent {
 		t.Errorf("seat c = %+v, want spent", c)
 	}
 	if strings.Contains(rec.Body.String(), "alice@") || strings.Contains(rec.Body.String(), `"auth-a"`) {
@@ -120,19 +120,19 @@ func TestSeatsNamesTheSessionsSeatInThePagesForm(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"utilization":null`) {
 		t.Errorf("a NaN reading is not null: %s", rec.Body)
 	}
-	if len(g.Warnings) != 1 || strings.Contains(g.Warnings[0], "auth-c") {
-		t.Errorf("warnings = %v, want the page's published text", g.Warnings)
+	if len(answer.Warnings) != 1 || strings.Contains(answer.Warnings[0], "auth-c") {
+		t.Errorf("warnings = %v, want the page's published text", answer.Warnings)
 	}
 }
 
 func TestSeatsWithoutABindingOrABinder(t *testing.T) {
 	src := &binderSource{stubSource: stubSource{status: seatsStatus()}}
-	if g := answerOfResponse(t, get(t, testHandler(src), "/api/seats?session=unbound")); g.Binding != nil {
-		t.Errorf("binding = %+v for an unbound session", g.Binding)
+	if answer := answerOfResponse(t, get(t, testHandler(src), "/api/seats?session=unbound")); answer.Binding != nil {
+		t.Errorf("binding = %+v for an unbound session", answer.Binding)
 	}
 	plain := &stubSource{status: seatsStatus()}
-	if g := answerOfResponse(t, get(t, testHandler(plain), "/api/seats?session=x")); g.Binding != nil || len(g.Seats) != 4 {
-		t.Errorf("answer from a source with no binder = %+v", g)
+	if answer := answerOfResponse(t, get(t, testHandler(plain), "/api/seats?session=x")); answer.Binding != nil || len(answer.Seats) != 4 {
+		t.Errorf("answer from a source with no binder = %+v", answer)
 	}
 }
 
@@ -159,32 +159,32 @@ func TestSeatsNextSkipsSeatsTheHostHoldsBack(t *testing.T) {
 	st.Auths[0].Score.Eligible = false
 	st.Auths[0].Score.Reason = model.ReasonNotCandidate
 	st.Auths[3].Priority = 1
-	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
-	if g.Next != testID("auth-b") {
-		t.Fatalf("next = %q, want auth-b on the tier the host offers", g.Next)
+	answer := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
+	if answer.Next != testID("auth-b") {
+		t.Fatalf("next = %q, want auth-b on the tier the host offers", answer.Next)
 	}
 }
 
-func TestSeatsNextTakesAnUnexpressibleCostLast(t *testing.T) {
+func TestSeatsNextRanksACostThatIsNotANumberLast(t *testing.T) {
 	st := seatsStatus()
-	st.Auths[1].Score.Cost = math.Inf(1)
-	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
-	if g.Next != testID("auth-a") {
-		t.Errorf("next = %q, want auth-a over a seat whose cost is not a number", g.Next)
+	st.Auths[1].Score.Cost = math.NaN()
+	answer := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
+	if answer.Next != testID("auth-a") {
+		t.Errorf("next = %q, want auth-a over a seat whose cost is not a number", answer.Next)
 	}
 	st.Auths[0].Score.Eligible = false
-	g = answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
-	if g.Next != testID("auth-b") {
-		t.Errorf("next = %q, want auth-b when it is the only eligible seat", g.Next)
+	answer = answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
+	if answer.Next != testID("auth-b") {
+		t.Errorf("next = %q, want auth-b when it is the only eligible seat", answer.Next)
 	}
 }
 
 func TestSeatsNextPutsASeatWithNoWeeklyCapFirst(t *testing.T) {
 	st := seatsStatus()
 	st.Auths[0].Score.SessionOnly = true
-	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
-	if g.Next != testID("auth-a") {
-		t.Errorf("next = %q, want auth-a, the seat with no weekly cap, over the cheaper auth-b", g.Next)
+	answer := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
+	if answer.Next != testID("auth-a") {
+		t.Errorf("next = %q, want auth-a, the seat with no weekly cap, over the cheaper auth-b", answer.Next)
 	}
 }
 
@@ -205,8 +205,8 @@ func TestSeatsGivesEachWindowItsUseSinceAndEachSeatItsRate(t *testing.T) {
 		rates:      map[string]model.SpendRates{"auth-a": {Weekly: &rate, FiveHour: &fiveRate}},
 	})
 	since := now.Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-	g := answerOfResponse(t, get(t, h, "/api/seats?since="+since))
-	a := g.Seats[0]
+	answer := answerOfResponse(t, get(t, h, "/api/seats?since="+since))
+	a := answer.Seats[0]
 	if a.WeeklyPerUSD == nil || *a.WeeklyPerUSD != rate || a.FiveHourPerUSD == nil || *a.FiveHourPerUSD != fiveRate {
 		t.Errorf("rates = %v, %v; want %v, %v", a.WeeklyPerUSD, a.FiveHourPerUSD, rate, fiveRate)
 	}
@@ -219,12 +219,12 @@ func TestSeatsGivesEachWindowItsUseSinceAndEachSeatItsRate(t *testing.T) {
 	if week == nil || week.UsedSince == nil || math.Abs(*week.UsedSince-0.12) > 1e-9 {
 		t.Fatalf("weekly window = %+v, want 0.12 used since", week)
 	}
-	if b := g.Seats[1]; b.Windows[0].UsedSince != nil || b.WeeklyPerUSD != nil || b.FiveHourPerUSD != nil {
+	if b := answer.Seats[1]; b.Windows[0].UsedSince != nil || b.WeeklyPerUSD != nil || b.FiveHourPerUSD != nil {
 		t.Errorf("seat b = %+v, want no use since and no rate without a history or rate", b)
 	}
 	for _, bad := range []string{"yesterday", now.Add(time.Hour).UTC().Format(time.RFC3339), now.Add(-9 * 24 * time.Hour).UTC().Format(time.RFC3339)} {
-		g := answerOfResponse(t, get(t, h, "/api/seats?since="+bad))
-		if g.Seats[0].Windows[0].UsedSince != nil {
+		answer := answerOfResponse(t, get(t, h, "/api/seats?since="+bad))
+		if answer.Seats[0].Windows[0].UsedSince != nil {
 			t.Errorf("since %q gave a use since", bad)
 		}
 	}
@@ -242,8 +242,8 @@ func TestSeatsUsedSinceReadsTheFiveHourWindowAndAPlusOffset(t *testing.T) {
 	}}}}
 	zone := time.FixedZone("plus9", 9*3600)
 	since := now.Add(-6 * time.Hour).In(zone).Format(time.RFC3339)
-	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats?since="+since))
-	five := g.Seats[1].Windows[len(g.Seats[1].Windows)-1]
+	answer := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats?since="+since))
+	five := answer.Seats[1].Windows[len(answer.Seats[1].Windows)-1]
 	if five.Kind != model.WindowSession || five.UsedSince == nil || math.Abs(*five.UsedSince-0.4) > 1e-9 {
 		t.Fatalf("5-hour window = %+v, want 0.4 used since %s", five, since)
 	}
@@ -260,11 +260,24 @@ func TestSeatsGivesTheFiveHourWindowItsOwnSince(t *testing.T) {
 			Samples: []model.Sample{{At: now.Add(-30 * time.Hour), Utilization: 0.2}, {At: now.Add(-time.Minute), Utilization: 0.25}}}}},
 	}
 	q := "/api/seats?since=" + now.Add(-24*time.Hour).UTC().Format(time.RFC3339) + "&since_five_hour=" + now.Add(-time.Hour).UTC().Format(time.RFC3339)
-	g := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), q))
-	for _, w := range g.Seats[1].Windows {
+	answer := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), q))
+	for _, w := range answer.Seats[1].Windows {
 		want := map[model.WindowKind]float64{model.WindowSession: 0.3, model.WindowWeekly: 0.05}[w.Kind]
 		if w.UsedSince == nil || math.Abs(*w.UsedSince-want) > 1e-9 {
 			t.Errorf("%s used since = %v, want %v", w.Kind, w.UsedSince, want)
 		}
+	}
+}
+
+func TestSeatsLeavesOutTimesItDoesNotKnow(t *testing.T) {
+	st := seatsStatus()
+	st.PolledAt = time.Time{}
+	st.Auths[0].Snapshot.Windows[0].ResetsAt = time.Time{}
+	body := get(t, testHandler(&stubSource{status: st}), "/api/seats").Body.String()
+	if strings.Contains(body, `"polled_at"`) || strings.Contains(body, "0001-01-01") {
+		t.Errorf("answer names an unknown time: %s", body)
+	}
+	if strings.Count(body, `"resets_at"`) != 4 {
+		t.Errorf("answer = %s, want resets_at on every window but the one with none", body)
 	}
 }

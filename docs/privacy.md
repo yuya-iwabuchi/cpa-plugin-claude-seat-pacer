@@ -25,8 +25,8 @@ day of them. [Local API](local-api.md) describes the answer. It never listens
 on the network: the plugin makes its directory the host user's alone (no group
 or other permission, owned by that user, not a link) and the socket `0600`, so
 only the user the host runs as can connect, the user who can already read
-`history.json`. A failure to bind it is a status-page warning. Windows serves
-no socket.
+`history.json`. A failure to bind it is a status-page warning. Windows, and a
+host with no home directory to keep the plugin's data in, serve no socket.
 
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples and each seat's last reading across restarts: credential

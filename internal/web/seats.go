@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/pace"
 )
 
 // maxSessionIDLength bounds the session id a seats request names. A Claude
@@ -37,11 +38,11 @@ const LocalAPIVersion = 1
 
 // SeatsAnswer is the seats route's answer: one conversation's seat and every
 // seat's windows, in the page's published form, with masked names and keyed
-// ids.
+// ids. PolledAt is absent before the first usage read.
 type SeatsAnswer struct {
 	Version  int            `json:"version"`
 	Now      time.Time      `json:"now"`
-	PolledAt time.Time      `json:"polled_at"`
+	PolledAt *time.Time     `json:"polled_at,omitempty"`
 	Model    string         `json:"model"`
 	Binding  *AnswerBinding `json:"binding"`
 	Next     string         `json:"next,omitempty"`
@@ -82,12 +83,13 @@ type AnswerSeat struct {
 // AnswerWindow is one window reading. Utilization is a fraction, above 1 past
 // the cap, and null when the reading is not a finite number. UsedSince is how
 // much of the window was used after the request's since, present when it
-// named one and the history holds the window.
+// named one and the history holds the window. ResetsAt is absent when the
+// reading names no reset.
 type AnswerWindow struct {
 	Kind        model.WindowKind `json:"kind"`
 	Scope       string           `json:"scope,omitempty"`
 	Utilization float64          `json:"utilization"`
-	ResetsAt    time.Time        `json:"resets_at"`
+	ResetsAt    *time.Time       `json:"resets_at,omitempty"`
 	UsedSince   *float64         `json:"used_since,omitempty"`
 }
 
@@ -117,10 +119,7 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 	var binding *AnswerBinding
 	if binder, ok := src.(SessionBinder); ok && sessionID != "" {
 		if b, expires, ok := binder.SessionBinding(sessionID, st.Model); ok {
-			binding = &AnswerBinding{AuthID: publicID(key, b.AuthID), Model: b.Model, LastSeen: b.LastSeen}
-			if !expires.IsZero() {
-				binding.ExpiresAt = &expires
-			}
+			binding = &AnswerBinding{AuthID: publicID(key, b.AuthID), Model: b.Model, LastSeen: b.LastSeen, ExpiresAt: timeOrNil(expires)}
 		}
 	}
 	var rates map[string]model.SpendRates
@@ -130,16 +129,17 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 			rates[publicID(key, id)] = r
 		}
 	}
-	body, err := encodeData(answerOf(reduceForPage(st, key), binding, rates, since, fiveSince))
+	answer := answerOf(reduceForPage(st, key), binding, rates, since, fiveSince)
+	if next, ok := nextOf(st); ok {
+		answer.Next = publicID(key, next)
+	}
+	body, err := encodeData(answer)
 	if err != nil {
 		setCommonHeaders(w)
 		http.Error(w, "seats answer encode failed", http.StatusInternalServerError)
 		return
 	}
-	setCommonHeaders(w)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	writeJSON(w, body)
 }
 
 // requestModel is the model id a request for modelID carries upstream. Claude
@@ -152,33 +152,21 @@ func requestModel(modelID string) string {
 	return modelID
 }
 
-// answerOf picks the answer's figures out of a status already reduced for the
-// page. Next is the eligible seat of the top priority tier the pick ranks
-// first, the one a new conversation goes to: a seat with no weekly cap ahead,
-// then the lowest cost. Seats arrive in credential id order, so a tie goes to
-// the lower id, as the pick breaks it. A non-zero since gives each window the
-// use its history records after it, and a non-zero fiveSince does so for the
-// 5-hour window in its place. rates are by published id.
+// answerOf picks the answer's figures, all but Next, out of a status already
+// reduced for the page. A non-zero since gives each window the use its history
+// records after it, and a non-zero fiveSince does so for the 5-hour window in
+// its place. rates are by published id.
 func answerOf(st model.Status, binding *AnswerBinding, rates map[string]model.SpendRates, since, fiveSince time.Time) SeatsAnswer {
-	g := SeatsAnswer{
+	answer := SeatsAnswer{
 		Version:  LocalAPIVersion,
 		Now:      st.Now,
-		PolledAt: st.PolledAt,
+		PolledAt: timeOrNil(st.PolledAt),
 		Model:    st.Model,
 		Binding:  binding,
 		Seats:    make([]AnswerSeat, 0, len(st.Auths)),
 		Warnings: st.Warnings,
 	}
-	// The top tier is the highest priority among the seats the host offers:
-	// a seat it holds back never takes a conversation, whatever its priority.
-	top, hasTop := 0, false
 	for _, a := range st.Auths {
-		if a.Score.Reason != model.ReasonNotCandidate && (!hasTop || a.Priority > top) {
-			top, hasTop = a.Priority, true
-		}
-	}
-	var best *model.AuthStatus
-	for i, a := range st.Auths {
 		seat := AnswerSeat{
 			AuthID:         a.AuthID,
 			Label:          a.Label,
@@ -197,52 +185,55 @@ func answerOf(st model.Status, binding *AnswerBinding, rates map[string]model.Sp
 			}
 		}
 		for _, w := range a.Snapshot.Windows {
-			gw := AnswerWindow{Kind: w.Kind, Scope: w.Scope, Utilization: w.Utilization, ResetsAt: w.ResetsAt}
+			window := AnswerWindow{Kind: w.Kind, Scope: w.Scope, Utilization: w.Utilization, ResetsAt: timeOrNil(w.ResetsAt)}
 			from := since
 			if w.Kind == model.WindowSession {
 				from = fiveSince
 			}
 			if !from.IsZero() {
-				gw.UsedSince = usedSince(a.History, w, from)
+				window.UsedSince = usedSince(a.History, w, from)
 			}
-			seat.Windows = append(seat.Windows, gw)
+			seat.Windows = append(seat.Windows, window)
 		}
-		g.Seats = append(g.Seats, seat)
-		if a.Priority == top && a.Score.Eligible && (best == nil || ahead(a.Score, best.Score)) {
-			best = &st.Auths[i]
-		}
+		answer.Seats = append(answer.Seats, seat)
 	}
-	if best != nil {
-		g.Next = best.AuthID
-	}
-	return g
+	return answer
 }
 
-// ahead reports whether the pick ranks eligible score a before b: a seat with
-// no weekly cap first, then the lower cost, a cost the page could not express
-// as a number counting as the highest.
-func ahead(a, b model.Score) bool {
-	switch {
-	case a.SessionOnly != b.SessionOnly:
-		return a.SessionOnly
-	case a.Cost == nonFiniteSentinel:
-		return false
-	case b.Cost == nonFiniteSentinel:
-		return true
+// nextOf is the credential id of the seat a new conversation goes to: the one
+// the pick ranks first among the top priority tier the host offers. A seat the
+// host holds back never takes a conversation, whatever its priority.
+func nextOf(st model.Status) (string, bool) {
+	top, hasTop := 0, false
+	for _, a := range st.Auths {
+		if a.Score.Reason != model.ReasonNotCandidate && (!hasTop || a.Priority > top) {
+			top, hasTop = a.Priority, true
+		}
 	}
-	return a.Cost < b.Cost
+	var scores []model.Score
+	for _, a := range st.Auths {
+		if hasTop && a.Priority == top {
+			scores = append(scores, a.Score)
+		}
+	}
+	best, ok := pace.Best(scores)
+	return best.AuthID, ok
+}
+
+// timeOrNil is t, or nil when t is the zero instant that stands for none.
+func timeOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 // usedSince is how much of a window its history records as used after since,
 // or nil when the history holds no record of the window.
 func usedSince(history []model.WindowHistory, w model.Window, since time.Time) *float64 {
-	length := model.WeeklyDuration
-	if w.Kind == model.WindowSession {
-		length = model.SessionDuration
-	}
 	for _, h := range history {
 		if h.Kind == w.Kind && h.Scope == w.Scope {
-			rise := h.Rise(since, length)
+			rise := h.Rise(since)
 			return &rise
 		}
 	}

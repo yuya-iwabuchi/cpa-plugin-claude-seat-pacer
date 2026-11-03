@@ -82,7 +82,10 @@ the run. Do not remove that test.
 - **`pick` is called concurrently with no serialization.** Config is held in an
   `atomic.Pointer`; the quota store, binding store and decision log lock
   internally; everything else mutable sits behind a mutex held only for field
-  access and never across a host callback.
+  access and never across a host callback. The locks that serialize the poll
+  loop's and the local API socket's start, stop and polls are held across
+  that work, host callbacks and bounded waits included; the pick never takes
+  them.
 - **Candidates are pre-filtered and capped at the highest priority tier.**
   Disabled, cooling, model-incompatible and already-tried credentials are gone
   before the plugin is asked, and lower tiers are never offered, so the plugin
@@ -189,7 +192,7 @@ internal/httpx       case-insensitive header index; imports nothing else here
 internal/quota       usage-endpoint client, response-header parsing, snapshots, utilization history, refusal spans and login instants
 internal/pace        the scoring curve and the staleness gates; pure functions over model types
 internal/session     conversation identity extraction + binding store
-internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings, local API socket
+internal/runtime     wire types, hook handlers, plugin lifecycle, decision log, status and warnings, spend ledger, local API socket
 internal/web         embedded status app: page on the resource route, data behind the key, the local API's seats answer
 cmd/webdev           fixture server that renders the status app from synthetic seats or a recorded history file
 ```
@@ -275,10 +278,10 @@ set. The resource route serves the static page alone
 (`TestManagementRegisterDeclaresRoutesAndResources`,
 `TestManagementAdapterStripsResourcePrefix`): new data or actions go on a
 management route behind the key. The local API, off by
-default, is the one route the management key does not guard; file permissions
-guard it instead. It is a read-only Unix socket only the host's own user can
-open, serving the status page's masked view of one conversation's seat, with
-each seat's use per dollar.
+default, is the one way to the plugin's data that the management key does not
+guard; file permissions guard it instead. It is a read-only Unix socket only
+the host's own user can open, serving the status page's masked seat figures,
+the seat one conversation is on, and each seat's use per dollar.
 
 1. Set `pluginVersion` in `main.go` to the new version and merge it to `main`.
 2. On an up-to-date, clean `main`, run `make release-tag`. It refuses another

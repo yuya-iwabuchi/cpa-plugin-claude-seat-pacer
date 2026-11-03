@@ -27,27 +27,39 @@ const (
 // listPrice is a model's API list price in US dollars per million tokens. A
 // cache write is priced as a one-hour write, twice input: the host reports no
 // write's lifetime, so a five-minute write, at 1.25 times input, counts high.
-type listPrice struct{ input, output, cacheRead float64 }
+// When longAbove is set, a request whose input, cache read and cache write
+// tokens add up to more than longAbove costs longTimes as much.
+type listPrice struct {
+	input, output, cacheRead float64
+	longAbove                int64
+	longTimes                float64
+}
 
 // listPrices are matched in order against a model id's lowercase form, so a
 // specific version comes before its family; an id matching none takes the
-// last. The table weighs one model's tokens against another's, the same
-// weighing Claude Code's own session cost applies.
+// last. They follow the prices in Claude Code's model catalog, which its
+// session cost uses: a client multiplies that cost by a rate built from this
+// table, so the two must weigh each model alike.
 var listPrices = []struct {
 	match string
 	price listPrice
 }{
-	{"fable-5-1", listPrice{10, 50, 0.25}},
-	{"mythos-5-1", listPrice{10, 50, 0.25}},
-	{"fable", listPrice{10, 50, 1}},
-	{"mythos", listPrice{10, 50, 1}},
-	{"haiku-5", listPrice{0.10, 0.50, 0.01}},
-	{"haiku", listPrice{1, 5, 0.10}},
-	{"sonnet-5", listPrice{2, 10, 0.20}},
-	{"sonnet", listPrice{3, 15, 0.30}},
-	{"opus-5-5", listPrice{4, 20, 0.20}},
-	{"opus", listPrice{5, 25, 0.50}},
-	{"", listPrice{4, 20, 0.20}},
+	{"fable-5-1", listPrice{input: 10, output: 50, cacheRead: 0.25}},
+	{"mythos-5-1", listPrice{input: 10, output: 50, cacheRead: 0.25}},
+	{"fable", listPrice{input: 10, output: 50, cacheRead: 1}},
+	{"mythos", listPrice{input: 10, output: 50, cacheRead: 1}},
+	{"haiku-5", listPrice{input: 0.10, output: 0.50, cacheRead: 0.01, longAbove: 100_000, longTimes: 5}},
+	{"3-5-haiku", listPrice{input: 0.80, output: 4, cacheRead: 0.08}},
+	{"haiku", listPrice{input: 1, output: 5, cacheRead: 0.10}},
+	{"sonnet-5-5", listPrice{input: 2, output: 10, cacheRead: 0.10}},
+	{"sonnet-5", listPrice{input: 2, output: 10, cacheRead: 0.20}},
+	{"sonnet", listPrice{input: 3, output: 15, cacheRead: 0.30}},
+	{"opus-5-5", listPrice{input: 4, output: 20, cacheRead: 0.20}},
+	{"opus-4-0", listPrice{input: 15, output: 75, cacheRead: 1.50}},
+	{"opus-4-1", listPrice{input: 15, output: 75, cacheRead: 1.50}},
+	{"opus-4-2025", listPrice{input: 15, output: 75, cacheRead: 1.50}},
+	{"opus", listPrice{input: 5, output: 25, cacheRead: 0.50}},
+	{"", listPrice{input: 4, output: 20, cacheRead: 0.20}},
 }
 
 // costOf is what a request's tokens cost at the model's list price.
@@ -60,10 +72,14 @@ func costOf(modelID string, d UsageDetail) float64 {
 			break
 		}
 	}
-	return (float64(d.InputTokens)*p.input +
+	cost := (float64(d.InputTokens)*p.input +
 		float64(d.CacheCreationTokens)*p.input*2 +
 		float64(d.CacheReadTokens)*p.cacheRead +
 		float64(d.OutputTokens)*p.output) / 1e6
+	if p.longAbove > 0 && d.InputTokens+d.CacheReadTokens+d.CacheCreationTokens > p.longAbove {
+		cost *= p.longTimes
+	}
+	return cost
 }
 
 // spendLedger is one seat's spend at list price, in hourly buckets keyed by
@@ -95,6 +111,20 @@ func (p *Plugin) addSpendLocked(authID, modelID string, d UsageDetail, at time.T
 	}
 }
 
+// restartSpend empties the ledger and starts it now. The host sends
+// plugin.register once per load, and a load can follow a stretch in which
+// another build, or none, served the seats and saw their spend. Its rollback of
+// a failed update sends plugin.reconfigure to the build it kept, which went on
+// serving, so that build keeps its ledger. A stretch the host spends without
+// the plugin and ends with plugin.reconfigure, as after it fuses the plugin, is
+// missed, and raises the rates until it leaves the span.
+func (p *Plugin) restartSpend() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.spendFrom = p.now()
+	clear(p.spend)
+}
+
 // SpendRates gives each seat the plugin has seen spend on its rates, by
 // credential id, from the same history the status publishes. A seat with no
 // rate in either window is left out.
@@ -122,16 +152,16 @@ func (p *Plugin) SpendRates(now time.Time) map[string]model.SpendRates {
 // perUSD is how much of a seat's 7-day or 5-hour window one dollar of
 // list-price spend used over the last spendSpan, from the window's rise and
 // the spend the plugin saw in the same hours. Absent until the span holds
-// enough of both. Spend is counted only while the plugin runs, so the span
-// starts no earlier than the plugin did, and then the rise counts from the
-// first reading the plugin took: use while it was not running lands in that
+// minRateUSD of spend and minRateRise of rise for each cycle. The ledger
+// starts at spendFrom, so the span starts no earlier, and the rise then counts
+// from the first reading at or after spendFrom: use before it lands in that
 // reading.
 func (p *Plugin) perUSD(authID string, history []model.WindowHistory, kind model.WindowKind, now time.Time) *float64 {
 	p.mu.Lock()
 	since := time.Unix(spendHour(now.Add(-spendSpan)), 0)
-	started := p.startedAt.After(since)
+	started := p.spendFrom.After(since)
 	if started {
-		since = p.startedAt
+		since = p.spendFrom
 	}
 	usd := 0.0
 	for h, c := range p.spend[authID] {
@@ -142,10 +172,6 @@ func (p *Plugin) perUSD(authID string, history []model.WindowHistory, kind model
 	p.mu.Unlock()
 	if usd < minRateUSD {
 		return nil
-	}
-	length := model.WeeklyDuration
-	if kind == model.WindowSession {
-		length = model.SessionDuration
 	}
 	for _, h := range history {
 		if h.Kind != kind || h.Scope != "" {
@@ -159,7 +185,7 @@ func (p *Plugin) perUSD(authID string, history []model.WindowHistory, kind model
 			}
 			from = first
 		}
-		rise := h.Rise(from, length)
+		rise := h.Rise(from)
 		if rise < minRateRise*float64(max(1, cycles)) {
 			return nil
 		}
@@ -174,7 +200,7 @@ func (p *Plugin) perUSD(authID string, history []model.WindowHistory, kind model
 func readingsFrom(h model.WindowHistory, t time.Time) (first time.Time, cycles int) {
 	for _, c := range h.Cycles {
 		for _, s := range c.Samples {
-			if !s.At.Before(t) && s.Utilization >= 0 {
+			if !s.At.Before(t) && s.Usable() {
 				if cycles == 0 {
 					first = s.At
 				}

@@ -69,6 +69,7 @@ type Plugin struct {
 	lastModel   string
 	cache       map[string]model.CacheStats
 	spend       map[string]spendLedger
+	spendFrom   time.Time
 	auths       []HostAuthFileEntry
 	polls       map[string]pollState
 	// logins is each Claude seat's login as the polls saw it.
@@ -257,7 +258,10 @@ func Degrade(method, code, message string) ([]byte, bool) {
 
 func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 	switch method {
-	case MethodPluginRegister, MethodPluginReconfigure:
+	case MethodPluginRegister:
+		p.restartSpend()
+		return p.configure(payload)
+	case MethodPluginReconfigure:
 		return p.configure(payload)
 	case MethodPluginQuiesce:
 		p.stopPoller()
