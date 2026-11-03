@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -292,5 +293,56 @@ func TestLocalAPIIsOffWithNoDataDirectory(t *testing.T) {
 		if strings.Contains(w, "local API not served") {
 			t.Fatalf("warning %q with no data directory to serve from", w)
 		}
+	}
+}
+
+// A rollback that reconfigures a build while its quiesce is still stopping it
+// leaves the socket open: the quiesce closes it only while the build is still
+// handed over.
+func TestARollbackDuringAQuiesceKeepsTheSocket(t *testing.T) {
+	tp := newTestPlugin(t, socketConfigYAML)
+	tp.SetResourceHandler(echoApp())
+	// Holding pollMu parks the quiesce in stopPoller, at its history save.
+	tp.pollMu.Lock()
+	held := true
+	release := func() {
+		if held {
+			held = false
+			tp.pollMu.Unlock()
+		}
+	}
+	t.Cleanup(release)
+	quiesced := make(chan bool, 1)
+	go func() {
+		_, ok := tp.Call(MethodPluginQuiesce, nil)
+		quiesced <- ok
+	}()
+	until(t, "the quiesce never reached stopPoller", func() bool {
+		if tp.lifeMu.TryLock() {
+			tp.lifeMu.Unlock()
+			return false
+		}
+		return true
+	})
+	tp.mu.Lock()
+	tp.hostSchema = 0
+	tp.mu.Unlock()
+	reconfigured := make(chan bool, 1)
+	go func() {
+		payload, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte(socketConfigYAML), SchemaVersion: 4})
+		_, ok := tp.Call(MethodPluginReconfigure, payload)
+		reconfigured <- ok
+	}()
+	until(t, "the reconfigure never marked the build live", func() bool {
+		tp.mu.Lock()
+		defer tp.mu.Unlock()
+		return tp.hostSchema != 0
+	})
+	release()
+	if !<-quiesced || !<-reconfigured {
+		t.Fatal("a lifecycle call returned an error envelope")
+	}
+	if code, body := seatsGet(t, tp.APISocketPath(), "/api/seats"); code != http.StatusOK {
+		t.Fatalf("seats after the rollback = %d %s, want the socket still serving", code, body)
 	}
 }

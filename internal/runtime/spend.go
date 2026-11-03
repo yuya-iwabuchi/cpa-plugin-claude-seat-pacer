@@ -111,8 +111,9 @@ func (p *Plugin) addSpendLocked(authID, modelID string, d UsageDetail, at time.T
 	}
 }
 
-// restartSpend empties the ledger and starts it now. The host sends
-// plugin.register once per load, and a load can follow a stretch in which
+// restartSpend empties the ledger and starts it now. configure calls it once
+// per load: at plugin.register, or at the first configure of a build whose
+// register the host failed. A load can follow a stretch in which
 // another build, or none, served the seats and saw their spend. Its rollback of
 // a failed update sends plugin.reconfigure to the build it kept, which went on
 // serving, so that build keeps its ledger. A stretch the host spends without

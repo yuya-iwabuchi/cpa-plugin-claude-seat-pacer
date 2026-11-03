@@ -77,6 +77,7 @@ func TestFindStaleHold(t *testing.T) {
 	held := heldEntry(weeklyReset.Add(20 * time.Second))
 	clearedSpan := weekly(ended(refused, cleared, model.LockEndCleared, weeklyReset))
 	soon := testNow.Add(5 * time.Minute)
+	weeklyOnly := freshSnap(model.Window{Kind: model.WindowWeekly, Utilization: 0.02, ResetsAt: weeklyReset})
 	cases := []struct {
 		name    string
 		entry   HostAuthFileEntry
@@ -92,6 +93,12 @@ func TestFindStaleHold(t *testing.T) {
 		{"a span a served request ended, a clearing before it", held, freshSnap(),
 			[]model.WindowHistory{reopenAt(window(model.WindowWeekly, "", ended(refused, cleared, model.LockEndServed, weeklyReset)), cleared.Add(-time.Second))}, false},
 		{"a 5-hour span that rolled early", held, freshSnap(), []model.WindowHistory{session(ended(refused, cleared, model.LockEndReset, weeklyReset))}, true},
+		{"a 5-hour span the read ended by no longer reporting the window", held, weeklyOnly,
+			[]model.WindowHistory{{Kind: model.WindowSession, Locks: []model.Lock{ended(refused, cleared, model.LockEndCleared, weeklyReset)}}}, true},
+		{"a 5-hour span ended as cleared on a window the read still reports, never reopened", held, freshSnap(),
+			[]model.WindowHistory{{Kind: model.WindowSession, Locks: []model.Lock{ended(refused, cleared, model.LockEndCleared, weeklyReset)}}}, false},
+		{"a 5-hour span a served request ended, on a window the read no longer reports", held, weeklyOnly,
+			[]model.WindowHistory{session(ended(refused, cleared, model.LockEndServed, weeklyReset))}, false},
 		{"a 429 on both windows, only the 5-hour one rolled since", held, freshSnap(), []model.WindowHistory{
 			reopenAt(session(ended(refused, refused.Add(time.Second), model.LockEndServed, refused.Add(2*time.Hour))), refused.Add(2*time.Hour)),
 			window(model.WindowWeekly, "", ended(refused, refused.Add(time.Second), model.LockEndServed, weeklyReset)),
@@ -208,6 +215,35 @@ func TestAClearingIsFoundOnItsConfirmingRead(t *testing.T) {
 	}
 	if !hold.released.Equal(firstAt.Truncate(time.Second)) || hold.span != refusedAt.Unix() {
 		t.Errorf("hold = %+v, want released at the first low read and keyed by the refusal", hold)
+	}
+}
+
+// TestAHoldOnAWindowTheReadDroppedIsReleased drives the quota store through a
+// 5-hour refusal and then usage reads with no 5-hour window, as a plan that
+// drops its 5-hour limit reports: the cooldown the refusal set is stale, with
+// the quota back from the read that dropped the window.
+func TestAHoldOnAWindowTheReadDroppedIsReleased(t *testing.T) {
+	const id = "claude-a.json"
+	store := quota.NewStore()
+	weekly := model.Window{Kind: model.WindowWeekly, Utilization: 0.3, ResetsAt: weeklyReset}
+	put := func(at time.Time, windows ...model.Window) model.AuthSnapshot {
+		store.Put(model.AuthSnapshot{AuthID: id, ObservedAt: at, Source: model.SourceUsageEndpoint, Windows: windows})
+		snap, _ := store.Get(id)
+		return snap
+	}
+	refusedAt, sessionReset := testNow.Add(-2*time.Hour), testNow.Add(3*time.Hour)
+	full := model.Window{Kind: model.WindowSession, Utilization: 1, ResetsAt: sessionReset, Status: model.StatusRejected}
+	put(refusedAt, full, weekly)
+	store.RecordRefusals(id, []model.Window{full}, refusedAt, refusedAt)
+
+	droppedAt := testNow.Add(-2 * time.Minute)
+	put(droppedAt, weekly)
+	hold, ok := findStaleHold(heldEntry(sessionReset.Add(20*time.Second)), put(testNow, weekly), store.History(id, 1, testNow), testNow)
+	if !ok {
+		t.Fatalf("no stale cooldown found; history = %+v", store.History(id, 1, testNow))
+	}
+	if !hold.released.Equal(droppedAt) || hold.span != refusedAt.Unix() {
+		t.Errorf("hold = %+v, want released at the read that dropped the window and keyed by the refusal", hold)
 	}
 }
 

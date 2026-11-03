@@ -1243,3 +1243,28 @@ func TestHeaderOnlyReadingIsNeverSessionOnly(t *testing.T) {
 		t.Fatalf("SessionOnly on a header-only reading, want a missing weekly window to count only from the usage endpoint")
 	}
 }
+
+// A seat whose usage-endpoint reading holds weekly windows and no 5-hour
+// window is a capped seat: it is not SessionOnly, and its cost is its weekly
+// terms, the all-models window's and on Fable its family cap's.
+func TestSeatWithNoSessionWindowPacesOnItsWeeklyWindows(t *testing.T) {
+	now := testNow
+	cfg := model.Defaults().Pace
+	snap := seat("no-session", now, weekly(now, 0.5, 0.3), paced(model.WindowWeeklyScoped, model.FamilyFable, now, 0.5, 0.1))
+	target := Target(cfg, 0.5)
+	for _, tc := range []struct {
+		modelID string
+		want    float64
+	}{
+		{opus, -cfg.WeeklyWeight * (target - 0.3)},
+		{fable, -cfg.WeeklyWeight*(target-0.3) - cfg.ScopedWeight*(target-0.1)},
+	} {
+		s := ScoreAuth(cfg, snap, tc.modelID, now)
+		if !s.Eligible || s.SessionOnly {
+			t.Fatalf("%s: eligible=%v SessionOnly=%v reason=%q, want an eligible capped seat", tc.modelID, s.Eligible, s.SessionOnly, s.Reason)
+		}
+		if math.Abs(s.Cost-tc.want) > 1e-12 {
+			t.Errorf("%s: cost = %v, want the weekly terms, %v", tc.modelID, s.Cost, tc.want)
+		}
+	}
+}

@@ -108,8 +108,8 @@ the name the page shows. A field that does not apply is left out.
 | `seats[].host_status` | The credential's state as the host reports it, such as `active`, `error`, `unavailable` or `disabled`. The status page hides a `disabled` seat. |
 | `seats[].eligible` | Whether the seat can take a new conversation on `model`. |
 | `seats[].reason` | Why it cannot: `spent`, `provider-rejected`, `stale-snapshot`, `no-snapshot`, `fetch-failed`, `no-bearing-window`, `bad-reading` or `not-a-candidate`. |
-| `seats[].slack` | How far the seat's 7-day use is behind its plan, as a fraction of the window; negative when it is ahead. |
-| `seats[].weekly_per_usd` | How much of the 7-day window one dollar of list-price spend used on this seat lately, as a fraction. To estimate a session's share of the window, multiply the session's list-price cost, as Claude Code reports it, by this rate. Use of the seat that does not pass through the plugin, such as claude.ai, adds to the window but not to the spend, so it makes the rate higher. Absent until the plugin has seen the seat's use rise with its spend. |
+| `seats[].slack` | How far the seat's 7-day use is behind its plan, as a fraction of the window; negative when it is ahead. Absent for a seat with no 7-day window. |
+| `seats[].weekly_per_usd` | How much of the 7-day window one dollar of list-price spend used on this seat lately, as a fraction. To estimate a session's share of the window, multiply the session's list-price cost, as Claude Code reports it, by this rate. Use of the seat that does not pass through the plugin, such as claude.ai, adds to the window but not to the spend, so it makes the rate higher. Absent for a seat with no 7-day window, and until the plugin has seen the seat's use rise with its spend. |
 | `seats[].five_hour_per_usd` | The same for the 5-hour window. |
 | `windows[].kind` | `five_hour`, `seven_day`, or `weekly_scoped` for a model family's weekly cap. |
 | `windows[].scope` | The model family of a `weekly_scoped` window, as the usage endpoint names it, such as `Opus`, `Sonnet` or `Fable`. |

@@ -213,6 +213,21 @@ func (f *fakeBindings) Bind(provider, modelID, key, authID string, now time.Time
 	return b
 }
 
+func (f *fakeBindings) Restore(saved []model.Binding, now time.Time) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, b := range saved {
+		k := bindKey(b.Provider, b.Model, b.SessionKey)
+		if _, held := f.items[k]; held || (f.ttl > 0 && now.Sub(b.LastSeen) > f.ttl) {
+			continue
+		}
+		f.items[k] = b
+		n++
+	}
+	return n
+}
+
 func (f *fakeBindings) DropAuth(authID string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -403,6 +418,14 @@ func pickRequest(modelID, key string, candidates ...string) SchedulerPickRequest
 			Attributes: map[string]string{"auth_kind": "oauth", "source_backend": "file"},
 		})
 	}
+	return req
+}
+
+// subagentRequest is a pick for the child conversation of parent.
+func subagentRequest(child, parent string, candidates ...string) SchedulerPickRequest {
+	req := pickRequest(fableModel, child, candidates...)
+	req.Options.Headers[HeaderSessionParent] = []string{parent}
+	req.Options.Headers[HeaderSubagent] = []string{"1"}
 	return req
 }
 

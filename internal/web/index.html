@@ -898,6 +898,7 @@ svg.hist-tl line.hs-midnight { stroke: var(--ink-3); stroke-width: 1; opacity: .
 .bal-left { margin-left: auto; font: 500 12px/1.3 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .bal-off { margin: 6px 8px; font: 500 11.5px/1.4 var(--sans); color: var(--critical); }
 .bal-none { margin: 8px; font: 400 11.5px/1.4 var(--sans); color: var(--ink-3); }
+.bal-none span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .bal-list { margin: 6px 0 0; padding: 0; list-style: none; }
 .bal-row { font: 400 12px/1.45 var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .bal-row + .bal-row { margin-top: 1px; }
@@ -2437,8 +2438,8 @@ time[data-ts] { cursor: help; }
 
   /* The view in force. A family cap the cost does not weigh draws no mark,
      so it has no view. */
-  function paceViewOf(fams, capDrawn) {
-    if (paceView === PACE_SESSION) return paceView;
+  function paceViewOf(fams, capDrawn, sessionShown) {
+    if (paceView === PACE_SESSION && sessionShown) return paceView;
     return capDrawn && fams.indexOf(paceView) >= 0 ? paceView : STANDARD;
   }
 
@@ -3645,7 +3646,7 @@ time[data-ts] { cursor: help; }
     $("tl-cut-key").hidden = !anyCut;
     var stdKey = $("tl-std-key");
     stdKey.hidden = ranks.fams.length < 2;
-    stdKey.textContent = "Standard windows apply to every request; " + onTopText(ranks.fams);
+    stdKey.textContent = "Standard windows apply to every request on a seat that has them; " + onTopText(ranks.fams);
     $("tl-held-key").hidden = !anyHeld;
     $("tl-curve-key").hidden = !anyCurve;
     [].forEach.call($("timeline-states").querySelectorAll("[data-states]"), function (li) {
@@ -5055,8 +5056,10 @@ time[data-ts] { cursor: help; }
        retires the cap from the cost, and the plot draws no mark for a window
        the cost does not weigh. */
     var capDrawn = fams.length && termShown(((st.config && st.config.pace) || {}).scoped_weight);
-    var view = paceViewOf(fams, capDrawn);
-    renderPaceView(fams, view, capDrawn);
+    /* The 5-hour view goes while no seat shown has the window to show. */
+    var sessionShown = !noSessionPool(seats);
+    var view = paceViewOf(fams, capDrawn, sessionShown);
+    renderPaceView(fams, view, capDrawn, sessionShown);
     $("pace-week").hidden = view === PACE_SESSION;
     $("pace-five").hidden = view !== PACE_SESSION;
     $("pace-note").toggleAttribute("data-off", view === PACE_SESSION);
@@ -5273,12 +5276,12 @@ time[data-ts] { cursor: help; }
      the weekly window, each family cap the cost weighs, and the 5-hour
      window. A press rebuilds the page from the payload it holds, fetching
      nothing. */
-  function renderPaceView(fams, view, capDrawn) {
+  function renderPaceView(fams, view, capDrawn, sessionShown) {
     var host = $("pace-view");
     host.textContent = "";
     var items = [[STANDARD, WEEKLY_SHORT]];
     if (capDrawn) fams.forEach(function (fam) { items.push([fam, capShort(fam)]); });
-    items.push([PACE_SESSION, SESSION_SHORT]);
+    if (sessionShown) items.push([PACE_SESSION, SESSION_SHORT]);
     switchBar(host, items, view, "view:", function (key) {
       paceView = key;
       savePaceView();
@@ -5443,7 +5446,11 @@ time[data-ts] { cursor: help; }
     if (fams.length && termShown(wts.scoped_weight)) {
       terms.push("the " + fams.map(capShort).join(" or ") + " gap" + weightTag(wts.scoped_weight) + " for that family's requests");
     }
-    if (termShown(wts.session_weight)) terms.push("the " + SESSION_SHORT + " gap" + weightTag(wts.session_weight));
+    /* No seat shown with a 5-hour window leaves the session weight nothing
+       to weigh. */
+    var shown = stableAuths(st.auths), noSession = noSessionPool(shown);
+    var sessionTerm = termShown(wts.session_weight) && !noSession;
+    if (sessionTerm) terms.push("the " + SESSION_SHORT + " gap" + weightTag(wts.session_weight));
     /* The note names SessionOnly seats only while a serving tier holds one. */
     var hasSessionOnly = anySessionOnly(st);
     q.appendChild(document.createTextNode(
@@ -5453,9 +5460,12 @@ time[data-ts] { cursor: help; }
         : hasSessionOnly
           ? "No window carries weight on a capped seat, so every capped seat costs 0 and they rank by seat id."
           : "No window carries weight, so every cost is 0 and seats rank by seat id.") +
-      (termShown(wts.session_weight)
+      (sessionTerm
         ? (hasSessionOnly ? " On a capped seat, the " : " The ") + SESSION_SHORT +
-          " gap is a short-horizon term that separates seats whose weekly gaps tie."
+          " gap is a short-horizon term that separates seats whose weekly gaps tie" +
+          (shown.some(noSessionLimit) ? "; a seat with no " + SESSION_SHORT + " limit has no such term." : ".")
+        : noSession
+          ? " No seat shown reports a " + SESSION_SHORT + " window."
         : hasSessionOnly
           ? " On a capped seat the " + SESSION_SHORT + " window weighs nothing: it resets several times " +
             "a day, so it only gates, and the weekly window is the quota lost at reset."
@@ -5464,7 +5474,7 @@ time[data-ts] { cursor: help; }
       " The eligible seat with the lowest cost takes the next new conversation" +
       (fams.length ? " of its family, so each family has its own ranking: " + fams.join(" and ") +
         " for models with their own 7d window, Standard for the rest. The Standard windows apply to every " +
-        "request; " + onTopText(fams) : "") +
+        "request on a seat that has them; " + onTopText(fams) : "") +
       "." +
       (hasSessionOnly
         ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat for them, whatever " +
@@ -5509,10 +5519,23 @@ time[data-ts] { cursor: help; }
      this constant. */
   var SESSION_GATES = "a refusal, a bad reading or a full reading makes a seat ineligible";
 
+  /* Whether no seat in seats has a 5-hour window to show: a usage read
+     reports none on some seat, and no reading carries one. */
+  function noSessionPool(seats) {
+    return seats.some(noSessionLimit) && !seats.some(sessionWindow);
+  }
+
+  /* Whether a seat has no 5-hour limit. A usage-endpoint read reports every
+     window a seat has, so a seat it reads with no 5-hour window has none;
+     response headers carry only the windows traffic touched. */
+  function noSessionLimit(a) {
+    return !!(a.snapshot && a.snapshot.windows && a.snapshot.source === "usage-endpoint" && !sessionWindow(a));
+  }
+
   /* Why a seat draws no 5-hour line. Null means plottable. */
   function sessionGap(a, w, resets) {
     if (!a.snapshot || !a.snapshot.windows) return "not read yet";
-    if (!w) return "no " + SESSION_SHORT + " reading";
+    if (!w) return noSessionLimit(a) ? "no " + SESSION_SHORT + " limit" : "no " + SESSION_SHORT + " reading";
     if (!num(w.utilization)) return "bad reading";
     if (!resets) return "no open window";
     return null;
@@ -5742,9 +5765,13 @@ time[data-ts] { cursor: help; }
   /* The 5-hour list's rows. A seat the host holds, or whose reading the
      scorer cannot use, too old or never taken, says so in the 7-day lists'
      word; any other says where it is headed and when it resets, on one
-     line. */
+     line. A seat whose usage read reports no 5-hour window comes last in
+     its priority tier. */
   function sessionRows(seats, paceCfg, now) {
-    return seats.map(function (a) {
+    var ordered = seats.slice().sort(function (x, y) {
+      return (y.priority || 0) - (x.priority || 0) || noSessionLimit(x) - noSessionLimit(y);
+    });
+    return ordered.map(function (a) {
       var w = sessionWindow(a), o = currentOutlook(a, "five_hour", "", paceCfg, now);
       var v = famVerdict(a, STANDARD, now), sc = famScore(a, STANDARD);
       var unread = hostHolds(a) || (!v.ok && sc && (sc.reason === "stale-snapshot" || sc.reason === "no-snapshot")) ? v.word : "";
@@ -5784,10 +5811,11 @@ time[data-ts] { cursor: help; }
     var l = def(dl, "the list");
     l.appendChild(document.createTextNode("Each row is a seat's use of the window now. The meter runs solid to that " +
       "and faint to where the seat's last hour's rate takes it by the reset, which the line under it gives with " +
-      "the time left."));
+      "the time left." + (stableAuths(st.auths).some(noSessionLimit) ? " A seat whose usage read reports no " +
+      SESSION_SHORT + " window has no limit here: its row says so, last in its priority tier." : "")));
     var capped = termShown(wts.session_weight)
-      ? " Its gap counts" + weightTag(wts.session_weight) + " in " + (hasSessionOnly ? "that seat's" : "every seat's") +
-        " cost and separates seats whose weekly gaps tie."
+      ? " Its gap counts" + weightTag(wts.session_weight) + " in " + (hasSessionOnly ? "that seat's cost" : "the cost of every seat with the window") +
+        " and separates seats whose weekly gaps tie."
       : " It weighs nothing in " + (hasSessionOnly ? "that seat's cost." : "the cost.");
     var r = def(dl, hasSessionOnly ? "a rate limit, or the only quota" : "a rate limit, not a budget");
     r.appendChild(document.createTextNode((hasSessionOnly
@@ -6390,9 +6418,13 @@ time[data-ts] { cursor: help; }
     var fams = scopedFamilies(st);
     var views = [{ id: "seven_day", kind: "seven_day", scope: "", weekly: true }]
       .concat(fams.map(function (f) { return { id: "scoped:" + f, kind: "weekly_scoped", scope: f, weekly: true }; }))
-      .concat([{ id: "five_hour", kind: "five_hour", scope: "", weekly: false }]);
+      .concat(noSessionPool(seats) ? [] : [{ id: "five_hour", kind: "five_hour", scope: "", weekly: false }]);
     views.forEach(function (v) { v.label = windowShort(v); });
     var view = views.filter(function (v) { return v.id === histView; })[0] || views[0];
+    /* The 5-hour view leaves out a seat whose usage read reports no 5-hour
+       window, whatever it recorded before: it holds no window to spend. */
+    var limitless = view.kind === "five_hour" ? seats.filter(noSessionLimit) : [];
+    if (limitless.length) seats = seats.filter(function (a) { return !noSessionLimit(a); });
 
     switchBar($("hist-view"), views.map(function (v) { return [v.id, v.label]; }), view.id, "hist:", function (id) {
       histView = id; saveHistView(); render();
@@ -7144,6 +7176,13 @@ time[data-ts] { cursor: help; }
         seatList(list, view.label, "use in view, summed across resets; 100% is one full window",
           rangeRows, function () { return histGeo && histGeo.root; }, rangeTotal(rangeRows, t0, t1));
       }
+      if (limitless.length) {
+        var out = list.appendChild(h("p", "bal-none", "left out, with no " + SESSION_SHORT + " limit: "));
+        limitless.forEach(function (a, i) {
+          if (i) out.appendChild(document.createTextNode(" "));
+          out.appendChild(h("span", "", seatLabel(a) + (i < limitless.length - 1 ? "," : ""))).title = seatLabel(a);
+        });
+      }
       /* Under the plot, measured at no height, so the list's own rows set it;
          a change of layout starts the measure again. */
       var layoutKey = NARROW.matches + ":" + list.offsetWidth;
@@ -7488,7 +7527,7 @@ time[data-ts] { cursor: help; }
     var fams = scopedFamilies(st);
     var std = [];
     if (termShown(wts.weekly_weight)) std.push(termClause(WEEKLY_SHORT, wts.weekly_weight));
-    if (termShown(wts.session_weight)) {
+    if (termShown(wts.session_weight) && !noSessionPool(stableAuths(st.auths))) {
       std.push(termClause(SESSION_SHORT, wts.session_weight));
     }
     function line(name, text) {

@@ -41,8 +41,9 @@ plugins:
 
 These keys go under `claude-seat-pacer:`. Every key is optional;
 `landing-target`, `affinity.ttl` and `poll-interval` are the ones worth tuning.
-The host applies changes live. Changing `affinity.ttl` or `max-sessions` clears
-the bindings, costing each open conversation one prompt-cache miss.
+The host applies changes live. Changing `affinity.ttl` or `max-sessions` while
+the plugin runs clears the bindings, costing each open conversation one
+prompt-cache miss.
 
 ```yaml
       providers: [claude]       # provider keys the plugin routes; others fall to the host
@@ -50,8 +51,9 @@ the bindings, costing each open conversation one prompt-cache miss.
       affinity:
         enabled: true
         ttl: 1h                 # idle time before a conversation's binding expires
-        subagents: true         # a subagent on the same model shares its parent conversation's seat
+        subagents: true         # a subagent on the same model with no live binding joins its parent conversation's seat
         max-sessions: 65536     # bindings held before the least recently seen is dropped
+        persist: true           # keep live bindings across a plugin update or host restart
       pace:
         shape: linear           # linear, power or sigmoid
         curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
@@ -59,7 +61,7 @@ the bindings, costing each open conversation one prompt-cache miss.
         landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
-        session-weight: 0       # 5-hour window weight on a seat with a weekly cap; a seat with none weighs it 1
+        session-weight: 0       # 5-hour window weight on a seat with a weekly cap; a seat with no weekly cap on the model weighs it 1
       quota:
         poll-interval: 2m       # usage-endpoint read cadence; below 30s falls back to the default
         request-timeout: 10s    # one usage read; at most 1m

@@ -10,12 +10,12 @@ A [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) plugin for pooling
 
 ## Why
 
-A Claude subscription has a 5-hour limit and a weekly limit, and weekly quota
-left at the reset is gone. More seats raise the ceiling, and CLIProxyAPI, a
-proxy that puts several subscription logins behind one API endpoint, makes
-pooling them easy. Its fill-first and round-robin strategies don't track how
-far each seat is into its week, though, so a seat can reach its reset with
-quota to spare while work goes to seats whose weeks have days left.
+A Claude subscription has weekly limits, and most plans add a 5-hour limit;
+weekly quota left at the reset is gone. More seats raise the ceiling, and
+CLIProxyAPI, a proxy that puts several subscription logins behind one API
+endpoint, makes pooling them easy. Its fill-first and round-robin strategies
+don't track how far each seat is into its week, though, so a seat can reach its
+reset with quota to spare while work goes to seats whose weeks have days left.
 
 Moving a conversation has a price too. Anthropic's prompt cache never crosses
 organizations, and a long conversation's input is nearly all cache reads, so a

@@ -47,31 +47,39 @@ still offers it for other models, and its tooltip names the host status.
   the provider, full, or not scored.
 - **Current window.** Each seat's use of its current window against the curve,
   one window at a time: 7d Standard, each model family's 7-day cap the cost
-  weighs, and 5h Standard. A 7-day view lists the seats in its family's
-  ranking order, each with where it is headed at its last 24 hours' rate; the
-  5-hour view shows where each seat stands against the limit that can make it
-  ineligible. Pointing at a seat shows its gap to the target where the window
-  is paced. A stretch in which the provider refused the seat, or a window
-  bearing on the line read full, is a hatched sleeve in the seat's colour
-  around its line, under every seat still taking work: a full seat takes no
-  new conversation, so the provider may never be asked to refuse it. A seat
-  held now (refused, full or held by host) has a pause in place of its mark's
-  dot, and one the host has disabled a cross.
+  weighs, and 5h Standard. A 7-day view lists the seats in its family's ranking
+  order, each with where it is headed at its last 24 hours' rate; the 5-hour
+  view shows where each seat stands against the limit that can make it
+  ineligible, and lists last in its priority tier, marked "no 5h Standard
+  limit", a seat whose latest usage read reports no 5-hour window. Pointing
+  at a seat shows its gap to the target where the window is paced. A stretch in
+  which the provider refused the seat, or a window bearing on the line read
+  full, is a hatched sleeve in the seat's colour around its line, under every
+  seat still taking work: a full seat takes no new conversation, so the
+  provider may never be asked to refuse it. A seat held now (refused, full or
+  held by host) has a pause in place of its mark's dot, and one the host has
+  disabled a cross.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per
-  seat able to spend it, strikes through each seat's refused or full
-  stretches, and runs past now to show what comes back at each reset if no
-  more is used. Lines draws each seat's use, with each refused or full stretch
-  sleeved as on Current window and what ended it, and its side list totals the
-  pool's use in seats' worth a week. Both shade the stretches in which every
-  seat was refused or full at once, and mark each reset with ↻. On a weekly
-  window, brackets over the plot give the pool's use per local day, or per
-  week from Monday once days are too narrow to label, and each bracket's
-  tooltip sets that against what the pool renews and splits it by seat. If
-  every seat is on the same plan, these figures show whether the pool has
-  enough seats, though use understates demand while every seat is refused or
-  full.
+  seat able to spend it, strikes through each seat's refused or full stretches,
+  and runs past now to show what comes back at each reset if no more is used.
+  Lines draws each seat's use, with each refused or full stretch sleeved as on
+  Current window and what ended it, and its side list totals the pool's use in
+  seats' worth a week. Both shade the stretches in which every seat was refused
+  or full at once, and mark each reset with ↻. On a weekly window, brackets
+  over the plot give the pool's use per local day, or per week from Monday once
+  days are too narrow to label, and each bracket's tooltip sets that against
+  what the pool renews and splits it by seat. If every seat is on the same
+  plan, these figures show whether the pool has enough seats, though use
+  understates demand while every seat is refused or full. The 5h Standard view
+  leaves out a seat whose latest usage read reports no 5-hour window, whatever
+  it recorded before, and names it under the list.
+
+  Each section drops its 5h Standard view while a seat it draws has a latest
+  usage read reporting no 5-hour window and none of them has one. Over time
+  draws no seat the host has disabled, so it can drop the view while Current
+  window keeps it.
 
   <img src="over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, each band hatched where its seat was full, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
 
@@ -139,9 +147,9 @@ login a new device id, and the plugin then misses logins.
 
 The page names a window by its length and the requests it gates. `5h Standard`
 and `7d Standard` are the 5-hour and all-models weekly windows, which apply to
-every request; `7d Fable` is a model family's weekly window, which applies to
-that family's requests on top. Each family is ranked apart: `Standard` ranks
-seats for models without a window of their own.
+every request on a seat that has them; `7d Fable` is a model family's weekly
+window, which applies to that family's requests on top. Each family is ranked
+apart: `Standard` ranks seats for models without a window of their own.
 
 The page, at `/v0/resource/plugins/claude-seat-pacer/index.html`, carries no
 data. It asks once per browser tab for the management key and reads from the

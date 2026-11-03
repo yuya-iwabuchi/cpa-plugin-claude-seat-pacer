@@ -158,6 +158,21 @@ func (p *Plugin) stopLocalAPI() {
 	p.stopLocalAPILocked()
 }
 
+// stopHandedOverLocalAPI closes the socket unless a configure has marked the
+// build live again since its quiesce began: the host's rollback of a failed
+// update can reconfigure a build while its quiesce is still stopping it, and
+// that configure's sync may already have found the socket open.
+func (p *Plugin) stopHandedOverLocalAPI() {
+	p.localAPIMu.Lock()
+	defer p.localAPIMu.Unlock()
+	p.mu.Lock()
+	handedOver := p.handedOver
+	p.mu.Unlock()
+	if handedOver {
+		p.stopLocalAPILocked()
+	}
+}
+
 // stopLocalAPILocked closes the running server. Closing removes the socket file
 // only while it is still the one the server bound: another process may have
 // bound the path since.

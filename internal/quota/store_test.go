@@ -2,6 +2,7 @@ package quota
 
 import (
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -103,6 +104,147 @@ func TestStorePutReplacesTheWindowSetWholesale(t *testing.T) {
 	}
 	if !snap.ObservedAt.Equal(later) {
 		t.Errorf("observed_at = %v, want %v", snap.ObservedAt, later)
+	}
+}
+
+// TestStorePutEndsTheRefusalOfAWindowItDrops covers a plan dropping its
+// 5-hour limit while the provider refuses that window: the read with no
+// 5-hour window ends the refusal as cleared, a header reading older than the
+// latest such read cannot bring the window back, and a newer one can.
+func TestStorePutEndsTheRefusalOfAWindowItDrops(t *testing.T) {
+	s := NewStore()
+	full := sessionWindow(1)
+	full.Status = model.StatusRejected
+	s.Put(endpointSnapshot("auth-1", testNow, full, weeklyWindow(0.3)))
+	s.RecordRefusals("auth-1", []model.Window{full}, testNow, testNow)
+
+	read := testNow.Add(time.Hour)
+	s.Put(endpointSnapshot("auth-1", read, weeklyWindow(0.31)))
+	s.Put(endpointSnapshot("auth-1", read.Add(2*time.Minute), weeklyWindow(0.31)))
+	s.MergeHeaders("auth-1", []model.Window{full}, read.Add(time.Minute))
+
+	if snap := mustGet(t, s, "auth-1"); len(snap.Windows) != 1 {
+		t.Fatalf("windows = %+v, want only the weekly window", snap.Windows)
+	}
+	var locks []model.Lock
+	for _, h := range s.History("auth-1", 1, read) {
+		if h.Kind == model.WindowSession {
+			locks = h.Locks
+		}
+	}
+	if len(locks) != 1 || locks[0].End != model.LockEndCleared || locks[0].To != read.Unix() || locks[0].Expected != at(21, 0).Unix() {
+		t.Fatalf("session locks = %+v, want the refusal ended as cleared at the read", locks)
+	}
+
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.1)}, read.Add(3*time.Minute))
+	if got := utilizationOf(t, mustGet(t, s, "auth-1"), model.WindowSession, ""); got != 0.1 {
+		t.Errorf("session utilization = %v, want the newer header's 0.1", got)
+	}
+}
+
+// TestStorePutEndsADroppedWindowsRefusalAfterAFamilyReadOrARestart covers a
+// read carrying only a family cap between the read that reported the 5-hour
+// window and the one that drops it, and a restart there, the history file's
+// reading made live by Restore or taken over by the next read.
+func TestStorePutEndsADroppedWindowsRefusalAfterAFamilyReadOrARestart(t *testing.T) {
+	full := sessionWindow(1)
+	full.Status = model.StatusRejected
+	refused := func() *Store {
+		s := NewStore()
+		s.Put(endpointSnapshot("auth-1", testNow, full, weeklyWindow(0.3)))
+		s.RecordRefusals("auth-1", []model.Window{full}, testNow, testNow)
+		return s
+	}
+	reload := func(t *testing.T, s *Store) *Store {
+		path := filepath.Join(t.TempDir(), "history.json")
+		if err := s.SaveHistory(path, testNow.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		out := NewStore()
+		if err := out.LoadHistory(path, testNow.Add(2*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	read := testNow.Add(time.Hour)
+
+	for _, tc := range []struct {
+		name   string
+		before func(t *testing.T) *Store
+	}{
+		{"family read", func(*testing.T) *Store {
+			s := refused()
+			s.Put(endpointSnapshot("auth-1", testNow.Add(time.Minute), fableWindow(0.2)))
+			return s
+		}},
+		{"restored", func(t *testing.T) *Store {
+			s := reload(t, refused())
+			s.Restore(map[string]struct{}{"auth-1": {}})
+			return s
+		}},
+		{"not restored", func(t *testing.T) *Store { return reload(t, refused()) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tc.before(t)
+			s.Put(endpointSnapshot("auth-1", read, weeklyWindow(0.31)))
+			var locks []model.Lock
+			for _, h := range s.History("auth-1", 1, read) {
+				if h.Kind == model.WindowSession {
+					locks = h.Locks
+				}
+			}
+			if len(locks) != 1 || locks[0].End != model.LockEndCleared || locks[0].To != read.Unix() {
+				t.Errorf("session locks = %+v, want the refusal ended as cleared at the read", locks)
+			}
+		})
+	}
+}
+
+// TestStorePutKeepsARefusalAReadDoesNotSettle covers reads that do not settle
+// a refusal: one carrying only a family cap leaves a refusal of the 5-hour
+// window running, and one omitting a weekly window only the headers reported,
+// as on a seat whose usage read has no weekly window, leaves that window's.
+func TestStorePutKeepsARefusalAReadDoesNotSettle(t *testing.T) {
+	s := NewStore()
+	full := sessionWindow(1)
+	full.Status = model.StatusRejected
+	s.Put(endpointSnapshot("auth-1", testNow, full, weeklyWindow(0.3)))
+	s.RecordRefusals("auth-1", []model.Window{full}, testNow, testNow)
+	s.Put(endpointSnapshot("auth-1", testNow.Add(time.Minute), fableWindow(0.2)))
+
+	s.Put(endpointSnapshot("auth-2", testNow, sessionWindow(0.4), fableWindow(0.2)))
+	refuse(s, "auth-2", weeklyRefusal(day(10, 14)), testNow.Add(time.Minute), testNow.Add(time.Minute))
+	s.Put(endpointSnapshot("auth-2", testNow.Add(2*time.Minute), sessionWindow(0.4), fableWindow(0.2)))
+
+	for _, tc := range []struct {
+		id   string
+		kind model.WindowKind
+	}{{"auth-1", model.WindowSession}, {"auth-2", model.WindowWeekly}} {
+		var locks []model.Lock
+		for _, h := range s.History(tc.id, 1, testNow.Add(2*time.Minute)) {
+			if h.Kind == tc.kind {
+				locks = h.Locks
+			}
+		}
+		if len(locks) != 1 || locks[0].End != "" {
+			t.Errorf("%s %s locks = %+v, want the refusal still running", tc.id, tc.kind, locks)
+		}
+	}
+}
+
+// TestStorePutKeepsADroppedWindowFromAnOlderHeader covers a header reading
+// that lands after the read dropping its window but was taken before a
+// newer header the store already holds: it cannot bring the window back.
+func TestStorePutKeepsADroppedWindowFromAnOlderHeader(t *testing.T) {
+	s := NewStore()
+	read := testNow.Add(time.Hour)
+	s.Put(endpointSnapshot("auth-1", testNow, sessionWindow(0.4), weeklyWindow(0.3)))
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.5)}, read.Add(time.Minute))
+	s.Put(endpointSnapshot("auth-1", read, weeklyWindow(0.31)))
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.45)}, read.Add(30*time.Second))
+
+	if snap := mustGet(t, s, "auth-1"); len(snap.Windows) != 1 || snap.Windows[0].Kind != model.WindowWeekly {
+		t.Fatalf("windows = %+v, want only the weekly window", snap.Windows)
 	}
 }
 
