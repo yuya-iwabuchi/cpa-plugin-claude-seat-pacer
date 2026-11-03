@@ -43,8 +43,7 @@ type AffinityConfig struct {
 	// requests keep its parent's binding on the same model alive.
 	Subagents bool `yaml:"subagents" json:"subagents"`
 	// Persist carries the live bindings across a plugin update and a host
-	// restart, in a file beside the history file that holds each binding's
-	// provider, model, conversation key, credential id, times and hit count.
+	// restart, in a file beside the history file.
 	Persist bool `yaml:"persist" json:"persist"`
 }
 

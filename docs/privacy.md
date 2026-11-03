@@ -33,8 +33,8 @@ conversation key, credential id, when it was made and last used, and its hit
 count. A conversation key is a digest of the ids the client sends or of the
 conversation's opening, never the text itself. The file follows
 `affinity.persist`, not `persist-history`; with `affinity.persist` or
-`affinity.enabled` off, the plugin deletes it when the host next stops the
-plugin.
+`affinity.enabled` off, or a config block the plugin cannot parse, the plugin
+deletes it when the host next stops the plugin.
 
 Uninstalling the plugin leaves these files in place; delete the directory to
 remove them.

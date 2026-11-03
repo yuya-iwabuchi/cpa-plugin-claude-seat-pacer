@@ -84,6 +84,37 @@ func TestPersistOffDeletesTheBindingsFile(t *testing.T) {
 	}
 }
 
+// A config block that does not parse leaves the plugin inert under the
+// defaults, which keep bindings on disk; an operator who turned persistence
+// off still gets no file.
+func TestAnUnparsableConfigWritesNoBindingsFile(t *testing.T) {
+	const off = testConfigYAML + "affinity:\n  persist: false\n"
+	dir := t.TempDir()
+	tp := pluginAt(t, filepath.Join(dir, "history.json"), off)
+	tp.bindingStore().Bind("claude", "opus", "k", "seat-a", testNow)
+	payload, _ := json.Marshal(LifecycleRequest{ConfigYAML: []byte("affinity: 3\n"), SchemaVersion: 4})
+	tp.Call(MethodPluginReconfigure, payload)
+	tp.Shutdown()
+	if _, err := os.Stat(filepath.Join(dir, bindingsFileName)); !os.IsNotExist(err) {
+		t.Errorf("bindings file after a stop under an unparsable config: %v", err)
+	}
+}
+
+// The host can shut a build down before its register, as when it abandons a
+// load; that build has no table and leaves the saved one in place.
+func TestAShutdownBeforeRegisterKeepsTheBindingsFile(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, bindingsFileName)
+	if err := os.WriteFile(state, []byte(`{"version":1,"bindings":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := New(Options{Name: "claude-seat-pacer", Version: "0", Host: newFakeHost().call, HistoryFile: filepath.Join(dir, "history.json"), Now: func() time.Time { return testNow }})
+	p.Shutdown()
+	if _, err := os.Stat(state); err != nil {
+		t.Errorf("bindings file after a shutdown with no register: %v", err)
+	}
+}
+
 // boundSeats maps each conversation key in tp's table to its credential.
 func boundSeats(tp *testPlugin) map[string]string {
 	out := make(map[string]string)
@@ -244,6 +275,24 @@ func TestARegisterTakesTheSavedTable(t *testing.T) {
 	first.register(t, MethodPluginRegister, testConfigYAML)
 	if got := boundSeats(first); len(got) != 0 {
 		t.Errorf("table after a register with no file = %v, want none", got)
+	}
+}
+
+// A build whose first configure is a reconfigure, as after a register call
+// the host failed, still starts with the saved table.
+func TestAFirstReconfigureTakesTheSavedTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	old := pluginAt(t, path, testConfigYAML)
+	old.bindingStore().Bind("claude", "opus", "k", "seat-a", testNow)
+	old.callOK(t, MethodPluginQuiesce, nil, nil)
+
+	tp := &testPlugin{host: newFakeHost()}
+	tp.Plugin = New(Options{Name: "claude-seat-pacer", Version: "0", Host: tp.host.call, HistoryFile: path, Now: func() time.Time { return testNow }})
+	tp.startDelay = time.Hour
+	t.Cleanup(tp.Shutdown)
+	tp.register(t, MethodPluginReconfigure, testConfigYAML)
+	if got, want := boundSeats(tp), map[string]string{"k": "seat-a"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("table after a first reconfigure = %v, want the saved %v", got, want)
 	}
 }
 

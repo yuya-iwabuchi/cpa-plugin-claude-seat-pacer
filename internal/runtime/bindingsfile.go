@@ -38,16 +38,25 @@ func (p *Plugin) bindingsPath() string {
 	return filepath.Join(filepath.Dir(p.opts.HistoryFile), bindingsFileName)
 }
 
-// persistsBindings reports whether cfg keeps bindings on disk.
+// persistsBindings reports whether cfg keeps bindings on disk. A config block
+// that does not parse decodes as disabled and keeps none, since the block may
+// have turned persistence off.
 func (p *Plugin) persistsBindings(cfg model.Config) bool {
-	return cfg.Affinity.Enabled && cfg.Affinity.Persist && p.bindingsPath() != ""
+	return cfg.Enabled && cfg.Affinity.Enabled && cfg.Affinity.Persist && p.bindingsPath() != ""
 }
 
 // saveBindings writes every live binding to the bindings file, or removes the
 // file when the config keeps no bindings on disk. It runs when the host stops
-// the build, at plugin.quiesce or shutdown. A failed write costs only the next
+// the build, at plugin.quiesce or shutdown. A build no configure has reached
+// holds no table and leaves the file alone. A failed write costs only the next
 // run's bindings, so it is logged and dropped.
 func (p *Plugin) saveBindings() {
+	p.mu.Lock()
+	store := p.bindings
+	p.mu.Unlock()
+	if store == nil {
+		return
+	}
 	cfg := p.config()
 	path := p.bindingsPath()
 	if !p.persistsBindings(cfg) {
@@ -56,12 +65,6 @@ func (p *Plugin) saveBindings() {
 				p.host.log("warn", "claude-seat-pacer could not remove the conversation bindings file", map[string]any{"error": err.Error()})
 			}
 		}
-		return
-	}
-	p.mu.Lock()
-	store := p.bindings
-	p.mu.Unlock()
-	if store == nil {
 		return
 	}
 	now := p.now()
@@ -82,12 +85,12 @@ func (p *Plugin) saveBindings() {
 }
 
 // restoreBindings replaces the binding table with the bindings file's. It runs
-// at plugin.register, before the host routes a pick to this build. A build may
-// hold a table already, since a host that loads a library it loaded before
-// reuses that image's memory, but the build that ran in between owns the live
-// table and saved it when the host stopped it. A file that is missing,
-// unreadable, unparseable or of another version leaves the table empty, and
-// the next save replaces it.
+// at plugin.register and at a build's first configure, before the host routes
+// a pick to this build. A build may hold a table already, since a host that
+// loads a library it loaded before reuses that image's memory, but the build
+// that ran in between owns the live table and saved it when the host stopped
+// it. A file that is missing, unreadable, unparseable or of another version
+// leaves the table empty, and the next save replaces it.
 func (p *Plugin) restoreBindings(cfg model.Config) {
 	if !p.persistsBindings(cfg) {
 		return

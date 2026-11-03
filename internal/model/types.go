@@ -399,7 +399,8 @@ type Decision struct {
 // because prompt caches are per model and different models may be served by
 // different credential sets. SessionKey is the bare conversation key, the same
 // value Decision.SessionKey carries. The JSON names are also the bindings
-// file's format, so renaming one drops every saved binding at the next update.
+// file's format, so renaming one needs a new bindings file version, or the
+// next update restores bindings that are lost or never match.
 type Binding struct {
 	SessionKey string    `json:"session_key"`
 	Provider   string    `json:"provider"`

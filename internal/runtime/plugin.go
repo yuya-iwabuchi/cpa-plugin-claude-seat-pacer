@@ -301,8 +301,13 @@ func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 	if err != nil {
 		p.host.log("warn", "claude-seat-pacer config is invalid; plugin is inert", map[string]any{"error": err.Error()})
 	}
+	// A host whose register call failed still counts the build registered and
+	// sends it only reconfigures, so the first configure restores either way.
+	p.mu.Lock()
+	first := p.bindings == nil
+	p.mu.Unlock()
 	p.applyConfig(cfg, configWarnings)
-	if register {
+	if register || first {
 		p.restoreBindings(cfg)
 	}
 

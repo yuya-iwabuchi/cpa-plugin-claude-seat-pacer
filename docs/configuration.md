@@ -41,8 +41,9 @@ plugins:
 
 These keys go under `claude-seat-pacer:`. Every key is optional;
 `landing-target`, `affinity.ttl` and `poll-interval` are the ones worth tuning.
-The host applies changes live. Changing `affinity.ttl` or `max-sessions` clears
-the bindings, costing each open conversation one prompt-cache miss.
+The host applies changes live. Changing `affinity.ttl` or `max-sessions` while
+the plugin runs clears the bindings, costing each open conversation one
+prompt-cache miss.
 
 ```yaml
       providers: [claude]       # provider keys the plugin routes; others fall to the host
