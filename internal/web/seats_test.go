@@ -66,12 +66,12 @@ func seatsStatus() model.Status {
 	}
 }
 
-func answerOfResponse(t *testing.T, rec *httptest.ResponseRecorder) SeatsAnswer {
+func answerOfResponse(t *testing.T, rec *httptest.ResponseRecorder) SeatsResponse {
 	t.Helper()
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
-	var answer SeatsAnswer
+	var answer SeatsResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rec.Body)
 	}
@@ -210,7 +210,7 @@ func TestSeatsGivesEachWindowItsUseSinceAndEachSeatItsRate(t *testing.T) {
 	if a.WeeklyPerUSD == nil || *a.WeeklyPerUSD != rate || a.FiveHourPerUSD == nil || *a.FiveHourPerUSD != fiveRate {
 		t.Errorf("rates = %v, %v; want %v, %v", a.WeeklyPerUSD, a.FiveHourPerUSD, rate, fiveRate)
 	}
-	var week *AnswerWindow
+	var week *SeatsResponseWindow
 	for i := range a.Windows {
 		if a.Windows[i].Kind == model.WindowWeekly {
 			week = &a.Windows[i]

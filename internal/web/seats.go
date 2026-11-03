@@ -36,35 +36,35 @@ type SpendRater interface {
 // away or changes meaning, and not when a field or a field's value is added.
 const LocalAPIVersion = 1
 
-// SeatsAnswer is the seats route's answer: one conversation's seat and every
+// SeatsResponse is the seats route's answer: one conversation's seat and every
 // seat's windows, in the page's published form, with masked names and keyed
 // ids. PolledAt is absent before the first usage read.
-type SeatsAnswer struct {
-	Version  int            `json:"version"`
-	Now      time.Time      `json:"now"`
-	PolledAt *time.Time     `json:"polled_at,omitempty"`
-	Model    string         `json:"model"`
-	Binding  *AnswerBinding `json:"binding"`
-	Next     string         `json:"next,omitempty"`
-	Seats    []AnswerSeat   `json:"seats"`
-	Warnings []string       `json:"warnings"`
+type SeatsResponse struct {
+	Version  int                   `json:"version"`
+	Now      time.Time             `json:"now"`
+	PolledAt *time.Time            `json:"polled_at,omitempty"`
+	Model    string                `json:"model"`
+	Binding  *SeatsResponseBinding `json:"binding"`
+	Next     string                `json:"next,omitempty"`
+	Seats    []SeatsResponseSeat   `json:"seats"`
+	Warnings []string              `json:"warnings"`
 }
 
-// AnswerBinding is the seat the asking conversation is bound to, by its
+// SeatsResponseBinding is the seat the asking conversation is bound to, by its
 // published id. ExpiresAt is when the binding expires unless the conversation
 // sends another request, after which its next request is picked again; absent
 // when bindings never expire.
-type AnswerBinding struct {
+type SeatsResponseBinding struct {
 	AuthID    string     `json:"auth_id"`
 	Model     string     `json:"model"`
 	LastSeen  time.Time  `json:"last_seen"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
-// AnswerSeat is one seat: its name as the page shows it, where the pick
+// SeatsResponseSeat is one seat: its name as the page shows it, where the pick
 // stands with it, and its windows. Slack is the 7-day plan's lead over the
 // seat's use, absent where the seat is unscored.
-type AnswerSeat struct {
+type SeatsResponseSeat struct {
 	AuthID     string   `json:"auth_id"`
 	Label      string   `json:"label"`
 	Priority   int      `json:"priority"`
@@ -76,16 +76,16 @@ type AnswerSeat struct {
 	// spend used on this seat lately, absent until the plugin knows.
 	WeeklyPerUSD *float64 `json:"weekly_per_usd,omitempty"`
 	// FiveHourPerUSD is the same for the 5-hour window.
-	FiveHourPerUSD *float64       `json:"five_hour_per_usd,omitempty"`
-	Windows        []AnswerWindow `json:"windows"`
+	FiveHourPerUSD *float64              `json:"five_hour_per_usd,omitempty"`
+	Windows        []SeatsResponseWindow `json:"windows"`
 }
 
-// AnswerWindow is one window reading. Utilization is a fraction, above 1 past
-// the cap, and null when the reading is not a finite number. UsedSince is how
-// much of the window was used after the request's since, present when it
-// named one and the history holds the window. ResetsAt is absent when the
+// SeatsResponseWindow is one window reading. Utilization is a fraction, above
+// 1 past the cap, and null when the reading is not a finite number. UsedSince
+// is how much of the window was used after the request's since, present when
+// it named one and the history holds the window. ResetsAt is absent when the
 // reading names no reset.
-type AnswerWindow struct {
+type SeatsResponseWindow struct {
 	Kind        model.WindowKind `json:"kind"`
 	Scope       string           `json:"scope,omitempty"`
 	Utilization float64          `json:"utilization"`
@@ -116,10 +116,10 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 	if fiveSince.IsZero() {
 		fiveSince = since
 	}
-	var binding *AnswerBinding
+	var binding *SeatsResponseBinding
 	if binder, ok := src.(SessionBinder); ok && sessionID != "" {
 		if b, expires, ok := binder.SessionBinding(sessionID, st.Model); ok {
-			binding = &AnswerBinding{AuthID: publicID(key, b.AuthID), Model: b.Model, LastSeen: b.LastSeen, ExpiresAt: timeOrNil(expires)}
+			binding = &SeatsResponseBinding{AuthID: publicID(key, b.AuthID), Model: b.Model, LastSeen: b.LastSeen, ExpiresAt: timeOrNil(expires)}
 		}
 	}
 	var rates map[string]model.SpendRates
@@ -129,7 +129,7 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 			rates[publicID(key, id)] = r
 		}
 	}
-	answer := answerOf(reduceForPage(st, key), binding, rates, since, fiveSince)
+	answer := responseOf(reduceForPage(st, key), binding, rates, since, fiveSince)
 	if next, ok := nextOf(st); ok {
 		answer.Next = publicID(key, next)
 	}
@@ -152,22 +152,22 @@ func requestModel(modelID string) string {
 	return modelID
 }
 
-// answerOf picks the answer's figures, all but Next, out of a status already
+// responseOf picks the answer's figures, all but Next, out of a status already
 // reduced for the page. A non-zero since gives each window the use its history
 // records after it, and a non-zero fiveSince does so for the 5-hour window in
 // its place. rates are by published id.
-func answerOf(st model.Status, binding *AnswerBinding, rates map[string]model.SpendRates, since, fiveSince time.Time) SeatsAnswer {
-	answer := SeatsAnswer{
+func responseOf(st model.Status, binding *SeatsResponseBinding, rates map[string]model.SpendRates, since, fiveSince time.Time) SeatsResponse {
+	answer := SeatsResponse{
 		Version:  LocalAPIVersion,
 		Now:      st.Now,
 		PolledAt: timeOrNil(st.PolledAt),
 		Model:    st.Model,
 		Binding:  binding,
-		Seats:    make([]AnswerSeat, 0, len(st.Auths)),
+		Seats:    make([]SeatsResponseSeat, 0, len(st.Auths)),
 		Warnings: st.Warnings,
 	}
 	for _, a := range st.Auths {
-		seat := AnswerSeat{
+		seat := SeatsResponseSeat{
 			AuthID:         a.AuthID,
 			Label:          a.Label,
 			Priority:       a.Priority,
@@ -176,7 +176,7 @@ func answerOf(st model.Status, binding *AnswerBinding, rates map[string]model.Sp
 			Reason:         a.Score.Reason,
 			WeeklyPerUSD:   rates[a.AuthID].Weekly,
 			FiveHourPerUSD: rates[a.AuthID].FiveHour,
-			Windows:        make([]AnswerWindow, 0, len(a.Snapshot.Windows)),
+			Windows:        make([]SeatsResponseWindow, 0, len(a.Snapshot.Windows)),
 		}
 		for _, ws := range a.Score.Windows {
 			if ws.Kind == model.WindowWeekly && ws.Scope == "" && ws.Slack != nonFiniteSentinel {
@@ -185,7 +185,7 @@ func answerOf(st model.Status, binding *AnswerBinding, rates map[string]model.Sp
 			}
 		}
 		for _, w := range a.Snapshot.Windows {
-			window := AnswerWindow{Kind: w.Kind, Scope: w.Scope, Utilization: w.Utilization, ResetsAt: timeOrNil(w.ResetsAt)}
+			window := SeatsResponseWindow{Kind: w.Kind, Scope: w.Scope, Utilization: w.Utilization, ResetsAt: timeOrNil(w.ResetsAt)}
 			from := since
 			if w.Kind == model.WindowSession {
 				from = fiveSince
