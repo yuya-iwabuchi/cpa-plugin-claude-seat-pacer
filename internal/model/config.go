@@ -57,9 +57,16 @@ type AffinityConfig struct {
 type PaceConfig struct {
 	// Shape names the curve the target follows across a window: "linear"
 	// spends evenly, "power" bends it by CurveExponent, "sigmoid" holds back early,
-	// climbs through the middle and eases off near the end. An unknown name
-	// reads as linear.
+	// climbs through the middle and eases off near the end, and "points" runs
+	// through Points. An unknown name reads as linear.
 	Shape string `yaml:"shape" json:"shape"`
+	// Points is the curve of the points shape, as ParsePoints reads it. The
+	// points shape ignores LandingTarget, CurveExponent, Steepness and
+	// HoldAtFull: its last point is its landing, and a flat run at 100% holds.
+	Points []string `yaml:"points" json:"points,omitempty"`
+	// Curve is Points as Normalize parses them, and empty under any other
+	// shape.
+	Curve []CurvePoint `yaml:"-" json:"curve,omitempty"`
 	// CurveExponent is gamma in landing * elapsed^gamma, and applies to the
 	// power shape alone. Above 1.0 is conservative early and aggressive late;
 	// below 1.0 front-loads spending and risks early exhaustion.
@@ -107,6 +114,7 @@ const (
 	ShapeLinear  = "linear"
 	ShapePower   = "power"
 	ShapeSigmoid = "sigmoid"
+	ShapePoints  = "points"
 )
 
 // QuotaConfig governs quota observation.
@@ -181,9 +189,9 @@ func Defaults() Config {
 // Normalize fills zero values with defaults and clamps out-of-range settings
 // so a partial or hostile config block cannot produce a scorer that divides by
 // zero, compares against NaN, or a poller that spins. It returns a warning for
-// each setting it clamps to an upper bound, a usage URL it refuses, and a
-// setting the operator chose that it raises to fit another; every other
-// correction is a silent fallback.
+// each setting it clamps to an upper bound, a usage URL it refuses, a points
+// curve it cannot read, and a setting the operator chose that it raises to fit
+// another; every other correction is a silent fallback.
 func (c *Config) Normalize() (warnings []string) {
 	d := Defaults()
 	for _, f := range []struct {
@@ -245,7 +253,17 @@ func (c *Config) Normalize() (warnings []string) {
 			*w.v = maxWeight
 		}
 	}
+	c.Pace.Curve = nil
 	switch shape := strings.ToLower(strings.TrimSpace(c.Pace.Shape)); {
+	case shape == ShapePoints:
+		curve, err := ParsePoints(c.Pace.Points)
+		if err != nil {
+			warnings = append(warnings, "pace.points "+err.Error()+", so the plan runs on the "+d.Pace.Shape+" curve")
+			c.Pace.Shape = d.Pace.Shape
+			break
+		}
+		c.Pace.Shape = ShapePoints
+		c.Pace.Curve = curve
 	case shape == ShapeLinear || shape == ShapePower || shape == ShapeSigmoid:
 		c.Pace.Shape = shape
 	case shape == "" && c.Pace.CurveExponent != d.Pace.CurveExponent:

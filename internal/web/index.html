@@ -914,6 +914,7 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-seg button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 5px; padding: 5px 10px; background: transparent; color: var(--ink-2); }
 .tune-seg button:hover { background: var(--surface-2); color: var(--ink-1); }
 .tune-seg button[aria-pressed="true"] { background: var(--ink-1); color: var(--surface-1); }
+.tune-seg button:disabled { opacity: .45; cursor: default; }
 .tune-icon path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .tune-num { display: flex; align-items: center; gap: 10px; }
 .tune-num input[type="range"] { width: 180px; accent-color: var(--ink-1); }
@@ -954,18 +955,35 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
   .tune-help { margin-bottom: 8px; }
   .tune-num input[type="range"] { width: 120px; }
 }
-/* The Pace chart's handles while the plan is tuned. */
-svg.pace g.tune-handle { cursor: ns-resize; touch-action: none; }
-svg.pace g.tune-handle[data-kind="full"] { cursor: ew-resize; }
+/* The points table under the form. */
+.tune-row[data-off] .tune-lab, .tune-row[data-off] .tune-help { opacity: .55; }
+.tune-points { border-top: 1px solid var(--rule); padding-top: 6px; }
+.tune-points > summary { cursor: pointer; font: 600 11px/1.6 var(--sans); color: var(--ink-2); }
+.tune-pts { display: grid; gap: 4px; margin: 8px 0; }
+.tune-pt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 7px; }
+.tune-pt[data-sel] { background: var(--surface-2); }
+.tune-pt .tune-seg button { padding: 4px 7px; }
+.tune-pt-i { min-width: 2.2em; padding: 3px 6px; border-color: transparent; background: transparent; font: 600 11px/1 var(--mono); color: var(--ink-3); }
+.tune-pt[data-sel] .tune-pt-i { color: var(--ink-1); }
+.tune-pt-x { padding: 3px 9px; border-color: transparent; background: transparent; color: var(--ink-3); font-size: 14px; }
+.tune-pt-x:hover { color: var(--critical); }
+.tune-pt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 4px; }
+.tune-pre { padding: 0 0 0 9px; }
+/* The Pace chart's points while the plan is tuned. */
+svg.pace g.tune-handle { cursor: move; touch-action: none; }
+svg.pace g.tune-handle[data-kind="end"] { cursor: ns-resize; }
 svg.pace g.tune-handle circle.hit { fill: transparent; }
 svg.pace g.tune-handle circle.knob { fill: var(--surface-1); stroke: var(--ink-1); stroke-width: 2; }
 svg.pace g.tune-handle:hover circle.knob, svg.pace g.tune-handle[data-drag] circle.knob { fill: var(--ink-1); }
+svg.pace g.tune-handle[data-sel] circle.knob { stroke: var(--info); stroke-width: 3; }
 svg.pace g.tune-handle:focus-visible { outline: none; }
 svg.pace g.tune-handle:focus-visible circle.knob { stroke: var(--focus); stroke-width: 3; }
+svg.pace g.tune-handle path.tune-over { fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+svg.pace g.tune-handle:not([data-sel]):not([data-drag]):not(:hover):not(:focus-visible) text.tune-hover { visibility: hidden; }
+svg.pace circle.tune-fixed { fill: var(--ink-1); }
 svg.pace text.tune-hlabel { fill: var(--ink-1); font-weight: 600; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
-svg.pace line.tune-guide { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 2 3; pointer-events: none; }
 :root[data-tune-drag="ns"], :root[data-tune-drag="ns"] * { cursor: ns-resize !important; user-select: none; }
-:root[data-tune-drag="ew"], :root[data-tune-drag="ew"] * { cursor: ew-resize !important; user-select: none; }
+:root[data-tune-drag="move"], :root[data-tune-drag="move"] * { cursor: move !important; user-select: none; }
 .pace-notes { display: grid; }
 .pace-notes > .pace-note { grid-area: 1 / 1; }
 .pace-notes > .pace-note[data-off] { visibility: hidden; }
@@ -4055,9 +4073,49 @@ time[data-ts] { cursor: help; }
     return e;
   }
 
+  /* A points curve's target at e, as pace.pointsAt computes it: each
+     segment runs as its later point's kind says, a smooth one the cubic
+     Hermite through its two points with curveTangents' tangents. */
+  function pointsAt(pts, e) {
+    var n = pts.length;
+    if (e <= pts[0].x) return pts[0].y;
+    if (e >= pts[n - 1].x) return pts[n - 1].y;
+    var k = 0;
+    while (k < n - 2 && e >= pts[k + 1].x) k++;
+    var a = pts[k], b = pts[k + 1], h = b.x - a.x, t = (e - a.x) / h;
+    if (b.kind === "step") return a.y;
+    if (b.kind === "straight") return a.y + (b.y - a.y) * t;
+    var m = curveTangents(pts), t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * a.y + (t3 - 2 * t2 + t) * h * m[k] + (-2 * t3 + 3 * t2) * b.y + (t3 - t2) * h * m[k + 1];
+  }
+
+  /* The Fritsch–Carlson tangents at each point, as pace.curveTangents
+     computes them, which keep every smooth segment rising. */
+  function curveTangents(pts) {
+    var n = pts.length, d = [], m = [], k;
+    for (k = 0; k < n - 1; k++) d.push((pts[k + 1].y - pts[k].y) / (pts[k + 1].x - pts[k].x));
+    for (k = 0; k < n; k++) m.push(0);
+    m[0] = d[0];
+    m[n - 1] = d[n - 2];
+    for (k = 1; k < n - 1; k++) if (d[k - 1] > 0 && d[k] > 0) m[k] = (d[k - 1] + d[k]) / 2;
+    for (k = 0; k < n - 1; k++) {
+      if (d[k] === 0) { m[k] = 0; m[k + 1] = 0; continue; }
+      var a = m[k] / d[k], b = m[k + 1] / d[k], s = a * a + b * b;
+      if (s > 9) { var tau = 3 / Math.sqrt(s); m[k] = tau * a * d[k]; m[k + 1] = tau * b * d[k]; }
+    }
+    return m;
+  }
+
+  /* The curve before any hold: a points curve's own value, else the landing
+     times the shape. */
+  function rawTarget(cfg, e) {
+    if (cfg && cfg.shape === "points" && cfg.curve && cfg.curve.length >= 2) return pointsAt(cfg.curve, clamp(e, 0, 1));
+    return landingOf(cfg) * shapeAt(cfg, e);
+  }
+
   function targetAt(cfg, e) {
-    var t = landingOf(cfg) * shapeAt(cfg, e);
-    return cfg && cfg.hold_at_full ? Math.min(t, 1) : t;
+    var t = rawTarget(cfg, e);
+    return cfg && cfg.hold_at_full && cfg.shape !== "points" ? Math.min(t, 1) : t;
   }
 
   /* The highest the curve reaches, at the window's close, for a plot's y
@@ -4068,20 +4126,30 @@ time[data-ts] { cursor: help; }
 
   /* Where the curve first reaches full ahead of the window's close, as a
      fraction of the window, or null for a curve that does not. The test is on
-     the landing rather than on targetAt, which hold_at_full keeps at full: a curve
+     the curve before hold_at_full, which keeps it at full: a formula curve
      landing exactly at full reaches it at the close, so it has no run past
-     full and carries no tilt. The shape only rises,
-     so one bisection finds the crossing whatever the shape and no shape needs
-     its own inverse. */
+     full and carries no tilt. A points curve holds by running flat at 100%,
+     so one that reaches full before the close counts however it ends. Every
+     curve only rises, so one bisection finds the crossing whatever its shape
+     and no shape needs its own inverse. */
   function fullAt(cfg) {
-    if (!(landingOf(cfg) * shapeAt(cfg, 1) > 1)) return null;
+    var pts = cfg && cfg.shape === "points";
+    if (!(rawTarget(cfg, 1) > 1 || pts && rawTarget(cfg, 1) >= 1)) return null;
     var lo = 0, hi = 1;
     for (var i = 0; i < 30; i++) {
       var mid = (lo + hi) / 2;
-      if (landingOf(cfg) * shapeAt(cfg, mid) < 1) lo = mid; else hi = mid;
+      if (rawTarget(cfg, mid) < 1) lo = mid; else hi = mid;
     }
-    return hi;
+    return hi < 1 - 1e-6 ? hi : null;
   }
+
+  /* Whether the curve holds at 100% once it gets there: hold_at_full on a
+     formula curve, and a flat run at 100% to the close on a points curve. */
+  function heldAtFull(cfg) {
+    if (cfg && cfg.shape === "points") return fullAt(cfg) !== null && curveTop(cfg) <= 1 + 1e-9;
+    return !!(cfg && cfg.hold_at_full);
+  }
+
 
   /* The curve as a polyline, x mapped from elapsed. Held at full, the curve
      turns a corner where it reaches full; the sampling is fine enough to
@@ -4136,8 +4204,9 @@ time[data-ts] { cursor: help; }
   function curveLabelText(cfg, base, unitText) {
     var full = fullAt(cfg);
     if (full === null) return base;
-    return base + (cfg.hold_at_full ? " · 100% from " : " · 100% at ") + unitText(full) +
-      (cfg.hold_at_full ? "" : ", " + pct(curveTop(cfg), 0) + " at the reset");
+    var held = heldAtFull(cfg);
+    return base + (held ? " · 100% from " : " · 100% at ") + unitText(full) +
+      (held ? "" : ", " + pct(curveTop(cfg), 0) + " at the reset");
   }
 
   /* The curve's label sits just above the line's right-hand end, which is
@@ -4147,8 +4216,10 @@ time[data-ts] { cursor: help; }
     return Math.max(top + 1, Y(targetAt(cfg, 1))) - 5;
   }
 
-  /* The curve as its own formula, in the shape the config names. */
+  /* The curve as its own formula, in the shape the config names, or a
+     points curve as its points. */
   function curveText(cfg) {
+    if (cfg.shape === "points" && cfg.points && cfg.points.length) return "points " + cfg.points.join(", ");
     var land = pct(landingOf(cfg), 0), body = land + " × elapsed";
     if (cfg.shape === "power") {
       var gamma = num(cfg.curve_exponent) && cfg.curve_exponent > 0 ? cfg.curve_exponent : 1;
@@ -5364,7 +5435,7 @@ time[data-ts] { cursor: help; }
     /* While the plan is tuned the handles name the curve's points, so the
        label moves to the plot's top left and says which line is which. */
     var curveLabel = editing
-      ? svgText(root, m.l + 8, m.t + 14, paceDraft ? "solid: running plan · dashed: draft" : "drag a handle to draft a new plan",
+      ? svgText(root, m.l + 8, m.t + 14, paceDraft ? "solid: running plan · dashed: draft" : "drag a point · double-click to add one",
         "t-muted curve-label", { "font-size": 10.5, "font-weight": 600 })
       : svgText(root, X(1) - 4, curveLabelY(pace, Y, m.t),
         curveLabelText(pace, "target", function (e) { return "day " + (e * PACE_DAYS).toFixed(1); }) +
@@ -5477,7 +5548,7 @@ time[data-ts] { cursor: help; }
     root.appendChild(curveLabel);
     if (editing) {
       root.setAttribute("data-tuning", "true");
-      tuneHandles(root, tuneWork(), X, Y, { W: W, H: H, m: m, pw: pw, ph: ph, sc: sc });
+      tuneHandles(root, X, Y, { W: W, H: H, m: m, pw: pw, ph: ph, sc: sc });
     }
 
     if (!plotted) {
@@ -5659,14 +5730,15 @@ time[data-ts] { cursor: help; }
       "the mark to a ring on the curve, labelled in points: + over target, \u2212 under."));
 
     var t = def(dl, "the target curve");
-    var land = landingOf(wts);
+    var land = wts.shape === "points" ? curveTop(wts) : landingOf(wts), held = heldAtFull(wts);
     t.appendChild(document.createTextNode("The curve is "));
     t.appendChild(h("code", "", curveText(wts)));
     t.appendChild(document.createTextNode("." + (full !== null
-      ? " It aims at " + pct(land, 0) + " by the reset, more than a week holds, so it reaches 100% on day " +
-        (full * PACE_DAYS).toFixed(1) + (wts.hold_at_full ? " and stays flat. " : " and keeps climbing. ") +
+      ? (land > 1 + 1e-9 ? " It aims at " + pct(land, 0) + " by the reset, more than a week holds, so it reaches 100% on day "
+        : " It reaches 100% on day ") +
+        (full * PACE_DAYS).toFixed(1) + (held ? " and stays flat. " : " and keeps climbing. ") +
         "Budget left at the reset is lost, so aiming past full tilts the pick toward the seat nearest its reset" +
-        (wts.hold_at_full ? "; held at 100%, a seat past day " + (full * PACE_DAYS).toFixed(1) +
+        (held ? "; held at 100%, a seat past day " + (full * PACE_DAYS).toFixed(1) +
           " is scored by the budget it has left."
           : ", and past 100% that tilt keeps growing until the reset. A full seat is ineligible however far the curve climbs.")
       : land < 1
@@ -8787,21 +8859,27 @@ time[data-ts] { cursor: help; }
      plugin from the file it writes. */
   var CONFIG_PATH = "plugins/" + (HOST_MOUNT ? HOST_MOUNT[2] : "claude-seat-pacer") + "/config";
   var TUNE_KEYS = [
-    ["shape", "pace.shape"], ["landing_target", "pace.landing-target"], ["curve_exponent", "pace.curve-exponent"],
-    ["steepness", "pace.steepness"], ["hold_at_full", "pace.hold-at-full"]
+    ["shape", "pace.shape"], ["points", "pace.points"], ["landing_target", "pace.landing-target"],
+    ["curve_exponent", "pace.curve-exponent"], ["steepness", "pace.steepness"], ["hold_at_full", "pace.hold-at-full"]
   ];
   /* The plan the plugin runs with no pace settings saved. */
   var TUNE_DEFAULTS = { shape: "linear", landing_target: 1.1, curve_exponent: 1, steepness: 8, hold_at_full: false };
-  /* The ranges the controls and the chart's handles move within. The config
-     admits a landing up to 400% and any exponent or steepness above 0; a
-     typed value reaches the whole landing range. */
-  var TUNE_LANDING = [0.5, 2], TUNE_LANDING_MAX = 4, TUNE_EXP = [0.25, 4], TUNE_STEEP = [1, 30];
-  var TUNE_SHAPES = [["linear", "Straight"], ["power", "Bent"], ["sigmoid", "S-curve"]];
+  /* A points curve's bounds, as model.ParsePoints holds them: days across a
+     7-day week, at most 16 points, at most 400%. The editor keeps its points
+     a tenth of a day apart. */
+  var CURVE_DAYS = 7, CURVE_MAX_POINTS = 16, CURVE_MAX_Y = 4, CURVE_GAP = 0.1 / CURVE_DAYS;
+  /* The day a preset reaches 100% moves within these. */
+  var TUNE_FULL_DAYS = [3.5, 7];
+  var TUNE_PRESETS = [
+    ["even", "Even", "Spend at an even pace"], ["back", "Back-loaded", "Spend slow early, faster late"],
+    ["front", "Front-loaded", "Spend fast early, slower late"], ["s", "S-curve", "Spend slow at both ends, fastest midweek"]
+  ];
+  var SEGMENT_KINDS = [["smooth", "Smooth"], ["straight", "Straight"], ["step", "Step"]];
   var TUNE_PREVIEW_MS = 600;
   /* The draft pace block, or null while the plan matches the running one. */
   var paceDraft = null;
   var tuneUI = null;
-  /* A drag of one of the chart's handles, as {kind, geo}, or null. */
+  /* A drag of one of the chart's points, as {i, geo}, or null. */
   var tuneDrag = null;
   /* The arguments of the latest renderPace, so a draft redraws the chart
      alone. */
@@ -8812,23 +8890,30 @@ time[data-ts] { cursor: help; }
 
   function tuneLive() { var st = state.data; return (st && st.config && st.config.pace) || {}; }
 
-  /* The plan the controls and the handles show: the draft, else the running
-     one. */
+  /* The plan the controls and the chart's points show: the draft, else the
+     running one. */
   function tuneWork() { return paceDraft || tuneLive(); }
 
   function roundTo(v, step) { return Number((Math.round(v / step) * step).toFixed(6)); }
 
-  /* The keys that change the curve under cfg's shape: the exponent counts
-     only for a bent curve and the steepness only for an S-curve. */
+  function isPoints(cfg) { return !!(cfg && cfg.shape === "points" && cfg.curve && cfg.curve.length >= 2); }
+
+  /* The keys that change the curve under cfg's shape: a points curve reads
+     its points alone, the exponent counts only for a bent curve and the
+     steepness only for an S-curve. */
   function tuneKeysFor(cfg) {
+    if (cfg.shape === "points") return TUNE_KEYS.filter(function (k) { return k[0] === "shape" || k[0] === "points"; });
     return TUNE_KEYS.filter(function (k) {
-      return (k[0] !== "curve_exponent" || cfg.shape === "power") && (k[0] !== "steepness" || cfg.shape === "sigmoid");
+      return k[0] !== "points" && (k[0] !== "curve_exponent" || cfg.shape === "power") && (k[0] !== "steepness" || cfg.shape === "sigmoid");
     });
   }
 
   function sameTune(a, b) {
     if ((a.shape || "linear") !== (b.shape || "linear")) return false;
-    return tuneKeysFor(a).every(function (k) { return a[k[0]] === b[k[0]] || (!a[k[0]] && !b[k[0]]); });
+    return tuneKeysFor(a).every(function (k) {
+      var x = a[k[0]], y = b[k[0]];
+      return k[0] === "points" ? JSON.stringify(x || []) === JSON.stringify(y || []) : x === y || (!x && !y);
+    });
   }
 
   function tuneMessage(text, tone) {
@@ -8853,8 +8938,8 @@ time[data-ts] { cursor: help; }
     redrawTune();
   }
 
-  /* Redraws the Pace card on the next frame: a slider or a drag fires many
-     changes a frame, and only that card shows the draft. */
+  /* Redraws the Pace card on the next frame: a drag fires many changes a
+     frame, and only that card shows the draft. */
   function redrawTune() {
     if (tuneFrame) return;
     tuneFrame = window.requestAnimationFrame(function () {
@@ -8865,6 +8950,127 @@ time[data-ts] { cursor: help; }
       renderPace(paceArgs[0], paceArgs[1], paceArgs[2]);
       restoreFocus(focused);
     });
+  }
+
+  /* --- points */
+
+  /* A point's day and percent as pace.points writes them: days to a
+     hundredth and percents to a tenth. */
+  function pointDay(p) { return Math.round(p.x * CURVE_DAYS * 100) / 100; }
+  function pointPct(p) { return Math.round(p.y * 1000) / 10; }
+
+  /* pts as a points plan: its pace.points entries, and the curve
+     model.ParsePoints reads from them, so the page draws the curve the
+     scorer will run. */
+  function pointsPlan(pts) {
+    var entries = [], curve = [];
+    pts.forEach(function (p, i) {
+      var day = pointDay(p), pc = pointPct(p);
+      entries.push(day + ":" + pc + (i && p.kind !== "smooth" ? " " + p.kind : ""));
+      curve.push(i ? { x: day / CURVE_DAYS, y: pc / 100, kind: p.kind } : { x: 0, y: 0 });
+    });
+    return { shape: "points", points: entries, curve: curve };
+  }
+
+  /* A formula curve as points: exact for a straight curve, held or not, and
+     sampled for a bent or S-shaped one. */
+  function formulaPoints(cfg) {
+    var full = fullAt(cfg), held = heldAtFull(cfg), out = [{ x: 0, y: 0, kind: "" }];
+    if ((cfg.shape || "linear") === "linear") {
+      if (held && full !== null) out.push({ x: full, y: 1, kind: "straight" }, { x: 1, y: 1, kind: "straight" });
+      else out.push({ x: 1, y: landingOf(cfg), kind: "straight" });
+      return out;
+    }
+    var end = held && full !== null ? full : 1;
+    [0.25, 0.5, 0.75, 1].forEach(function (f) { out.push({ x: end * f, y: targetAt(cfg, end * f), kind: "smooth" }); });
+    if (end < 1) out.push({ x: 1, y: 1, kind: "straight" });
+    return out;
+  }
+
+  /* A preset's points: its shape up to the day it reaches 100%, then on at
+     the same average pace to the reset (rise) or flat at 100%. */
+  function presetPoints(name, day, rise) {
+    var D = clamp(day, TUNE_FULL_DAYS[0], TUNE_FULL_DAYS[1]) / CURVE_DAYS;
+    var inner = { even: [], back: [[0.5, 0.3]], front: [[0.5, 0.7]], s: [[0.25, 0.1], [0.5, 0.5], [0.75, 0.9]] }[name] || [];
+    var kind = name === "even" ? "straight" : "smooth", out = [{ x: 0, y: 0, kind: "" }];
+    inner.forEach(function (p) { out.push({ x: D * p[0], y: p[1], kind: kind }); });
+    out.push({ x: D, y: 1, kind: kind });
+    if (D < 1 - 1e-9) out.push({ x: 1, y: rise ? 1 / D : 1, kind: "straight" });
+    return out;
+  }
+
+  /* The day a curve reaches 100%, the reset's when it never does, and
+     whether it rises past 100% after. */
+  function planKnobs(cfg) {
+    var full = fullAt(cfg);
+    return { day: full === null ? CURVE_DAYS : roundTo(full * CURVE_DAYS, 0.01), rise: curveTop(cfg) > 1 + 1e-9 };
+  }
+
+  /* The preset a points curve is, at its own knobs, or null. */
+  function presetOf(cfg) {
+    if (!isPoints(cfg) || !cfg.points) return null;
+    var k = planKnobs(cfg), want = JSON.stringify(cfg.points);
+    for (var i = 0; i < TUNE_PRESETS.length; i++) {
+      if (JSON.stringify(pointsPlan(presetPoints(TUNE_PRESETS[i][0], k.day, k.rise)).points) === want) return TUNE_PRESETS[i];
+    }
+    return null;
+  }
+
+  /* The points of the plan shown, as a copy to edit. */
+  function workPoints() {
+    var cfg = tuneWork();
+    return (isPoints(cfg) ? cfg.curve : formulaPoints(cfg)).map(function (p, i) {
+      return { x: p.x, y: p.y, kind: i ? p.kind || "smooth" : "" };
+    });
+  }
+
+  function setPoints(pts) { setTune(pointsPlan(pts)); }
+
+  /* Moves point i of pts toward (x, y), snapped to a tenth of a day and a
+     point of percent, and held between its neighbours: a tenth of a day
+     clear of each, and never below the point before nor above the point
+     after, so the curve never falls. The first point stays at day 0 and 0%,
+     and the last on the last day. */
+  function movePoint(pts, i, x, y) {
+    var n = pts.length;
+    if (i <= 0 || i >= n) return;
+    var lo = pts[i - 1], hi = i < n - 1 ? pts[i + 1] : null, p = pts[i];
+    var nx = p.x;
+    if (hi && lo.x + CURVE_GAP <= hi.x - CURVE_GAP) nx = clamp(roundTo(x * CURVE_DAYS, 0.1) / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP);
+    var ny = clamp(roundTo(y, 0.01), lo.y, hi ? hi.y : CURVE_MAX_Y);
+    pts[i] = { x: nx, y: ny, kind: p.kind };
+  }
+
+  /* Adds a point on the curve at x, between the points either side, and
+     returns its index, or -1 where there is no room. */
+  function addPoint(pts, x) {
+    if (pts.length >= CURVE_MAX_POINTS) return -1;
+    var k = 0;
+    while (k < pts.length - 2 && pts[k + 1].x <= x) k++;
+    var a = pts[k], b = pts[k + 1];
+    if (x - a.x < CURVE_GAP || b.x - x < CURVE_GAP) return -1;
+    pts.splice(k + 1, 0, { x: x, y: pointsAt(pts, x), kind: b.kind });
+    return k + 1;
+  }
+
+  /* The middle of the widest stretch, where Add point puts one. */
+  function widestGap(pts) {
+    var best = 0;
+    for (var k = 1; k < pts.length - 1; k++) if (pts[k + 1].x - pts[k].x > pts[best + 1].x - pts[best].x) best = k;
+    return (pts[best].x + pts[best + 1].x) / 2;
+  }
+
+  function selectPoint(i) {
+    tuneUI.sel = i;
+    redrawTune();
+  }
+
+  function removePoint(i) {
+    var pts = workPoints();
+    if (i <= 0 || i >= pts.length - 1) return;
+    pts.splice(i, 1);
+    tuneUI.sel = Math.min(i, pts.length - 2) || null;
+    setPoints(pts);
   }
 
   /* Asks for the ranking draft gives against the latest readings, at most
@@ -8985,16 +9191,18 @@ time[data-ts] { cursor: help; }
 
   /* The plan as a sentence of parts, each [text, bold]. */
   function planWords(cfg) {
-    var L = landingOf(cfg), full = fullAt(cfg), out = [["Spend " + shapeWords(cfg) + ", ", false]];
+    var top = curveTop(cfg), full = fullAt(cfg), held = heldAtFull(cfg), preset = presetOf(cfg);
+    var lead = !isPoints(cfg) ? "Spend " + shapeWords(cfg) : preset ? preset[2] : "Follow a " + cfg.curve.length + "-point curve";
+    var out = [[lead + ", ", false]];
     if (full !== null) {
       out.push(["full by day " + (full * PACE_DAYS).toFixed(1), true]);
-      out.push([cfg.hold_at_full ? ", then hold at 100% until the reset." : ", then keep rising to ", false]);
-      if (!cfg.hold_at_full) { out.push([pct(L, 0), true]); out.push([" at the reset.", false]); }
-    } else if (Math.abs(L - 1) < 1e-9) {
-      out.push(["reaching ", false]); out.push(["100% at the reset", true]); out.push([".", false]);
+      out.push([held ? ", then hold at 100% until the reset." : ", then keep rising to ", false]);
+      if (!held) { out.push([pct(top, 0), true]); out.push([" at the reset.", false]); }
+    } else if (top >= 1 - 1e-9) {
+      out.push(["reaching ", false]); out.push([pct(top, 0) + " at the reset", true]); out.push([".", false]);
     } else {
-      out.push(["reaching ", false]); out.push([pct(L, 0) + " at the reset", true]);
-      out.push([", leaving " + pct(1 - L, 0) + " unused.", false]);
+      out.push(["reaching ", false]); out.push([pct(top, 0) + " at the reset", true]);
+      out.push([", leaving " + pct(1 - top, 0) + " unused.", false]);
     }
     return out;
   }
@@ -9005,16 +9213,17 @@ time[data-ts] { cursor: help; }
     parts.forEach(function (p) { el.appendChild(p[1] ? h("b", "", p[0]) : document.createTextNode(p[0])); });
   }
 
-  /* One change as "landing 110% → 125%". */
-  function changeText(k, from, to) {
-    var f = function (v) {
-      if (k === "landing_target") return pct(v, 0);
-      if (k === "hold_at_full") return v ? "hold at 100%" : "keep rising";
-      if (k === "shape") { var s = TUNE_SHAPES.filter(function (x) { return x[0] === (v || "linear"); })[0]; return s ? s[1].toLowerCase() : v; }
-      return String(v);
-    };
-    var name = { landing_target: "landing", hold_at_full: "after 100%", shape: "shape", curve_exponent: "bend", steepness: "steepness" }[k];
-    return name + " " + f(from) + " → " + f(to);
+  /* The draft's changes from the running plan, in words: a points curve as
+     its points. */
+  function changeWords(draft, live) {
+    return tuneChanges(draft, live).map(function (k) {
+      var from = live[k[0]], to = draft[k[0]];
+      if (k[0] === "points") return "points " + to.join(" · ");
+      if (k[0] === "shape") return to === "points" ? "" : "shape " + (from || "linear") + " → " + to;
+      if (k[0] === "landing_target") return "landing " + pct(from, 0) + " → " + pct(to, 0);
+      if (k[0] === "hold_at_full") return "after 100% " + (from ? "hold" : "keep rising") + " → " + (to ? "hold" : "keep rising");
+      return k[0].replace("_", " ") + " " + from + " → " + to;
+    }).filter(Boolean).join(" · ");
   }
 
   /* --- the controls */
@@ -9040,40 +9249,52 @@ time[data-ts] { cursor: help; }
       b.setAttribute("data-fk", fk + ":" + it[0]);
       b.setAttribute("aria-pressed", "false");
       if (it[2]) b.appendChild(it[2]);
-      b.appendChild(h("span", "", it[1]));
+      if (it[1]) b.appendChild(h("span", "", it[1]));
+      if (it[3]) { b.title = it[3]; b.setAttribute("aria-label", it[3]); }
       b.addEventListener("click", function () { onPick(it[0]); });
       return b;
     });
     return {
       el: seg,
-      set: function (v) { buttons.forEach(function (b, i) { b.setAttribute("aria-pressed", items[i][0] === v ? "true" : "false"); }); }
+      set: function (v) { buttons.forEach(function (b, i) { b.setAttribute("aria-pressed", items[i][0] === v ? "true" : "false"); }); },
+      disable: function (off) { buttons.forEach(function (b) { b.disabled = off; }); }
     };
   }
 
-  /* A small drawing of a shape's curve for its button. */
-  function shapeIcon(shape) {
+  /* A small drawing of a curve for a button: pts over the unit square. */
+  function curveIcon(pts) {
     var s = svg("svg", { width: 22, height: 14, viewBox: "0 0 22 14", "aria-hidden": "true", "class": "tune-icon" });
-    var cfg = { shape: shape, curve_exponent: 2.2, steepness: 10, landing_target: 1 };
-    var d = "";
-    for (var i = 0; i <= 20; i++) {
-      var e = i / 20;
-      d += (i ? "L" : "M") + (1 + e * 20).toFixed(1) + " " + (13 - shapeAt(cfg, e) * 12).toFixed(1);
+    var top = pts[pts.length - 1].y, d = "";
+    for (var i = 0; i <= 24; i++) {
+      var e = i / 24;
+      d += (i ? "L" : "M") + (1 + e * 20).toFixed(1) + " " + (13 - pointsAt(pts, e) / top * 12).toFixed(1);
     }
     svg("path", { d: d }, s);
     return s;
   }
 
-  /* A slider beside a field with − and + steps. toSlider and fromSlider map
-     the value onto the slider's scale; format and parse the field's text.
-     The arrow keys in the field step it, Shift for ten steps. */
+  function kindIcon(kind) {
+    var s = svg("svg", { width: 16, height: 12, viewBox: "0 0 16 12", "aria-hidden": "true", "class": "tune-icon" });
+    svg("path", { d: kind === "step" ? "M1 11H8V1H15" : kind === "straight" ? "M1 11L15 1" : "M1 11C8 11 8 1 15 1" }, s);
+    return s;
+  }
+
+  /* A field with − and + steps, and a slider beside it when o names a
+     slider's range. The arrow keys in the field step it, Shift for ten
+     steps; a value being typed stays as typed until the reader leaves it. */
   function tuneNumber(parent, o) {
     var wrap = parent.appendChild(h("div", "tune-num"));
-    var range = wrap.appendChild(h("input", ""));
-    range.type = "range";
-    range.min = String(o.smin); range.max = String(o.smax); range.step = String(o.sstep);
-    range.setAttribute("aria-label", o.label);
-    range.setAttribute("data-fk", o.fk + ":range");
+    var range = null;
+    if (o.smin !== undefined) {
+      range = wrap.appendChild(h("input", ""));
+      range.type = "range";
+      range.min = String(o.smin); range.max = String(o.smax); range.step = String(o.sstep);
+      range.setAttribute("aria-label", o.label);
+      range.setAttribute("data-fk", o.fk + ":range");
+      range.addEventListener("input", function () { o.commit(Number(range.value)); });
+    }
     var step = wrap.appendChild(h("div", "tune-step"));
+    if (o.prefix) step.appendChild(h("span", "tune-unit tune-pre", o.prefix));
     var minus = step.appendChild(h("button", "", "−"));
     var field = step.appendChild(h("input", ""));
     var plus = step.appendChild(h("button", "", "+"));
@@ -9088,7 +9309,6 @@ time[data-ts] { cursor: help; }
     field.setAttribute("aria-label", o.label);
     field.setAttribute("data-fk", o.fk);
     if (o.unit) step.appendChild(h("span", "tune-unit", o.unit));
-    range.addEventListener("input", function () { o.commit(o.fromSlider(Number(range.value))); });
     field.addEventListener("input", function () {
       field.setAttribute("data-typing", "");
       var v = o.parse(field.value);
@@ -9104,33 +9324,60 @@ time[data-ts] { cursor: help; }
     field.addEventListener("blur", function () { field.removeAttribute("data-invalid"); field.removeAttribute("data-typing"); redrawTune(); });
     return {
       set: function (v) {
-        range.value = String(o.toSlider(v));
-        /* A value the reader is typing stays as typed until they leave it. */
+        if (range) range.value = String(v);
         if (document.activeElement !== field || !field.hasAttribute("data-typing")) { field.value = o.format(v); field.removeAttribute("data-invalid"); }
       },
-      disable: function (off) { range.disabled = off; field.disabled = off; minus.disabled = off; plus.disabled = off; }
+      disable: function (off) { if (range) range.disabled = off; field.disabled = off; minus.disabled = off; plus.disabled = off; }
     };
   }
 
-  function parseIn(text, lo, hi, scale) {
+  function parseIn(text, lo, hi) {
     var v = Number(String(text).replace(/[%\s]/g, ""));
     if (!isFinite(v) || String(text).trim() === "") return null;
-    v = v / (scale || 1);
-    return v > lo && v <= hi ? v : null;
+    return v >= lo && v <= hi ? v : null;
   }
 
-  /* The bend of a power curve, by the exponent's power of two on the slider,
-     so 0.5 and 2 sit an equal way either side of straight. */
-  function setExponent(g) { setTune({ shape: "power", curve_exponent: roundTo(clamp(g, TUNE_EXP[0], TUNE_EXP[1]), 0.05) }); }
-  function setSteepness(k) { setTune({ shape: "sigmoid", steepness: roundTo(clamp(k, TUNE_STEEP[0], TUNE_STEEP[1]), 0.5) }); }
-  function setLanding(L) { setTune({ landing_target: roundTo(clamp(L, 0.01, TUNE_LANDING_MAX), 0.01) }); }
+  /* Applies preset name at the knobs given, the current ones by default. */
+  function applyPreset(name, day, rise) {
+    var k = planKnobs(tuneWork());
+    tuneUI.preset = name;
+    tuneUI.sel = null;
+    setPoints(presetPoints(name, day === undefined ? k.day : day, rise === undefined ? k.rise : rise));
+  }
 
-  function pickShape(shape) {
-    var cfg = tuneWork(), patch = { shape: shape };
-    /* A bent curve at exponent 1 is the straight one, so picking Bent bends it. */
-    if (shape === "power" && !(num(cfg.curve_exponent) && cfg.curve_exponent !== 1)) patch.curve_exponent = 2;
-    if (shape === "sigmoid" && !num(cfg.steepness)) patch.steepness = 8;
-    setTune(patch);
+  /* One row of the points table, built once per index and refilled each
+     render: the point's day and percent, how the curve runs into it, and
+     its removal. */
+  function pointRow(list, i) {
+    var row = list.appendChild(h("div", "tune-pt"));
+    var r = { row: row };
+    var idx = row.appendChild(h("button", "tune-pt-i", String(i + 1)));
+    idx.type = "button";
+    idx.setAttribute("aria-label", "select point " + (i + 1));
+    idx.addEventListener("click", function () { selectPoint(i); });
+    var edit = function (fn) { var pts = workPoints(); fn(pts); tuneUI.sel = i; setPoints(pts); };
+    r.day = tuneNumber(row, {
+      label: "point " + (i + 1) + " day", fk: "tune:pt:" + i + ":day", prefix: "day",
+      format: function (v) { return v.toFixed(v * 10 % 1 ? 2 : 1); },
+      parse: function (t) { return parseIn(t, 0, CURVE_DAYS); },
+      commit: function (v) { edit(function (pts) { var p = pts[i], lo = pts[i - 1], hi = pts[i + 1]; if (lo && hi) pts[i] = { x: clamp(v / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP), y: p.y, kind: p.kind }; }); },
+      nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x + n * 0.1 / CURVE_DAYS, pts[i].y); }); }
+    });
+    r.pct = tuneNumber(row, {
+      label: "point " + (i + 1) + " percent", fk: "tune:pt:" + i + ":pct", unit: "%",
+      format: function (v) { return String(Math.round(v * 1000) / 10); },
+      parse: function (t) { return parseIn(t, 0, CURVE_MAX_Y * 100); },
+      commit: function (v) { edit(function (pts) { var p = pts[i], lo = pts[i - 1], hi = pts[i + 1]; if (lo) pts[i] = { x: p.x, y: clamp(v / 100, lo.y, hi ? hi.y : CURVE_MAX_Y), kind: p.kind }; }); },
+      nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x, pts[i].y + n * 0.01); }); }
+    });
+    r.kind = tuneSeg(row, "how the curve runs into point " + (i + 1), SEGMENT_KINDS.map(function (k) { return [k[0], "", kindIcon(k[0]), k[1]]; }),
+      "tune:pt:" + i + ":kind", function (kind) { edit(function (pts) { pts[i] = { x: pts[i].x, y: pts[i].y, kind: kind }; }); });
+    r.remove = row.appendChild(h("button", "tune-pt-x", "×"));
+    r.remove.type = "button";
+    r.remove.setAttribute("aria-label", "remove point " + (i + 1));
+    r.remove.setAttribute("data-fk", "tune:pt:" + i + ":remove");
+    r.remove.addEventListener("click", function () { removePoint(i); });
+    return r;
   }
 
   /* The tuning fold. Its controls are built once and follow the plan shown,
@@ -9139,59 +9386,52 @@ time[data-ts] { cursor: help; }
     var live = (st.config && st.config.pace) || {};
     var body = $("tune-body");
     if (!tuneUI) {
-      var ui = tuneUI = { body: body, preview: null, timer: 0 };
+      var ui = tuneUI = { body: body, preview: null, timer: 0, sel: null, preset: "even", rows: [] };
       var lead = body.appendChild(h("div", "tune-lead"));
       ui.words = lead.appendChild(h("p", "tune-words"));
       ui.was = lead.appendChild(h("p", "tune-was"));
-      lead.appendChild(h("p", "tune-hint", "Drag the handles on a 7-day chart, or set the plan here. Nothing changes until you save."));
+      lead.appendChild(h("p", "tune-hint", "Pick a preset, or shape the curve yourself: drag its points on a 7-day chart, " +
+        "double-click the chart to add one, and select one to remove it or change how the curve runs into it. " +
+        "Nothing changes until you save."));
       var form = body.appendChild(h("div", "tune-form"));
 
-      var r = tuneRow(form, "Shape");
-      ui.shape = tuneSeg(r.ctl, "Shape of the curve", TUNE_SHAPES.map(function (s) { return [s[0], s[1], shapeIcon(s[0])]; }), "tune:shape", pickShape);
-      ui.shapeHelp = r.help;
+      var r = tuneRow(form, "Preset");
+      ui.presets = tuneSeg(r.ctl, "Preset", TUNE_PRESETS.map(function (p) { return [p[0], p[1], curveIcon(presetPoints(p[0], 5.6, false))]; }),
+        "tune:preset", function (name) { applyPreset(name); });
+      ui.presetHelp = r.help;
 
-      r = tuneRow(form, "At the reset");
-      ui.landing = tuneNumber(r.ctl, {
-        label: "landing target, percent used at the reset", fk: "tune:landing", unit: "%",
-        smin: TUNE_LANDING[0] * 100, smax: TUNE_LANDING[1] * 100, sstep: 1,
-        toSlider: function (v) { return Math.round(v * 100); }, fromSlider: function (s) { return s / 100; },
-        format: function (v) { return String(Math.round(v * 100)); },
-        parse: function (t) { return parseIn(t, 0, TUNE_LANDING_MAX, 100); },
-        commit: setLanding,
-        nudge: function (n) { setLanding(landingOf(tuneWork()) + n * 0.01); }
+      r = tuneRow(form, "Full by");
+      ui.knobRows = [r.row];
+      ui.day = tuneNumber(r.ctl, {
+        label: "the day the plan reaches 100%", fk: "tune:full", prefix: "day",
+        smin: TUNE_FULL_DAYS[0], smax: TUNE_FULL_DAYS[1], sstep: 0.1,
+        format: function (v) { return v.toFixed(1); },
+        parse: function (t) { return parseIn(t, TUNE_FULL_DAYS[0], TUNE_FULL_DAYS[1]); },
+        commit: function (v) { applyPreset(tuneUI.preset, roundTo(v, 0.1)); },
+        nudge: function (n) { applyPreset(tuneUI.preset, roundTo(planKnobs(tuneWork()).day + n * 0.1, 0.1)); }
       });
-      ui.landingHelp = r.help;
-
-      r = tuneRow(form, "Bend", "power");
-      ui.expRow = r.row;
-      ui.exponent = tuneNumber(r.ctl, {
-        label: "bend, the curve's exponent", fk: "tune:exponent",
-        smin: -2, smax: 2, sstep: 0.01,
-        toSlider: function (v) { return Math.log(v) / Math.LN2; }, fromSlider: function (s) { return Math.pow(2, s); },
-        format: function (v) { return v.toFixed(2); },
-        parse: function (t) { return parseIn(t, 0, 100); },
-        commit: setExponent,
-        nudge: function (n) { var c = tuneWork(); setExponent((num(c.curve_exponent) ? c.curve_exponent : 1) + n * 0.05); }
-      });
-      ui.expHelp = r.help;
-
-      r = tuneRow(form, "Steepness", "sigmoid");
-      ui.steepRow = r.row;
-      ui.steep = tuneNumber(r.ctl, {
-        label: "steepness of the S-curve", fk: "tune:steep",
-        smin: TUNE_STEEP[0], smax: TUNE_STEEP[1], sstep: 0.5,
-        toSlider: function (v) { return v; }, fromSlider: function (s) { return s; },
-        format: function (v) { return String(v); },
-        parse: function (t) { return parseIn(t, 0, 1000); },
-        commit: setSteepness,
-        nudge: function (n) { var c = tuneWork(); setSteepness((num(c.steepness) ? c.steepness : 8) + n * 0.5); }
-      });
-      ui.steepHelp = r.help;
+      ui.dayHelp = r.help;
 
       r = tuneRow(form, "After 100%");
-      ui.hold = tuneSeg(r.ctl, "After the curve reaches 100%", [["rise", "Keep rising"], ["hold", "Hold at 100%"]], "tune:hold",
-        function (v) { setTune({ hold_at_full: v === "hold" }); });
+      ui.knobRows.push(r.row);
+      ui.hold = tuneSeg(r.ctl, "After the plan reaches 100%", [["rise", "Keep rising"], ["hold", "Hold at 100%"]], "tune:hold",
+        function (v) { applyPreset(tuneUI.preset, undefined, v === "rise"); });
       ui.holdHelp = r.help;
+
+      ui.ptsFold = body.appendChild(h("details", "tune-points"));
+      ui.ptsSum = ui.ptsFold.appendChild(h("summary", ""));
+      ui.ptsList = ui.ptsFold.appendChild(h("div", "tune-pts"));
+      var ptsActions = ui.ptsFold.appendChild(h("div", "tune-pt-actions"));
+      ui.add = ptsActions.appendChild(h("button", "", "+ Add point"));
+      ui.add.type = "button";
+      ui.add.setAttribute("data-fk", "tune:add");
+      ui.add.addEventListener("click", function () {
+        var pts = workPoints(), i = addPoint(pts, widestGap(pts));
+        if (i < 0) return;
+        tuneUI.sel = i;
+        setPoints(pts);
+      });
+      ptsActions.appendChild(h("span", "tune-help", "Smooth bends through the points without overshooting them, Straight runs a line, and Step holds the earlier value until the point."));
 
       ui.prev = body.appendChild(h("div", "tune-prev"));
       ui.prev.setAttribute("aria-live", "polite");
@@ -9203,12 +9443,12 @@ time[data-ts] { cursor: help; }
       ui.discard = actions.appendChild(h("button", "", "Discard draft"));
       ui.discard.type = "button";
       ui.discard.setAttribute("data-fk", "tune:discard");
-      ui.discard.addEventListener("click", discardTune);
+      ui.discard.addEventListener("click", function () { tuneUI.sel = null; discardTune(); });
       ui.reset = actions.appendChild(h("button", "tune-quiet", "Defaults"));
       ui.reset.type = "button";
       ui.reset.setAttribute("data-fk", "tune:defaults");
-      ui.reset.title = "Draft the plan the plugin runs with no pace settings: straight, 110% at the reset, keep rising";
-      ui.reset.addEventListener("click", function () { setTune(TUNE_DEFAULTS); });
+      ui.reset.title = "Draft the plan the plugin runs with no pace settings: an even pace to 110% at the reset";
+      ui.reset.addEventListener("click", function () { tuneUI.sel = null; setTune(TUNE_DEFAULTS); });
       ui.changes = actions.appendChild(h("span", "tune-changes"));
       ui.msg = body.appendChild(h("p", "tune-msg"));
       ui.msg.setAttribute("role", "status");
@@ -9227,8 +9467,9 @@ time[data-ts] { cursor: help; }
       }
       u.saved = null;
     }
-    var cfg = tuneWork(), L = landingOf(cfg), full = fullAt(cfg);
-    var shape = cfg.shape === "power" || cfg.shape === "sigmoid" ? cfg.shape : "linear";
+    var cfg = tuneWork(), knobs = planKnobs(cfg), preset = presetOf(cfg), pts = workPoints();
+    if (preset) u.preset = preset[0];
+    if (u.sel !== null && (u.sel <= 0 || u.sel >= pts.length)) u.sel = null;
 
     /* A saved draft reads as saved, and its controls rest, until the plugin
        runs it. */
@@ -9237,26 +9478,45 @@ time[data-ts] { cursor: help; }
     u.was.hidden = !paceDraft;
     if (paceDraft) fillWords(u.was, planWords(live), "Now");
 
-    u.shape.set(shape);
-    u.shapeHelp.textContent = shape === "power" ? "drag the middle of the curve to bend it"
-      : shape === "sigmoid" ? "holds back early and late" : "the same pace all week";
-    u.landing.set(L);
-    u.landingHelp.textContent = full !== null && cfg.hold_at_full ? "aims there, held at 100% from day " + (full * PACE_DAYS).toFixed(1)
-      : full !== null ? "full by day " + (full * PACE_DAYS).toFixed(1) + " of 7"
-      : L < 1 ? pct(1 - L, 0) + " left unused" : "full exactly at the reset";
-    u.expRow.hidden = shape !== "power";
-    u.exponent.set(num(cfg.curve_exponent) ? cfg.curve_exponent : 1);
-    u.expHelp.textContent = cfg.curve_exponent > 1 ? "holds back early, pushes late" : cfg.curve_exponent < 1 ? "pushes early, eases late" : "straight";
-    u.steepRow.hidden = shape !== "sigmoid";
-    u.steep.set(num(cfg.steepness) ? cfg.steepness : 8);
-    u.steepHelp.textContent = "higher waits longer, then climbs harder";
-    u.hold.set(cfg.hold_at_full ? "hold" : "rise");
-    u.holdHelp.textContent = L <= 1 ? "no effect: the curve never passes 100%"
-      : cfg.hold_at_full ? "flat at 100% from day " + (full * PACE_DAYS).toFixed(1)
-      : "a seat still holding quota near its reset keeps going first";
+    u.presets.set(preset ? preset[0] : "");
+    u.presetHelp.textContent = preset ? "" : isPoints(cfg) ? "custom curve: a preset replaces its points"
+      : "the running plan is a formula curve: a preset or a drag turns it into points";
+    u.day.set(knobs.day);
+    u.dayHelp.textContent = "the day each seat's plan reaches 100%";
+    u.hold.set(knobs.rise ? "rise" : "hold");
+    u.holdHelp.textContent = knobs.rise ? "keeps rising to " + pct(curveTop(cfg), 0) + " at the reset, so a seat still holding quota near its reset goes first"
+      : "flat at 100% to the reset";
+    /* The knobs set a preset; a custom curve takes them back only through a
+       preset. */
+    var custom = !preset;
+    u.day.disable(custom);
+    u.hold.disable(custom);
+    u.knobRows.forEach(function (row) { row.toggleAttribute("data-off", custom); });
 
-    var changes = paceDraft ? tuneChanges(paceDraft, live) : [];
-    u.changes.textContent = changes.map(function (k) { return changeText(k[0], live[k[0]], paceDraft[k[0]]); }).join(" · ");
+    /* The points table: one row per point, rebuilt when the count changes. */
+    if (u.rows.length !== pts.length) {
+      var focused = captureFocus();
+      u.ptsList.textContent = "";
+      u.rows = pts.map(function (p, i) { return pointRow(u.ptsList, i); });
+      restoreFocus(focused);
+    }
+    pts.forEach(function (p, i) {
+      var r = u.rows[i], first = i === 0, last = i === pts.length - 1;
+      r.day.set(pointDay(p));
+      r.pct.set(p.y);
+      r.day.disable(first || last || applying);
+      r.pct.disable(first || applying);
+      r.kind.set(first ? "" : p.kind);
+      r.kind.disable(first || applying);
+      r.kind.el.style.visibility = first ? "hidden" : "";
+      r.remove.style.visibility = first || last ? "hidden" : "";
+      r.row.toggleAttribute("data-sel", u.sel === i);
+    });
+    u.ptsSum.textContent = "Points (" + pts.length + ")" + (isPoints(cfg) ? "" : " · from the formula curve");
+    if (custom && !u.ptsOpened) { u.ptsFold.open = true; u.ptsOpened = true; }
+    u.add.disabled = pts.length >= CURVE_MAX_POINTS || applying;
+
+    u.changes.textContent = paceDraft ? changeWords(paceDraft, live) : "";
     u.save.hidden = !paceDraft || applying;
     u.discard.hidden = !paceDraft || applying;
     u.save.disabled = !paceDraft || !!u.saving;
@@ -9305,45 +9565,46 @@ time[data-ts] { cursor: help; }
     });
   }
 
-  /* --- the chart's handles */
+  /* --- the chart's points */
 
-  /* The handles a plan gives on the Pace chart, each at the point of the
-     curve it moves: the landing at the reset, the day the curve reaches 100%,
-     and the bend, at the middle of a straight or bent curve and a quarter of
-     the way along an S-curve, where its steepness shows. A straight curve's
-     bend handle bends it. geo is the chart's frame and scale. */
-  function bendAt(cfg) { return cfg.shape === "sigmoid" ? 0.25 : 0.5; }
-
-  function tuneHandles(root, cfg, X, Y, geo) {
-    var g = svg("g", { "class": "tune-handles" }, root);
-    var L = landingOf(cfg), full = fullAt(cfg), eb = bendAt(cfg);
-    if (full !== null) {
-      svg("line", { "class": "tune-guide", x1: X(full), x2: X(full), y1: Y(1), y2: Y(0) }, g);
-      tuneHandle(g, geo, "full", X(full), Y(1), "full by day " + (full * PACE_DAYS).toFixed(1), "middle", -12,
-        "day the curve reaches 100%", "day " + (full * PACE_DAYS).toFixed(1));
-    }
-    if (!(cfg.hold_at_full && L > 1)) {
-      tuneHandle(g, geo, "landing", X(1), Y(L), pct(L, 0) + " at the reset", "end", -12,
-        "landing target", pct(L, 0));
-    }
-    var bendText = cfg.shape === "power" ? "bend " + (num(cfg.curve_exponent) ? cfg.curve_exponent : 1).toFixed(2)
-      : cfg.shape === "sigmoid" ? "steepness " + (num(cfg.steepness) ? cfg.steepness : 8) : "drag to bend";
-    tuneHandle(g, geo, "bend", X(eb), Y(targetAt(cfg, eb)), bendText, "end", -12,
-      cfg.shape === "sigmoid" ? "steepness of the S-curve" : "bend of the curve", bendText);
-  }
-
-  function tuneHandle(parent, geo, kind, x, y, label, anchor, dy, name, value) {
-    var g = svg("g", { "class": "tune-handle", tabindex: 0, role: "slider" }, parent);
-    g.setAttribute("data-kind", kind);
-    g.setAttribute("data-fk", "tune-h:" + kind);
-    g.setAttribute("aria-label", name);
-    g.setAttribute("aria-valuetext", value);
-    if (tuneDrag && tuneDrag.kind === kind) g.setAttribute("data-drag", "true");
-    svg("circle", { "class": "hit", cx: x, cy: y, r: 15 }, g);
-    svg("circle", { "class": "knob", cx: x, cy: y, r: 6 }, g);
-    svgText(g, anchor === "end" ? x - 10 : x, y + dy, label, "tune-hlabel", { "font-size": 10.5, "text-anchor": anchor });
-    g.addEventListener("pointerdown", function (ev) { startTuneDrag(ev, kind, geo); });
-    g.addEventListener("keydown", function (ev) { tuneHandleKey(ev, kind); });
+  /* The plan's points on the Pace chart, each a handle that drags in both
+     directions, the last one up and down only. The first stays at day 0 and
+     0%. A point above the axis's cap sits on it with its value named. A
+     double-click on the plot adds a point on the curve there. geo is the
+     chart's frame and scale. */
+  function tuneHandles(root, X, Y, geo) {
+    var pts = workPoints(), g = svg("g", { "class": "tune-handles" }, root), cap = Y.cap;
+    pts.forEach(function (p, i) {
+      if (i === 0) { svg("circle", { "class": "tune-fixed", cx: X(0), cy: Y(0), r: 3 }, g); return; }
+      var last = i === pts.length - 1, over = cap && p.y > cap;
+      var cx = X(p.x), cy = Y(over ? cap : p.y);
+      var text = "day " + pointDay(p).toFixed(1) + " · " + pct(p.y, 0);
+      var hg = svg("g", { "class": "tune-handle", tabindex: 0, role: "slider" }, g);
+      hg.setAttribute("data-kind", last ? "end" : "point");
+      hg.setAttribute("data-fk", "tune-pt:" + i);
+      hg.setAttribute("aria-label", "point " + (i + 1) + (last ? ", at the reset" : ""));
+      hg.setAttribute("aria-valuetext", text + ", " + p.kind);
+      if (tuneUI.sel === i) hg.setAttribute("data-sel", "true");
+      if (tuneDrag && tuneDrag.i === i) hg.setAttribute("data-drag", "true");
+      svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13 }, hg);
+      svg("circle", { "class": "knob", cx: cx, cy: cy, r: 5.5 }, hg);
+      if (over) svg("path", { "class": "tune-over", d: "M" + (cx - 4) + " " + (cy - 9) + "L" + cx + " " + (cy - 13) + "L" + (cx + 4) + " " + (cy - 9) }, hg);
+      var tl = svgText(hg, last ? cx - 10 : cx, cy - (over ? 17 : 11), over ? pct(p.y, 0) : text, over ? "tune-hlabel" : "tune-hlabel tune-hover",
+        { "font-size": 10.5, "text-anchor": last ? "end" : "middle" });
+      tl.setAttribute("aria-hidden", "true");
+      hg.addEventListener("pointerdown", function (ev) { startTuneDrag(ev, i, geo); });
+      hg.addEventListener("keydown", function (ev) { tuneHandleKey(ev, i); });
+      hg.addEventListener("focus", function () { if (tuneUI.sel !== i) { tuneUI.sel = i; redrawTune(); } });
+    });
+    root.addEventListener("dblclick", function (ev) {
+      if (ev.target.closest && ev.target.closest(".tune-handle")) return;
+      var p = tunePointer(ev, geo);
+      if (!p || p.e <= 0 || p.e >= 1) return;
+      var pts2 = workPoints(), i = addPoint(pts2, roundTo(p.e * CURVE_DAYS, 0.1) / CURVE_DAYS);
+      if (i < 0) return;
+      tuneUI.sel = i;
+      setPoints(pts2);
+    });
   }
 
   /* The pointer in the chart's own units: elapsed and utilization. The
@@ -9356,12 +9617,20 @@ time[data-ts] { cursor: help; }
     return { e: (x - geo.m.l) / geo.pw, u: geo.sc.U(y) };
   }
 
-  function startTuneDrag(ev, kind, geo) {
+  function startTuneDrag(ev, i, geo) {
     if (ev.button !== 0) return;
     ev.preventDefault();
-    tuneDrag = { kind: kind, geo: geo };
-    document.documentElement.setAttribute("data-tune-drag", kind === "full" ? "ew" : "ns");
-    var move = function (e2) { var p = tunePointer(e2, geo); if (p) dragTo(kind, p); };
+    tuneUI.sel = i;
+    tuneDrag = { i: i, geo: geo };
+    var last = i === workPoints().length - 1;
+    document.documentElement.setAttribute("data-tune-drag", last ? "ns" : "move");
+    var move = function (e2) {
+      var p = tunePointer(e2, geo);
+      if (!p) return;
+      var pts = workPoints();
+      movePoint(pts, i, p.e, p.u);
+      setPoints(pts);
+    };
     var up = function () {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -9373,49 +9642,21 @@ time[data-ts] { cursor: help; }
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+    redrawTune();
   }
 
-  /* Moves the plan so the handle's point of the curve follows p. */
-  function dragTo(kind, p) {
-    var cfg = tuneWork(), L = landingOf(cfg);
-    if (kind === "landing") { setLanding(clamp(p.u, 0.3, TUNE_LANDING_MAX)); return; }
-    if (kind === "full") {
-      var e = clamp(p.e, 0.3, 1);
-      setLanding(1 / Math.max(shapeAt(cfg, e), 0.25));
-      return;
-    }
-    var eb = bendAt(cfg), r = clamp(p.u / L, 0.005, 0.995);
-    if (cfg.shape === "sigmoid") { setSteepness(steepnessFor(eb, r)); return; }
-    setExponent(Math.log(r) / Math.log(eb));
-  }
-
-  /* The steepness whose S-curve passes through r at elapsed e, below the
-     midpoint: the curve there falls as the steepness rises. */
-  function steepnessFor(e, r) {
-    var lo = TUNE_STEEP[0], hi = TUNE_STEEP[1];
-    for (var i = 0; i < 40; i++) {
-      var mid = (lo + hi) / 2;
-      if (shapeAt({ shape: "sigmoid", steepness: mid }, e) > r) lo = mid; else hi = mid;
-    }
-    return (lo + hi) / 2;
-  }
-
-  /* The arrow keys move a handle a step, Shift ten: the landing a point, the
-     day the curve reaches 100% a tenth of a day, the bend a notch. */
-  function tuneHandleKey(ev, kind) {
-    var dir = ev.key === "ArrowUp" || ev.key === "ArrowRight" ? 1 : ev.key === "ArrowDown" || ev.key === "ArrowLeft" ? -1 : 0;
-    if (!dir) return;
+  /* The arrow keys move the focused point a tenth of a day or a point of
+     percent, Shift ten times that; Delete or Backspace removes it. */
+  function tuneHandleKey(ev, i) {
+    if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); removePoint(i); return; }
+    var dx = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+    var dy = ev.key === "ArrowUp" ? 1 : ev.key === "ArrowDown" ? -1 : 0;
+    if (!dx && !dy) return;
     ev.preventDefault();
-    var n = dir * (ev.shiftKey ? 10 : 1), cfg = tuneWork();
-    if (kind === "landing") { setLanding(landingOf(cfg) + n * 0.01); return; }
-    if (kind === "full") {
-      var full = fullAt(cfg);
-      var e = clamp((full === null ? 1 : full) + n * 0.1 / PACE_DAYS, 0.3, 1);
-      setLanding(1 / Math.max(shapeAt(cfg, e), 0.25));
-      return;
-    }
-    if (cfg.shape === "sigmoid") { setSteepness((num(cfg.steepness) ? cfg.steepness : 8) - n * 0.5); return; }
-    setExponent((cfg.shape === "power" && num(cfg.curve_exponent) ? cfg.curve_exponent : 1) - n * 0.05);
+    var n = ev.shiftKey ? 10 : 1, pts = workPoints();
+    movePoint(pts, i, pts[i].x + dx * n * 0.1 / CURVE_DAYS, pts[i].y + dy * n * 0.01);
+    tuneUI.sel = i;
+    setPoints(pts);
   }
 
   /* --------------------------------------------------------------- boosts */

@@ -65,13 +65,16 @@ still offers it for other models, and its tooltip names the host status.
   provider may never be asked to refuse it. A seat held now (refused, full or
   held by host) has a pause in place of its mark's dot, and one the host has
   disabled a cross.
-  The Tune the plan fold under the chart edits `shape`, `landing-target`,
-  `curve-exponent`, `steepness` and `hold-at-full`, and says the plan in
-  words. While it is open, a 7-day chart carries handles on the curve: drag
-  the end to set the landing, the point where the curve reaches 100% to move
-  that day, and the middle (a quarter of the way along an S-curve) to bend
-  it; each also takes the arrow keys. The form sets the same plan with
-  sliders and fields that step a point of landing at a time. A draft is
+  The Tune the plan fold under the chart edits the plan as a points curve
+  (`shape: points` and `points`) and says it in words. Presets (Even,
+  Back-loaded, Front-loaded, S-curve) set the points from two knobs, the day
+  the plan reaches 100% and whether it keeps rising after; past that, the
+  curve is yours. While the fold is open, a 7-day chart shows the curve's
+  points: drag one, double-click the chart to add one, and select one to
+  move it with the arrow keys or remove it with Delete. The Points table
+  under the form sets each point's day and percent exactly and how the
+  curve runs into it: smooth, straight or step. A running formula curve
+  shows as points and turns into them at the first change. A draft is
   drawn dashed on the 7-day chart, the next new Standard conversation's seat
   under it is named, and the serving seats are ranked for Standard requests
   by it, scored against their current readings, with each move from the

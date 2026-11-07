@@ -18,6 +18,18 @@ at half. On a seat with a weekly cap, the 5-hour window can make it
 ineligible but carries no weight by default: it resets several times a day and
 nothing in it carries over.
 
+`shape: points` draws the plan through points of your own instead, for
+example `points: ["0:0", "3:30", "5:100 straight", "7:110 straight"]`. Each
+is a day of a 7-day week and the share of the quota the plan reaches by then,
+and the curve runs into each point smoothly, in a straight line, or as a step
+that holds the earlier value until the point. A 5-hour window follows the
+same curve scaled to its length. Days rise from point to point and the plan
+never falls; a curve that starts after day 0 starts there at 0%, and one that
+stops before day 7 holds its last value to it. The landing and
+`hold-at-full` do not apply: the last point is the landing, and a flat run at
+100% holds. A list the plugin cannot read runs the linear curve and raises a
+warning on the status page.
+
 Sending everything to the seat that resets soonest looks only at the clock: it
 keeps feeding a nearly spent seat while one with most of its week unused
 waits. A fixed usage cutoff looks only at the meter, and wastes whatever sits

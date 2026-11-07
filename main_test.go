@@ -86,14 +86,14 @@ func TestConfigFieldsLeaveEnabledToTheHost(t *testing.T) {
 	}
 }
 
-// pace.shape takes one of three names, so the Management Center offers them
+// pace.shape takes one of four names, so the Management Center offers them
 // as a choice rather than a free string that falls back on a typo.
-func TestPaceShapeIsAChoiceOfTheThreeShapes(t *testing.T) {
+func TestPaceShapeIsAChoiceOfTheShapes(t *testing.T) {
 	for _, field := range configFields {
 		if field.Name != "pace.shape" {
 			continue
 		}
-		want := []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid}
+		want := []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid, model.ShapePoints}
 		if field.Type != "enum" || !slices.Equal(field.EnumValues, want) {
 			t.Errorf("pace.shape = %s %v, want enum %v", field.Type, field.EnumValues, want)
 		}

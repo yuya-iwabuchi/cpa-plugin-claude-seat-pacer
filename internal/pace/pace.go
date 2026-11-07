@@ -27,12 +27,18 @@ import (
 // landing's excess over full, so a credential with little left near its reset
 // can outrank one on its own curve. ScoreAuth gates a full window whatever the
 // target, which is what keeps a credential with nothing left out of the pick.
+//
+// A points curve runs through its points alone: its last point is its
+// landing, and HoldAtFull does not apply to it.
 func Target(cfg model.PaceConfig, elapsed float64) float64 {
 	switch {
 	case math.IsNaN(elapsed) || elapsed < 0:
 		elapsed = 0
 	case elapsed > 1:
 		elapsed = 1
+	}
+	if cfg.Shape == model.ShapePoints && len(cfg.Curve) >= 2 {
+		return pointsAt(cfg.Curve, elapsed)
 	}
 	t := cfg.LandingTarget * shape(cfg, elapsed)
 	if cfg.HoldAtFull {

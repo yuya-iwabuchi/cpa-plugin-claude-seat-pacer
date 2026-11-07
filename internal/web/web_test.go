@@ -709,7 +709,7 @@ func TestConfigIsReducedToThePaceCurve(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.Config.Pace != st.Config.Pace {
+	if !reflect.DeepEqual(got.Config.Pace, st.Config.Pace) {
 		t.Errorf("pace = %+v, want %+v", got.Config.Pace, st.Config.Pace)
 	}
 	want := model.Config{
