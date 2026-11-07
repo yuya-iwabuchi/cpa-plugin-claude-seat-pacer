@@ -194,11 +194,11 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte)
 		return
 	}
 
-	writeJSON(w, body)
+	writeRawJSON(w, body)
 }
 
-// writeJSON sends body as a 200 JSON response.
-func writeJSON(w http.ResponseWriter, body []byte) {
+// writeRawJSON sends body as a 200 JSON response.
+func writeRawJSON(w http.ResponseWriter, body []byte) {
 	setCommonHeaders(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
