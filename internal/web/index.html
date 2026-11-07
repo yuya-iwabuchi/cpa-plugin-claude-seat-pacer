@@ -567,6 +567,20 @@ td .seat-mark { max-width: 22ch; }
 /* The timeline's SVG draws its own gutter at the left, so the card keeps
    less padding at its sides than the rest: more would double that gutter. */
 .tl-card { padding: 8px; }
+/* The boost bar: a form that boosts one seat, then each live boost with its
+   Clear, then what a boost does. */
+.boost-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 10px 0 0; padding: 10px 8px 2px;
+  border-top: 1px solid var(--rule); font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
+.boost-bar .bb-title { font-weight: 600; color: var(--ink-1); }
+.boost-bar select { font: 600 11.5px/1 var(--sans); color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; max-width: 18em; min-width: 0; }
+.boost-bar button { padding: 5px 11px; }
+.bb-live { display: flex; flex-wrap: wrap; gap: 6px 14px; flex-basis: 100%; margin: 0; padding: 0; list-style: none; }
+.bb-live:empty { display: none; }
+.bb-live li { display: inline-flex; align-items: center; gap: 6px; }
+.bb-note { flex-basis: 100%; margin: 0; font-size: 11px; color: var(--ink-3); }
+.bb-error { flex-basis: 100%; margin: 0; color: var(--critical); }
+.bb-error:empty { display: none; }
 #timeline { overflow-x: auto; }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
@@ -1474,6 +1488,9 @@ time[data-ts] { cursor: help; }
           <ul class="legend" id="timeline-marks" aria-label="Meter marks"></ul>
           <p class="tl-note" id="tl-std-key" hidden></p>
         </div>
+        <!-- The boost bar. The script builds it once and keeps its controls
+             across refreshes, so an open list is not closed under the reader. -->
+        <div class="boost-bar" id="boosts" hidden></div>
       </div>
     </section>
 
@@ -2310,13 +2327,14 @@ time[data-ts] { cursor: help; }
   }
 
   /* Mirrors internal/pace ranking for one request family: eligible first,
-     then a SessionOnly seat for the family, then the lowest Cost, then
-     id. Rank #1 is the seat the next new conversation of the family lands
-     on. */
+     then a boosted seat, then a SessionOnly seat for the family, then the
+     lowest Cost, then id. Rank #1 is the seat the next new conversation of
+     the family lands on. */
   function rankAuths(auths, fam) {
     return (auths || []).slice().sort(function (x, y) {
       var a = famScore(x, fam) || {}, b = famScore(y, fam) || {};
       if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
+      if (!!a.boosted !== !!b.boosted) return a.boosted ? -1 : 1;
       if (sessionOnly(a) !== sessionOnly(b)) return sessionOnly(a) ? -1 : 1;
       if ((a.cost || 0) !== (b.cost || 0)) return (a.cost || 0) - (b.cost || 0);
       return String(x.auth_id).localeCompare(String(y.auth_id));
@@ -5491,7 +5509,9 @@ time[data-ts] { cursor: help; }
       (hasSessionOnly
         ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat for them, whatever " +
           "the costs, and is paced against its " + SESSION_SHORT + " window: the gap is its whole cost."
-        : "")));
+        : "") +
+      " A seat boosted from the Boost bar ranks ahead of every other eligible seat, whatever the costs, until " +
+      "the boost ends."));
 
     var g = def(dl, "what makes a seat ineligible");
     g.appendChild(document.createTextNode("A seat takes no new conversation while a window that applies to the " +
@@ -5969,6 +5989,8 @@ time[data-ts] { cursor: help; }
       if (num(d.meter.tick)) meter.appendChild(h("span", "ol-pace", "")).style.left = pct(clamp(d.meter.tick, 0, 1), 1);
     }
     d.lines.forEach(function (l) { parent.appendChild(h("div", "ol-line" + (l.tone ? " ol-" + l.tone : ""), l.t)); });
+    var boost = boostOf(a);
+    if (boost) parent.appendChild(h("div", "ol-line", boostText(boost, nowMs())));
   }
 
   /* A seat list beside a chart, one row per entry of rows: {a, figure,
@@ -7568,8 +7590,13 @@ time[data-ts] { cursor: help; }
     /* The close says who wins, and with no seat eligible in the family shown
        it says that: the ranking then orders seats that cannot take work. */
     var anyLead = !!ranks.lead[view];
+    var boostedHere = (st.auths || []).some(function (a) {
+      var sc = famScore(a, view);
+      return sc && sc.boosted && sc.eligible && ranks.byFam[view] && ranks.byFam[view][a.auth_id] !== undefined;
+    });
     host.appendChild(document.createTextNode(" · " + (!anyLead ? "no seat eligible"
-      : sessionOnlyHere ? "then lowest eligible cost wins" : "lowest eligible cost wins")));
+      : (boostedHere ? "a boosted seat first, " : "") +
+        (sessionOnlyHere || boostedHere ? "then lowest eligible cost wins" : "lowest eligible cost wins"))));
   }
 
   /* The legend's state mark: the state's colour, its pattern, and its glyph,
@@ -7627,10 +7654,11 @@ time[data-ts] { cursor: help; }
        that span, and on a seat printing another's figure outright. One unit
        is a tenth of a point, which is 0.001 of a window's budget.
 
-       Costs compare only between two SessionOnly seats or two capped ones: a
-       SessionOnly seat ranks ahead of every capped seat whatever the two
-       figures say, so no cue fires across that boundary. */
-    function printKey(sc) { return (sessionOnly(sc) ? "session-only " : "") + costText(sc); }
+       Costs compare only between two seats in the same group: a boosted seat
+       ranks ahead of every other, and a SessionOnly seat ahead of every capped
+       one, whatever the two figures say, so no cue fires across either
+       boundary. */
+    function printKey(sc) { return (sc.boosted ? "boosted " : "") + (sessionOnly(sc) ? "session-only " : "") + costText(sc); }
     var printing = Object.create(null), byRank = [];
     order.forEach(function (a) {
       var sc = famScore(a, fam);
@@ -7657,7 +7685,8 @@ time[data-ts] { cursor: help; }
       var i = byRank.indexOf(a), mine = costOf(a), mineN = termsOf(a);
       if (i < 0 || !num(mine)) return [];
       return [byRank[i - 1], byRank[i + 1]].filter(function (o) {
-        if (!o || sessionOnly(famScore(o, fam)) !== sessionOnly(famScore(a, fam)) || !num(costOf(o))) return false;
+        var os = famScore(o, fam), as = famScore(a, fam);
+        if (!o || sessionOnly(os) !== sessionOnly(as) || !!(os && os.boosted) !== !!(as && as.boosted) || !num(costOf(o))) return false;
         var span = COST_UNIT * Math.max((mineN + termsOf(o)) / 2 - 1, 0);
         return Math.abs(costOf(o) - mine) <= span + 1e-9;
       });
@@ -7669,22 +7698,28 @@ time[data-ts] { cursor: help; }
       return sc && sc.eligible && rank !== undefined ? Math.max(n, rank + 1) : n;
     }, 1);
     ul.style.setProperty("--rank-ch", String(1 + String(shown).length));
-    var costOrder = byRank.some(function (x) { return sessionOnly(famScore(x, fam)); })
-      ? "seats with no weekly cap first, then lowest cost first" : "lowest cost first";
+    var anyBoosted = byRank.some(function (x) { return !!famScore(x, fam).boosted; });
+    var costOrder = (anyBoosted ? "boosted seats first, then " : "") +
+      (byRank.some(function (x) { return sessionOnly(famScore(x, fam)); })
+        ? "seats with no weekly cap, then lowest cost first" : "lowest cost first");
     ul.setAttribute("aria-label", rankLabel(fam) + (ranks.tier.multi
       ? " ranking by priority tier; in the serving tier, " + costOrder : " ranking, " + costOrder));
-    /* While the serving tier holds an eligible SessionOnly seat for the
-       family, its rows split into groups: those seats, which rank first, then
-       the capped seats by cost, then the seats held off. The ranking already
-       orders the rows that way, so each heading opens where the group
-       changes. */
+    /* While the serving tier holds an eligible boosted or SessionOnly seat
+       for the family, its rows split into groups: the boosted seats, which
+       rank first, then the SessionOnly seats, then the capped seats by cost,
+       then the seats held off. The ranking already orders the rows that way,
+       so each heading opens where the group changes. */
     var groupOf = function (a) {
       var sc = famScore(a, fam);
-      return !sc || !sc.eligible ? "held-off" : sessionOnly(sc) ? "session-only" : "capped";
+      return !sc || !sc.eligible ? "held-off" : sc.boosted ? "boosted" : sessionOnly(sc) ? "session-only" : "capped";
     };
-    var byGroup = order.some(function (a) { return !offTier(a, fam, ranks) && groupOf(a) === "session-only"; });
+    var byGroup = order.some(function (a) {
+      var g = !offTier(a, fam, ranks) && groupOf(a);
+      return g === "session-only" || g === "boosted";
+    });
     var GROUP_HEAD = {
-      "session-only": { name: "no weekly cap", tip: "no weekly cap on " + rankLabel(fam) + " requests: ranked ahead of every capped seat, paced against " + SESSION_SHORT },
+      boosted: { name: "boosted", tip: "boosted from the Boost bar: ranked ahead of every other eligible seat while the boost lasts" },
+      "session-only": { name: "no weekly cap", tip: "no weekly cap on " + rankLabel(fam) + " requests: ranked ahead of every capped seat that is not boosted, paced against " + SESSION_SHORT },
       capped: { name: "weekly cap", tip: "a weekly cap on " + rankLabel(fam) + " requests: ranked by cost, after every seat with none" },
       "held-off": { name: "held off", tip: "takes no new " + rankLabel(fam) + " conversation while held off" }
     };
@@ -7964,10 +7999,11 @@ time[data-ts] { cursor: help; }
     tbl.appendChild(thead);
 
     var tb = h("tbody", "");
-    /* In the scorer's order: eligible first, then a SessionOnly seat for the
-       request's family, then the lowest cost. */
+    /* In the scorer's order: eligible first, then a boosted seat, then a
+       SessionOnly seat for the request's family, then the lowest cost. */
     dec.scores.slice().sort(function (a, b) {
       if (!!a.eligible !== !!b.eligible) return a.eligible ? -1 : 1;
+      if (!!a.boosted !== !!b.boosted) return a.boosted ? -1 : 1;
       if (sessionOnly(a) !== sessionOnly(b)) return sessionOnly(a) ? -1 : 1;
       return (a.cost || 0) - (b.cost || 0);
     }).forEach(function (s) {
@@ -7993,6 +8029,11 @@ time[data-ts] { cursor: help; }
       if (s.eligible && sessionOnly(s)) {
         tdE.appendChild(document.createTextNode(" "));
         tdE.appendChild(chip("no weekly cap", "info", ""));
+      }
+      /* A boosted seat ranks ahead of every other eligible seat. */
+      if (s.eligible && s.boosted) {
+        tdE.appendChild(document.createTextNode(" "));
+        tdE.appendChild(chip("boosted", "info", ""));
       }
       tr.appendChild(tdE);
 
@@ -8517,6 +8558,106 @@ time[data-ts] { cursor: help; }
     return el;
   }
 
+
+  /* --------------------------------------------------------------- boosts */
+
+  /* The page-boost route under the host's management mount, or cmd/webdev's
+     app path beside the page. */
+  var BOOST_PATH = HOST_MOUNT ? "plugins/" + HOST_MOUNT[2] + "/page-boost" : "boost";
+  var BOOST_SPANS = [["1h", "for 1 hour"], ["4h", "for 4 hours"], ["reset", "until its weekly reset"], ["cleared", "until cleared"]];
+  var boostUI = null;
+
+  /* A seat's live boost as {span, until}, until null for one that lasts
+     until cleared, or null when the seat has none. */
+  function boostOf(a) {
+    var b = a && a.boost;
+    if (!b) return null;
+    var until = parseT(b.until);
+    return until && until.getTime() <= nowMs() ? null : { span: b.span, until: until };
+  }
+
+  function boostText(b, now) {
+    return b.until ? "boosted until " + clockAt(b.until, now) : "boosted until cleared";
+  }
+
+  /* Sets or clears (span "off") the boost on the seat the page names by its
+     published id, then reads the status again. */
+  function sendBoost(seat, span) {
+    if (!boostUI || boostUI.busy) return;
+    boostUI.busy = true;
+    boostUI.error.textContent = "";
+    boostUI.go.disabled = true;
+    mgmtCall("POST", BOOST_PATH + "?seat=" + encodeURIComponent(seat) + "&span=" + encodeURIComponent(span))
+      .then(function () { refresh(true); }, function (e) {
+        boostUI.error.textContent = "The boost did not apply: " + unescapeHost(e.message || String(e)) + ".";
+      })
+      .then(function () { boostUI.busy = false; boostUI.go.disabled = false; });
+  }
+
+  /* The boost bar under the timeline. Its form is built once and its seat
+     list is rebuilt only when the seats change, so a refresh never closes a
+     list the reader has open or drops what they picked. */
+  function renderBoosts(st, seats) {
+    var host = $("boosts");
+    host.hidden = !(st.auths || []).length;
+    if (!boostUI) {
+      var ui = boostUI = { busy: false, sig: "" };
+      host.appendChild(h("span", "bb-title", "Boost"));
+      ui.seat = host.appendChild(h("select", ""));
+      ui.seat.setAttribute("aria-label", "Seat to boost");
+      ui.seat.setAttribute("data-fk", "boost:seat");
+      ui.span = host.appendChild(h("select", ""));
+      ui.span.setAttribute("aria-label", "How long the boost lasts");
+      ui.span.setAttribute("data-fk", "boost:span");
+      BOOST_SPANS.forEach(function (sp) {
+        var o = ui.span.appendChild(h("option", "", sp[1]));
+        o.value = sp[0];
+      });
+      ui.span.value = "reset";
+      ui.go = host.appendChild(h("button", "", "Boost"));
+      ui.go.type = "button";
+      ui.go.setAttribute("data-fk", "boost:go");
+      ui.go.addEventListener("click", function () { if (ui.seat.value) sendBoost(ui.seat.value, ui.span.value); });
+      ui.live = host.appendChild(h("ul", "bb-live"));
+      ui.live.setAttribute("aria-label", "Boosted seats");
+      ui.error = host.appendChild(h("p", "bb-error"));
+      ui.error.setAttribute("role", "alert");
+      host.appendChild(h("p", "bb-note", "A boosted seat takes every new conversation it can, ahead of the pace ranking, " +
+        "until the boost ends. Conversations already on other seats stay where they are. A full or refused seat takes " +
+        "none however it is boosted, and the host offers only the seats on its top priority tier."));
+    }
+    var ui2 = boostUI;
+    var sig = seats.map(function (a) { return a.auth_id + "\u0001" + seatLabel(a); }).join("\u0002");
+    if (sig !== ui2.sig) {
+      var picked = ui2.seat.value;
+      ui2.seat.textContent = "";
+      seats.forEach(function (a) {
+        var o = ui2.seat.appendChild(h("option", "", seatLabel(a)));
+        o.value = a.auth_id;
+      });
+      if (picked && seats.some(function (a) { return a.auth_id === picked; })) ui2.seat.value = picked;
+      ui2.sig = sig;
+    }
+    var now = nowMs();
+    var focused = captureFocus();
+    ui2.live.textContent = "";
+    /* Every boosted seat, hidden on this page or disabled in the host
+       included: a boost keeps steering new conversations whatever the page
+       draws. */
+    (st.auths || []).slice().sort(byName).forEach(function (a) {
+      var b = boostOf(a);
+      if (!b) return;
+      var li = ui2.live.appendChild(h("li", ""));
+      li.appendChild(seatMark(a));
+      li.appendChild(h("span", "", boostText(b, now) + (seatHidden(a) ? " (hidden on this page)" : "")));
+      var clear = li.appendChild(h("button", "", "Clear"));
+      clear.type = "button";
+      clear.setAttribute("data-fk", "boost:clear:" + a.auth_id);
+      clear.setAttribute("aria-label", "Clear the boost on " + seatLabel(a));
+      clear.addEventListener("click", function () { sendBoost(a.auth_id, "off"); });
+    });
+    restoreFocus(focused);
+  }
 
   /* ------------------------------------------------ the Log in button */
 
@@ -9173,6 +9314,7 @@ time[data-ts] { cursor: help; }
 
     if (!empty) {
       renderTimeline(st, seats, ranks);
+      renderBoosts(st, seats);
       renderPace(st, seats, ranks);
       renderHistory(st, seats);
     }

@@ -52,6 +52,7 @@ type Plugin struct {
 	cfg       atomic.Pointer[model.Config]
 	quota     *quota.Store
 	decisions *decisionLog
+	boosts    *boostStore
 	resource  atomic.Pointer[resourceHandler]
 
 	// handle dispatches one method; tests replace it to exercise the guard.
@@ -144,6 +145,7 @@ func New(opts Options) *Plugin {
 		host:             newHost(opts.Host),
 		now:              opts.Now,
 		quota:            quota.NewStore(),
+		boosts:           newBoostStore(),
 		cache:            make(map[string]model.CacheStats),
 		polls:            make(map[string]pollState),
 		logins:           make(map[string]loginTrack),
@@ -310,6 +312,7 @@ func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 	if register || first {
 		p.restoreBindings(cfg)
 	}
+	p.restoreBoosts(p.now())
 
 	p.mu.Lock()
 	p.handedOver = false
