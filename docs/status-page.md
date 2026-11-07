@@ -46,10 +46,11 @@ still offers it for other models, and its tooltip names the host status.
   is marked fallback, and a tier none of whose seats can take requests is
   skipped, with the reason: disabled in the host, held by host, refused by
   the provider, full, or not scored.
-  The Boost bar under the chart boosts one seat for an hour, four hours,
-  until its weekly reset, or until cleared, and lists every live boost, a
-  seat hidden on the page included, with a Clear button. A boosted seat reads
-  "boosted until" in each seat list.
+  Pointing at a seat's row shows a bolt beside the hide control; it opens a
+  menu that boosts the seat for an hour, four hours, until its weekly reset,
+  or until cleared, and clears a live boost. A boosted seat keeps its bolt
+  filled, reads "boosted until" in each seat list, and is listed under the
+  chart with a Clear button, a seat hidden on the page included.
 - **Current window.** Each seat's use of its current window against the curve,
   one window at a time: 7d Standard, each model family's 7-day cap the cost
   weighs, and 5h Standard. A 7-day view lists the seats in its family's ranking
@@ -176,6 +177,6 @@ The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
 (the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
 while `web.enabled` is on; `&preview=<pace block as JSON>` scores it against
 draft pace settings, which nothing routes by), `POST page-boost?seat=<published id>&span=` (the
-Boost bar's route, with `span` one of `1h`, `4h`, `reset`, `cleared` or `off`,
+boost menu's route, with `span` one of `1h`, `4h`, `reset`, `cleared` or `off`,
 while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
 `POST bindings/sweep`.
