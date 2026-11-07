@@ -1,8 +1,11 @@
 package runtime_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -102,6 +105,9 @@ type liveHost struct {
 	logPath       string
 	apiKey        string
 	managementKey string
+	// home is the server's home directory, which holds the plugin's data
+	// directory and so its local API socket.
+	home string
 }
 
 // startHost builds the plugin and a CLIProxyAPI server, writes a config and
@@ -132,7 +138,16 @@ func startHost(t *testing.T, opts hostOptions) *liveHost {
 
 	pluginDir := filepath.Join(opts.dir, "plugins")
 	authDir := filepath.Join(opts.dir, "auth")
-	for _, path := range []string{pluginDir, authDir, filepath.Join(opts.dir, "home")} {
+	// The home directory sits under /tmp rather than the test's own directory,
+	// whose path on macOS leaves the local API socket's past the 103 bytes a
+	// socket path allows.
+	home, err := os.MkdirTemp("/tmp", "e2eh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	host.home = home
+	for _, path := range []string{pluginDir, authDir} {
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +228,7 @@ disable-cooling: %t
 	server.Dir = opts.hostSource
 	server.Stdout, server.Stderr = logFile, logFile
 	server.Env = append(os.Environ(),
-		"HOME="+filepath.Join(opts.dir, "home"),
+		"HOME="+home,
 		"HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=",
 		"NO_PROXY=127.0.0.1,localhost",
 	)
@@ -335,4 +350,22 @@ func truncate(raw []byte, n int) string {
 		return string(raw[:n]) + "..."
 	}
 	return string(raw)
+}
+
+// socketGet sends a GET over a Unix socket and returns the status and body.
+func socketGet(t *testing.T, socket, target string) (int, string) {
+	t.Helper()
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		}},
+	}
+	res, err := client.Get("http://seat-pacer" + target)
+	if err != nil {
+		t.Fatalf("GET %s over %s: %v", target, socket, err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(body)
 }

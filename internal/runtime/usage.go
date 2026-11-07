@@ -45,6 +45,13 @@ func (p *Plugin) usage(rec UsageRecord) {
 	// cache counters do not include.
 	stats.FreshInputTokens += rec.Detail.InputTokens
 	p.cache[rec.AuthID] = stats
+	// A failed request still spent what it reports: one cut off mid-stream
+	// carries the tokens it used, and a refusal carries none.
+	at := rec.RequestedAt
+	if at.IsZero() {
+		at = p.now()
+	}
+	p.addSpendLocked(rec.AuthID, rec.Model, rec.Detail, at)
 	p.mu.Unlock()
 
 	// The headers arrive ahead of the first body byte and describe the

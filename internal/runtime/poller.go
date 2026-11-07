@@ -205,11 +205,11 @@ func (p *Plugin) stopPoller() {
 }
 
 // Shutdown stops the poll loop, saves the bindings unless the build has been
-// handed over, marks it handed over, and then drains the host calls the loop
-// left outstanding. It is idempotent. Only the unload reaches it, and by then
-// the host has waited for every in-flight plugin call to return
-// (internal/pluginhost/client_guard.go:112-122), so nothing can start another
-// callback beside it.
+// handed over, marks it handed over, stops the local API socket, and then
+// drains the host calls they left outstanding. It is idempotent. Only the
+// unload reaches it, and by then the host has waited for every in-flight
+// plugin call to return (internal/pluginhost/client_guard.go:112-122), so
+// nothing can start another callback beside it.
 //
 // An unloaded library can stay mapped until the process exits, so the stopped
 // loop is what keeps a detached plugin from polling on. The drain keeps the
@@ -217,8 +217,8 @@ func (p *Plugin) stopPoller() {
 // named on the host type.
 //
 // plugin.quiesce precedes a replacement rather than an unload, and runs while
-// the host is still counting its own call, so it stops the loop and saves the
-// bindings but drains nothing.
+// the host is still counting its own call, so it stops the loop and the
+// socket and saves the bindings but drains nothing.
 func (p *Plugin) Shutdown() {
 	p.stopPoller()
 	p.mu.Lock()
@@ -228,6 +228,7 @@ func (p *Plugin) Shutdown() {
 	if !handedOver {
 		p.saveBindings()
 	}
+	p.stopLocalAPI()
 	p.host.drain(hostDrainTimeout)
 }
 
@@ -262,10 +263,12 @@ func (p *Plugin) runPoller(pl *poller) {
 	}
 }
 
-// guardedPoll runs one poll under guard and returns the wait before the next.
-// A poll that panics costs itself only: the next one waits a regular interval,
-// and nextPollAt names that wake so the page's countdown stays true.
+// guardedPoll runs one poll under guard and returns the wait before the next,
+// first bringing the local API socket in line with the config. A poll that
+// panics costs itself only: the next one waits a regular interval, and
+// nextPollAt names that wake so the page's countdown stays true.
 func (p *Plugin) guardedPoll(ctx context.Context) time.Duration {
+	p.guard("local API sync", p.syncLocalAPI)
 	wait := p.config().Quota.PollInterval
 	if p.guard("poll", func() { wait = p.pollAndSchedule(ctx) }) {
 		p.mu.Lock()
