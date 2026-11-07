@@ -67,19 +67,22 @@ type PaceConfig struct {
 	// Steepness is the sigmoid's slope through its midpoint, and applies to
 	// that shape alone. Higher is more S-shaped; near zero is almost linear.
 	Steepness float64 `yaml:"steepness" json:"steepness"`
-	// LandingTarget is the utilization the curve aims for at window end,
-	// before Target clamps it to full.
+	// LandingTarget is the utilization the curve aims for at window end.
 	//
 	// Above 1.0 tilts the pick toward a credential near its reset: weekly
 	// quota is perishable, so budget that expires in hours is worth spending
-	// ahead of budget that has days left. The clamp bounds that tilt rather
-	// than making it safe — a full window is gated in ScoreAuth, because a
-	// clamped slack of zero still beats a credential running over its own
-	// curve. The clamp does fix where the tilt saturates: the target reaches
-	// full where Shape reaches the reciprocal of the landing, which is that
-	// fraction of the way through a linear window and earlier or later under
-	// the other shapes. Below 1.0 leaves a deliberate safety margin instead.
+	// ahead of budget that has days left. The target keeps rising past full
+	// to the landing, so the tilt grows until the reset; HoldAtFull stops it at
+	// full. Either way a full window is gated in ScoreAuth. Below 1.0 leaves a
+	// deliberate safety margin instead.
 	LandingTarget float64 `yaml:"landing-target" json:"landing_target"`
+	// HoldAtFull holds the target at full once the curve reaches it, where the
+	// shape reaches the reciprocal of the landing: that fraction of the way
+	// through a linear window, earlier or later under the other shapes. From
+	// there a credential's slack is the budget it has left, and the tilt
+	// toward its reset stops growing. It has no effect on a landing at or
+	// below full.
+	HoldAtFull bool `yaml:"hold-at-full" json:"hold_at_full"`
 
 	// WeeklyWeight scales the weekly window's slack. The weekly window is the
 	// resource actually lost at reset, so it dominates.
@@ -212,11 +215,9 @@ func (c *Config) Normalize() (warnings []string) {
 	if c.Pace.CurveExponent <= 0 {
 		c.Pace.CurveExponent = d.Pace.CurveExponent
 	}
-	// A landing above full is the use-it-or-lose-it tilt and is admissible;
-	// Target's clamp is what bounds it. Past 4 the curve aims at four times a
-	// budget no window can hold, which reads as a misconfiguration rather than
-	// a policy whatever the shape; how much of the window the clamp then flattens
-	// depends on Shape, so no single fraction describes it.
+	// A landing above full is the use-it-or-lose-it tilt and is admissible.
+	// Past 4 the curve aims at four times a budget no window can hold, which
+	// reads as a misconfiguration rather than a policy whatever the shape.
 	if c.Pace.LandingTarget <= 0 || c.Pace.LandingTarget > 4 {
 		c.Pace.LandingTarget = d.Pace.LandingTarget
 	}

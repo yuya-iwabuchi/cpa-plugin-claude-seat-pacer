@@ -78,8 +78,8 @@ func TestNormalizeDefaultsAndClamps(t *testing.T) {
 }
 
 // A landing above full is the use-it-or-lose-it tilt, so it has to survive
-// normalization; Target's clamp is what bounds it. Only a landing no curve
-// could mean reads as a misconfiguration.
+// normalization. Only a landing no curve could mean reads as a
+// misconfiguration.
 func TestNormalizeKeepsALandingAboveFull(t *testing.T) {
 	d := Defaults()
 	for _, tc := range []struct {

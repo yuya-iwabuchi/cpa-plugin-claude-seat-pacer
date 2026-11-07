@@ -3869,14 +3869,14 @@ time[data-ts] { cursor: help; }
   /* ----------------------------------------------------------- pace curve */
 
   /* The target curve, mirroring internal/pace: a unit shape the config names,
-     scaled by the landing target and capped at full.
+     scaled by the landing target, and held at full under hold_at_full.
 
-     The cap is what the tilt rests on. A landing above full pulls the pick
-     toward a seat near its reset, because weekly budget that runs out in
-     hours is worth spending ahead of budget that has days left; the cap stops
-     that tilt rewarding a seat with nothing left, and it fixes where the tilt
-     stops climbing. So a curve that lands past full ramps at the landing's
-     own slope, reaches 100% inside the window and runs flat from there. */
+     A landing above full pulls the pick toward a seat near its reset,
+     because weekly budget that runs out in hours is worth spending ahead of
+     budget that has days left. Unheld, a curve that lands past full keeps
+     climbing through 100% to the landing at the close, so that pull grows
+     until the reset. Held, it reaches 100% inside the window and runs flat
+     from there. */
   function landingOf(cfg) {
     var v = cfg ? cfg.landing_target : 0;
     return num(v) && v > 0 ? v : 1;
@@ -3903,14 +3903,21 @@ time[data-ts] { cursor: help; }
   }
 
   function targetAt(cfg, e) {
-    return Math.min(landingOf(cfg) * shapeAt(cfg, e), 1);
+    var t = landingOf(cfg) * shapeAt(cfg, e);
+    return cfg && cfg.hold_at_full ? Math.min(t, 1) : t;
+  }
+
+  /* The highest the curve reaches, at the window's close, for a plot's y
+     scale to hold. */
+  function curveTop(cfg) {
+    return targetAt(cfg, 1);
   }
 
   /* Where the curve first reaches full ahead of the window's close, as a
      fraction of the window, or null for a curve that does not. The test is on
-     the landing rather than on targetAt, which is already capped: a curve
-     landing exactly at full reaches it at the close and holds it for no time
-     at all, so it has no flat run and carries no tilt. The shape only rises,
+     the landing rather than on targetAt, which hold_at_full keeps at full: a curve
+     landing exactly at full reaches it at the close, so it has no run past
+     full and carries no tilt. The shape only rises,
      so one bisection finds the crossing whatever the shape and no shape needs
      its own inverse. */
   function fullAt(cfg) {
@@ -3923,8 +3930,8 @@ time[data-ts] { cursor: help; }
     return hi;
   }
 
-  /* The curve as a polyline, x mapped from elapsed. The cap puts a corner in
-     the line where the curve reaches full; the sampling is fine enough to
+  /* The curve as a polyline, x mapped from elapsed. Held at full, the curve
+     turns a corner where it reaches full; the sampling is fine enough to
      keep that corner inside a pixel or two rather than rounding it off. */
   function curvePath(cfg, xOf, Y) {
     var d = "", n = 240;
@@ -3936,33 +3943,35 @@ time[data-ts] { cursor: help; }
   }
 
   /* The curve's label, at the right-hand end of the line. A curve that
-     reaches full before the window closes names the run it holds at 100%
-     from there, because a flat top read as a line the axis cut off would say
-     the opposite of what it means. */
+     reaches full before the window closes names where: a held one the run
+     it holds at 100% from there, because a flat top read as a line the axis
+     cut off would say the opposite of what it means, and an unheld one the
+     point it passes 100% on its way to the landing. */
   function curveLabelText(cfg, base, unitText) {
     var full = fullAt(cfg);
-    return full === null ? base : base + " · 100% from " + unitText(full);
+    if (full === null) return base;
+    return base + (cfg.hold_at_full ? " · 100% from " : " · 100% at ") + unitText(full) +
+      (cfg.hold_at_full ? "" : ", " + pct(curveTop(cfg), 0) + " at the reset");
   }
 
   /* The curve's label sits just above the line's right-hand end, which is
-     the 100% gridline over the plateau of a curve that reaches full, and
-     never above the top of the plot. */
+     the 100% gridline over the plateau of a held curve that reaches full,
+     and never above the top of the plot. */
   function curveLabelY(cfg, Y, top) {
     return Math.max(top + 1, Y(targetAt(cfg, 1))) - 5;
   }
 
   /* The curve as its own formula, in the shape the config names. */
   function curveText(cfg) {
-    var land = pct(landingOf(cfg), 0);
+    var land = pct(landingOf(cfg), 0), body = land + " × elapsed";
     if (cfg.shape === "power") {
       var gamma = num(cfg.curve_exponent) && cfg.curve_exponent > 0 ? cfg.curve_exponent : 1;
-      return "min(" + land + " × elapsed^" + gamma + ", 100%)";
-    }
-    if (cfg.shape === "sigmoid") {
+      body = land + " × elapsed^" + gamma;
+    } else if (cfg.shape === "sigmoid") {
       var k = num(cfg.steepness) && cfg.steepness > 0 ? cfg.steepness : 8;
-      return "min(" + land + " × sigmoid(elapsed, k=" + k + "), 100%)";
+      body = land + " × sigmoid(elapsed, k=" + k + ")";
     }
-    return "min(" + land + " × elapsed, 100%)";
+    return cfg.hold_at_full ? "min(" + body + ", 100%)" : body;
   }
 
   /* The weekly all-models window is the budget the plugin paces against and
@@ -5088,7 +5097,7 @@ time[data-ts] { cursor: help; }
       return entry;
     });
 
-    var maxY = 1.05;
+    var maxY = Math.max(1.05, curveTop(pace) + 0.03);
     series.forEach(function (s) {
       if (!s.gap && view === STANDARD) maxY = Math.max(maxY, s.ws.utilization + 0.05);
       s.caps.forEach(function (c) { if (!c.gap && view === c.fam) maxY = Math.max(maxY, c.ws.utilization + 0.05); });
@@ -5420,8 +5429,11 @@ time[data-ts] { cursor: help; }
     t.appendChild(h("code", "", curveText(wts)));
     t.appendChild(document.createTextNode("." + (full !== null
       ? " It aims at " + pct(land, 0) + " by the reset, more than a week holds, so it reaches 100% on day " +
-        (full * PACE_DAYS).toFixed(1) + " and stays flat. Budget left at the reset is lost, so aiming past " +
-        "full tilts the pick toward the seat nearest its reset."
+        (full * PACE_DAYS).toFixed(1) + (wts.hold_at_full ? " and stays flat. " : " and keeps climbing. ") +
+        "Budget left at the reset is lost, so aiming past full tilts the pick toward the seat nearest its reset" +
+        (wts.hold_at_full ? "; held at 100%, a seat past day " + (full * PACE_DAYS).toFixed(1) +
+          " is scored by the budget it has left."
+          : ", and past 100% that tilt keeps growing until the reset. A full seat is ineligible however far the curve climbs.")
       : land < 1
         ? " It aims at " + pct(land, 0) + " by the reset, so it leaves " + pct(1 - land, 0) +
           " in reserve even at the close."
@@ -5610,7 +5622,7 @@ time[data-ts] { cursor: help; }
       return entry;
     });
 
-    var maxY = 1.05;
+    var maxY = Math.max(1.05, onTarget ? curveTop(paceCfg) + 0.03 : 0);
     series.forEach(function (s) {
       if (s.gap) return;
       maxY = Math.max(maxY, s.w.utilization + 0.05);
@@ -7010,7 +7022,7 @@ time[data-ts] { cursor: help; }
         stackSeries(order.map(function (i) { return steps[i]; }), t0, t1, [now]).tops[order.length - 1]
           .forEach(function (v) { peak = Math.max(peak, v); });
       }
-      var maxY = stacked ? Math.max(1, capMax, peak) * 1.05 : 1.05;
+      var maxY = stacked ? Math.max(1, capMax, peak) * 1.05 : Math.max(1.05, curveTop(pace) + 0.03);
       var X = function (t) { return m.l + (t - t0) / (t1 - t0) * pw; };
       var Y = function (u) { return m.t + ph - clamp(u, 0, maxY) / maxY * ph; };
       var XN = function (t) { return m.l + (t - tMin) / (tMax - tMin) * pw; };

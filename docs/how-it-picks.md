@@ -6,8 +6,13 @@ model go first, paced against their 5-hour window instead.
 
 Each weekly window's plan rises from nothing at the window's start. At the
 default `landing-target: 1.10` on the linear shape it reaches the full quota
-about nine-tenths of the way through the week. Any quota a seat still holds
-near its reset puts it behind its plan, at 1.10 or at 1.0. How far behind a
+about nine-tenths of the way through the week, and keeps rising to 110% at the
+reset. Any quota a seat still holds near its reset puts it behind its plan, at
+1.10 or at 1.0, and past full the gap keeps growing as the reset nears, so a
+seat with a little left that expires in hours goes ahead of a mid-week seat
+further behind. `hold-at-full: true` holds the plan at 100% instead, which
+scores a seat past that point by the quota it has left. A full seat is
+ineligible either way. How far behind a
 seat is counts the all-models weekly window in full and a model-family window
 at half. On a seat with a weekly cap, the 5-hour window can make it
 ineligible but carries no weight by default: it resets several times a day and

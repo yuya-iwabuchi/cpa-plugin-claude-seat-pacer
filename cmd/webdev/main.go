@@ -1385,7 +1385,9 @@ func paceShapeFor(cfg model.PaceConfig, seats []paceFit) int {
 		dist := 0.0
 		for _, s := range seats {
 			for k, u := range paceCurve(shape, s.elapsed, s.end, n) {
-				dist += math.Abs(u - pace.Target(cfg, s.elapsed*float64(k)/float64(n-1)))
+				// A replay never runs past full, so it is fitted to the
+				// target as far as full.
+				dist += math.Abs(u - math.Min(pace.Target(cfg, s.elapsed*float64(k)/float64(n-1)), 1))
 			}
 		}
 		if dist < bestDist {

@@ -15,6 +15,7 @@ func TestDottedKeysSetTheirNestedField(t *testing.T) {
 	cfg, _, err := decodeConfig([]byte("enabled: true\n" +
 		"affinity.ttl: 2h\n" +
 		"pace.landing-target: 1.0\n" +
+		"pace.hold-at-full: true\n" +
 		"quota.poll-interval: 5m\n" +
 		"web.enabled: false\n"))
 	if err != nil {
@@ -25,6 +26,9 @@ func TestDottedKeysSetTheirNestedField(t *testing.T) {
 	}
 	if cfg.Pace.LandingTarget != 1.0 {
 		t.Errorf("pace.landing-target = %v, want 1.0", cfg.Pace.LandingTarget)
+	}
+	if !cfg.Pace.HoldAtFull {
+		t.Error("pace.hold-at-full: true left the target unheld")
 	}
 	if cfg.Quota.PollInterval != 5*time.Minute {
 		t.Errorf("quota.poll-interval = %v, want 5m", cfg.Quota.PollInterval)
