@@ -595,6 +595,8 @@ td .seat-mark { max-width: 22ch; }
 #timeline { overflow-x: auto; }
 /* The band past 100% on a utilization chart, and the rule at full under it. */
 svg .past-full { fill: var(--serious); fill-opacity: .07; }
+svg .overflow path { fill: none; stroke: var(--ink-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+svg .overflow path.overflow-run { stroke-dasharray: 1 5; }
 svg .full-rule { stroke: var(--serious); stroke-opacity: .75; stroke-width: 1; stroke-dasharray: 4 3; }
 svg.pace text.full-label { fill: var(--serious); }
 svg.tl { display: block; }
@@ -4084,13 +4086,46 @@ time[data-ts] { cursor: help; }
   /* The curve as a polyline, x mapped from elapsed. Held at full, the curve
      turns a corner where it reaches full; the sampling is fine enough to
      keep that corner inside a pixel or two rather than rounding it off. */
-  function curvePath(cfg, xOf, Y) {
-    var d = "", n = 240;
+  function curvePath(cfg, xOf, Y, stop) {
+    var d = "", n = 240, cap = Y.cap, over = cap ? capAt(cfg, cap) : null;
     for (var i = 0; i <= n; i++) {
       var e = i / n;
+      if (over !== null && e >= over) break;
       d += (i ? "L" : "M") + xOf(e).toFixed(2) + " " + Y(targetAt(cfg, e)).toFixed(2);
     }
+    /* An axis that stops short of the curve takes it to the cap and, unless
+       the caller marks the overflow itself, along the cap to the close. */
+    if (over !== null) {
+      d += "L" + xOf(over).toFixed(2) + " " + Y(cap).toFixed(2);
+      if (!stop) d += "L" + xOf(1).toFixed(2) + " " + Y(cap).toFixed(2);
+    }
     return d;
+  }
+
+  /* Where the curve first passes cap, as a fraction of the window, or null
+     for a curve that stays under it. */
+  function capAt(cfg, cap) {
+    if (!(targetAt(cfg, 1) > cap)) return null;
+    var lo = 0, hi = 1;
+    for (var i = 0; i < 30; i++) {
+      var mid = (lo + hi) / 2;
+      if (targetAt(cfg, mid) < cap) lo = mid; else hi = mid;
+    }
+    return hi;
+  }
+
+  /* A curve's run past the axis's cap: dotted along the cap from where the
+     curve leaves the plot to the close, ending in an arrow up and out of the
+     plot. */
+  function capRunMark(root, cfg, xOf, Y, attrs) {
+    var cap = Y.cap, over = cap ? capAt(cfg, cap) : null;
+    if (over === null) return;
+    var g = svg("g", { "class": "overflow" }, root);
+    for (var k in attrs) g.setAttribute(k, attrs[k]);
+    var x0 = xOf(over), x1 = xOf(1), y = Y(cap);
+    svg("path", { "class": "overflow-run", d: "M" + x0.toFixed(2) + " " + y.toFixed(2) + "L" + (x1 - 2).toFixed(2) + " " + y.toFixed(2) }, g);
+    svg("path", { "class": "overflow-arrow", d: "M" + (x1 - 7).toFixed(2) + " " + (y - 1).toFixed(2) + "L" + x1.toFixed(2) + " " + (y - 8).toFixed(2) +
+      "M" + (x1 - 5).toFixed(2) + " " + (y - 8).toFixed(2) + "L" + x1.toFixed(2) + " " + (y - 8).toFixed(2) + "L" + x1.toFixed(2) + " " + (y - 3).toFixed(2) }, g);
   }
 
   /* The curve's label, at the right-hand end of the line. A curve that
@@ -5185,53 +5220,35 @@ time[data-ts] { cursor: help; }
     }
   }
 
-  /* The utilization axis the unstacked charts share. 0 to 100%, where every
-     seat's use lies, keeps most of the plot. A curve that runs well past
-     full gets a short band above 100% at a scale of its own, so a landing
-     far past full never squeezes the rest; a curve just past full keeps one
-     linear scale. top is the highest value drawn, and U is Y's inverse,
-     continuing past top. */
-  var OVER_SHARE = 0.14, OVER_MIN = 26, OVER_PAD = 4;
+  /* The utilization axis the unstacked charts share, linear from 0 to the
+     highest value drawn, top, with a little room above it. A curve landing
+     past CURVE_CAP stops the axis there, so its run past full never squeezes
+     0 to 100%, where every seat's use lies: Y.cap names the cap the curves
+     are cut at, and U is Y's inverse, continuing past the top. */
+  var CURVE_CAP = 1.2;
   function fullScale(m, ph, top) {
-    if (!(top > 1.06)) {
-      var hi = Math.max(1.05, top || 0);
-      return {
-        top: hi, band: false,
-        Y: function (u) { return m.t + ph - clamp(u, 0, hi) / hi * ph; },
-        U: function (y) { return (m.t + ph - y) / ph * hi; }
-      };
-    }
-    var over = Math.max(OVER_MIN, Math.round(ph * OVER_SHARE)), body = ph - over, run = over - OVER_PAD;
-    return {
-      top: top, band: true,
-      Y: function (u) {
-        u = clamp(u, 0, top);
-        return u <= 1 ? m.t + ph - u * body : m.t + over - (u - 1) / (top - 1) * run;
-      },
-      U: function (y) { var b = m.t + ph - y; return b <= body ? b / body : 1 + (b - body) / run * (top - 1); }
-    };
+    var cap = top > CURVE_CAP + 0.03 ? CURVE_CAP : null;
+    var hi = cap ? cap + 0.03 : Math.max(1.05, (top || 0) + 0.03);
+    var Y = function (u) { return m.t + ph - clamp(u, 0, hi) / hi * ph; };
+    Y.cap = cap;
+    return { top: hi, cap: cap, Y: Y, U: function (y) { return (m.t + ph - y) / ph * hi; } };
   }
 
   /* The gridlines over sc: a labelled line every 20% and a fainter one at
-     each 10% between, up to 100%, and on past it on a linear axis. Above
-     100% the plot is shaded and 100% is ruled and named: no window can be
-     used past it, so a curve there is a plan that outruns what any seat can
-     spend. A band at its own scale names only its top. */
+     each 10% between. Above 100% the plot is shaded and 100% is ruled and
+     named: no window can be used past it, so a curve there is a plan that
+     outruns what any seat can spend. */
   function yGrid(root, m, pw, sc) {
     var Y = sc.Y, past = sc.top > 1;
     if (past) svg("rect", { "class": "past-full", x: m.l, y: m.t, width: pw, height: Y(1) - m.t }, root);
-    var last = sc.band ? 10 : Math.floor(sc.top * 10 + 1e-9);
-    for (var i = 0; i <= last; i++) {
+    for (var i = 0; i <= Math.floor(sc.top * 10 + 1e-9); i++) {
       var t = i / 10, gy = Y(t), major = i % 2 === 0;
       svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1, opacity: major ? 1 : .45 }, root);
       if (major) svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
     }
-    if (sc.band) svgText(root, m.l - 8, Y(sc.top) + 3.5, pct(sc.top, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
     if (past) {
       svg("line", { "class": "full-rule", x1: m.l, x2: m.l + pw, y1: Y(1), y2: Y(1) }, root);
-      if (Y(1) - m.t >= 13) {
-        svgText(root, m.l + 6, Y(1) - 4, sc.band ? "past full, not to scale" : "past full", "full-label", { "font-size": 10 });
-      }
+      if (Y(1) - m.t >= 13) svgText(root, m.l + 6, Y(1) - 4, "past full", "full-label", { "font-size": 10 });
     }
   }
 
@@ -5298,7 +5315,7 @@ time[data-ts] { cursor: help; }
     /* While the plan is being tuned the axis keeps room past full to drag
        the curve into, and holds still under a drag. */
     var editing = tuneOpen();
-    if (editing) top = Math.max(top, 1.5);
+    if (editing) top = Math.max(top, CURVE_CAP + 0.03);
     var sc = tuneDrag ? tuneDrag.geo.sc : fullScale(m, ph, top);
 
     var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
@@ -5329,16 +5346,18 @@ time[data-ts] { cursor: help; }
     svgText(root, m.l - 38, m.t - 6, "% used", "t-muted", { "font-size": 10.5 });
 
     svg("path", {
-      d: curvePath(pace, X, Y), fill: "none", stroke: "var(--ink-1)",
+      d: curvePath(pace, X, Y, true), fill: "none", stroke: "var(--ink-1)",
       "stroke-width": 2, "stroke-linecap": "round", opacity: .78
     }, root);
+    capRunMark(root, pace, X, Y, { opacity: .78 });
     /* The draft from the tuning fold, dashed under the running curve, so the
        reader sees the plan they are about to save against the one in force. */
     if (paceDraft) {
       svg("path", {
-        d: curvePath(paceDraft, X, Y), fill: "none", stroke: "var(--ink-1)",
+        d: curvePath(paceDraft, X, Y, true), fill: "none", stroke: "var(--ink-1)",
         "stroke-width": 1.5, "stroke-dasharray": "6 4", "stroke-linecap": "round", opacity: .6
       }, root);
+      capRunMark(root, paceDraft, X, Y, { opacity: .5 });
     }
     /* The curve's label goes on last and carries no plate, so no line under
        it is cut; the gap labels are placed around it. */
@@ -5880,11 +5899,12 @@ time[data-ts] { cursor: help; }
        is no aim, so the line is a reference: straight from nothing to full
        across the window, dashed and fainter, with no gaps. */
     svg("path", {
-      d: onTarget ? curvePath(paceCfg, function (e) { return X(e * SESSION_HOURS); }, Y)
+      d: onTarget ? curvePath(paceCfg, function (e) { return X(e * SESSION_HOURS); }, Y, true)
         : "M" + X(0) + " " + Y(0) + "L" + X(SESSION_HOURS) + " " + Y(1),
       fill: "none", stroke: "var(--ink-1)", "stroke-width": onTarget ? 2 : 1.4, "stroke-linecap": "round",
       "stroke-dasharray": onTarget ? null : "5 4", opacity: onTarget ? .78 : .5
     }, root);
+    if (onTarget) capRunMark(root, paceCfg, function (e) { return X(e * SESSION_HOURS); }, Y, { opacity: .78 });
     var curveLabel = svgText(root, X(SESSION_HOURS) - 4, onTarget ? curveLabelY(paceCfg, Y, m.t) : Math.max(m.t + 1, Y(1)) - 5,
       onTarget ? curveLabelText(paceCfg, counts ? "target" : "target, no weekly cap",
         function (e) { return (e * SESSION_HOURS).toFixed(1) + " h"; }) : "reference curve, not paced",
