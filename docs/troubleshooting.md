@@ -31,7 +31,7 @@ warns which, and names the seats when it is the tier layout. It can also be by
 design: a boosted seat ranks ahead of every other until its boost ends, a seat
 with no weekly cap on the model ranks ahead of every seat with one, and a seat
 with no 5-hour limit is the only one with room while the others wait out a full
-5-hour window. The Boost bar lists every live boost, and Current window shows
+5-hour window. The Seats chart lists every live boost under it, and Current window shows
 the rest.
 
 **A seat whose quota came back early still gets no requests.** The host keeps

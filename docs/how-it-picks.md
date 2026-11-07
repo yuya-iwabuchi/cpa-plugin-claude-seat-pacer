@@ -56,7 +56,8 @@ term it does not. A refusal of the 5-hour window it had before ends at the
 first read that no longer reports the window, and the plugin then ends the
 host's cooldown from that refusal as it does after an early reset.
 
-You can boost a seat from the Boost bar under the Seats chart: for an hour,
+You can boost a seat from the bolt at the end of its row on the Seats chart,
+which shows when you point at the row: for an hour,
 for four hours, until its weekly reset (its 5-hour reset on a seat with no
 weekly window), or until you clear it. While a boost lasts, the boosted seat
 takes every new conversation it is eligible for, ahead of seats with no weekly
