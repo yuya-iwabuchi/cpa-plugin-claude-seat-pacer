@@ -132,6 +132,10 @@ func (p *Plugin) Status(now time.Time, modelID string) model.Status {
 			ApplyHostState(&row)
 			row.Login = seatLogin[id]
 		}
+		if b, ok := p.boosts.active(id, now); ok {
+			row.Boost = &b
+			row.Score.Boosted = true
+		}
 		rows = append(rows, row)
 	}
 	expired := make(map[string]bool)

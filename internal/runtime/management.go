@@ -40,7 +40,14 @@ const (
 	routeRefresh    = "/refresh"
 	routeUnbind     = "/unbind"
 	routeSweep      = "/bindings/sweep"
+	// routePageBoost sets or clears a boost on the seat the page names by its
+	// published id, which only the status app can resolve.
+	routePageBoost = "/page-boost"
 )
+
+// appBoostPath is where the status app answers routePageBoost inside the
+// plugin.
+const appBoostPath = "/api/boost"
 
 // Defaults for the prefixes when the registration request omits them; the host
 // always sends both (internal/pluginhost/management.go:113).
@@ -99,7 +106,9 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	}
 	// The page and its data route come and go together with web.enabled.
 	if p.config().Web.Enabled {
-		resp.Routes = append(resp.Routes, ManagementRoute{Method: http.MethodGet, Path: prefix + routePageStatus, Description: "The status page's data. Takes ?model=<id>, and ?sync=1 to read usage first."})
+		resp.Routes = append(resp.Routes,
+			ManagementRoute{Method: http.MethodGet, Path: prefix + routePageStatus, Description: "The status page's data. Takes ?model=<id>, and ?sync=1 to read usage first."},
+			ManagementRoute{Method: http.MethodPost, Path: prefix + routePageBoost, Description: "Boost or unboost a seat the status page names. Takes ?seat=<published id>&span=1h|4h|reset|cleared|off."})
 		resp.Resources = []ResourceRoute{
 			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Status page. Its data comes from " + prefix + routePageStatus + ", which needs the management key."},
 		}
@@ -152,7 +161,7 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	if method == "" {
 		method = http.MethodGet
 	}
-	want := map[string]string{routeStatus: http.MethodGet, routePageStatus: http.MethodGet, routeRefresh: http.MethodPost, routeUnbind: http.MethodPost, routeSweep: http.MethodPost}[route]
+	want := map[string]string{routeStatus: http.MethodGet, routePageStatus: http.MethodGet, routePageBoost: http.MethodPost, routeRefresh: http.MethodPost, routeUnbind: http.MethodPost, routeSweep: http.MethodPost}[route]
 	switch {
 	case want == "":
 		return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
@@ -166,6 +175,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		return okEnvelope(jsonResponse(http.StatusOK, p.Status(now, req.Query.Get("model"))))
 	case routePageStatus:
 		return okEnvelope(p.serveResource(req, appStatusPath))
+	case routePageBoost:
+		return okEnvelope(p.serveResource(req, appBoostPath))
 	case routeRefresh:
 		ctx, cancel := context.WithTimeout(context.Background(), p.refreshTimeout())
 		defer cancel()
@@ -204,11 +215,12 @@ func (p *Plugin) refreshTimeout() time.Duration {
 }
 
 // serveResource hands a request to the status app at an app-relative path:
-// /index.html for the resource route, /api/status for routePageStatus. Without
-// an installed app it answers 503 rather than 404, whatever web.enabled says,
-// which tells an operator the build is missing its front end. With an app and
-// web.enabled off, neither path is declared and both answer 404, including a
-// request that arrives from a registration the host has not replaced yet.
+// /index.html for the resource route, /api/status for routePageStatus and
+// /api/boost for routePageBoost. Without an installed app it answers 503
+// rather than 404, whatever web.enabled says, which tells an operator the
+// build is missing its front end. With an app and web.enabled off, none of
+// these paths is declared and each answers 404, including a request that
+// arrives from a registration the host has not replaced yet.
 func (p *Plugin) serveResource(req ManagementRequest, path string) ManagementResponse {
 	h := p.resource.Load()
 	if h == nil {

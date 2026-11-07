@@ -174,6 +174,7 @@ func (p *Plugin) pick(req SchedulerPickRequest) SchedulerPickResponse {
 		return decline("no session key and no usable quota reading")
 	}
 	in.scores = pace.RankWithStaleness(cfg, in.snaps, in.candidates, req.Model, now)
+	pace.ApplyBoosts(in.scores, p.boosts.boosted(now))
 
 	if cfg.Affinity.Enabled && in.identity.Key != "" {
 		if resp, ok := p.pickByAffinity(in); ok {
@@ -279,6 +280,9 @@ func (p *Plugin) pickCold(in pickInput, previous, note string) SchedulerPickResp
 	chosen := ""
 	if best, ok := pace.Best(in.scores); ok {
 		chosen = best.AuthID
+		if best.Boosted {
+			note = joinNotes(note, "boosted seat")
+		}
 	} else {
 		if in.identity.Key == "" {
 			return p.declineWithScores(in, "no eligible candidate")
