@@ -8908,12 +8908,16 @@ time[data-ts] { cursor: help; }
     });
   }
 
+  /* Whether two plans are the same on the key k: points by the curve they
+     draw, so two spellings of one curve are one plan. */
+  function sameKey(a, b, k) {
+    if (k === "points") return JSON.stringify(a.curve || []) === JSON.stringify(b.curve || []);
+    return a[k] === b[k] || (!a[k] && !b[k]);
+  }
+
   function sameTune(a, b) {
     if ((a.shape || "linear") !== (b.shape || "linear")) return false;
-    return tuneKeysFor(a).every(function (k) {
-      var x = a[k[0]], y = b[k[0]];
-      return k[0] === "points" ? JSON.stringify(x || []) === JSON.stringify(y || []) : x === y || (!x && !y);
-    });
+    return tuneKeysFor(a).every(function (k) { return sameKey(a, b, k[0]); });
   }
 
   function tuneMessage(text, tone) {
@@ -8925,6 +8929,8 @@ time[data-ts] { cursor: help; }
      matches the running plan, redraws the chart, and asks for the ranking
      the draft gives once the reader pauses. */
   function setTune(patch) {
+    /* A saved plan holds still until the plugin runs it. */
+    if (tuneUI.saved && paceDraft === tuneUI.saved) return;
     var live = tuneLive(), base = tuneWork(), d = {};
     [live, base, patch].forEach(function (o) { Object.keys(o).forEach(function (k) { d[k] = o[k]; }); });
     paceDraft = sameTune(d, live) ? null : d;
@@ -8961,13 +8967,26 @@ time[data-ts] { cursor: help; }
 
   /* pts as a points plan: its pace.points entries, and the curve
      model.ParsePoints reads from them, so the page draws the curve the
-     scorer will run. */
+     scorer will run. A point that rounding puts on the day of the one
+     before it gives way to it, the last point excepted, which takes its
+     place; and no percent rounds below the one before it. */
   function pointsPlan(pts) {
-    var entries = [], curve = [];
+    var kept = [];
     pts.forEach(function (p, i) {
-      var day = pointDay(p), pc = pointPct(p);
-      entries.push(day + ":" + pc + (i && p.kind !== "smooth" ? " " + p.kind : ""));
-      curve.push(i ? { x: day / CURVE_DAYS, y: pc / 100, kind: p.kind } : { x: 0, y: 0 });
+      var q = { day: i ? pointDay(p) : 0, pc: i ? pointPct(p) : 0, kind: i ? p.kind : "" };
+      var prev = kept[kept.length - 1];
+      if (prev && q.day <= prev.day) {
+        if (i < pts.length - 1 || kept.length < 2) return;
+        kept.pop();
+        prev = kept[kept.length - 1];
+      }
+      if (prev && q.pc < prev.pc) q.pc = prev.pc;
+      kept.push(q);
+    });
+    var entries = [], curve = [];
+    kept.forEach(function (q, i) {
+      entries.push(q.day + ":" + q.pc + (i && q.kind !== "smooth" ? " " + q.kind : ""));
+      curve.push(i ? { x: q.day / CURVE_DAYS, y: q.pc / 100, kind: q.kind } : { x: 0, y: 0 });
     });
     return { shape: "points", points: entries, curve: curve };
   }
@@ -9125,7 +9144,7 @@ time[data-ts] { cursor: help; }
   /* The draft's changes from the running plan, as the keys that change the
      draft's curve. */
   function tuneChanges(draft, live) {
-    return tuneKeysFor(draft).filter(function (k) { return draft[k[0]] !== live[k[0]]; });
+    return tuneKeysFor(draft).filter(function (k) { return !sameKey(draft, live, k[0]); });
   }
 
   /* Saves the draft's changed settings into the plugin's block. The host
@@ -9360,7 +9379,12 @@ time[data-ts] { cursor: help; }
       label: "point " + (i + 1) + " day", fk: "tune:pt:" + i + ":day", prefix: "day",
       format: function (v) { return v.toFixed(v * 10 % 1 ? 2 : 1); },
       parse: function (t) { return parseIn(t, 0, CURVE_DAYS); },
-      commit: function (v) { edit(function (pts) { var p = pts[i], lo = pts[i - 1], hi = pts[i + 1]; if (lo && hi) pts[i] = { x: clamp(v / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP), y: p.y, kind: p.kind }; }); },
+      commit: function (v) {
+        edit(function (pts) {
+          var p = pts[i], lo = pts[i - 1], hi = pts[i + 1];
+          if (lo && hi && lo.x + CURVE_GAP <= hi.x - CURVE_GAP) pts[i] = { x: clamp(v / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP), y: p.y, kind: p.kind };
+        });
+      },
       nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x + n * 0.1 / CURVE_DAYS, pts[i].y); }); }
     });
     r.pct = tuneNumber(row, {
@@ -9510,6 +9534,7 @@ time[data-ts] { cursor: help; }
       r.kind.disable(first || applying);
       r.kind.el.style.visibility = first ? "hidden" : "";
       r.remove.style.visibility = first || last ? "hidden" : "";
+      r.remove.disabled = applying;
       r.row.toggleAttribute("data-sel", u.sel === i);
     });
     u.ptsSum.textContent = "Points (" + pts.length + ")" + (isPoints(cfg) ? "" : " · from the formula curve");

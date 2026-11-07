@@ -121,7 +121,8 @@ if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
 
 // TestPagePointsPlanParses runs the page's points plan under node and holds
 // the curve it draws to the one model.ParsePoints reads from the entries it
-// writes, so a saved curve runs as it was drawn.
+// writes, points that rounding brings together included, so a saved curve
+// runs as it was drawn.
 func TestPagePointsPlanParses(t *testing.T) {
 	t.Parallel()
 	node, err := exec.LookPath("node")
@@ -131,7 +132,9 @@ func TestPagePointsPlanParses(t *testing.T) {
 	src := "var CURVE_DAYS = 7;\n" + pageFunctions(t, "pointDay", "pointPct", "pointsPlan") + `
 var plans = [
   [{ x: 0, y: 0, kind: "" }, { x: 0.3, y: 0.2, kind: "smooth" }, { x: 6.36 / 7, y: 1, kind: "straight" }, { x: 1, y: 1.10003, kind: "step" }],
-  [{ x: 0, y: 0, kind: "" }, { x: 1 / 3, y: 0.123456, kind: "step" }, { x: 1, y: 2.5, kind: "smooth" }]
+  [{ x: 0, y: 0, kind: "" }, { x: 1 / 3, y: 0.123456, kind: "step" }, { x: 1, y: 2.5, kind: "smooth" }],
+  // Rounding puts these on one day, and the second below the first.
+  [{ x: 0, y: 0, kind: "" }, { x: 1.001 / 7, y: 0.3, kind: "smooth" }, { x: 1.004 / 7, y: 0.29996, kind: "straight" }, { x: 6.999 / 7, y: 1, kind: "straight" }, { x: 1, y: 1, kind: "straight" }]
 ].map(pointsPlan);
 console.log(JSON.stringify(plans));
 `
