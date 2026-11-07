@@ -26,8 +26,23 @@ const defaultStatusModel = "claude-opus-5"
 // still names each seat without its account address and drops paths and URLs
 // from the warnings' text, so the page is safe to show on a screen.
 func (p *Plugin) Status(now time.Time, modelID string) model.Status {
+	return p.status(now, modelID, nil)
+}
+
+// Preview is Status with every credential scored against pace in place of the
+// running pace config, which the result's Config also carries. It changes
+// nothing: the scheduler keeps scoring against the running config.
+func (p *Plugin) Preview(now time.Time, modelID string, draft model.PaceConfig) model.Status {
+	return p.status(now, modelID, &draft)
+}
+
+// status is Status, scored against draft where draft is non-nil.
+func (p *Plugin) status(now time.Time, modelID string, draft *model.PaceConfig) model.Status {
 	p.mu.Lock()
 	cfg := p.config()
+	if draft != nil {
+		cfg.Pace = *draft
+	}
 	info := model.PluginInfo{
 		Name:              p.opts.Name,
 		Version:           p.opts.Version,

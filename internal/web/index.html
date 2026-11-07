@@ -863,6 +863,23 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .pace-more[open] > summary::before { content: "\25BE"; }
 .pace-more > summary:hover { color: var(--ink-1); }
 .pace-note { display: grid; gap: 8px; max-width: 72ch; padding-top: 6px; }
+/* The tuning fold: the pace settings as a form, the ranking they would give,
+   and the save. */
+.tune-body { display: grid; gap: 10px; padding: 8px 0 4px; font: 400 12px/1.5 var(--sans); color: var(--ink-2); }
+.tune-fields { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+.tune-fields label { display: grid; gap: 3px; font-size: 11px; color: var(--ink-3); }
+.tune-fields label.tune-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-1); padding-bottom: 5px; }
+.tune-fields :is(select, input[type="number"]) { font: 600 12px/1 var(--sans); color: var(--ink-1); background: var(--surface-1);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; width: 8em; }
+.tune-fields :is(select, input):disabled { color: var(--ink-3); }
+.tune-preview { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.tune-preview li { display: inline-flex; align-items: baseline; gap: 6px; }
+.tune-preview .tune-rank { font: 600 11.5px/1 var(--mono); color: var(--ink-1); }
+.tune-preview .tune-move { font: 500 11px/1 var(--mono); color: var(--ink-3); }
+.tune-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tune-actions button { padding: 5px 11px; }
+.tune-msg { color: var(--ink-3); }
+.tune-msg[data-tone="error"] { color: var(--critical); }
 .pace-notes { display: grid; }
 .pace-notes > .pace-note { grid-area: 1 / 1; }
 .pace-notes > .pace-note[data-off] { visibility: hidden; }
@@ -1541,6 +1558,13 @@ time[data-ts] { cursor: help; }
              focused summary outlive the refresh and a switch of window. Both
              notes sit in one cell, so the open fold is as tall as the longer
              one whichever view shows; only the shown note is visible. -->
+        <!-- Static, so its open state outlives the refresh; the script builds
+             the form inside once and keeps the reader's draft across
+             refreshes. -->
+        <details class="pace-more" id="pace-tune">
+          <summary>Tune the plan</summary>
+          <div class="tune-body" id="tune-body"></div>
+        </details>
         <details class="pace-more">
           <summary>How to read this chart</summary>
           <div class="pace-notes">
@@ -5094,6 +5118,7 @@ time[data-ts] { cursor: help; }
     /* Both notes are written whichever view shows, so the fold holding them
        keeps the longer one's height on every switch. */
     renderPaceNote(st);
+    renderTune(st, ranks);
     renderSessionNote(st);
     if (view === PACE_SESSION) { renderSession(st, seats); steadyPaceList(st, seats, ranks, capDrawn); return; }
     var pace = (st.config && st.config.pace) || {};
@@ -5115,7 +5140,7 @@ time[data-ts] { cursor: help; }
       return entry;
     });
 
-    var maxY = Math.max(1.05, curveTop(pace) + 0.03);
+    var maxY = Math.max(1.05, curveTop(pace) + 0.03, paceDraft ? curveTop(paceDraft) + 0.03 : 0);
     series.forEach(function (s) {
       if (!s.gap && view === STANDARD) maxY = Math.max(maxY, s.ws.utilization + 0.05);
       s.caps.forEach(function (c) { if (!c.gap && view === c.fam) maxY = Math.max(maxY, c.ws.utilization + 0.05); });
@@ -5152,10 +5177,19 @@ time[data-ts] { cursor: help; }
       d: curvePath(pace, X, Y), fill: "none", stroke: "var(--ink-1)",
       "stroke-width": 2, "stroke-linecap": "round", opacity: .78
     }, root);
+    /* The draft from the tuning fold, dashed under the running curve, so the
+       reader sees the plan they are about to save against the one in force. */
+    if (paceDraft) {
+      svg("path", {
+        d: curvePath(paceDraft, X, Y), fill: "none", stroke: "var(--ink-1)",
+        "stroke-width": 1.5, "stroke-dasharray": "6 4", "stroke-linecap": "round", opacity: .6
+      }, root);
+    }
     /* The curve's label goes on last and carries no plate, so no line under
        it is cut; the gap labels are placed around it. */
     var curveLabel = svgText(root, X(1) - 4, curveLabelY(pace, Y, m.t),
-      curveLabelText(pace, "target", function (e) { return "day " + (e * PACE_DAYS).toFixed(1); }),
+      curveLabelText(pace, "target", function (e) { return "day " + (e * PACE_DAYS).toFixed(1); }) +
+        (paceDraft ? " · dashed: draft" : ""),
       "t-muted curve-label", { "font-size": 10.5, "text-anchor": "end", "font-weight": 600 });
 
     /* One point: a dot in a ring, in the seat's colour. The dotted line under
@@ -8559,6 +8593,262 @@ time[data-ts] { cursor: help; }
   }
 
 
+  /* --------------------------------------------------------- pace tuning */
+
+  /* The host's own route for the plugin's saved config, which the Management
+     Center saves through, or cmd/webdev's simulation of it. A PATCH merges
+     the keys it names into the plugin's block, and the host reconfigures the
+     plugin from the file it writes. */
+  var CONFIG_PATH = "plugins/" + (HOST_MOUNT ? HOST_MOUNT[2] : "claude-seat-pacer") + "/config";
+  var TUNE_KEYS = [
+    ["shape", "pace.shape"], ["landing_target", "pace.landing-target"], ["curve_exponent", "pace.curve-exponent"],
+    ["steepness", "pace.steepness"], ["hold_at_full", "pace.hold-at-full"]
+  ];
+  var TUNE_PREVIEW_MS = 600;
+  /* The draft pace block, or null while the form matches the running one. */
+  var paceDraft = null;
+  var tuneUI = null;
+
+  function sameTune(a, b) {
+    return TUNE_KEYS.every(function (k) { return a[k[0]] === b[k[0]] || (!a[k[0]] && !b[k[0]]); });
+  }
+
+  /* The running pace block with the form's values over it, or null where a
+     number in the form is out of the range the config admits. */
+  function tuneDraftOf(live) {
+    var ui = tuneUI, d = {};
+    Object.keys(live).forEach(function (k) { d[k] = live[k]; });
+    d.shape = ui.shape.value;
+    d.hold_at_full = ui.hold.checked;
+    var bad = [ui.landing, ui.exponent, ui.steep].some(function (el) { return !el.disabled && (!el.validity.valid || el.value === ""); });
+    if (bad) return null;
+    d.landing_target = Number(ui.landing.value);
+    if (!ui.exponent.disabled) d.curve_exponent = Number(ui.exponent.value);
+    if (!ui.steep.disabled) d.steepness = Number(ui.steep.value);
+    return d;
+  }
+
+  function tuneMessage(text, tone) {
+    tuneUI.msg.textContent = text;
+    if (tone) tuneUI.msg.setAttribute("data-tone", tone); else tuneUI.msg.removeAttribute("data-tone");
+  }
+
+  /* Reads the form, redraws the chart against the draft, and asks for the
+     ranking the draft gives once the reader pauses. */
+  function tuneChanged() {
+    var st = state.data, live = (st && st.config && st.config.pace) || {};
+    var ui = tuneUI;
+    ui.exponent.disabled = ui.shape.value !== "power";
+    ui.steep.disabled = ui.shape.value !== "sigmoid";
+    var d = tuneDraftOf(live);
+    window.clearTimeout(ui.timer);
+    ui.invalid = !d;
+    if (!d) {
+      tuneMessage("A landing target is above 0 and at most 4; an exponent and a steepness are above 0.", "error");
+      ui.save.disabled = true;
+      ui.discard.disabled = false;
+      return;
+    }
+    paceDraft = sameTune(d, live) ? null : d;
+    ui.preview = null;
+    ui.save.disabled = !paceDraft;
+    ui.discard.disabled = !paceDraft;
+    tuneMessage(paceDraft ? "Previewing…" : "", "");
+    render();
+    if (paceDraft) ui.timer = window.setTimeout(function () { fetchTunePreview(paceDraft); }, TUNE_PREVIEW_MS);
+  }
+
+  /* Asks for the ranking draft gives against the latest readings, at most
+     one request at a time, given up after FETCH_TIMEOUT_MS. */
+  function fetchTunePreview(draft) {
+    var st = state.data, ui = tuneUI;
+    if (!st || awaitingKey() || draft !== paceDraft || ui.previewing) return;
+    ui.previewing = true;
+    ui.previewFor = st;
+    var ctl = new AbortController();
+    var timer = window.setTimeout(function () { ctl.abort(); }, FETCH_TIMEOUT_MS);
+    fetchJSON(statusURL(STANDARD, st) + "&preview=" + encodeURIComponent(JSON.stringify(draft)), ctl.signal).then(function (data) {
+      if (draft !== paceDraft) return;
+      ui.preview = data && data.preview ? data : null;
+      tuneMessage(ui.preview ? "" : "This build cannot preview a ranking; the dashed curve is the draft.", "");
+      render();
+    }, function (e) {
+      if (e && e.auth) { refuseKey(e); render(); return; }
+      if (draft === paceDraft) {
+        tuneMessage("The preview failed: " + (e && e.name === "AbortError" ? "no response" : e && e.message ? e.message : e) + ".", "error");
+      }
+    }).then(function () {
+      window.clearTimeout(timer);
+      ui.previewing = false;
+    });
+  }
+
+  /* The PATCH body that saves draft's changed keys, pairs of [field, dotted
+     key], into the plugin's saved block. A block holding a nested pace
+     mapping keeps it: the changes go into a copy of it, which replaces it,
+     and a dotted twin of a changed key is sent null, which removes it.
+     Otherwise each change is a top-level dotted key. */
+  function tuneSaveBody(block, changed, draft) {
+    block = block || {};
+    var nested = block.pace && typeof block.pace === "object" && !Array.isArray(block.pace) ? block.pace : null;
+    var body = {};
+    if (!nested) {
+      changed.forEach(function (k) { body[k[1]] = draft[k[0]]; });
+      return body;
+    }
+    var pace = {};
+    Object.keys(nested).forEach(function (k) { pace[k] = nested[k]; });
+    changed.forEach(function (k) {
+      pace[k[1].slice(5)] = draft[k[0]];
+      if (Object.prototype.hasOwnProperty.call(block, k[1])) body[k[1]] = null;
+    });
+    body.pace = pace;
+    return body;
+  }
+
+  /* Saves the draft's changed settings into the plugin's block. A block that
+     holds a nested pace mapping keeps it: the changes go into it and any
+     dotted twin of a changed key is removed, so no key overrides another.
+     Otherwise each change is a top-level dotted key, as the Management Center
+     writes it. The host merges the keys it is sent, saves the file and
+     reconfigures the plugin. */
+  function saveTune() {
+    var st = state.data, live = (st && st.config && st.config.pace) || {};
+    var draft = paceDraft, ui = tuneUI;
+    if (!draft || ui.saving) return;
+    var changed = TUNE_KEYS.filter(function (k) { return draft[k[0]] !== live[k[0]]; });
+    ui.saving = true;
+    ui.save.disabled = true;
+    tuneMessage("Saving…", "");
+    mgmtCall("GET", CONFIG_PATH).then(function (block) {
+      return mgmtCall("PATCH", CONFIG_PATH, tuneSaveBody(block, changed, draft));
+    }).then(function () {
+      ui.saved = draft;
+      tuneMessage("Saved to the host's config. The plugin applies it in a moment.", "");
+      window.setTimeout(function () { refresh(true); }, 1500);
+      window.clearTimeout(ui.savedTimer);
+      ui.savedTimer = window.setTimeout(function () {
+        if (ui.saved !== draft || paceDraft !== draft) return;
+        ui.saved = null;
+        ui.save.disabled = false;
+        tuneMessage("Saved, but the plugin is not running it yet. Check the warnings above and the host log.", "error");
+      }, 15000);
+    }, function (e) {
+      ui.save.disabled = false;
+      var why = e && e.body && e.body.message ? e.body.message : e && e.message ? e.message : String(e);
+      tuneMessage("The save failed: " + unescapeHost(why) + ".", "error");
+    }).then(function () { ui.saving = false; });
+  }
+
+  function discardTune() {
+    paceDraft = null;
+    tuneUI.preview = null;
+    tuneUI.invalid = false;
+    tuneMessage("", "");
+    if (tuneUI.body.contains(document.activeElement)) document.activeElement.blur();
+    render();
+  }
+
+  /* One labelled number input. */
+  function tuneNumber(parent, label, floor, max, fk) {
+    var l = parent.appendChild(h("label", "", label));
+    var el = l.appendChild(h("input", ""));
+    el.type = "number";
+    el.step = "any";
+    el.min = String(floor);
+    if (max) el.max = String(max);
+    el.setAttribute("data-fk", fk);
+    el.addEventListener("input", tuneChanged);
+    return el;
+  }
+
+  /* The tuning fold. Its form is built once; while the reader holds no draft
+     it follows the running config, and a draft survives every refresh until
+     it is saved and running, or discarded. */
+  function renderTune(st, ranks) {
+    var live = (st.config && st.config.pace) || {};
+    var body = $("tune-body");
+    if (!tuneUI) {
+      var ui = tuneUI = { body: body, invalid: false, preview: null, timer: 0 };
+      body.appendChild(h("p", "", "Try a plan against the seats' current readings: the chart draws the draft dashed and " +
+        "the list below ranks the serving Standard seats by it. Save writes the changed settings to the host's config " +
+        "file as the Management Center does; the plugin applies them within seconds, and every conversation stays on " +
+        "its seat."));
+      var f = body.appendChild(h("div", "tune-fields"));
+      var sl = f.appendChild(h("label", "", "shape"));
+      ui.shape = sl.appendChild(h("select", ""));
+      ui.shape.setAttribute("data-fk", "tune:shape");
+      ["linear", "power", "sigmoid"].forEach(function (v) { ui.shape.appendChild(h("option", "", v)).value = v; });
+      ui.shape.addEventListener("change", tuneChanged);
+      ui.landing = tuneNumber(f, "landing target", "0.001", 4, "tune:landing");
+      ui.exponent = tuneNumber(f, "exponent (power)", "0.001", 0, "tune:exponent");
+      ui.steep = tuneNumber(f, "steepness (sigmoid)", "0.001", 0, "tune:steep");
+      var hl = f.appendChild(h("label", "tune-check"));
+      ui.hold = hl.appendChild(h("input", ""));
+      ui.hold.type = "checkbox";
+      ui.hold.setAttribute("data-fk", "tune:hold");
+      ui.hold.addEventListener("change", tuneChanged);
+      hl.appendChild(document.createTextNode("hold at 100%"));
+      ui.list = body.appendChild(h("ul", "tune-preview"));
+      ui.list.setAttribute("aria-label", "Standard ranking under the draft");
+      var actions = body.appendChild(h("div", "tune-actions"));
+      ui.save = actions.appendChild(h("button", "", "Save"));
+      ui.save.type = "button";
+      ui.save.setAttribute("data-fk", "tune:save");
+      ui.save.addEventListener("click", saveTune);
+      ui.discard = actions.appendChild(h("button", "", "Discard"));
+      ui.discard.type = "button";
+      ui.discard.setAttribute("data-fk", "tune:discard");
+      ui.discard.addEventListener("click", discardTune);
+      ui.msg = actions.appendChild(h("span", "tune-msg"));
+      ui.msg.setAttribute("role", "status");
+    }
+    var u = tuneUI;
+    /* A saved draft the running config now matches is done. */
+    if (paceDraft && sameTune(paceDraft, live)) {
+      paceDraft = null;
+      u.preview = null;
+      if (u.saved) tuneMessage("Saved and running.", "");
+      u.saved = null;
+    }
+    /* With no draft the form follows the running config, except while the
+       reader is in it or holds a value the form cannot read yet. */
+    if (!paceDraft && !u.invalid && !body.contains(document.activeElement)) {
+      u.shape.value = live.shape === "power" || live.shape === "sigmoid" ? live.shape : "linear";
+      u.landing.value = num(live.landing_target) ? String(live.landing_target) : "1.1";
+      u.exponent.value = num(live.curve_exponent) ? String(live.curve_exponent) : "1";
+      u.steep.value = num(live.steepness) ? String(live.steepness) : "8";
+      u.hold.checked = !!live.hold_at_full;
+      u.exponent.disabled = u.shape.value !== "power";
+      u.steep.disabled = u.shape.value !== "sigmoid";
+      u.save.disabled = true;
+      u.discard.disabled = true;
+    }
+
+    /* A held draft is ranked again against each new reading, so its moves
+       compare two rankings of the same readings. */
+    if (paceDraft && u.previewFor && u.previewFor !== st && !u.previewing) fetchTunePreview(paceDraft);
+
+    /* The serving Standard seats, in the running order and in the draft's. */
+    u.list.textContent = "";
+    if (!paceDraft || !u.preview) return;
+    var byId = Object.create(null);
+    (u.preview.auths || []).forEach(function (a) { byId[a.auth_id] = a; });
+    var pool = stableAuths(st.auths).filter(function (a) {
+      var sc = famScore(a, STANDARD);
+      return sc && sc.eligible && ranks.byFam[STANDARD] && ranks.byFam[STANDARD][a.auth_id] !== undefined && byId[a.auth_id];
+    });
+    var drafted = rankAuths(pool.map(function (a) { return byId[a.auth_id]; }), STANDARD);
+    if (!drafted.length) { u.list.appendChild(h("li", "", "No serving seat is eligible for Standard requests.")); return; }
+    drafted.forEach(function (p, i) {
+      var was = ranks.byFam[STANDARD][p.auth_id];
+      var li = u.list.appendChild(h("li", ""));
+      li.appendChild(h("span", "tune-rank", "#" + (i + 1)));
+      li.appendChild(seatMark(byId[p.auth_id]));
+      li.appendChild(h("span", "tune-move", was === i ? "" : "was #" + (was + 1)));
+    });
+  }
+
   /* --------------------------------------------------------------- boosts */
 
   /* The page-boost route under the host's management mount, or cmd/webdev's
@@ -8685,6 +8975,7 @@ time[data-ts] { cursor: help; }
       .then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) {
           var e = new Error((data && data.error) || "HTTP " + res.status);
+          e.body = data;
           if (HOST_MOUNT && (res.status === 401 || res.status === 403)) {
             e.status = res.status;
             refuseKey(e);
