@@ -64,6 +64,16 @@ still offers it for other models, and its tooltip names the host status.
   provider may never be asked to refuse it. A seat held now (refused, full or
   held by host) has a pause in place of its mark's dot, and one the host has
   disabled a cross.
+  The Tune the plan fold under the chart edits `shape`, `landing-target`,
+  `curve-exponent`, `steepness` and `hold-at-full`. A draft is drawn dashed
+  on the 7-day chart, and the serving seats are ranked for Standard requests
+  by it, scored against their current readings, with each move from the
+  running order marked, ranked again at each refresh. Save writes only the
+  changed settings to the host's config file through the host's own
+  plugin-config route: into the block's nested `pace:` mapping where it has
+  one, removing any dotted twin of a changed key, and otherwise as top-level
+  dotted keys, as the Management Center writes them. The plugin applies them
+  within seconds, and no conversation moves.
 - **Over time.** One window across the recorded cycles, counting every seat in
   the pool whatever its priority tier. Stacked, the default, piles the seats'
   use into the pool's total against what the pool holds, one full window per
@@ -164,7 +174,8 @@ is on, only from the same machine.
 
 The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
 (the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
-while `web.enabled` is on), `POST page-boost?seat=<published id>&span=` (the
+while `web.enabled` is on; `&preview=<pace block as JSON>` scores it against
+draft pace settings, which nothing routes by), `POST page-boost?seat=<published id>&span=` (the
 Boost bar's route, with `span` one of `1h`, `4h`, `reset`, `cleared` or `off`,
 while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
 `POST bindings/sweep`.
