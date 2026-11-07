@@ -232,6 +232,8 @@ and unit-testable without the host.
   at that indent, and runs them under node with only `H_HOUR`, `H_DAY`,
   `RESET_TOLERANCE_MS` and `num` defined, so each stays a top-level function of
   that shape that calls only the functions the test names.
+  `TestPageCurveMatchesTheScorer` lifts the curve functions the same way, with
+  only `num` and `clamp` defined, and holds them to `pace.Target`.
 - `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
   script from the file's bytes, and the HTML tokenizer rewrites both
   (`TestPageHoldsNoRewrittenByte`).

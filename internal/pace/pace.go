@@ -13,17 +13,20 @@ import (
 	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
-// Target is the utilization the curve expects at elapsed, which is clamped to
-// 0..1.
+// Target is the utilization the curve expects at elapsed, a fraction of the
+// window that is clamped to 0..1 before the curve reads it.
 //
-// The result is clamped to full. A landing above full tilts the pick toward a
-// credential near its reset; the clamp bounds that tilt rather than making it
-// safe, since a clamped slack of zero still beats a credential running over
-// its own curve — ScoreAuth gates a full window for that reason. The clamp
-// does fix where the tilt stops climbing: the target reaches full where the
-// shape reaches the reciprocal of the landing, which under a linear shape is
-// that fraction of the way through the window and earlier or later under the
-// others.
+// A landing above full keeps the target rising past full to the landing at
+// the window's close, so a credential's lead over its plan grows with every
+// hour its unused budget has left before it expires. HoldAtFull holds the
+// target at full instead: past the point where the shape reaches the
+// reciprocal of the landing, a credential's slack is then its remaining
+// budget and stops growing toward the reset.
+//
+// Above full, slack overstates the budget a credential holds by at most the
+// landing's excess over full, so a credential with little left near its reset
+// can outrank one on its own curve. ScoreAuth gates a full window whatever the
+// target, which is what keeps a credential with nothing left out of the pick.
 func Target(cfg model.PaceConfig, elapsed float64) float64 {
 	switch {
 	case math.IsNaN(elapsed) || elapsed < 0:
@@ -31,7 +34,11 @@ func Target(cfg model.PaceConfig, elapsed float64) float64 {
 	case elapsed > 1:
 		elapsed = 1
 	}
-	return math.Min(cfg.LandingTarget*shape(cfg, elapsed), 1)
+	t := cfg.LandingTarget * shape(cfg, elapsed)
+	if cfg.HoldAtFull {
+		return math.Min(t, 1)
+	}
+	return t
 }
 
 // shape is the unit curve the target follows, rising from 0 at a window's open
@@ -75,8 +82,9 @@ func sigmoid(k, elapsed float64) float64 {
 //
 // Fullness has to gate rather than only cost more. Each window is measured at
 // its own elapsed, so cost does not order credentials by the budget they hold:
-// a full window's slack clamps to zero, and zero beats any credential running
-// over its own curve however much it has left. Only a bearing window with an
+// a full window late in its period targets full or more, so its slack is zero
+// or positive, which beats any credential running over its own curve however
+// much it has left. Only a bearing window with an
 // open period — non-zero ResetsAt and positive Duration — has a place on the
 // curve, so only it carries a weight and a term in Cost; fullness is read
 // whether or not the window has one.

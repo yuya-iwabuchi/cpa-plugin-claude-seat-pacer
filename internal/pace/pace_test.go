@@ -33,6 +33,9 @@ func TestTarget(t *testing.T) {
 	sigmoid := flat
 	sigmoid.Shape = model.ShapeSigmoid
 
+	held := tilted
+	held.HoldAtFull = true
+
 	cases := []struct {
 		name    string
 		cfg     model.PaceConfig
@@ -48,10 +51,15 @@ func TestTarget(t *testing.T) {
 		{"exponent above one lands late", steep, 0.5, 0.25},
 		{"exponent below one lands early", shallow, 0.25, 0.5},
 		{"landing target scales the curve", cautious, 0.5, 0.45},
-		// The default landing runs the curve a tenth ahead of elapsed, until
-		// the clamp catches it a landing-reciprocal of the way through.
+		// The default landing runs the curve a tenth ahead of elapsed all the
+		// way to the close, past full; holding at full stops it there, which it
+		// reaches a landing-reciprocal of the way through.
 		{"the tilt runs ahead of elapsed", tilted, 0.5, 0.55},
-		{"the tilt saturates at 1/landing", tilted, 1 / 1.10, 1},
+		{"the tilt reaches full at 1/landing", tilted, 1 / 1.10, 1},
+		{"the tilt lands past full", tilted, 1, 1.10},
+		{"holding stays at full past 1/landing", held, 0.95, 1},
+		{"holding leaves the climb below 1/landing", held, 0.5, 0.55},
+		{"holding leaves a landing below full", func() model.PaceConfig { c := cautious; c.HoldAtFull = true; return c }(), 1, 0.9},
 		{"sigmoid crosses linear at the middle", sigmoid, 0.5, 0.5},
 	}
 	for _, tc := range cases {
@@ -64,23 +72,30 @@ func TestTarget(t *testing.T) {
 	}
 }
 
-// The clamp is what stops the perishable-budget tilt rewarding a credential
-// with nothing left, so it has to hold for every curve, every landing
-// Normalize admits, and every elapsed a caller can reach it with.
-func TestTargetNeverExceedsFull(t *testing.T) {
-	for _, shape := range []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid, "unrecognised"} {
-		for _, landing := range []float64{0.5, 1, 1.10, 2, 4} {
-			for _, exponent := range []float64{0.25, 1, 3} {
-				cfg := model.Defaults().Pace
-				cfg.Shape = shape
-				cfg.LandingTarget = landing
-				cfg.CurveExponent = exponent
-				for step := -2; step <= 12; step++ {
-					elapsed := float64(step) / 10
-					got := Target(cfg, elapsed)
-					if math.IsNaN(got) || got < 0 || got > 1 {
-						t.Fatalf("Target(shape=%s landing=%v exponent=%v, elapsed=%v) = %v, want 0..1",
-							shape, landing, exponent, elapsed, got)
+// The target rises from nothing to the landing and never past it, and HoldAtFull
+// holds it at full, for every curve, every landing Normalize admits, and every
+// elapsed a caller can reach it with.
+func TestTargetStaysWithinTheLanding(t *testing.T) {
+	for _, holdAtFull := range []bool{false, true} {
+		for _, shape := range []string{model.ShapeLinear, model.ShapePower, model.ShapeSigmoid, "unrecognised"} {
+			for _, landing := range []float64{0.5, 1, 1.10, 2, 4} {
+				for _, exponent := range []float64{0.25, 1, 3} {
+					cfg := model.Defaults().Pace
+					cfg.Shape = shape
+					cfg.LandingTarget = landing
+					cfg.CurveExponent = exponent
+					cfg.HoldAtFull = holdAtFull
+					ceiling := landing
+					if holdAtFull {
+						ceiling = math.Min(landing, 1)
+					}
+					for step := -2; step <= 12; step++ {
+						elapsed := float64(step) / 10
+						got := Target(cfg, elapsed)
+						if math.IsNaN(got) || got < 0 || got > ceiling+tolerance {
+							t.Fatalf("Target(shape=%s landing=%v exponent=%v hold=%v, elapsed=%v) = %v, want 0..%v",
+								shape, landing, exponent, holdAtFull, elapsed, got, ceiling)
+						}
 					}
 				}
 			}
@@ -182,20 +197,109 @@ func TestPerishableBudgetTiltsThePickTowardTheClosingWindow(t *testing.T) {
 	}
 }
 
-// The clamp bounds the tilt and fixes where it stops climbing: the target
-// reaches full at the landing's reciprocal and holds there, so a window at its
-// cap has a slack of exactly zero rather than a negative one. Bounding the tilt
-// is all it does. A cost of zero is cheaper than any credential running over
-// its own curve, so the clamp does not order a credential with nothing left
-// behind one with budget; the fullness gate is what takes the two full seats
-// below out of the pool.
-// The clamp sets a trap that is the reason a full window has to gate at all: a
-// seat with nothing left targets full, so its slack is zero and it costs
-// nothing, which beats any seat running over its own curve however much budget
-// that seat still holds. Running over your own curve is the ordinary state just
-// after serving a burst.
-func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
+// Past the point where the curve reaches full, the target keeps climbing, so a
+// seat's lead over its plan keeps growing toward its reset: a seat with a
+// little left that expires in hours goes ahead of one mid-week that is further
+// behind but has days to catch up. HoldAtFull stops that growth, and the mid-week
+// seat wins again.
+func TestTiltKeepsGrowingPastFullUnlessHeld(t *testing.T) {
+	now := testNow
+
+	// Named so that an alphabetical tie-break would pick the mid-week seat.
+	closing := seat("b-closing", now, weekly(now, 6.85/7, 0.91))
+	midweek := seat("a-midweek", now, weekly(now, 5.35/7, 0.71))
+	snaps := snapshots(closing, midweek)
+	ids := []string{"a-midweek", "b-closing"}
+
 	cfg := model.Defaults().Pace
+	if best, ok := Best(Rank(cfg, snaps, ids, opus, now)); !ok || best.AuthID != "b-closing" {
+		t.Fatalf("unheld winner = (%q, %v), want b-closing: its budget expires in hours", best.AuthID, ok)
+	}
+	late := windowScoreOf(t, ScoreAuth(cfg, closing, opus, now), model.WindowWeekly, "")
+	if late.Target <= 1 {
+		t.Fatalf("unheld target at day 6.85 = %v, want past full", late.Target)
+	}
+
+	cfg.HoldAtFull = true
+	if best, ok := Best(Rank(cfg, snaps, ids, opus, now)); !ok || best.AuthID != "a-midweek" {
+		t.Fatalf("held winner = (%q, %v), want a-midweek: holding scores b-closing by its budget alone", best.AuthID, ok)
+	}
+}
+
+// A seat with no weekly cap is paced on its 5-hour window, which is as
+// perishable at its reset as a weekly window is at its own, so the same tilt
+// runs past full there.
+func TestSessionOnlyTiltKeepsGrowingPastFullUnlessHeld(t *testing.T) {
+	now := testNow
+	closing := seat("b-closing", now, paced(model.WindowSession, "", now, 0.97, 0.9))
+	midway := seat("a-midway", now, paced(model.WindowSession, "", now, 0.6, 0.55))
+	snaps := snapshots(closing, midway)
+	ids := []string{"a-midway", "b-closing"}
+
+	cfg := model.Defaults().Pace
+	if best, ok := Best(Rank(cfg, snaps, ids, opus, now)); !ok || best.AuthID != "b-closing" {
+		t.Fatalf("unheld winner = (%q, %v), want b-closing: its 5-hour budget expires first", best.AuthID, ok)
+	}
+	cfg.HoldAtFull = true
+	if best, ok := Best(Rank(cfg, snaps, ids, opus, now)); !ok || best.AuthID != "a-midway" {
+		t.Fatalf("held winner = (%q, %v), want a-midway", best.AuthID, ok)
+	}
+}
+
+// Past full, slack overstates a seat's budget by up to the landing's excess
+// over full, so a seat with almost nothing left near its reset outranks a
+// mid-week seat on its plan with half its budget left. The fullness gate is
+// the bound: the moment the seat reads full it leaves the pool.
+func TestNearlySpentSeatNearItsResetOutranksAnOnPlanSeat(t *testing.T) {
+	now := testNow
+	cfg := model.Defaults().Pace
+	nearlySpent := seat("b-nearly-spent", now, weekly(now, 0.98, 0.995))
+	onPlan := seat("a-on-plan", now, weekly(now, 0.5, 0.55))
+	ids := []string{"a-on-plan", "b-nearly-spent"}
+
+	if best, ok := Best(Rank(cfg, snapshots(nearlySpent, onPlan), ids, opus, now)); !ok || best.AuthID != "b-nearly-spent" {
+		t.Fatalf("winner = (%q, %v), want b-nearly-spent", best.AuthID, ok)
+	}
+	spent := seat("b-nearly-spent", now, weekly(now, 0.98, 1.0))
+	if best, ok := Best(Rank(cfg, snapshots(spent, onPlan), ids, opus, now)); !ok || best.AuthID != "a-on-plan" {
+		t.Fatalf("winner once full = (%q, %v), want a-on-plan", best.AuthID, ok)
+	}
+}
+
+// A target past full scores a full seat as ahead of its plan, so the fullness
+// gate is all that keeps it out of the pick.
+func TestFullSeatIsGatedPastFull(t *testing.T) {
+	cfg := model.Defaults().Pace
+	now := testNow
+
+	// Named so that an alphabetical tie-break would pick the spent seat.
+	spent := seat("a-spent", now, weekly(now, 0.99, 1.0))
+	onPlan := seat("b-on-plan", now, weekly(now, 0.5, 0.6))
+	ranked := Rank(cfg, snapshots(spent, onPlan), []string{"a-spent", "b-on-plan"}, opus, now)
+
+	spentScore := scoreOf(t, ranked, "a-spent")
+	if slack := windowScoreOf(t, spentScore, model.WindowWeekly, "").Slack; slack <= 0 {
+		t.Fatalf("spent slack = %v, want positive: the target is past full", slack)
+	}
+	if spentScore.Eligible || spentScore.Reason != model.ReasonSpent {
+		t.Fatalf("a-spent: eligible=%v reason=%q, want eligible=false reason=%q",
+			spentScore.Eligible, spentScore.Reason, model.ReasonSpent)
+	}
+	if best, ok := Best(ranked); !ok || best.AuthID != "b-on-plan" {
+		t.Fatalf("winner = (%q, %v), want b-on-plan: the only seat with anything left", best.AuthID, ok)
+	}
+}
+
+// HoldAtFull fixes where the tilt stops climbing: the target reaches full at the
+// landing's reciprocal and holds there, so a window at its cap has a slack of
+// exactly zero rather than a negative one. A cost of zero is cheaper than any
+// credential running over its own curve, so holding does not order a
+// credential with nothing left behind one with budget; the fullness gate is
+// what takes the two full seats below out of the pool. Running over your own
+// curve is the ordinary state just after serving a burst.
+func TestHoldAtFullFixesWhereTheTiltSaturates(t *testing.T) {
+	cfg := model.Defaults().Pace
+	cfg.HoldAtFull = true
 	now := testNow
 
 	saturates := 1 / cfg.LandingTarget
@@ -224,7 +328,7 @@ func TestClampBoundsTheTiltAndFixesWhereItSaturates(t *testing.T) {
 
 	spentScore := scoreOf(t, ranked, "a-spent")
 	if slack := windowScoreOf(t, spentScore, model.WindowWeekly, "").Slack; slack != 0 {
-		t.Fatalf("spent slack = %v, want exactly 0: the clamp holds its target at full", slack)
+		t.Fatalf("spent slack = %v, want exactly 0: holding keeps its target at full", slack)
 	}
 	if spentScore.Cost != 0 {
 		t.Fatalf("spent cost = %v, want exactly 0", spentScore.Cost)

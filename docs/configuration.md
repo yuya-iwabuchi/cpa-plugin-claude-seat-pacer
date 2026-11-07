@@ -59,6 +59,7 @@ prompt-cache miss.
         curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
         landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
+        hold-at-full: false      # true holds the plan at 100% once it gets there; false lets it rise to the landing at the reset
         weekly-weight: 1.0      # weight of the all-models weekly window
         scoped-weight: 0.5      # weight of a model-family weekly window
         session-weight: 0       # 5-hour window weight on a seat with a weekly cap; a seat with no weekly cap on the model weighs it 1
