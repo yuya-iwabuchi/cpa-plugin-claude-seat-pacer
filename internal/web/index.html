@@ -5223,11 +5223,12 @@ time[data-ts] { cursor: help; }
   /* The utilization axis the unstacked charts share, linear from 0 to the
      highest value drawn, top, with a little room above it. A curve landing
      past CURVE_CAP stops the axis there, so its run past full never squeezes
-     0 to 100%, where every seat's use lies: Y.cap names the cap the curves
-     are cut at, and U is Y's inverse, continuing past the top. */
-  var CURVE_CAP = 1.2;
-  function fullScale(m, ph, top) {
-    var cap = top > CURVE_CAP + 0.03 ? CURVE_CAP : null;
+     0 to 100%, where every seat's use lies, unless whole asks for the axis
+     to run to top: Y.cap names the cap the curves are cut at, and U is Y's
+     inverse, continuing past the top. */
+  var CURVE_CAP = 1.1;
+  function fullScale(m, ph, top, whole) {
+    var cap = !whole && top > CURVE_CAP + 0.03 ? CURVE_CAP : null;
     var hi = cap ? cap + 0.03 : Math.max(1.05, (top || 0) + 0.03);
     var Y = function (u) { return m.t + ph - clamp(u, 0, hi) / hi * ph; };
     Y.cap = cap;
@@ -5312,11 +5313,15 @@ time[data-ts] { cursor: help; }
       if (!s.gap && view === STANDARD) top = Math.max(top, s.ws.utilization + 0.05);
       s.caps.forEach(function (c) { if (!c.gap && view === c.fam) top = Math.max(top, c.ws.utilization + 0.05); });
     });
-    /* While the plan is being tuned the axis keeps room past full to drag
-       the curve into, and holds still under a drag. */
+    /* While the plan is being tuned the axis runs to the top of every curve
+       with room above to drag into. Under a drag it keeps the range the drag
+       began on and grows to show the curve, while the pointer reads against
+       the range the drag began on, so the axis growing never moves the
+       point. */
     var editing = tuneOpen();
-    if (editing) top = Math.max(top, CURVE_CAP + 0.03);
-    var sc = tuneDrag ? tuneDrag.geo.sc : fullScale(m, ph, top);
+    if (editing) top = Math.max(top, 1) + 0.1;
+    if (tuneDrag) top = Math.max(top, tuneDrag.geo.top);
+    var sc = fullScale(m, ph, top, editing);
 
     var X = function (e) { return m.l + clamp(e, 0, 1) * pw; };
     var Y = sc.Y;
@@ -5477,7 +5482,7 @@ time[data-ts] { cursor: help; }
     root.appendChild(curveLabel);
     if (editing) {
       root.setAttribute("data-tuning", "true");
-      tuneHandles(root, tuneWork(), X, Y, { W: W, H: H, m: m, pw: pw, ph: ph, sc: sc });
+      tuneHandles(root, tuneWork(), X, Y, { W: W, H: H, m: m, pw: pw, ph: ph, sc: sc, top: top });
     }
 
     if (!plotted) {
