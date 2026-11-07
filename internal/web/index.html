@@ -593,6 +593,10 @@ td .seat-mark { max-width: 22ch; }
 .boost-menu .bm-error { margin: 8px 0 0; color: var(--critical); }
 .boost-menu .bm-error:empty { display: none; }
 #timeline { overflow-x: auto; }
+/* The band past 100% on a utilization chart, and the rule at full under it. */
+svg .past-full { fill: var(--serious); fill-opacity: .07; }
+svg .full-rule { stroke: var(--serious); stroke-opacity: .75; stroke-width: 1; stroke-dasharray: 4 3; }
+svg.pace text.full-label { fill: var(--serious); }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
 svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -5125,13 +5129,26 @@ time[data-ts] { cursor: help; }
     }
   }
 
-  /* The utilization gridlines both charts share: a labelled line every 20%,
-     and a fainter unlabelled one at each 10% between. */
-  function yGrid(root, m, pw, Y) {
-    for (var i = 0; i <= 10; i++) {
+  /* The utilization gridlines the unstacked charts share: a labelled line
+     every 20%, and a fainter unlabelled one at each 10% between, up to the
+     top of the axis. Where the axis runs past full, the band above 100% is
+     shaded and 100% is ruled and named: no window can be used past it, so
+     a curve in the band is a plan that outruns what any seat can spend. */
+  function yGrid(root, m, pw, Y, maxY) {
+    var top = Math.max(1, maxY || 1);
+    if (top > 1) {
+      svg("rect", { "class": "past-full", x: m.l, y: Y(top), width: pw, height: Y(1) - Y(top) }, root);
+    }
+    for (var i = 0; i <= Math.floor(top * 10 + 1e-9); i++) {
       var t = i / 10, gy = Y(t), major = i % 2 === 0;
       svg("line", { x1: m.l, x2: m.l + pw, y1: gy, y2: gy, stroke: "var(--rule)", "stroke-width": 1, opacity: major ? 1 : .45 }, root);
       if (major) svgText(root, m.l - 8, gy + 3.5, pct(t, 0), "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
+    }
+    if (top > 1) {
+      svg("line", { "class": "full-rule", x1: m.l, x2: m.l + pw, y1: Y(1), y2: Y(1) }, root);
+      if (Y(1) - Y(top) >= 13) {
+        svgText(root, m.l + 6, Y(1) - 4, "past full", "full-label", { "font-size": 10 });
+      }
     }
   }
 
@@ -5207,7 +5224,7 @@ time[data-ts] { cursor: help; }
         " use by days into each seat's own week, against the target curve: one point per seat, with its recorded line behind it"
     }, host);
 
-    yGrid(root, m, pw, Y);
+    yGrid(root, m, pw, Y, maxY);
     /* The window is exactly PACE_DAYS long, so elapsed and days are one axis;
        days are the tick the reader can place a seat on. Each seat's week
        starts at its own wall-clock time, so the axis is not a calendar. */
@@ -5747,7 +5764,7 @@ time[data-ts] { cursor: help; }
         "; " + SESSION_GATES
     }, host);
 
-    yGrid(root, m, pw, Y);
+    yGrid(root, m, pw, Y, maxY);
     for (var hr = 0; hr <= SESSION_HOURS; hr++) {
       var gx = X(hr);
       svg("line", { x1: gx, x2: gx, y1: Y(0), y2: Y(0) + 4, stroke: "var(--axis)", "stroke-width": 1 }, root);
@@ -7156,7 +7173,7 @@ time[data-ts] { cursor: help; }
 
       weekendBands(root, t0, t1, X, m.t, ph);
       allRefusedBands(root, pool, t0, t1, X, m.t, ph, m.l, m.l + pw);
-      if (stacked) stackGrid(root, m, pw, Y, maxY); else yGrid(root, m, pw, Y);
+      if (stacked) stackGrid(root, m, pw, Y, maxY); else yGrid(root, m, pw, Y, maxY);
       timeAxis(root, t0, t1, X, pw, m.t, Y(0), Y(0) + 20, true);
       svg("line", { x1: m.l, x2: m.l + pw, y1: Y(0) + 0.5, y2: Y(0) + 0.5, stroke: "var(--axis)", "stroke-width": 1 }, root);
       svg("line", { x1: m.l, x2: m.l, y1: m.t, y2: Y(0), stroke: "var(--axis)", "stroke-width": 1 }, root);
