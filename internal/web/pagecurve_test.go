@@ -47,6 +47,8 @@ func TestPageCurveMatchesTheScorer(t *testing.T) {
 		{"0.5:40", "1:41", "4:42", "4.2:100", "7:101"},
 		{"5:100 straight"},
 		{"2:10 step", "4:60", "6.36:100", "7:110 straight"},
+		{"2:10 via 2:0 pull 10", "4:90 via 2:90 pull 0.1", "5:95", "7:120 via 5:120 pull 3"},
+		{"3.5:30 via 3.5:0", "7:100 via 4:30 pull 2.5"},
 	} {
 		cfg := model.Defaults()
 		cfg.Pace.Shape, cfg.Pace.Points = model.ShapePoints, entries
@@ -65,7 +67,7 @@ func TestPageCurveMatchesTheScorer(t *testing.T) {
 	}
 	src := "function num(v) { return typeof v === \"number\" && isFinite(v); }\n" +
 		"function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }\n" +
-		pageFunctions(t, "landingOf", "shapeAt", "pointsAt", "curveTangents", "rawTarget", "targetAt", "curveTop", "fullAt") + `
+		pageFunctions(t, "landingOf", "shapeAt", "pointsAt", "guidedAt", "curveTangents", "rawTarget", "targetAt", "curveTop", "fullAt") + `
 var fails = [];
 ` + "var points = " + string(want) + `;
 points.forEach(function (p) {
@@ -134,7 +136,11 @@ var plans = [
   [{ x: 0, y: 0, kind: "" }, { x: 0.3, y: 0.2, kind: "smooth" }, { x: 6.36 / 7, y: 1, kind: "straight" }, { x: 1, y: 1.10003, kind: "step" }],
   [{ x: 0, y: 0, kind: "" }, { x: 1 / 3, y: 0.123456, kind: "step" }, { x: 1, y: 2.5, kind: "smooth" }],
   // Rounding puts these on one day, and the second below the first.
-  [{ x: 0, y: 0, kind: "" }, { x: 1.001 / 7, y: 0.3, kind: "smooth" }, { x: 1.004 / 7, y: 0.29996, kind: "straight" }, { x: 6.999 / 7, y: 1, kind: "straight" }, { x: 1, y: 1, kind: "straight" }]
+  [{ x: 0, y: 0, kind: "" }, { x: 1.001 / 7, y: 0.3, kind: "smooth" }, { x: 1.004 / 7, y: 0.29996, kind: "straight" }, { x: 6.999 / 7, y: 1, kind: "straight" }, { x: 1, y: 1, kind: "straight" }],
+  // Guides that round outside their stretch, and one whose stretch's start rounds away.
+  [{ x: 0, y: 0, kind: "" }, { x: 2 / 7, y: 0.2, kind: "guided", guide: { x: 2.004 / 7, y: 0.00001, pull: 1.234 } },
+   { x: 5 / 7, y: 0.9, kind: "guided", guide: { x: 1.996 / 7, y: 0.95, pull: 1 } }, { x: 1, y: 1.3, kind: "guided", guide: { x: 6 / 7, y: 1, pull: 12 } }],
+  [{ x: 0, y: 0, kind: "" }, { x: 1.001 / 7, y: 0.3, kind: "smooth" }, { x: 1.004 / 7, y: 0.4, kind: "guided", guide: { x: 1.002 / 7, y: 0.35, pull: 0.5 } }, { x: 1, y: 1, kind: "guided", guide: { x: 0.5 / 7, y: 0.2, pull: 1 } }]
 ].map(pointsPlan);
 console.log(JSON.stringify(plans));
 `

@@ -893,8 +893,27 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .pace-more[open] > summary::before { content: "\25BE"; }
 .pace-more > summary:hover { color: var(--ink-1); }
 .pace-note { display: grid; gap: 8px; max-width: 72ch; padding-top: 6px; }
-/* The tuning fold: the plan in words, its controls, the ranking a draft
-   gives, and the save. */
+/* The tuning fold: a button while closed, and a panel while open, so it reads
+   as a control rather than another note. */
+.tune-fold { margin-top: 14px; border-top: 0; }
+.tune-fold > summary {
+  display: inline-flex; gap: 8px; padding: 7px 12px 7px 10px; border: 1px solid var(--axis); border-radius: 8px;
+  background: var(--surface-1); font: 600 12.5px/1 var(--sans); letter-spacing: 0; text-transform: none; color: var(--ink-1);
+}
+.tune-fold > summary::before, .tune-fold[open] > summary::before { content: none; }
+.tune-fold > summary::after { content: "\25BE"; font-size: 10px; color: var(--ink-3); }
+.tune-fold > summary:hover { background: var(--surface-2); border-color: var(--ink-3); }
+.tune-fold > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tune-fold[open] { padding: 4px 14px 8px; border: 1px solid var(--axis); border-radius: 10px; }
+.tune-fold[open] > summary { padding-left: 0; border-color: transparent; background: transparent; }
+.tune-fold[open] > summary::after { content: "\25B4"; }
+.tune-fold + .pace-more { margin-top: 12px; }
+.tune-sum-icon path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.tune-sum-icon circle { fill: currentColor; }
+.tune-sum-state { padding: 2px 6px; border-radius: 4px; font: 600 9.5px/1.2 var(--mono); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--surface-1); background: var(--info); }
+/* The tuning fold's body: the plan in words, its controls, the ranking a
+   draft gives, and the save. */
 .tune-body { display: grid; gap: 14px; padding: 10px 0 6px; font: 400 12px/1.5 var(--sans); color: var(--ink-2); }
 .tune-lead { display: grid; gap: 2px; }
 .tune-lead p { margin: 0; }
@@ -917,6 +936,7 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-seg button:disabled { opacity: .45; cursor: default; }
 .tune-icon path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .tune-num { display: flex; align-items: center; gap: 10px; }
+.tune-num[hidden] { display: none; }
 .tune-num input[type="range"] { width: 180px; accent-color: var(--ink-1); }
 .tune-step { display: inline-flex; align-items: center; border: 1px solid var(--axis); border-radius: 7px; background: var(--surface-1); }
 .tune-step button { border: 0; border-radius: 6px; padding: 5px 9px; background: transparent; font-size: 13px; color: var(--ink-2); }
@@ -943,6 +963,9 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-actions button { padding: 6px 12px; }
 .tune-actions .tune-save:not(:disabled) { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); }
 .tune-actions .tune-quiet { border-color: transparent; color: var(--ink-3); }
+.tune-hist { display: inline-flex; gap: 4px; margin-right: 6px; }
+.tune-hist button { padding: 6px 10px; }
+.tune-hist button:disabled { opacity: .45; cursor: default; }
 .tune-changes { font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .tune-msg { margin: 0; color: var(--ink-3); }
 .tune-msg:empty { display: none; }
@@ -981,6 +1004,18 @@ svg.pace g.tune-handle:focus-visible circle.knob { stroke: var(--focus); stroke-
 svg.pace g.tune-handle path.tune-over { fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 svg.pace g.tune-handle:not([data-sel]):not([data-drag]):not(:hover):not(:focus-visible) text.tune-hover { visibility: hidden; }
 svg.pace circle.tune-fixed { fill: var(--ink-1); }
+svg.pace path.tune-arm { fill: none; stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; }
+svg.pace g.tune-guide { cursor: move; touch-action: none; }
+svg.pace g.tune-guide:not([data-sel]) { cursor: pointer; }
+svg.pace g.tune-guide circle.hit { fill: transparent; }
+svg.pace g.tune-guide path.diamond { fill: var(--surface-1); stroke: var(--ink-2); stroke-width: 1.5; stroke-linejoin: round; }
+svg.pace g.tune-guide[data-sel] path.diamond { fill: var(--info); stroke: var(--surface-1); stroke-width: 1.5; }
+svg.pace g.tune-guide[data-ghost] path.diamond { fill: var(--surface-1); stroke: var(--info); stroke-dasharray: 2 2; }
+svg.pace g.tune-guide:hover path.diamond, svg.pace g.tune-guide[data-drag] path.diamond { stroke: var(--ink-1); }
+svg.pace g.tune-guide:focus-visible { outline: none; }
+svg.pace g.tune-guide:focus-visible path.diamond { stroke: var(--focus); stroke-width: 2.5; }
+svg.pace text.tune-glabel { font-weight: 500; fill: var(--ink-2); }
+.tune-icon path.tune-icon-guide { fill: currentColor; stroke: none; opacity: .8; }
 svg.pace text.tune-hlabel { fill: var(--ink-1); font-weight: 600; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
 :root[data-tune-drag="ns"], :root[data-tune-drag="ns"] * { cursor: ns-resize !important; user-select: none; }
 :root[data-tune-drag="move"], :root[data-tune-drag="move"] * { cursor: move !important; user-select: none; }
@@ -1664,8 +1699,12 @@ time[data-ts] { cursor: help; }
         <!-- Static, so its open state outlives the refresh; the script builds
              the form inside once and keeps the reader's draft across
              refreshes. -->
-        <details class="pace-more" id="pace-tune">
-          <summary>Tune the plan</summary>
+        <details class="pace-more tune-fold" id="pace-tune">
+          <summary>
+            <svg class="tune-sum-icon" width="18" height="14" viewBox="0 0 18 14" aria-hidden="true"><path d="M1 13Q13 13 17 1"/><circle cx="9" cy="10" r="1.8"/><circle cx="17" cy="1.6" r="1.6"/></svg>
+            <span>Tune the plan</span>
+            <span class="tune-sum-state" id="tune-sum-state" hidden></span>
+          </summary>
           <div class="tune-body" id="tune-body"></div>
         </details>
         <details class="pace-more">
@@ -4075,7 +4114,8 @@ time[data-ts] { cursor: help; }
 
   /* A points curve's target at e, as pace.pointsAt computes it: each
      segment runs as its later point's kind says, a smooth one the cubic
-     Hermite through its two points with curveTangents' tangents. */
+     Hermite through its two points with curveTangents' tangents, a guided
+     one the Bézier guidedAt gives. */
   function pointsAt(pts, e) {
     var n = pts.length;
     if (e <= pts[0].x) return pts[0].y;
@@ -4085,8 +4125,27 @@ time[data-ts] { cursor: help; }
     var a = pts[k], b = pts[k + 1], h = b.x - a.x, t = (e - a.x) / h;
     if (b.kind === "step") return a.y;
     if (b.kind === "straight") return a.y + (b.y - a.y) * t;
+    if (b.kind === "guided" && b.guide) return guidedAt(a, b, b.guide, e);
     var m = curveTangents(pts), t2 = t * t, t3 = t2 * t;
     return (2 * t3 - 3 * t2 + 1) * a.y + (t3 - 2 * t2 + t) * h * m[k] + (-2 * t3 + 3 * t2) * b.y + (t3 - t2) * h * m[k + 1];
+  }
+
+  /* The height at x of the rational quadratic Bézier from a to b toward the
+     guide g, weighted g.pull, by the bisection pace.guidedAt runs. */
+  function guidedAt(a, b, g, x) {
+    if (x <= a.x) return a.y;
+    if (x >= b.x) return b.y;
+    var w = g.pull;
+    var at = function (t, p0, p1, p2) {
+      var u = 1 - t;
+      return (u * u * p0 + 2 * w * u * t * p1 + t * t * p2) / (u * u + 2 * w * u * t + t * t);
+    };
+    var lo = 0, hi = 1;
+    for (var i = 0; i < 52; i++) {
+      var mid = (lo + hi) / 2;
+      if (at(mid, a.x, g.x, b.x) < x) lo = mid; else hi = mid;
+    }
+    return at((lo + hi) / 2, a.y, g.y, b.y);
   }
 
   /* The Fritsch–Carlson tangents at each point, as pace.curveTangents
@@ -8879,12 +8938,18 @@ time[data-ts] { cursor: help; }
     ["even", "Even", "Spend at an even pace"], ["back", "Back-loaded", "Spend slow early, faster late"],
     ["front", "Front-loaded", "Spend fast early, slower late"], ["s", "S-curve", "Spend slow at both ends, fastest midweek"]
   ];
-  var SEGMENT_KINDS = [["smooth", "Smooth"], ["straight", "Straight"], ["step", "Step"]];
+  var SEGMENT_KINDS = [["smooth", "Smooth"], ["straight", "Straight"], ["step", "Step"], ["guided", "Guided"]];
+  /* A guide's pull, as model.MinGuidePull and MaxGuidePull bound it. */
+  var GUIDE_PULL = [0.1, 10];
+  /* Edits the fold can undo, oldest first, and the ones undone. */
+  var TUNE_HISTORY = 100;
+  var tuneUndo = [], tuneRedo = [];
   var TUNE_PREVIEW_MS = 600;
   /* The draft pace block, or null while the plan matches the running one. */
   var paceDraft = null;
   var tuneUI = null;
-  /* A drag of one of the chart's points, as {i, geo}, or null. */
+  /* A drag of one of the chart's points or, with guide set, of the guide of
+     the stretch into point i, as {i, guide, geo}, or null. */
   var tuneDrag = null;
   /* The arguments of the latest renderPace, so a draft redraws the chart
      alone. */
@@ -8934,11 +8999,42 @@ time[data-ts] { cursor: help; }
      matches the running plan, redraws the chart, and asks for the ranking
      the draft gives once the reader pauses. */
   function setTune(patch) {
-    /* A saved plan holds still until the plugin runs it. */
-    if (tuneUI.saved && paceDraft === tuneUI.saved) return;
+    if (tuneApplying()) return;
     var live = tuneLive(), base = tuneWork(), d = {};
     [live, base, patch].forEach(function (o) { Object.keys(o).forEach(function (k) { d[k] = o[k]; }); });
-    paceDraft = sameTune(d, live) ? null : d;
+    /* A drag is one edit to undo, however many moves it makes. */
+    if (!sameTune(d, base) && !(tuneDrag && tuneDrag.recorded)) {
+      recordTune();
+      if (tuneDrag) tuneDrag.recorded = true;
+    }
+    showDraft(sameTune(d, live) ? null : d);
+  }
+
+  /* A saved plan holds still until the plugin runs it. */
+  function tuneApplying() { return !!(tuneUI && tuneUI.saved && paceDraft === tuneUI.saved); }
+
+  /* Notes the plan shown and the point selected as a step to undo. */
+  function recordTune() {
+    tuneUndo.push({ draft: paceDraft, sel: tuneUI.sel });
+    if (tuneUndo.length > TUNE_HISTORY) tuneUndo.shift();
+    tuneRedo = [];
+  }
+
+  /* Steps back (dir -1) or forward (1) through the edits. A step back to a
+     plan the plugin now runs leaves no draft. */
+  function stepTune(dir) {
+    var from = dir < 0 ? tuneUndo : tuneRedo, to = dir < 0 ? tuneRedo : tuneUndo;
+    if (tuneApplying() || tuneDrag || !from.length) return;
+    to.push({ draft: paceDraft, sel: tuneUI.sel });
+    var s = from.pop();
+    tuneUI.sel = s.sel;
+    showDraft(s.draft && !sameTune(s.draft, tuneLive()) ? s.draft : null);
+  }
+
+  /* Shows d as the draft, null for none: drops any preview and message, and
+     asks for the ranking d gives once the reader pauses. */
+  function showDraft(d) {
+    paceDraft = d;
     var ui = tuneUI;
     ui.preview = null;
     ui.saved = null;
@@ -8974,11 +9070,17 @@ time[data-ts] { cursor: help; }
      model.ParsePoints reads from them, so the page draws the curve the
      scorer will run. A point that rounding puts on the day of the one
      before it gives way to it, the last point excepted, which takes its
-     place; and no percent rounds below the one before it. */
+     place; no percent rounds below the one before it; and a guide rounds
+     as a point does and stays inside its stretch. */
   function pointsPlan(pts) {
     var kept = [];
     pts.forEach(function (p, i) {
       var q = { day: i ? pointDay(p) : 0, pc: i ? pointPct(p) : 0, kind: i ? p.kind : "" };
+      if (i && p.kind === "guided" && p.guide) {
+        q.gd = pointDay(p.guide);
+        q.gp = pointPct(p.guide);
+        q.pull = Math.min(Math.max(Math.round(p.guide.pull * 100) / 100, 0.1), 10);
+      } else if (q.kind === "guided") q.kind = "smooth";
       var prev = kept[kept.length - 1];
       if (prev && q.day <= prev.day) {
         if (i < pts.length - 1 || kept.length < 2) return;
@@ -8990,6 +9092,14 @@ time[data-ts] { cursor: help; }
     });
     var entries = [], curve = [];
     kept.forEach(function (q, i) {
+      if (q.kind === "guided") {
+        var a = kept[i - 1];
+        q.gd = Math.min(Math.max(q.gd, a.day), q.day);
+        q.gp = Math.min(Math.max(q.gp, a.pc), q.pc);
+        entries.push(q.day + ":" + q.pc + " via " + q.gd + ":" + q.gp + (q.pull !== 1 ? " pull " + q.pull : ""));
+        curve.push({ x: q.day / CURVE_DAYS, y: q.pc / 100, kind: q.kind, guide: { x: q.gd / CURVE_DAYS, y: q.gp / 100, pull: q.pull } });
+        return;
+      }
       entries.push(q.day + ":" + q.pc + (i && q.kind !== "smooth" ? " " + q.kind : ""));
       curve.push(i ? { x: q.day / CURVE_DAYS, y: q.pc / 100, kind: q.kind } : { x: 0, y: 0 });
     });
@@ -9044,8 +9154,86 @@ time[data-ts] { cursor: help; }
   function workPoints() {
     var cfg = tuneWork();
     return (isPoints(cfg) ? cfg.curve : formulaPoints(cfg)).map(function (p, i) {
-      return { x: p.x, y: p.y, kind: i ? p.kind || "smooth" : "" };
+      var q = { x: p.x, y: p.y, kind: i ? p.kind || "smooth" : "" };
+      if (q.kind === "guided") q.guide = { x: p.guide.x, y: p.guide.y, pull: p.guide.pull };
+      return q;
     });
+  }
+
+  /* Puts point i of pts at (x, y), and keeps the guides of the stretches
+     either side where they sat in their stretches' boxes. */
+  function placePoint(pts, i, x, y) {
+    var old = pts[i], lo = pts[i - 1], hi = pts[i + 1], p = { x: x, y: y, kind: old.kind };
+    if (old.guide) p.guide = refitGuide(old.guide, lo, old, lo, p);
+    if (hi && hi.guide) hi.guide = refitGuide(hi.guide, old, hi, p, hi);
+    pts[i] = p;
+  }
+
+  /* g, a guide of the stretch from a0 to b0, at the same place in the
+     stretch from a1 to b1. */
+  function refitGuide(g, a0, b0, a1, b1) {
+    var u = b0.x > a0.x ? (g.x - a0.x) / (b0.x - a0.x) : 0.5, v = b0.y > a0.y ? (g.y - a0.y) / (b0.y - a0.y) : 0.5;
+    return { x: a1.x + u * (b1.x - a1.x), y: a1.y + v * (b1.y - a1.y), pull: g.pull };
+  }
+
+  /* The guide a stretch into point i takes when it becomes guided, so its
+     shape changes as little as it can: a step's corner, a straight line's
+     middle, and where a smooth stretch's end tangents meet. */
+  function defaultGuide(pts, i) {
+    var a = pts[i - 1], b = pts[i], p = pts[i];
+    if (p.guide) return p.guide;
+    var g = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, pull: 1 };
+    if (p.kind === "step") g = { x: b.x, y: a.y, pull: 1 };
+    else if (p.kind === "smooth") {
+      var m = curveTangents(pts), d = m[i - 1] - m[i];
+      if (Math.abs(d) > 1e-9) {
+        var x = (b.y - a.y + m[i - 1] * a.x - m[i] * b.x) / d;
+        g = { x: x, y: a.y + m[i - 1] * (x - a.x), pull: 1 };
+      }
+    }
+    return { x: clamp(g.x, a.x, b.x), y: clamp(g.y, a.y, b.y), pull: 1 };
+  }
+
+  /* Sets how the stretch into point i runs: a guided one starts from
+     defaultGuide, and any other drops its guide. */
+  function setKind(pts, i, kind) {
+    var p = { x: pts[i].x, y: pts[i].y, kind: kind };
+    if (kind === "guided") p.guide = defaultGuide(pts, i);
+    pts[i] = p;
+  }
+
+  /* Moves the guide of the stretch into point i toward (x, y), snapped to a
+     twentieth of a day and half a point of percent, inside the stretch. */
+  function moveGuide(pts, i, x, y) {
+    var a = pts[i - 1], b = pts[i], g = b.guide || defaultGuide(pts, i);
+    pts[i] = { x: b.x, y: b.y, kind: "guided", guide: {
+      x: clamp(roundTo(x * CURVE_DAYS, 0.05) / CURVE_DAYS, a.x, b.x), y: clamp(roundTo(y, 0.005), a.y, b.y), pull: g.pull } };
+  }
+
+  /* Scales the pull of the guide into point i by f, within GUIDE_PULL. */
+  function pullGuide(pts, i, f) {
+    var b = pts[i];
+    if (!b.guide) return;
+    pts[i] = { x: b.x, y: b.y, kind: b.kind, guide: { x: b.guide.x, y: b.guide.y, pull: clamp(roundTo(b.guide.pull * f, 0.01), GUIDE_PULL[0], GUIDE_PULL[1]) } };
+  }
+
+  /* A guided stretch from a to b split at x into two that draw the same
+     curve: the point on it there and each half's guide, by de Casteljau on
+     the weighted control points, each half's weights brought back to ends
+     of 1. */
+  function splitGuided(a, b, x) {
+    var g = b.guide, w = g.pull, lo = 0, hi = 1;
+    var X = function (t) { var u = 1 - t; return (u * u * a.x + 2 * w * u * t * g.x + t * t * b.x) / (u * u + 2 * w * u * t + t * t); };
+    for (var i = 0; i < 52; i++) { var mid = (lo + hi) / 2; if (X(mid) < x) lo = mid; else hi = mid; }
+    var t = (lo + hi) / 2, lerp = function (p, q) { return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t]; };
+    var h0 = [a.x, a.y, 1], h1 = [w * g.x, w * g.y, w], h2 = [b.x, b.y, 1];
+    var h01 = lerp(h0, h1), h12 = lerp(h1, h2), m = lerp(h01, h12), root = Math.sqrt(m[2]);
+    var pull = function (v) { return clamp(v, GUIDE_PULL[0], GUIDE_PULL[1]); };
+    return {
+      y: m[1] / m[2],
+      left: { x: h01[0] / h01[2], y: h01[1] / h01[2], pull: pull(h01[2] / root) },
+      right: { x: h12[0] / h12[2], y: h12[1] / h12[2], pull: pull(h12[2] / root) }
+    };
   }
 
   function setPoints(pts) { setTune(pointsPlan(pts)); }
@@ -9062,17 +9250,24 @@ time[data-ts] { cursor: help; }
     var nx = p.x;
     if (hi && lo.x + CURVE_GAP <= hi.x - CURVE_GAP) nx = clamp(roundTo(x * CURVE_DAYS, 0.1) / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP);
     var ny = clamp(roundTo(y, 0.01), lo.y, hi ? hi.y : CURVE_MAX_Y);
-    pts[i] = { x: nx, y: ny, kind: p.kind };
+    placePoint(pts, i, nx, ny);
   }
 
   /* Adds a point on the curve at x, between the points either side, and
-     returns its index, or -1 where there is no room. */
+     returns its index, or -1 where there is no room. A guided stretch splits
+     into two guided ones that draw the same curve. */
   function addPoint(pts, x) {
     if (pts.length >= CURVE_MAX_POINTS) return -1;
     var k = 0;
     while (k < pts.length - 2 && pts[k + 1].x <= x) k++;
     var a = pts[k], b = pts[k + 1];
     if (x - a.x < CURVE_GAP || b.x - x < CURVE_GAP) return -1;
+    if (b.kind === "guided" && b.guide) {
+      var sp = splitGuided(a, b, x);
+      pts[k + 1] = { x: b.x, y: b.y, kind: "guided", guide: sp.right };
+      pts.splice(k + 1, 0, { x: x, y: sp.y, kind: "guided", guide: sp.left });
+      return k + 1;
+    }
     pts.splice(k + 1, 0, { x: x, y: pointsAt(pts, x), kind: b.kind });
     return k + 1;
   }
@@ -9194,6 +9389,7 @@ time[data-ts] { cursor: help; }
   }
 
   function discardTune() {
+    if (paceDraft) recordTune();
     tuneUI.saved = null;
     window.clearTimeout(tuneUI.savedTimer);
     paceDraft = null;
@@ -9298,8 +9494,9 @@ time[data-ts] { cursor: help; }
   }
 
   function kindIcon(kind) {
-    var s = svg("svg", { width: 16, height: 12, viewBox: "0 0 16 12", "aria-hidden": "true", "class": "tune-icon" });
-    svg("path", { d: kind === "step" ? "M1 11H8V1H15" : kind === "straight" ? "M1 11L15 1" : "M1 11C8 11 8 1 15 1" }, s);
+    var s = svg("svg", { width: 17, height: 13, viewBox: "0 0 17 13", "aria-hidden": "true", "class": "tune-icon" });
+    svg("path", { d: kind === "step" ? "M1 11H8V1H15" : kind === "straight" ? "M1 11L15 1" : kind === "guided" ? "M1 11Q9 11 15 1" : "M1 11C8 11 8 1 15 1" }, s);
+    if (kind === "guided") svg("path", { "class": "tune-icon-guide", d: "M14 8.6L16 10.6L14 12.6L12 10.6Z" }, s);
     return s;
   }
 
@@ -9347,6 +9544,7 @@ time[data-ts] { cursor: help; }
     });
     field.addEventListener("blur", function () { field.removeAttribute("data-invalid"); field.removeAttribute("data-typing"); redrawTune(); });
     return {
+      el: wrap,
       set: function (v) {
         if (range) range.value = String(v);
         if (document.activeElement !== field || !field.hasAttribute("data-typing")) { field.value = o.format(v); field.removeAttribute("data-invalid"); }
@@ -9387,7 +9585,7 @@ time[data-ts] { cursor: help; }
       commit: function (v) {
         edit(function (pts) {
           var p = pts[i], lo = pts[i - 1], hi = pts[i + 1];
-          if (lo && hi && lo.x + CURVE_GAP <= hi.x - CURVE_GAP) pts[i] = { x: clamp(v / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP), y: p.y, kind: p.kind };
+          if (lo && hi && lo.x + CURVE_GAP <= hi.x - CURVE_GAP) placePoint(pts, i, clamp(v / CURVE_DAYS, lo.x + CURVE_GAP, hi.x - CURVE_GAP), p.y);
         });
       },
       nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x + n * 0.1 / CURVE_DAYS, pts[i].y); }); }
@@ -9396,11 +9594,18 @@ time[data-ts] { cursor: help; }
       label: "point " + (i + 1) + " percent", fk: "tune:pt:" + i + ":pct", unit: "%",
       format: function (v) { return String(Math.round(v * 1000) / 10); },
       parse: function (t) { return parseIn(t, 0, CURVE_MAX_Y * 100); },
-      commit: function (v) { edit(function (pts) { var p = pts[i], lo = pts[i - 1], hi = pts[i + 1]; if (lo) pts[i] = { x: p.x, y: clamp(v / 100, lo.y, hi ? hi.y : CURVE_MAX_Y), kind: p.kind }; }); },
+      commit: function (v) { edit(function (pts) { var p = pts[i], lo = pts[i - 1], hi = pts[i + 1]; if (lo) placePoint(pts, i, p.x, clamp(v / 100, lo.y, hi ? hi.y : CURVE_MAX_Y)); }); },
       nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x, pts[i].y + n * 0.01); }); }
     });
     r.kind = tuneSeg(row, "how the curve runs into point " + (i + 1), SEGMENT_KINDS.map(function (k) { return [k[0], "", kindIcon(k[0]), k[1]]; }),
-      "tune:pt:" + i + ":kind", function (kind) { edit(function (pts) { pts[i] = { x: pts[i].x, y: pts[i].y, kind: kind }; }); });
+      "tune:pt:" + i + ":kind", function (kind) { edit(function (pts) { setKind(pts, i, kind); }); });
+    r.pull = tuneNumber(row, {
+      label: "pull of the guide into point " + (i + 1), fk: "tune:pt:" + i + ":pull", prefix: "pull",
+      format: function (v) { return v.toFixed(2); },
+      parse: function (t) { return parseIn(t, GUIDE_PULL[0], GUIDE_PULL[1]); },
+      commit: function (v) { edit(function (pts) { if (pts[i].guide) pullGuide(pts, i, v / pts[i].guide.pull); }); },
+      nudge: function (n) { edit(function (pts) { pullGuide(pts, i, Math.pow(1.25, (n > 0 ? 1 : -1) * (Math.abs(n) > 1 ? 3 : 1))); }); }
+    });
     r.remove = row.appendChild(h("button", "tune-pt-x", "×"));
     r.remove.type = "button";
     r.remove.setAttribute("aria-label", "remove point " + (i + 1));
@@ -9421,7 +9626,7 @@ time[data-ts] { cursor: help; }
       ui.was = lead.appendChild(h("p", "tune-was"));
       lead.appendChild(h("p", "tune-hint", "Pick a preset, or shape the curve yourself: drag its points on a 7-day chart, " +
         "double-click the chart to add one, and select one to remove it or change how the curve runs into it. " +
-        "Nothing changes until you save."));
+        "A selected point's diamond pulls the stretch before it toward it. Nothing changes until you save."));
       var form = body.appendChild(h("div", "tune-form"));
 
       var r = tuneRow(form, "Preset");
@@ -9460,11 +9665,22 @@ time[data-ts] { cursor: help; }
         tuneUI.sel = i;
         setPoints(pts);
       });
-      ptsActions.appendChild(h("span", "tune-help", "Smooth bends through the points without overshooting them, Straight runs a line, and Step holds the earlier value until the point."));
+      ptsActions.appendChild(h("span", "tune-help", "Smooth bends through the points without overshooting them, Straight runs a line, Step holds the earlier value until the point, " +
+        "and Guided bends toward a guide you drag on the chart, closer the more it pulls (the scroll wheel over the guide, or + and −)."));
 
       ui.prev = body.appendChild(h("div", "tune-prev"));
       ui.prev.setAttribute("aria-live", "polite");
       var actions = body.appendChild(h("div", "tune-actions"));
+      var hist = actions.appendChild(h("div", "tune-hist"));
+      var mac = /Mac|iPhone|iPad/.test(navigator.platform || "");
+      ui.undo = hist.appendChild(h("button", "", "\u21B6 Undo"));
+      ui.redo = hist.appendChild(h("button", "", "Redo \u21B7"));
+      [[ui.undo, -1, "undo", mac ? "\u2318Z" : "Ctrl+Z"], [ui.redo, 1, "redo", mac ? "\u21E7\u2318Z" : "Ctrl+Y"]].forEach(function (b) {
+        b[0].type = "button";
+        b[0].setAttribute("data-fk", "tune:" + b[2]);
+        b[0].title = (b[1] < 0 ? "Undo the last edit" : "Redo the edit undone") + " (" + b[3] + ")";
+        b[0].addEventListener("click", function () { stepTune(b[1]); });
+      });
       ui.save = actions.appendChild(h("button", "tune-save", "Save to host config"));
       ui.save.type = "button";
       ui.save.setAttribute("data-fk", "tune:save");
@@ -9482,6 +9698,17 @@ time[data-ts] { cursor: help; }
       ui.msg = body.appendChild(h("p", "tune-msg"));
       ui.msg.setAttribute("role", "status");
       $("pace-tune").addEventListener("toggle", function () { redrawTune(); });
+      /* While the fold is open, the undo keys step through its edits, except
+         in a field, which keeps its own. */
+      document.addEventListener("keydown", function (ev) {
+        if (!tuneOpen() || !(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
+        var t = ev.target, key = ev.key.toLowerCase();
+        if (t && (t.tagName === "INPUT" && t.type === "text" || t.tagName === "TEXTAREA")) return;
+        var dir = key === "z" ? (ev.shiftKey ? 1 : -1) : key === "y" && !ev.shiftKey ? 1 : 0;
+        if (!dir) return;
+        ev.preventDefault();
+        stepTune(dir);
+      });
     }
     var u = tuneUI;
     /* A saved draft the running config now matches is done. */
@@ -9537,6 +9764,9 @@ time[data-ts] { cursor: help; }
       r.pct.disable(first || applying);
       r.kind.set(first ? "" : p.kind);
       r.kind.disable(first || applying);
+      r.pull.el.hidden = p.kind !== "guided";
+      if (p.guide) r.pull.set(p.guide.pull);
+      r.pull.disable(applying);
       r.kind.el.style.visibility = first ? "hidden" : "";
       r.remove.style.visibility = first || last ? "hidden" : "";
       r.remove.disabled = applying;
@@ -9547,6 +9777,11 @@ time[data-ts] { cursor: help; }
     u.add.disabled = pts.length >= CURVE_MAX_POINTS || applying;
 
     u.changes.textContent = paceDraft ? changeWords(paceDraft, live) : "";
+    u.undo.disabled = applying || !tuneUndo.length;
+    u.redo.disabled = applying || !tuneRedo.length;
+    var sum = $("tune-sum-state");
+    sum.textContent = applying ? "saved, applying" : paceDraft ? "unsaved draft" : "";
+    sum.hidden = !sum.textContent;
     u.save.hidden = !paceDraft || applying;
     u.discard.hidden = !paceDraft || applying;
     u.save.disabled = !paceDraft || !!u.saving;
@@ -9603,7 +9838,9 @@ time[data-ts] { cursor: help; }
      double-click on the plot adds a point on the curve there. geo is the
      chart's frame and scale. */
   function tuneHandles(root, X, Y, geo) {
-    var pts = workPoints(), g = svg("g", { "class": "tune-handles" }, root), cap = Y.cap;
+    var pts = workPoints(), cap = Y.cap;
+    tuneGuides(root, pts, X, Y, geo);
+    var g = svg("g", { "class": "tune-handles" }, root);
     pts.forEach(function (p, i) {
       if (i === 0) { svg("circle", { "class": "tune-fixed", cx: X(0), cy: Y(0), r: 3 }, g); return; }
       var last = i === pts.length - 1, over = cap && p.y > cap;
@@ -9615,25 +9852,74 @@ time[data-ts] { cursor: help; }
       hg.setAttribute("aria-label", "point " + (i + 1) + (last ? ", at the reset" : ""));
       hg.setAttribute("aria-valuetext", text + ", " + p.kind);
       if (tuneUI.sel === i) hg.setAttribute("data-sel", "true");
-      if (tuneDrag && tuneDrag.i === i) hg.setAttribute("data-drag", "true");
+      if (tuneDrag && tuneDrag.i === i && !tuneDrag.guide) hg.setAttribute("data-drag", "true");
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13 }, hg);
       svg("circle", { "class": "knob", cx: cx, cy: cy, r: 5.5 }, hg);
       if (over) svg("path", { "class": "tune-over", d: "M" + (cx - 4) + " " + (cy - 9) + "L" + cx + " " + (cy - 13) + "L" + (cx + 4) + " " + (cy - 9) }, hg);
       var tl = svgText(hg, last ? cx - 10 : cx, cy - (over ? 17 : 11), over ? pct(p.y, 0) : text, over ? "tune-hlabel" : "tune-hlabel tune-hover",
         { "font-size": 10.5, "text-anchor": last ? "end" : "middle" });
       tl.setAttribute("aria-hidden", "true");
-      hg.addEventListener("pointerdown", function (ev) { startTuneDrag(ev, i, geo); });
+      hg.addEventListener("pointerdown", function (ev) { startTuneDrag(ev, i, false, geo); });
       hg.addEventListener("keydown", function (ev) { tuneHandleKey(ev, i); });
       hg.addEventListener("focus", function () { if (tuneUI.sel !== i) { tuneUI.sel = i; redrawTune(); } });
     });
     root.addEventListener("dblclick", function (ev) {
-      if (ev.target.closest && ev.target.closest(".tune-handle")) return;
+      if (ev.target.closest && ev.target.closest(".tune-handle, .tune-guide")) return;
       var p = tunePointer(ev, geo);
       if (!p || p.e <= 0 || p.e >= 1) return;
       var pts2 = workPoints(), i = addPoint(pts2, roundTo(p.e * CURVE_DAYS, 0.1) / CURVE_DAYS);
       if (i < 0) return;
       tuneUI.sel = i;
       setPoints(pts2);
+    });
+  }
+
+  /* The guides of the curve's guided stretches, each a diamond: the
+     selected point's stretch's in full, with arms to its two points and its
+     pull named, and any other a small one that selects its stretch. A
+     selected stretch that is not guided shows a hollow diamond where its
+     guide would start, which a drag turns into one. */
+  function tuneGuides(root, pts, X, Y, geo) {
+    var g = svg("g", { "class": "tune-guides" }, root), sel = tuneUI.sel;
+    pts.forEach(function (p, i) {
+      if (i === 0) return;
+      var on = sel === i, guided = p.kind === "guided" && p.guide;
+      if (!guided && !on) return;
+      var a = pts[i - 1], gd = guided ? p.guide : defaultGuide(pts, i);
+      var gx = X(gd.x), gy = Y(gd.y);
+      if (on && guided) {
+        svg("path", { "class": "tune-arm", d: "M" + X(a.x).toFixed(2) + " " + Y(a.y).toFixed(2) + "L" + gx.toFixed(2) + " " + gy.toFixed(2) +
+          "L" + X(p.x).toFixed(2) + " " + Y(p.y).toFixed(2) }, g);
+      }
+      var hg = svg("g", { "class": "tune-guide", tabindex: on ? 0 : -1, role: "slider" }, g);
+      hg.setAttribute("data-fk", "tune-g:" + i);
+      if (!guided) hg.setAttribute("data-ghost", "true");
+      if (on) hg.setAttribute("data-sel", "true");
+      if (tuneDrag && tuneDrag.guide && tuneDrag.i === i) hg.setAttribute("data-drag", "true");
+      hg.setAttribute("aria-label", guided ? "guide of the stretch into point " + (i + 1) : "add a guide to the stretch into point " + (i + 1));
+      hg.setAttribute("aria-valuetext", guided ? "day " + pointDay(gd).toFixed(2) + " · " + pct(gd.y, 1) + ", pull " + gd.pull.toFixed(2) : "no guide");
+      var r = on ? 6 : 4;
+      svg("circle", { "class": "hit", cx: gx, cy: gy, r: on ? 12 : 8 }, hg);
+      svg("path", { "class": "diamond", d: "M" + gx + " " + (gy - r) + "L" + (gx + r) + " " + gy + "L" + gx + " " + (gy + r) + "L" + (gx - r) + " " + gy + "Z" }, hg);
+      if (on) {
+        var below = gy + 22 < geo.m.t + geo.ph;
+        var tl = svgText(hg, gx, below ? gy + 18 : gy - 11, guided ? "pull " + gd.pull.toFixed(2) : "drag to guide", "tune-hlabel tune-glabel", { "font-size": 10, "text-anchor": "middle" });
+        tl.setAttribute("aria-hidden", "true");
+      }
+      hg.addEventListener("pointerdown", function (ev) {
+        if (!on) { ev.preventDefault(); selectPoint(i); return; }
+        startTuneDrag(ev, i, true, geo);
+      });
+      hg.addEventListener("keydown", function (ev) { tuneGuideKey(ev, i); });
+      if (guided) {
+        hg.addEventListener("wheel", function (ev) {
+          if (!on || tuneApplying()) return;
+          ev.preventDefault();
+          var pts2 = workPoints();
+          pullGuide(pts2, i, ev.deltaY < 0 ? 1.1 : 1 / 1.1);
+          setPoints(pts2);
+        }, { passive: false });
+      }
     });
   }
 
@@ -9647,18 +9933,18 @@ time[data-ts] { cursor: help; }
     return { e: (x - geo.m.l) / geo.pw, u: geo.sc.U(y) };
   }
 
-  function startTuneDrag(ev, i, geo) {
-    if (ev.button !== 0) return;
+  function startTuneDrag(ev, i, guide, geo) {
+    if (ev.button !== 0 || tuneApplying()) return;
     ev.preventDefault();
     tuneUI.sel = i;
-    tuneDrag = { i: i, geo: geo };
+    tuneDrag = { i: i, guide: guide, geo: geo };
     var last = i === workPoints().length - 1;
-    document.documentElement.setAttribute("data-tune-drag", last ? "ns" : "move");
+    document.documentElement.setAttribute("data-tune-drag", last && !guide ? "ns" : "move");
     var move = function (e2) {
       var p = tunePointer(e2, geo);
       if (!p) return;
       var pts = workPoints();
-      movePoint(pts, i, p.e, p.u);
+      if (guide) moveGuide(pts, i, p.e, p.u); else movePoint(pts, i, p.e, p.u);
       setPoints(pts);
     };
     var up = function () {
@@ -9686,6 +9972,33 @@ time[data-ts] { cursor: help; }
     var n = ev.shiftKey ? 10 : 1, pts = workPoints();
     movePoint(pts, i, pts[i].x + dx * n * 0.1 / CURVE_DAYS, pts[i].y + dy * n * 0.01);
     tuneUI.sel = i;
+    setPoints(pts);
+  }
+
+  /* The arrow keys move the focused guide a twentieth of a day or half a
+     point of percent, Shift ten times that; + and − pull it harder or
+     softer; Delete or Backspace turns its stretch smooth. */
+  function tuneGuideKey(ev, i) {
+    var pts = workPoints();
+    if (ev.key === "Delete" || ev.key === "Backspace") {
+      ev.preventDefault();
+      if (pts[i].kind !== "guided") return;
+      setKind(pts, i, "smooth");
+      setPoints(pts);
+      return;
+    }
+    if (ev.key === "+" || ev.key === "=" || ev.key === "-" || ev.key === "_") {
+      ev.preventDefault();
+      pullGuide(pts, i, ev.key === "-" || ev.key === "_" ? 1 / 1.25 : 1.25);
+      setPoints(pts);
+      return;
+    }
+    var dx = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+    var dy = ev.key === "ArrowUp" ? 1 : ev.key === "ArrowDown" ? -1 : 0;
+    if (!dx && !dy) return;
+    ev.preventDefault();
+    var n = ev.shiftKey ? 10 : 1, g = pts[i].guide || defaultGuide(pts, i);
+    moveGuide(pts, i, g.x + dx * n * 0.05 / CURVE_DAYS, g.y + dy * n * 0.005);
     setPoints(pts);
   }
 
