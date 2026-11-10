@@ -1963,9 +1963,11 @@ time[data-ts] { cursor: help; }
 
   /* The sentence the Seats legend gives for what a signed gap means. */
   var SIGN_KEY = "gap to target: + over, \u2212 under";
-  /* A meter's target tick and the curve tick of a window the cost does not
-     weigh, at the meter's own measures. */
+  /* A meter's target tick, the chevron that stands for a target past full,
+     and the curve tick of a window the cost does not weigh, at the meter's
+     own measures. */
   var SW_TICK = "width:0;height:13px;margin:0 7px;border-left:1.5px solid var(--ink-1)";
+  var SW_PAST_TICK = "box-sizing:border-box;width:6px;height:6px;margin:0 8px 0 4px;border:solid var(--ink-1);border-width:1.5px 1.5px 0 0;transform:rotate(45deg)";
   var SW_CURVE_TICK = "width:1.5px;height:13px;margin:0 7px;background:repeating-linear-gradient(180deg, var(--ink-3) 0 2px, transparent 2px 3.6px)";
 
   function absTime(d) {
@@ -3220,6 +3222,9 @@ time[data-ts] { cursor: help; }
     var marks = $("timeline-marks");
     marks.textContent = "";
     legendRow(marks, SW_TICK, "target");
+    var past = legendRow(marks, SW_PAST_TICK, "target past full");
+    past.id = "tl-past-key";
+    past.hidden = true;
     legendRow(marks, SW_SIGN, SIGN_KEY);
     legendRow(marks, SW_CURVE_TICK, CURVE_KEY).id = "tl-curve-key";
     legendRow(marks, SW_WEEKEND, "weekend");
@@ -3646,7 +3651,7 @@ time[data-ts] { cursor: help; }
 
     /* Rows. The legend names a cut end only where a bar has one, and a held
        seat's other windows only while a seat is held. */
-    var anyCut = false, anyHeld = false, anyCurve = false, drawnStates = Object.create(null);
+    var anyCut = false, anyHeld = false, anyCurve = false, anyPast = false, drawnStates = Object.create(null);
     /* A seat's stripe and highlight end one bar gap below its last bar. */
     var padB = (geo.lane - geo.bar) / 2;
 
@@ -3757,6 +3762,7 @@ time[data-ts] { cursor: help; }
         var drawn = eligible || holdsBack(w) ? meta : HELD_META;
         drawnStates[stt] = true;
         anyCurve = anyCurve || curveTicked(w, ws);
+        anyPast = anyPast || pastFull(ws);
         var cy = lane.y + geo.lane / 2;
 
         var g = svg("g", { "class": "lane", tabindex: 0, role: "img" }, gRow);
@@ -3850,8 +3856,11 @@ time[data-ts] { cursor: help; }
            the curve is a reference tick on its gutter meter instead. */
         var tx = counted(ws) && num(ws.target) ? sx + sw * clamp(ws.target, 0, 1) : NaN;
         if (counted(ws) && stt !== "unknown" && tx >= bx0 && tx <= bx1) {
-          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
-          svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
+          if (pastFull(ws)) pastFullMark(g, tx, cy, barH / 2 - 0.5, 1.6);
+          else {
+            svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
+            svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
+          }
           svg("path", {
             d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
             fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
@@ -3867,6 +3876,7 @@ time[data-ts] { cursor: help; }
     stdKey.textContent = "Standard windows apply to every request on a seat that has them; " + onTopText(ranks.fams);
     $("tl-held-key").hidden = !anyHeld;
     $("tl-curve-key").hidden = !anyCurve;
+    $("tl-past-key").hidden = !anyPast;
     [].forEach.call($("timeline-states").querySelectorAll("[data-states]"), function (li) {
       li.hidden = !li.getAttribute("data-states").split(" ").some(function (k) { return drawnStates[k]; });
     });
@@ -3904,6 +3914,23 @@ time[data-ts] { cursor: help; }
   /* The meter's fill carries the lane state's pattern as the bar does, so a
      refused or spent window reads as one in the gutter, where a
      window that is a sliver on the time axis is read. */
+  /* Whether a paced window's target stands past full, beyond the end of the
+     meter and the bar, which stop at 100%. */
+  function pastFull(ws) {
+    return counted(ws) && num(ws.target) && ws.target > 1;
+  }
+
+  /* A target past full: a chevron pointing on, the track's height, ending at
+     the track's end where the tick would be pinned. Returns its left x. */
+  function pastFullMark(parent, x, cy, half, width) {
+    var l = x - half * 0.85;
+    var d = "M" + l + " " + (cy - half) + "L" + x + " " + cy + "L" + l + " " + (cy + half);
+    var line = { d: d, fill: "none", "stroke-linecap": "round", "stroke-linejoin": "round" };
+    svg("path", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.4 }, line), parent);
+    svg("path", Object.assign({ stroke: "var(--ink-1)", "stroke-width": width }, line), parent);
+    return l;
+  }
+
   function budgetMeter(parent, cy, w, ws, meta, eligible) {
     var color = meta.color, y = cy - MET_H / 2;
     svg("rect", { x: MET_X + 0.5, y: y + 0.5, width: MET_W - 1, height: MET_H - 1,
@@ -3918,19 +3945,24 @@ time[data-ts] { cursor: help; }
       } else svg("path", { d: roundedBar(MET_X, y, fw, MET_H, MET_H / 2, true, true), fill: color }, parent);
     }
     if (counted(ws) && num(ws.target)) {
-      var tx = MET_X + MET_W * clamp(ws.target, 0, 1);
-      svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
-        stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
-      svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
-        stroke: "var(--ink-1)", "stroke-width": 1.5 }, parent);
+      var tx = MET_X + MET_W * clamp(ws.target, 0, 1), end = tx;
+      if (pastFull(ws)) end = pastFullMark(parent, tx, cy, MET_H / 2 - 0.5, 1.4) - 1.5;
+      else {
+        svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
+          stroke: "var(--surface-1)", "stroke-width": 4 }, parent);
+        svg("line", { x1: tx, x2: tx, y1: y - 3, y2: y + MET_H + 3,
+          stroke: "var(--ink-1)", "stroke-width": 1.5 }, parent);
+      }
       /* The gap is the run along the meter between where the fill ends and
          where the target stands, dotted in ink over a halo so it reads on the
          fill as well as on the track, and labelled in points with its direction. */
       if (gapDrawn(ws)) {
         var sx = MET_X + fw;
-        var dash = { x1: sx, x2: tx, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round" };
-        svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
-        svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
+        if (end > sx) {
+          var dash = { x1: sx, x2: end, y1: cy, y2: cy, "stroke-dasharray": "1 3", "stroke-linecap": "round" };
+          svg("line", Object.assign({ stroke: "var(--surface-1)", "stroke-width": 3.5 }, dash), parent);
+          svg("line", Object.assign({ stroke: "var(--ink-1)", "stroke-width": 1.5 }, dash), parent);
+        }
         svgText(parent, GAP_X, cy + 3.5, overPts(ws.slack),
           eligible ? "gap-label t-mono" : "gap-label t-mono t-muted", { "font-size": 10 });
       }
