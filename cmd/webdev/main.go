@@ -702,6 +702,19 @@ func (f *fixture) patchPace(body map[string]any) error {
 				return fmt.Errorf("%s is not a boolean", key)
 			}
 			cfg.Pace.HoldAtFull = b
+		case "pace.points":
+			list, ok := v.([]any)
+			if !ok {
+				return fmt.Errorf("%s is not a list", key)
+			}
+			cfg.Pace.Points = make([]string, 0, len(list))
+			for _, e := range list {
+				entry, ok := e.(string)
+				if !ok {
+					return fmt.Errorf("%s holds a non-string", key)
+				}
+				cfg.Pace.Points = append(cfg.Pace.Points, entry)
+			}
 		case "pace.landing-target", "pace.curve-exponent", "pace.steepness":
 			n, ok := v.(float64)
 			if !ok {

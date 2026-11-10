@@ -16,6 +16,8 @@ func TestDottedKeysSetTheirNestedField(t *testing.T) {
 		"affinity.ttl: 2h\n" +
 		"pace.landing-target: 1.0\n" +
 		"pace.hold-at-full: true\n" +
+		"pace.shape: points\n" +
+		"pace.points: [\"5:100\", \"7:110 straight\"]\n" +
 		"quota.poll-interval: 5m\n" +
 		"web.enabled: false\n"))
 	if err != nil {
@@ -29,6 +31,9 @@ func TestDottedKeysSetTheirNestedField(t *testing.T) {
 	}
 	if !cfg.Pace.HoldAtFull {
 		t.Error("pace.hold-at-full: true left the target unheld")
+	}
+	if cfg.Pace.Shape != model.ShapePoints || len(cfg.Pace.Curve) != 3 {
+		t.Errorf("pace.points = shape %q curve %v, want the points shape through three points", cfg.Pace.Shape, cfg.Pace.Curve)
 	}
 	if cfg.Quota.PollInterval != 5*time.Minute {
 		t.Errorf("quota.poll-interval = %v, want 5m", cfg.Quota.PollInterval)
@@ -161,7 +166,7 @@ func TestAnEmptyBlockDecodesToTheDefaults(t *testing.T) {
 			t.Errorf("%q: %v", block, err)
 			continue
 		}
-		if cfg.Pace != want.Pace || cfg.Quota != want.Quota || cfg.Affinity != want.Affinity || cfg.Web != want.Web {
+		if !reflect.DeepEqual(cfg.Pace, want.Pace) || cfg.Quota != want.Quota || cfg.Affinity != want.Affinity || cfg.Web != want.Web {
 			t.Errorf("%q decoded to %+v, want the defaults", block, cfg)
 		}
 	}

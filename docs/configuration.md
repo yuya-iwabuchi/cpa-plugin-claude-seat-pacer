@@ -56,7 +56,8 @@ status page's Tune the plan fold, which previews the ranking before it saves.
         max-sessions: 65536     # bindings held before the least recently seen is dropped
         persist: true           # keep live bindings across a plugin update or host restart
       pace:
-        shape: linear           # linear, power or sigmoid
+        shape: linear           # linear, power, sigmoid or points
+        points: []              # points shape only: "day:percent" over a 7-day week, each optionally smooth (default), straight, step, or "via day:percent [pull N]"
         curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
         landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
