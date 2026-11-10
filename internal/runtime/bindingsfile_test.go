@@ -279,7 +279,7 @@ func TestARegisterTakesTheSavedTable(t *testing.T) {
 }
 
 // A build whose first configure is a reconfigure, as after a register call
-// the host failed, still starts with the saved table.
+// the host failed, still starts with the saved table and a fresh spend ledger.
 func TestAFirstReconfigureTakesTheSavedTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.json")
 	old := pluginAt(t, path, testConfigYAML)
@@ -293,6 +293,12 @@ func TestAFirstReconfigureTakesTheSavedTable(t *testing.T) {
 	tp.register(t, MethodPluginReconfigure, testConfigYAML)
 	if got, want := boundSeats(tp), map[string]string{"k": "seat-a"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("table after a first reconfigure = %v, want the saved %v", got, want)
+	}
+	tp.mu.Lock()
+	from := tp.spendFrom
+	tp.mu.Unlock()
+	if !from.Equal(testNow) {
+		t.Errorf("spend ledger after a first reconfigure starts at %v, want %v", from, testNow)
 	}
 }
 

@@ -206,7 +206,7 @@ func TestHistoryFileIsWrittenAfterAPollAndReadAtStart(t *testing.T) {
 	again := &testPlugin{host: tp.host}
 	again.Plugin = New(Options{
 		Name: "claude-seat-pacer", Version: "0.0.0-test", Author: "a", Repository: "https://example.invalid/repo",
-		Host: tp.host.call, HistoryFile: tp.opts.HistoryFile,
+		Host: tp.host.call, HistoryFile: tp.opts.HistoryFile, APISocket: shortSocketPath(t),
 		Now: func() time.Time { return testNow.Add(2 * time.Minute) },
 	})
 	again.startDelay = time.Hour
@@ -240,7 +240,7 @@ func seededPlugin(t *testing.T, path, configYAML string) *testPlugin {
 	tp.Plugin = New(Options{
 		Name: "claude-seat-pacer", Version: "0.0.0-test", Author: "yuya-iwabuchi",
 		Repository: "https://example.invalid/repo",
-		Host:       tp.host.call, HistoryFile: path,
+		Host:       tp.host.call, HistoryFile: path, APISocket: shortSocketPath(t),
 		Now: func() time.Time { return testNow },
 	})
 	tp.startDelay = time.Hour

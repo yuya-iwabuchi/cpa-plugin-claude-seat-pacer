@@ -98,6 +98,8 @@ what it stores.
 - [Configuration](docs/configuration.md): every setting and its bounds.
 - [Install](docs/install.md): the Plugin Store, manual installs, building from
   source, updating.
+- [Local API](docs/local-api.md): the seat a Claude Code session is on, for a
+  status line or a Claude Code mod.
 - [Privacy and data](docs/privacy.md): what the plugin sends, shows and
   stores.
 - [Troubleshooting](docs/troubleshooting.md): the failures seen so far.
