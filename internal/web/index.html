@@ -914,20 +914,19 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
   text-transform: uppercase; color: var(--surface-1); background: var(--info); }
 /* The tuning fold's body: the plan in words, its controls, the ranking a
    draft gives, and the save. */
-.tune-body { display: grid; gap: 14px; padding: 10px 0 6px; font: 400 12px/1.5 var(--sans); color: var(--ink-2); }
-.tune-lead { display: grid; gap: 2px; }
+.tune-body { display: grid; gap: 10px; padding: 6px 0 4px; font: 400 12px/1.5 var(--sans); color: var(--ink-2); }
+.tune-bar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+.tune-lead { display: grid; gap: 2px; flex: 1 1 360px; min-width: 0; }
 .tune-lead p { margin: 0; }
 .tune-words { font-size: 13px; color: var(--ink-1); }
 .tune-words b, .tune-was b { font-weight: 650; }
 .tune-was { color: var(--ink-3); }
 .tune-tag { display: inline-block; margin-right: 8px; padding: 2px 6px; border-radius: 4px; font: 600 9.5px/1.2 var(--mono);
   letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); background: var(--surface-2); vertical-align: 1px; }
-.tune-hint { font-size: 11px; color: var(--ink-3); }
-.tune-form { display: grid; grid-template-columns: max-content minmax(0, auto) 1fr; gap: 10px 14px; align-items: center; }
-.tune-row { display: contents; }
+.tune-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+.tune-row { display: inline-flex; align-items: center; gap: 10px; }
 .tune-row[hidden] { display: none; }
 .tune-lab { font: 600 11px/1.2 var(--sans); color: var(--ink-2); }
-.tune-help { font-size: 11px; color: var(--ink-3); }
 .tune-ctl { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .tune-seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 7px; padding: 2px; gap: 2px; background: var(--surface-1); }
 .tune-seg button { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 5px; padding: 5px 10px; background: transparent; color: var(--ink-2); }
@@ -937,7 +936,6 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-icon path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .tune-num { display: flex; align-items: center; gap: 10px; }
 .tune-num[hidden] { display: none; }
-.tune-num input[type="range"] { width: 180px; accent-color: var(--ink-1); }
 .tune-step { display: inline-flex; align-items: center; border: 1px solid var(--axis); border-radius: 7px; background: var(--surface-1); }
 .tune-step button { border: 0; border-radius: 6px; padding: 5px 9px; background: transparent; font-size: 13px; color: var(--ink-2); }
 .tune-step button:hover { background: var(--surface-2); color: var(--ink-1); }
@@ -947,7 +945,7 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-step:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; }
 .tune-step input[data-invalid] { color: var(--critical); }
 .tune-unit { padding-right: 8px; font: 600 11px/1 var(--mono); color: var(--ink-3); }
-.tune-prev { display: grid; gap: 8px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
+.tune-prev { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; padding: 6px 12px; border-radius: 8px; background: var(--surface-2); }
 .tune-prev:empty { display: none; }
 .tune-prev p { margin: 0; }
 .tune-next { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; color: var(--ink-1); font-weight: 600; }
@@ -959,14 +957,12 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-move { font: 600 10.5px/1 var(--mono); }
 .tune-move[data-dir="up"] { color: var(--info); }
 .tune-move[data-dir="down"] { color: var(--ink-3); }
-.tune-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.tune-actions button { padding: 6px 12px; }
+.tune-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tune-actions button { padding: 5px 12px; }
+.tune-actions .tune-icon-btn { display: inline-flex; padding: 6px 8px; }
+.tune-actions .tune-icon-btn:disabled { opacity: .4; cursor: default; }
 .tune-actions .tune-save:not(:disabled) { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); }
 .tune-actions .tune-quiet { border-color: transparent; color: var(--ink-3); }
-.tune-hist { display: inline-flex; gap: 4px; margin-right: 6px; }
-.tune-hist button { padding: 6px 10px; }
-.tune-hist button:disabled { opacity: .45; cursor: default; }
-.tune-changes { font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .tune-msg { margin: 0; color: var(--ink-3); }
 .tune-msg:empty { display: none; }
 .tune-msg[data-tone="error"] { color: var(--critical); }
@@ -983,24 +979,24 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
   .tune-spin, .tune-msg[data-tone="busy"]::before, .tune-sum-state[data-busy]::before { animation: spin .8s linear infinite; }
 }
 .tune-body[data-applying] .tune-form { opacity: .5; pointer-events: none; }
-@media (max-width: 640px) {
-  .tune-form { grid-template-columns: 1fr; gap: 4px; }
-  .tune-help { margin-bottom: 8px; }
-  .tune-num input[type="range"] { width: 120px; }
-}
-/* The points table under the form. */
-.tune-row[data-off] .tune-lab, .tune-row[data-off] .tune-help { opacity: .55; }
+/* The points table under the form, in as many columns as fit. */
+.tune-row[data-off] .tune-lab { opacity: .55; }
 .tune-points { border-top: 1px solid var(--rule); padding-top: 6px; }
-.tune-points > summary { cursor: pointer; font: 600 11px/1.6 var(--sans); color: var(--ink-2); }
-.tune-pts { display: grid; gap: 4px; margin: 8px 0; }
-.tune-pt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 7px; }
+.tune-points > summary { display: flex; align-items: center; gap: 12px; cursor: pointer; font: 600 11px/1.6 var(--sans); color: var(--ink-2); list-style: none; }
+.tune-points > summary::-webkit-details-marker { display: none; }
+.tune-points > summary::before { content: "\25B8"; font-size: 10px; color: var(--ink-3); margin-right: -6px; }
+.tune-points[open] > summary::before { content: "\25BE"; }
+.tune-add { padding: 2px 9px; font: 600 11px/1.4 var(--sans); }
+.tune-pts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 460px)); gap: 2px 16px; margin: 6px 0 0; }
+.tune-pt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 7px; }
+.tune-step[data-bare] input { width: 3.3em; padding: 5px 0; }
+.tune-step[data-bare] .tune-unit:last-child { padding-left: 0; }
 .tune-pt[data-sel] { background: var(--surface-2); }
 .tune-pt .tune-seg button { padding: 4px 7px; }
-.tune-pt-i { min-width: 2.2em; padding: 3px 6px; border-color: transparent; background: transparent; font: 600 11px/1 var(--mono); color: var(--ink-3); }
+.tune-pt-i { min-width: 1.8em; padding: 3px 4px; border-color: transparent; background: transparent; font: 600 11px/1 var(--mono); color: var(--ink-3); }
 .tune-pt[data-sel] .tune-pt-i { color: var(--ink-1); }
-.tune-pt-x { padding: 3px 9px; border-color: transparent; background: transparent; color: var(--ink-3); font-size: 14px; }
+.tune-pt-x { padding: 3px 7px; border-color: transparent; background: transparent; color: var(--ink-3); font-size: 14px; }
 .tune-pt-x:hover { color: var(--critical); }
-.tune-pt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 4px; }
 .tune-pre { padding: 0 0 0 9px; }
 /* The Pace chart's points while the plan is tuned. */
 svg.pace g.tune-handle { cursor: move; touch-action: none; }
@@ -5516,9 +5512,11 @@ time[data-ts] { cursor: help; }
     /* The curve's label goes on last and carries no plate, so no line under
        it is cut; the gap labels are placed around it. */
     /* While the plan is tuned the handles name the curve's points, so the
-       label moves to the plot's top left and says which line is which. */
+       label moves to the plot's top left, says which line is the draft and
+       what the pointer can do. */
     var curveLabel = editing
-      ? svgText(root, m.l + 8, m.t + 14, paceDraft ? "solid: running plan · dashed: draft" : "drag a point · double-click to add one",
+      ? svgText(root, m.l + 8, m.t + 14, (paceDraft ? "dashed: draft · " : "") +
+          (tuneUI && tuneUI.sel !== null ? "drag \u25C7 to bend · scroll on \u25C7 to pull · Delete removes the point" : "drag a point · double-click to add one · click one to bend its stretch"),
         "t-muted curve-label", { "font-size": 10.5, "font-weight": 600 })
       : svgText(root, X(1) - 4, curveLabelY(pace, Y, m.t),
         curveLabelText(pace, "target", function (e) { return "day " + (e * PACE_DAYS).toFixed(1); }) +
@@ -8957,7 +8955,11 @@ time[data-ts] { cursor: help; }
     ["even", "Even", "Spend at an even pace"], ["back", "Back-loaded", "Spend slow early, faster late"],
     ["front", "Front-loaded", "Spend fast early, slower late"], ["s", "S-curve", "Spend slow at both ends, fastest midweek"]
   ];
-  var SEGMENT_KINDS = [["smooth", "Smooth"], ["straight", "Straight"], ["step", "Step"], ["guided", "Guided"]];
+  var SEGMENT_KINDS = [
+    ["smooth", "Smooth", "bends through the points without overshooting them"], ["straight", "Straight", "a line to the point"],
+    ["step", "Step", "holds the earlier value until the point"],
+    ["guided", "Guided", "bends toward a guide dragged on the chart; scroll over the guide, or + and \u2212, to pull harder or softer"]
+  ];
   /* A guide's pull, as model.MinGuidePull and MaxGuidePull bound it. */
   var GUIDE_PULL = [0.1, 10];
   /* Edits the fold can undo, oldest first, and the ones undone. */
@@ -9212,18 +9214,23 @@ time[data-ts] { cursor: help; }
 
   /* The guide a stretch into point i takes when it becomes guided, so its
      shape changes as little as it can: a step's corner, a straight line's
-     middle, and where a smooth stretch's end tangents meet. */
+     middle, and where a smooth stretch's end tangents meet. Tangents that
+     meet outside the stretch's box, as on an S-shaped stretch, give way to
+     the guide that runs the curve through the smooth stretch's middle. */
   function defaultGuide(pts, i) {
     var a = pts[i - 1], b = pts[i], p = pts[i];
     if (p.guide) return p.guide;
     var g = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, pull: 1 };
     if (p.kind === "step") g = { x: b.x, y: a.y, pull: 1 };
     else if (p.kind === "smooth") {
-      var m = curveTangents(pts), d = m[i - 1] - m[i];
+      var m = curveTangents(pts), d = m[i - 1] - m[i], inside = false;
       if (Math.abs(d) > 1e-9) {
-        var x = (b.y - a.y + m[i - 1] * a.x - m[i] * b.x) / d;
-        g = { x: x, y: a.y + m[i - 1] * (x - a.x), pull: 1 };
+        var x = (b.y - a.y + m[i - 1] * a.x - m[i] * b.x) / d, y = a.y + m[i - 1] * (x - a.x);
+        var u = (x - a.x) / (b.x - a.x), v = b.y > a.y ? (y - a.y) / (b.y - a.y) : 0.5;
+        inside = u > 0.02 && u < 0.98 && v > 0.02 && v < 0.98;
+        if (inside) g = { x: x, y: y, pull: 1 };
       }
+      if (!inside) g = { x: g.x, y: 2 * pointsAt(pts, g.x) - g.y, pull: 1 };
     }
     return { x: clamp(g.x, a.x, b.x), y: clamp(g.y, a.y, b.y), pull: 1 };
   }
@@ -9447,17 +9454,17 @@ time[data-ts] { cursor: help; }
   /* The plan as a sentence of parts, each [text, bold]. */
   function planWords(cfg) {
     var top = curveTop(cfg), full = fullAt(cfg), held = heldAtFull(cfg), preset = presetOf(cfg);
-    var lead = !isPoints(cfg) ? "Spend " + shapeWords(cfg) : preset ? preset[2] : "Follow a " + cfg.curve.length + "-point curve";
+    var lead = !isPoints(cfg) ? "Spend " + shapeWords(cfg) : preset ? preset[2] : "A " + cfg.curve.length + "-point curve";
     var out = [[lead + ", ", false]];
     if (full !== null) {
       out.push(["full by day " + (full * PACE_DAYS).toFixed(1), true]);
-      out.push([held ? ", then hold at 100% until the reset." : ", then keep rising to ", false]);
-      if (!held) { out.push([pct(top, 0), true]); out.push([" at the reset.", false]); }
+      out.push([held ? ", then held at 100%" : ", rising to ", false]);
+      if (!held) { out.push([pct(top, 0), true]); out.push([" at the reset", false]); }
     } else if (top >= 1 - 1e-9) {
-      out.push(["reaching ", false]); out.push([pct(top, 0) + " at the reset", true]); out.push([".", false]);
+      out.push(["reaching ", false]); out.push([pct(top, 0) + " at the reset", true]);
     } else {
       out.push(["reaching ", false]); out.push([pct(top, 0) + " at the reset", true]);
-      out.push([", leaving " + pct(1 - top, 0) + " unused.", false]);
+      out.push([", leaving " + pct(1 - top, 0) + " unused", false]);
     }
     return out;
   }
@@ -9483,14 +9490,13 @@ time[data-ts] { cursor: help; }
 
   /* --- the controls */
 
-  /* A row of the form: its label, its controls, and a line of help. */
+  /* A setting of the form: its label and its controls. */
   function tuneRow(parent, label, key) {
     var row = parent.appendChild(h("div", "tune-row"));
     if (key) row.setAttribute("data-for", key);
     row.appendChild(h("span", "tune-lab", label));
     var ctl = row.appendChild(h("div", "tune-ctl"));
-    var help = row.appendChild(h("span", "tune-help"));
-    return { row: row, ctl: ctl, help: help };
+    return { row: row, ctl: ctl };
   }
 
   /* Buttons of which one is pressed, as a segmented control. */
@@ -9505,7 +9511,7 @@ time[data-ts] { cursor: help; }
       b.setAttribute("aria-pressed", "false");
       if (it[2]) b.appendChild(it[2]);
       if (it[1]) b.appendChild(h("span", "", it[1]));
-      if (it[3]) { b.title = it[3]; b.setAttribute("aria-label", it[3]); }
+      if (it[3]) { b.title = it[3]; b.setAttribute("aria-label", it[4] || it[3]); }
       b.addEventListener("click", function () { onPick(it[0]); });
       return b;
     });
@@ -9535,6 +9541,14 @@ time[data-ts] { cursor: help; }
     return s;
   }
 
+  /* An arrow turning back (dir -1) or forward (1), for undo and redo. */
+  function histIcon(dir) {
+    var s = svg("svg", { width: 14, height: 14, viewBox: "0 0 14 14", "aria-hidden": "true", "class": "tune-icon" });
+    var g = svg("g", dir > 0 ? { transform: "matrix(-1 0 0 1 14 0)" } : {}, s);
+    svg("path", { d: "M4.5 2.5L1.5 5.5L4.5 8.5M1.5 5.5H8.5A3.75 3.75 0 0 1 8.5 13H5.5" }, g);
+    return s;
+  }
+
   /* A field with − and + steps, and a slider beside it when o names a
      slider's range. The arrow keys in the field step it, Shift for ten
      steps; a value being typed stays as typed until the reader leaves it. */
@@ -9551,10 +9565,11 @@ time[data-ts] { cursor: help; }
     }
     var step = wrap.appendChild(h("div", "tune-step"));
     if (o.prefix) step.appendChild(h("span", "tune-unit tune-pre", o.prefix));
-    var minus = step.appendChild(h("button", "", "−"));
+    var minus = o.bare ? null : step.appendChild(h("button", "", "−"));
     var field = step.appendChild(h("input", ""));
-    var plus = step.appendChild(h("button", "", "+"));
-    [minus, plus].forEach(function (b, i) {
+    var plus = o.bare ? null : step.appendChild(h("button", "", "+"));
+    if (o.bare) step.setAttribute("data-bare", "");
+    (o.bare ? [] : [minus, plus]).forEach(function (b, i) {
       b.type = "button";
       b.tabIndex = -1;
       b.setAttribute("aria-label", (i ? "raise " : "lower ") + o.label);
@@ -9584,7 +9599,7 @@ time[data-ts] { cursor: help; }
         if (range) range.value = String(v);
         if (document.activeElement !== field || !field.hasAttribute("data-typing")) { field.value = o.format(v); field.removeAttribute("data-invalid"); }
       },
-      disable: function (off) { if (range) range.disabled = off; field.disabled = off; minus.disabled = off; plus.disabled = off; }
+      disable: function (off) { if (range) range.disabled = off; field.disabled = off; if (minus) { minus.disabled = off; plus.disabled = off; } }
     };
   }
 
@@ -9614,7 +9629,7 @@ time[data-ts] { cursor: help; }
     idx.addEventListener("click", function () { selectPoint(i); });
     var edit = function (fn) { var pts = workPoints(); fn(pts); tuneUI.sel = i; setPoints(pts); };
     r.day = tuneNumber(row, {
-      label: "point " + (i + 1) + " day", fk: "tune:pt:" + i + ":day", prefix: "day",
+      label: "point " + (i + 1) + " day", fk: "tune:pt:" + i + ":day", prefix: "day", bare: true,
       format: function (v) { return v.toFixed(v * 10 % 1 ? 2 : 1); },
       parse: function (t) { return parseIn(t, 0, CURVE_DAYS); },
       commit: function (v) {
@@ -9626,16 +9641,16 @@ time[data-ts] { cursor: help; }
       nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x + n * 0.1 / CURVE_DAYS, pts[i].y); }); }
     });
     r.pct = tuneNumber(row, {
-      label: "point " + (i + 1) + " percent", fk: "tune:pt:" + i + ":pct", unit: "%",
+      label: "point " + (i + 1) + " percent", fk: "tune:pt:" + i + ":pct", unit: "%", bare: true,
       format: function (v) { return String(Math.round(v * 1000) / 10); },
       parse: function (t) { return parseIn(t, 0, CURVE_MAX_Y * 100); },
       commit: function (v) { edit(function (pts) { var p = pts[i], lo = pts[i - 1], hi = pts[i + 1]; if (lo) placePoint(pts, i, p.x, clamp(v / 100, lo.y, hi ? hi.y : CURVE_MAX_Y)); }); },
       nudge: function (n) { edit(function (pts) { movePoint(pts, i, pts[i].x, pts[i].y + n * 0.01); }); }
     });
-    r.kind = tuneSeg(row, "how the curve runs into point " + (i + 1), SEGMENT_KINDS.map(function (k) { return [k[0], "", kindIcon(k[0]), k[1]]; }),
+    r.kind = tuneSeg(row, "how the curve runs into point " + (i + 1), SEGMENT_KINDS.map(function (k) { return [k[0], "", kindIcon(k[0]), k[1] + ": " + k[2], k[1]]; }),
       "tune:pt:" + i + ":kind", function (kind) { edit(function (pts) { setKind(pts, i, kind); }); });
     r.pull = tuneNumber(row, {
-      label: "pull of the guide into point " + (i + 1), fk: "tune:pt:" + i + ":pull", prefix: "pull",
+      label: "pull of the guide into point " + (i + 1), fk: "tune:pt:" + i + ":pull", prefix: "pull", bare: true,
       format: function (v) { return v.toFixed(2); },
       parse: function (t) { return parseIn(t, GUIDE_PULL[0], GUIDE_PULL[1]); },
       commit: function (v) { edit(function (pts) { if (pts[i].guide) pullGuide(pts, i, v / pts[i].guide.pull); }); },
@@ -9656,84 +9671,81 @@ time[data-ts] { cursor: help; }
     var body = $("tune-body");
     if (!tuneUI) {
       var ui = tuneUI = { body: body, preview: null, timer: 0, sel: null, preset: "even", rows: [] };
-      var lead = body.appendChild(h("div", "tune-lead"));
+      /* The plan in words beside the edit and save buttons, so Save stays
+         on screen with the chart. */
+      var bar = body.appendChild(h("div", "tune-bar"));
+      var lead = bar.appendChild(h("div", "tune-lead"));
       ui.words = lead.appendChild(h("p", "tune-words"));
       ui.was = lead.appendChild(h("p", "tune-was"));
-      lead.appendChild(h("p", "tune-hint", "Pick a preset, or shape the curve yourself: drag its points on a 7-day chart, " +
-        "double-click the chart to add one, and select one to remove it or change how the curve runs into it. " +
-        "A selected point's diamond pulls the stretch before it toward it. Nothing changes until you save."));
-      var form = body.appendChild(h("div", "tune-form"));
-
-      var r = tuneRow(form, "Preset");
-      ui.presets = tuneSeg(r.ctl, "Preset", TUNE_PRESETS.map(function (p) { return [p[0], p[1], curveIcon(presetPoints(p[0], 5.6, false))]; }),
-        "tune:preset", function (name) { applyPreset(name); });
-      ui.presetHelp = r.help;
-
-      r = tuneRow(form, "Full by");
-      ui.knobRows = [r.row];
-      ui.day = tuneNumber(r.ctl, {
-        label: "the day the plan reaches 100%", fk: "tune:full", prefix: "day",
-        smin: TUNE_FULL_DAYS[0], smax: TUNE_FULL_DAYS[1], sstep: 0.1,
-        format: function (v) { return v.toFixed(1); },
-        parse: function (t) { return parseIn(t, TUNE_FULL_DAYS[0], TUNE_FULL_DAYS[1]); },
-        commit: function (v) { applyPreset(tuneUI.preset, roundTo(v, 0.1)); },
-        nudge: function (n) { applyPreset(tuneUI.preset, roundTo(planKnobs(tuneWork()).day + n * 0.1, 0.1)); }
-      });
-      ui.dayHelp = r.help;
-
-      r = tuneRow(form, "After 100%");
-      ui.knobRows.push(r.row);
-      ui.hold = tuneSeg(r.ctl, "After the plan reaches 100%", [["rise", "Keep rising"], ["hold", "Hold at 100%"]], "tune:hold",
-        function (v) { applyPreset(tuneUI.preset, undefined, v === "rise"); });
-      ui.holdHelp = r.help;
-
-      ui.ptsFold = body.appendChild(h("details", "tune-points"));
-      ui.ptsSum = ui.ptsFold.appendChild(h("summary", ""));
-      ui.ptsList = ui.ptsFold.appendChild(h("div", "tune-pts"));
-      var ptsActions = ui.ptsFold.appendChild(h("div", "tune-pt-actions"));
-      ui.add = ptsActions.appendChild(h("button", "", "+ Add point"));
-      ui.add.type = "button";
-      ui.add.setAttribute("data-fk", "tune:add");
-      ui.add.addEventListener("click", function () {
-        var pts = workPoints(), i = addPoint(pts, widestGap(pts));
-        if (i < 0) return;
-        tuneUI.sel = i;
-        setPoints(pts);
-      });
-      ptsActions.appendChild(h("span", "tune-help", "Smooth bends through the points without overshooting them, Straight runs a line, Step holds the earlier value until the point, " +
-        "and Guided bends toward a guide you drag on the chart, closer the more it pulls (the scroll wheel over the guide, or + and −)."));
-
-      ui.prev = body.appendChild(h("div", "tune-prev"));
-      ui.prev.setAttribute("aria-live", "polite");
-      var actions = body.appendChild(h("div", "tune-actions"));
-      var hist = actions.appendChild(h("div", "tune-hist"));
+      var actions = bar.appendChild(h("div", "tune-actions"));
       var mac = /Mac|iPhone|iPad/.test(navigator.platform || "");
-      ui.undo = hist.appendChild(h("button", "", "\u21B6 Undo"));
-      ui.redo = hist.appendChild(h("button", "", "Redo \u21B7"));
+      ui.undo = actions.appendChild(h("button", "tune-icon-btn"));
+      ui.redo = actions.appendChild(h("button", "tune-icon-btn"));
+      ui.undo.appendChild(histIcon(-1));
+      ui.redo.appendChild(histIcon(1));
       [[ui.undo, -1, "undo", mac ? "\u2318Z" : "Ctrl+Z"], [ui.redo, 1, "redo", mac ? "\u21E7\u2318Z" : "Ctrl+Y"]].forEach(function (b) {
         b[0].type = "button";
         b[0].setAttribute("data-fk", "tune:" + b[2]);
-        b[0].title = (b[1] < 0 ? "Undo the last edit" : "Redo the edit undone") + " (" + b[3] + ")";
+        b[0].setAttribute("aria-label", b[1] < 0 ? "Undo" : "Redo");
+        b[0].title = (b[1] < 0 ? "Undo" : "Redo") + " (" + b[3] + ")";
         b[0].addEventListener("click", function () { stepTune(b[1]); });
       });
-      ui.save = actions.appendChild(h("button", "tune-save"));
-      ui.save.appendChild(h("span", "tune-spin")).setAttribute("aria-hidden", "true");
-      ui.saveLabel = ui.save.appendChild(h("span", "", "Save to host config"));
-      ui.save.type = "button";
-      ui.save.setAttribute("data-fk", "tune:save");
-      ui.save.addEventListener("click", saveTune);
-      ui.discard = actions.appendChild(h("button", "", "Discard draft"));
-      ui.discard.type = "button";
-      ui.discard.setAttribute("data-fk", "tune:discard");
-      ui.discard.addEventListener("click", function () { tuneUI.sel = null; discardTune(); });
       ui.reset = actions.appendChild(h("button", "tune-quiet", "Defaults"));
       ui.reset.type = "button";
       ui.reset.setAttribute("data-fk", "tune:defaults");
       ui.reset.title = "Draft the plan the plugin runs with no pace settings: an even pace to 110% at the reset";
       ui.reset.addEventListener("click", function () { tuneUI.sel = null; setTune(TUNE_DEFAULTS); });
-      ui.changes = actions.appendChild(h("span", "tune-changes"));
+      ui.discard = actions.appendChild(h("button", "", "Discard"));
+      ui.discard.type = "button";
+      ui.discard.setAttribute("data-fk", "tune:discard");
+      ui.discard.addEventListener("click", function () { tuneUI.sel = null; discardTune(); });
+      ui.save = actions.appendChild(h("button", "tune-save"));
+      ui.save.appendChild(h("span", "tune-spin")).setAttribute("aria-hidden", "true");
+      ui.saveLabel = ui.save.appendChild(h("span", "", "Save"));
+      ui.save.type = "button";
+      ui.save.setAttribute("data-fk", "tune:save");
+      ui.save.addEventListener("click", saveTune);
       ui.msg = body.appendChild(h("p", "tune-msg"));
       ui.msg.setAttribute("role", "status");
+
+      var form = body.appendChild(h("div", "tune-form"));
+      var r = tuneRow(form, "Preset");
+      ui.presets = tuneSeg(r.ctl, "Preset", TUNE_PRESETS.map(function (p) { return [p[0], p[1], curveIcon(presetPoints(p[0], 5.6, false))]; }),
+        "tune:preset", function (name) { applyPreset(name); });
+      r = tuneRow(form, "Full by");
+      r.row.title = "The day each seat's plan reaches 100%";
+      ui.knobRows = [r.row];
+      ui.day = tuneNumber(r.ctl, {
+        label: "the day the plan reaches 100%", fk: "tune:full", prefix: "day",
+        format: function (v) { return v.toFixed(1); },
+        parse: function (t) { return parseIn(t, TUNE_FULL_DAYS[0], TUNE_FULL_DAYS[1]); },
+        commit: function (v) { applyPreset(tuneUI.preset, roundTo(v, 0.1)); },
+        nudge: function (n) { applyPreset(tuneUI.preset, roundTo(planKnobs(tuneWork()).day + n * 0.1, 0.1)); }
+      });
+      r = tuneRow(form, "After 100%");
+      ui.knobRows.push(r.row);
+      ui.hold = tuneSeg(r.ctl, "After the plan reaches 100%", [["rise", "Keep rising"], ["hold", "Hold"]], "tune:hold",
+        function (v) { applyPreset(tuneUI.preset, undefined, v === "rise"); });
+
+      ui.ptsFold = body.appendChild(h("details", "tune-points"));
+      ui.ptsSum = ui.ptsFold.appendChild(h("summary", ""));
+      ui.ptsCount = ui.ptsSum.appendChild(h("span", ""));
+      ui.add = ui.ptsSum.appendChild(h("button", "tune-add", "+ Add"));
+      ui.add.type = "button";
+      ui.add.setAttribute("data-fk", "tune:add");
+      ui.add.title = "Add a point in the widest stretch, or double-click the chart";
+      ui.add.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        var pts = workPoints(), i = addPoint(pts, widestGap(pts));
+        if (i < 0) return;
+        tuneUI.sel = i;
+        tuneUI.ptsFold.open = true;
+        setPoints(pts);
+      });
+      ui.ptsList = ui.ptsFold.appendChild(h("div", "tune-pts"));
+
+      ui.prev = body.appendChild(h("div", "tune-prev"));
+      ui.prev.setAttribute("aria-live", "polite");
       $("pace-tune").addEventListener("toggle", function () { redrawTune(); });
       /* While the fold is open, the undo keys step through its edits, except
          in a field, which keeps its own. */
@@ -9775,19 +9787,19 @@ time[data-ts] { cursor: help; }
     if (paceDraft) fillWords(u.was, planWords(live), "Now");
 
     u.presets.set(preset ? preset[0] : "");
-    u.presetHelp.textContent = preset ? "" : isPoints(cfg) ? "custom curve: a preset replaces its points"
-      : "the running plan is a formula curve: a preset or a drag turns it into points";
     u.day.set(knobs.day);
-    u.dayHelp.textContent = "the day each seat's plan reaches 100%";
     u.hold.set(knobs.rise ? "rise" : "hold");
-    u.holdHelp.textContent = knobs.rise ? "keeps rising to " + pct(curveTop(cfg), 0) + " at the reset, so a seat still holding quota near its reset goes first"
-      : "flat at 100% to the reset";
     /* The knobs set a preset; a custom curve takes them back only through a
        preset. */
     var custom = !preset;
     u.day.disable(custom);
     u.hold.disable(custom);
-    u.knobRows.forEach(function (row) { row.toggleAttribute("data-off", custom); });
+    u.knobRows[1].title = custom ? "" : knobs.rise ? "A seat still holding quota near its reset goes first" : "Flat at 100% to the reset";
+    u.knobRows.forEach(function (row) {
+      row.toggleAttribute("data-off", custom);
+      if (custom) row.title = "A preset sets this; the custom curve sets its own points";
+    });
+    if (!custom) u.knobRows[0].title = "The day each seat's plan reaches 100%";
 
     /* The points table: one row per point, rebuilt when the count changes. */
     if (u.rows.length !== pts.length) {
@@ -9812,11 +9824,11 @@ time[data-ts] { cursor: help; }
       r.remove.disabled = still;
       r.row.toggleAttribute("data-sel", u.sel === i);
     });
-    u.ptsSum.textContent = "Points (" + pts.length + ")" + (isPoints(cfg) ? "" : " · from the formula curve");
+    u.ptsCount.textContent = "Points (" + pts.length + ")" + (isPoints(cfg) ? "" : " · from the formula curve");
     if (custom && !u.ptsOpened) { u.ptsFold.open = true; u.ptsOpened = true; }
     u.add.disabled = pts.length >= CURVE_MAX_POINTS || still;
 
-    u.changes.textContent = paceDraft ? changeWords(paceDraft, live) : "";
+    u.save.title = paceDraft ? "Saves " + changeWords(paceDraft, live) : "";
     u.undo.disabled = still || !tuneUndo.length;
     u.redo.disabled = still || !tuneRedo.length;
     var sum = $("tune-sum-state");
@@ -9827,7 +9839,7 @@ time[data-ts] { cursor: help; }
     u.discard.hidden = !paceDraft || applying;
     u.save.disabled = !paceDraft || !!u.saving;
     u.save.toggleAttribute("data-busy", !!u.saving);
-    u.saveLabel.textContent = u.saving ? "Saving\u2026" : "Save to host config";
+    u.saveLabel.textContent = u.saving ? "Saving\u2026" : "Save";
     u.discard.disabled = !!u.saving;
     u.body.toggleAttribute("data-applying", still);
     u.reset.disabled = still || sameTune(cfg, TUNE_DEFAULTS);
@@ -9844,7 +9856,7 @@ time[data-ts] { cursor: help; }
     var u = tuneUI, box = u.prev;
     box.textContent = "";
     if (!paceDraft) return;
-    if (!u.preview) { box.appendChild(h("p", "tune-pending", "Ranking the seats by the draft…")); return; }
+    if (!u.preview) { box.appendChild(h("p", "tune-pending", "Ranking the draft\u2026")); return; }
     var byId = Object.create(null);
     (u.preview.auths || []).forEach(function (a) { byId[a.auth_id] = a; });
     var now = ranks.byFam[STANDARD] || {};
@@ -9853,13 +9865,13 @@ time[data-ts] { cursor: help; }
       return sc && sc.eligible && now[a.auth_id] !== undefined && byId[a.auth_id];
     });
     var drafted = rankAuths(pool.map(function (a) { return byId[a.auth_id]; }), STANDARD);
-    if (!drafted.length) { box.appendChild(h("p", "tune-pending", "No serving seat is eligible for Standard requests.")); return; }
+    if (!drafted.length) { box.appendChild(h("p", "tune-pending", "No seat is eligible for Standard.")); return; }
     var first = byId[drafted[0].auth_id];
     var nowFirst = pool.filter(function (a) { return now[a.auth_id] === 0; })[0];
     var head = box.appendChild(h("p", "tune-next"));
-    head.appendChild(document.createTextNode("Next new Standard conversation: "));
+    head.appendChild(document.createTextNode("Next Standard pick: "));
     head.appendChild(seatMark(first));
-    head.appendChild(h("span", "tune-same", !nowFirst || nowFirst.auth_id === first.auth_id ? " same as now" : " instead of "));
+    head.appendChild(h("span", "tune-same", !nowFirst || nowFirst.auth_id === first.auth_id ? " as now" : " instead of "));
     if (nowFirst && nowFirst.auth_id !== first.auth_id) head.appendChild(seatMark(nowFirst));
     var list = box.appendChild(h("ol", "tune-ranks"));
     list.setAttribute("aria-label", "Standard ranking under the draft");
