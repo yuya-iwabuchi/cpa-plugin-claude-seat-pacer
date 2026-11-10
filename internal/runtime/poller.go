@@ -542,6 +542,9 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 	// Store.MergeHeaders. Pruning against the fetch set would discard every
 	// such credential's recorded history on each poll.
 	p.quota.Prune(listed)
+	// A boost on a credential the host stopped listing has no seat on the
+	// page to clear it from.
+	p.pruneBoosts(listed, p.now())
 
 	p.mu.Lock()
 	p.listErr = ""

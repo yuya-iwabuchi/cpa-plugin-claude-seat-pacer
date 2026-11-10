@@ -50,6 +50,7 @@ func TestManagementRegisterDeclaresRoutesAndResources(t *testing.T) {
 	for _, want := range []string{
 		"GET " + testMgmtPrefix + "/status",
 		"GET " + testMgmtPrefix + "/page-status",
+		"POST " + testMgmtPrefix + "/page-boost",
 		"POST " + testMgmtPrefix + "/refresh",
 		"POST " + testMgmtPrefix + "/unbind",
 		"POST " + testMgmtPrefix + "/bindings/sweep",
@@ -135,6 +136,26 @@ func TestManagementAdapterStripsResourcePrefix(t *testing.T) {
 		if out.StatusCode != http.StatusTeapot || string(out.Body) != "served "+tc.want || out.Headers.Get("Content-Type") != "text/plain" {
 			t.Errorf("%s: response = %d %q %v", tc.path, out.StatusCode, out.Body, out.Headers)
 		}
+	}
+
+	// A boost reaches the app's boost path, as a POST only, and the resource
+	// route never reaches it.
+	h.path = ""
+	var boosted ManagementResponse
+	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodPost, Path: testMgmtPrefix + "/page-boost",
+		Query: url.Values{"seat": {"x"}, "span": {"1h"}}}), &boosted)
+	if h.path != "/api/boost" || h.method != http.MethodPost || h.query != "seat=x&span=1h" {
+		t.Errorf("page-boost: handler saw %s %q query %q, want POST /api/boost", h.method, h.path, h.query)
+	}
+	h.path = ""
+	var refused ManagementResponse
+	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodGet, Path: testMgmtPrefix + "/page-boost"}), &refused)
+	if refused.StatusCode != http.StatusMethodNotAllowed || h.path != "" {
+		t.Errorf("GET page-boost: status %d, handler saw %q; want 405 without reaching the app", refused.StatusCode, h.path)
+	}
+	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodPost, Path: testResourceBase + "/api/boost"}), &refused)
+	if refused.StatusCode != http.StatusNotFound || h.path != "" {
+		t.Errorf("resource api/boost: status %d, handler saw %q; want 404 without reaching the app", refused.StatusCode, h.path)
 	}
 
 	// Without an app the resource route answers 503, not an error envelope.

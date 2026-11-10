@@ -15,12 +15,16 @@ reset, and each conversation stays on one seat so Anthropic prompt caches keep
 hitting. A seat with no weekly cap on the requested model, meaning its latest
 usage read and the responses since show no weekly window covering that model's
 family, has no weekly quota to lose: its 5-hour window is its only quota. It
-goes ahead of every seat with a weekly cap and is paced against that 5-hour
-window, so a seat with a weekly cap starts a conversation for that model,
-other than a subagent of one it already holds, only while no seat without one
-is eligible. A seat whose latest usage read shows weekly windows and no
+goes ahead of every seat with a weekly cap that is not boosted and is paced
+against that 5-hour window, so a seat with a weekly cap starts a conversation
+for that model, other than a subagent of one it already holds, only while no
+seat without one is eligible. A seat whose latest usage read shows weekly windows and no
 5-hour window, as a plan with no 5-hour limit reports, is paced and gated by
 its weekly windows alone.
+
+An operator's boost (`internal/runtime/boosts.go`) puts an eligible seat
+ahead of every other eligible seat for new conversations until it ends; it
+moves no bound conversation and never makes an ineligible seat eligible.
 
 The preference is a policy, not a bug to fix: `LandingTarget` defaults above
 full on purpose, because weekly quota left at reset is lost. 1.0 removes only

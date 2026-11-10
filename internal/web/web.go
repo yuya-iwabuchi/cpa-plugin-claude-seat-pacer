@@ -100,6 +100,15 @@ type Syncer interface {
 	SyncNow(ctx context.Context) bool
 }
 
+// Booster is what a Source implements to take the page's boosts. A Source
+// that does not implement it answers every boost request 501.
+type Booster interface {
+	// Boost boosts the credential for span from now.
+	Boost(authID, span string, now time.Time) (model.Boost, error)
+	// Unboost clears the credential's boost and reports whether it had one.
+	Unboost(authID string, now time.Time) bool
+}
+
 // Source supplies the state the app renders.
 type Source interface {
 	// Status evaluates every credential for modelID at now. modelID "" lets
@@ -109,9 +118,10 @@ type Source interface {
 
 // NewHandler serves the app at app-relative paths: "/index.html" for the page,
 // "/api/status" for its data, which the plugin reaches from the page-status
-// management route, and "/api/seats" for one conversation's seat, which the
-// plugin serves only on its Unix socket and cmd/webdev serves for its own
-// fixtures. A bare "/" reaches it only from cmd/webdev:
+// management route, "/api/boost" for its boosts, which it reaches from the
+// page-boost management route, and "/api/seats" for one conversation's seat,
+// which the plugin serves only on its Unix socket and cmd/webdev serves for its
+// own fixtures. A bare "/" reaches it only from cmd/webdev:
 // the host matches a resource route by exact path and refuses an empty one
 // (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
@@ -133,6 +143,8 @@ func newHandler(src Source, key func() []byte) http.Handler {
 				return
 			}
 			serveStatus(w, r, src, key())
+		case "/api/boost":
+			serveBoost(w, r, src, key())
 		case "/api/seats":
 			if !allowRead(w, r) {
 				return
@@ -203,6 +215,65 @@ func writeRawJSON(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// serveBoost sets or clears a boost on the seat the request names by its
+// published id: ?seat=<id>&span=<span>, where span off clears it. It answers
+// the seat's boost with the seat named the same way, and null once cleared.
+func serveBoost(w http.ResponseWriter, r *http.Request, src Source, key []byte) {
+	if r.Method != http.MethodPost {
+		setCommonHeaders(w)
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	b, ok := src.(Booster)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "this build takes no boosts"})
+		return
+	}
+	now := time.Now()
+	seat := r.URL.Query().Get("seat")
+	authID := ""
+	if seat != "" {
+		for _, a := range src.Status(now, "").Auths {
+			if hmac.Equal([]byte(publicID(key, a.AuthID)), []byte(seat)) {
+				authID = a.AuthID
+				break
+			}
+		}
+	}
+	if authID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such seat"})
+		return
+	}
+	span := r.URL.Query().Get("span")
+	if span == "off" {
+		b.Unboost(authID, now)
+		writeJSON(w, http.StatusOK, map[string]any{"seat": seat, "boost": nil})
+		return
+	}
+	boost, err := b.Boost(authID, span, now)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	boost.AuthID = seat
+	writeJSON(w, http.StatusOK, map[string]any{"seat": seat, "boost": boost})
+}
+
+// writeJSON answers status with body encoded as JSON under the common headers.
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		setCommonHeaders(w)
+		http.Error(w, "encode failed", http.StatusInternalServerError)
+		return
+	}
+	setCommonHeaders(w)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(encoded)
 }
 
 // nonFiniteSentinel stands in for a float64 that JSON has no literal for. A
@@ -284,6 +355,11 @@ func reduceForPage(st model.Status, key []byte) model.Status {
 			}
 			login.Team = bareEmail.ReplaceAllStringFunc(login.Team, maskEmail)
 			a.Login = &login
+		}
+		if a.Boost != nil {
+			boost := *a.Boost
+			boost.AuthID = a.AuthID
+			a.Boost = &boost
 		}
 		auths[i] = a
 	}

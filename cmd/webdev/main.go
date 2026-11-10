@@ -300,6 +300,49 @@ type fixture struct {
 	// idKeyFile is the published-id key file, empty for a key of the
 	// process's own.
 	idKeyFile string
+	// boosts are the page's live boosts by credential id, held in memory.
+	boosts map[string]model.Boost
+}
+
+// Boost boosts a fixture seat the way the plugin does, ending a reset span at
+// the seat's weekly reset, or its 5-hour reset where it has no weekly window.
+func (f *fixture) Boost(authID, span string, now time.Time) (model.Boost, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now = now.Add(f.shift)
+	b := model.Boost{AuthID: authID, Span: span, SetAt: now}
+	switch span {
+	case model.BoostHour:
+		b.Until = now.Add(time.Hour)
+	case model.BoostFourHours:
+		b.Until = now.Add(4 * time.Hour)
+	case model.BoostUntilCleared:
+	case model.BoostReset:
+		for _, w := range f.snapshots[authID].Windows {
+			if w.ResetsAt.After(now) && (w.Kind == model.WindowWeekly || (w.Kind == model.WindowSession && b.Until.IsZero())) {
+				b.Until = w.ResetsAt
+			}
+		}
+		if b.Until.IsZero() {
+			return model.Boost{}, runtime.ErrNoReset
+		}
+	default:
+		return model.Boost{}, fmt.Errorf("%w %q", runtime.ErrUnknownSpan, span)
+	}
+	if f.boosts == nil {
+		f.boosts = make(map[string]model.Boost)
+	}
+	f.boosts[authID] = b
+	return b, nil
+}
+
+// Unboost clears a fixture seat's boost.
+func (f *fixture) Unboost(authID string, _ time.Time) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.boosts[authID]
+	delete(f.boosts, authID)
+	return ok
 }
 
 // SyncNow reports whether it read, and reads at most once every
@@ -572,6 +615,10 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 			}
 		}
 		runtime.ApplyHostState(&a)
+		if b, boosted := f.boosts[a.AuthID]; boosted && b.Active(now) {
+			a.Boost = &b
+			a.Score.Boosted = true
+		}
 		auths = append(auths, a)
 	}
 	sort.Slice(auths, func(i, j int) bool { return auths[i].AuthID < auths[j].AuthID })

@@ -405,10 +405,15 @@ type Score struct {
 	// quota there. That window resets several times a day rather than running
 	// down over a week, so an eligible one ranks ahead of every credential
 	// with a weekly cap, whatever their costs.
-	SessionOnly bool          `json:"session_only,omitempty"`
-	Windows     []WindowScore `json:"windows"`
-	Eligible    bool          `json:"eligible"`
-	Reason      string        `json:"reason,omitempty"`
+	SessionOnly bool `json:"session_only,omitempty"`
+	// Boosted marks a credential an operator boosted: eligible, it ranks
+	// ahead of every credential that is not, SessionOnly ones included,
+	// whatever their costs. A boost never makes an ineligible credential
+	// eligible.
+	Boosted  bool          `json:"boosted,omitempty"`
+	Windows  []WindowScore `json:"windows"`
+	Eligible bool          `json:"eligible"`
+	Reason   string        `json:"reason,omitempty"`
 }
 
 // Decision kinds.
@@ -519,6 +524,36 @@ type AuthStatus struct {
 	// Login is what the plugin can tell about the credential's OAuth login;
 	// nil for a credential with no OAuth login or none read yet.
 	Login *Login `json:"login,omitempty"`
+	// Boost is the operator's live boost on the credential; nil when none.
+	Boost *Boost `json:"boost,omitempty"`
+}
+
+// Boost spans an operator picks from.
+const (
+	BoostHour      = "1h"
+	BoostFourHours = "4h"
+	// BoostReset lasts until the reset of the credential's all-models weekly
+	// window as read when the boost is set, or of its 5-hour window on a
+	// credential with no weekly window.
+	BoostReset = "reset"
+	// BoostUntilCleared lasts until the operator clears it.
+	BoostUntilCleared = "cleared"
+)
+
+// Boost is an operator's instruction to send new conversations to one
+// credential ahead of the pace ranking while it lasts. It moves no bound
+// conversation.
+type Boost struct {
+	AuthID string    `json:"auth_id"`
+	Span   string    `json:"span"`
+	SetAt  time.Time `json:"set_at"`
+	// Until is when the boost ends; zero for one that lasts until cleared.
+	Until time.Time `json:"until"`
+}
+
+// Active reports whether the boost holds at now.
+func (b Boost) Active(now time.Time) bool {
+	return b.Until.IsZero() || now.Before(b.Until)
 }
 
 // SpendRates is how much of a seat's 7-day window, and of its 5-hour window,
