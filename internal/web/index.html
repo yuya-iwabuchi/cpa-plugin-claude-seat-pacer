@@ -973,14 +973,14 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-msg[data-tone="ok"] { color: var(--ink-1); }
 .tune-msg[data-tone="ok"]::before { content: "\2713  "; color: var(--good); font-weight: 700; }
 /* A save in flight, and a saved plan the plugin has yet to run, turn a ring. */
-.tune-spin, .tune-msg[data-tone="busy"]::before {
+.tune-spin, .tune-msg[data-tone="busy"]::before, .tune-sum-state[data-busy]::before {
   content: ""; display: inline-block; box-sizing: border-box; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
   border-radius: 50%; border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor;
 }
 .tune-save:not([data-busy]) .tune-spin { display: none; }
 .tune-actions .tune-save[data-busy] { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); opacity: .8; cursor: progress; }
 @media (prefers-reduced-motion: no-preference) {
-  .tune-spin, .tune-msg[data-tone="busy"]::before { animation: spin .8s linear infinite; }
+  .tune-spin, .tune-msg[data-tone="busy"]::before, .tune-sum-state[data-busy]::before { animation: spin .8s linear infinite; }
 }
 .tune-body[data-applying] .tune-form { opacity: .5; pointer-events: none; }
 @media (max-width: 640px) {
@@ -9000,8 +9000,21 @@ time[data-ts] { cursor: help; }
   /* Whether two plans are the same on the key k: points by the curve they
      draw, so two spellings of one curve are one plan. */
   function sameKey(a, b, k) {
-    if (k === "points") return JSON.stringify(a.curve || []) === JSON.stringify(b.curve || []);
+    if (k === "points") return sameCurve(a.curve || [], b.curve || []);
     return a[k] === b[k] || (!a[k] && !b[k]);
+  }
+
+  /* Whether two points curves are one curve, field by field: the status
+     reaches the page with each point's keys in another order than the page
+     writes them. */
+  function sameCurve(a, b) {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      var p = a[i], q = b[i], g = p.guide, h = q.guide;
+      if (p.x !== q.x || p.y !== q.y || (p.kind || "") !== (q.kind || "") || !g !== !h) return false;
+      if (g && (g.x !== h.x || g.y !== h.y || g.pull !== h.pull)) return false;
+    }
+    return true;
   }
 
   function sameTune(a, b) {
@@ -9029,8 +9042,9 @@ time[data-ts] { cursor: help; }
     showDraft(sameTune(d, live) ? null : d);
   }
 
-  /* A saved plan holds still until the plugin runs it. */
-  function tuneApplying() { return !!(tuneUI && tuneUI.saved && paceDraft === tuneUI.saved); }
+  /* A plan being saved, and a saved plan, hold still until the plugin runs
+     it. */
+  function tuneApplying() { return !!(tuneUI && (tuneUI.saving || tuneUI.saved && paceDraft === tuneUI.saved)); }
 
   /* Notes the plan shown and the point selected as a step to undo. */
   function recordTune() {
@@ -9786,28 +9800,29 @@ time[data-ts] { cursor: help; }
       var r = u.rows[i], first = i === 0, last = i === pts.length - 1;
       r.day.set(pointDay(p));
       r.pct.set(p.y);
-      r.day.disable(first || last || applying);
-      r.pct.disable(first || applying);
+      r.day.disable(first || last || still);
+      r.pct.disable(first || still);
       r.kind.set(first ? "" : p.kind);
-      r.kind.disable(first || applying);
+      r.kind.disable(first || still);
       r.pull.el.hidden = p.kind !== "guided";
       if (p.guide) r.pull.set(p.guide.pull);
-      r.pull.disable(applying);
+      r.pull.disable(still);
       r.kind.el.style.visibility = first ? "hidden" : "";
       r.remove.style.visibility = first || last ? "hidden" : "";
-      r.remove.disabled = applying;
+      r.remove.disabled = still;
       r.row.toggleAttribute("data-sel", u.sel === i);
     });
     u.ptsSum.textContent = "Points (" + pts.length + ")" + (isPoints(cfg) ? "" : " · from the formula curve");
     if (custom && !u.ptsOpened) { u.ptsFold.open = true; u.ptsOpened = true; }
-    u.add.disabled = pts.length >= CURVE_MAX_POINTS || applying;
+    u.add.disabled = pts.length >= CURVE_MAX_POINTS || still;
 
     u.changes.textContent = paceDraft ? changeWords(paceDraft, live) : "";
-    u.undo.disabled = applying || !tuneUndo.length;
-    u.redo.disabled = applying || !tuneRedo.length;
+    u.undo.disabled = still || !tuneUndo.length;
+    u.redo.disabled = still || !tuneRedo.length;
     var sum = $("tune-sum-state");
-    sum.textContent = applying ? "saved, applying" : paceDraft ? "unsaved draft" : "";
+    sum.textContent = u.saving ? "saving" : applying ? "saved, applying" : paceDraft ? "unsaved draft" : "";
     sum.hidden = !sum.textContent;
+    sum.toggleAttribute("data-busy", !!u.saving || applying);
     u.save.hidden = !paceDraft || applying;
     u.discard.hidden = !paceDraft || applying;
     u.save.disabled = !paceDraft || !!u.saving;
