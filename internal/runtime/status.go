@@ -67,6 +67,7 @@ func (p *Plugin) status(now time.Time, modelID string, draft *model.PaceConfig) 
 	listErr := p.listErr
 	configWarnings := p.configWarnings
 	holds := p.holds
+	localAPIErr := p.localAPIErr
 	// Only providers whose latest pick was still down to one candidate, so the
 	// warning clears once the pool's priority values are fixed.
 	single := make([]string, 0, len(p.singleCandidates))
@@ -173,6 +174,9 @@ func (p *Plugin) status(now time.Time, modelID string, draft *model.PaceConfig) 
 		seats[id] = state
 	}
 	warnings := Warnings(cfg.Enabled, configWarnings, listErr, single, rows, seats)
+	if localAPIErr != "" {
+		warnings = append(warnings, "local API not served: "+localAPIErr)
+	}
 
 	decisions := p.decisions.newestFirst()
 	bound := bindings.All()
