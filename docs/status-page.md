@@ -46,11 +46,12 @@ still offers it for other models, and its tooltip names the host status.
   is marked fallback, and a tier none of whose seats can take requests is
   skipped, with the reason: disabled in the host, held by host, refused by
   the provider, full, or not scored.
-  Pointing at a seat's row shows a bolt beside the hide control; it opens a
-  menu that boosts the seat for an hour, four hours, until its weekly reset,
-  or until cleared, and clears a live boost. A boosted seat keeps its bolt
-  filled, reads "boosted until" in each seat list, and is listed under the
-  chart with a Clear button, a seat hidden on the page included.
+  Pointing at a seat's row shows an arrow to the top (⤒) beside the hide
+  control; it opens a menu that boosts the seat for an hour, four hours,
+  until its weekly reset, or until cleared, and clears a live boost. A
+  boosted seat keeps its arrow filled, reads "boosted until" in each seat
+  list, and is listed under the chart with a Clear button, a seat hidden on
+  the page included.
 - **Current window.** Each seat's use of its current window against the curve,
   one window at a time: 7d Standard, each model family's 7-day cap the cost
   weighs, and 5h Standard. A 7-day view lists the seats in its family's ranking
