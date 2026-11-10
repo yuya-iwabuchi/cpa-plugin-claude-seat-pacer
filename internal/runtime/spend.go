@@ -44,6 +44,8 @@ var listPrices = []struct {
 	match string
 	price listPrice
 }{
+	{"fable-5-2", listPrice{input: 8, output: 40, cacheRead: 0.20}},
+	{"mythos-5-2", listPrice{input: 8, output: 40, cacheRead: 0.20}},
 	{"fable-5-1", listPrice{input: 10, output: 50, cacheRead: 0.25}},
 	{"mythos-5-1", listPrice{input: 10, output: 50, cacheRead: 0.25}},
 	{"fable", listPrice{input: 10, output: 50, cacheRead: 1}},

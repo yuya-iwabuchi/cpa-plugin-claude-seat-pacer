@@ -15,6 +15,8 @@ func TestCostOfWeighsEachModelAtItsListPrice(t *testing.T) {
 		want  float64
 	}{
 		{"claude-opus-5-5", 4 + 8 + 0.20 + 20},
+		{"claude-fable-5-2", 8 + 16 + 0.20 + 40},
+		{"claude-mythos-5-2", 8 + 16 + 0.20 + 40},
 		{"claude-fable-5-1", 10 + 20 + 0.25 + 50},
 		{"claude-fable-5", 10 + 20 + 1 + 50},
 		{"claude-haiku-5-5", 5 * (0.10 + 0.20 + 0.01 + 0.50)},
