@@ -238,6 +238,8 @@ and unit-testable without the host.
   at that indent, and runs them under node with only `H_HOUR`, `H_DAY`,
   `RESET_TOLERANCE_MS` and `num` defined, so each stays a top-level function of
   that shape that calls only the functions the test names.
+  `TestPageCurveMatchesTheScorer` lifts the curve functions the same way, with
+  only `num` and `clamp` defined, and holds them to `pace.Target`.
 - The local API's JSON is a published format, documented field by field in
   `docs/local-api.md`. Adding a field, or a new value of a field, keeps
   `web.LocalAPIVersion`; removing a field or changing its meaning raises it.
