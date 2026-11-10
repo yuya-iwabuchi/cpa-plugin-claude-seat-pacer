@@ -87,6 +87,16 @@ import (
 // silence, leaving the page's sync button inert.
 var _ web.Syncer = (*runtime.Plugin)(nil)
 
+// The answer names the asking conversation's seat only for a Source that can
+// look up its binding, through a type assertion that would otherwise fail in
+// silence, leaving every answer with a null binding.
+var _ web.SessionBinder = (*runtime.Plugin)(nil)
+
+// The answer gives each seat its use per dollar only for a Source that can
+// work it out, through a type assertion that would otherwise fail in silence,
+// leaving every seat without a rate.
+var _ web.SpendRater = (*runtime.Plugin)(nil)
+
 // Plugin identity. The host rejects a plugin with any of these blank. The
 // Makefile reads pluginVersion from this line to name the installed library.
 const (
@@ -111,6 +121,7 @@ var configFields = []runtime.ConfigField{
 	{Name: "pace.hold-at-full", Type: "boolean", Description: "Hold each seat's plan at 100% once it gets there, instead of letting it keep rising to the landing target at the reset. Off, a seat's lead grows until its reset; on, it stops growing at 100%. Default false."},
 	{Name: "quota.poll-interval", Type: "string", Description: "How often each credential's usage endpoint is read. Default 2m; a value below 30s falls back to the default. quota.max-staleness is raised to twice this when it is shorter."},
 	{Name: "web.enabled", Type: "boolean", Description: "Serve the status page, and the management route its data comes from. Default true."},
+	{Name: "web.socket", Type: "boolean", Description: "Serve the local API: a read-only Unix socket in the plugin's data directory, which only the host's user can open, answering which seat a Claude Code session is on and how much of each seat's quota is used. Needs web.enabled. macOS and Linux; Windows serves none. Default false."},
 }
 
 var plugin = newPlugin()

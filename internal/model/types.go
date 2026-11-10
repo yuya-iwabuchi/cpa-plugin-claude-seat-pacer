@@ -26,6 +26,14 @@ const (
 	WindowWeeklyScoped WindowKind = "weekly_scoped"
 )
 
+// Length is how long one cycle of a window of kind k lasts.
+func (k WindowKind) Length() time.Duration {
+	if k == WindowSession {
+		return SessionDuration
+	}
+	return WeeklyDuration
+}
+
 // Model families. The usage endpoint names them in scope.model.display_name
 // and WindowWeeklyScoped.Scope carries the same spelling, so both parsers and
 // the scorer key on these exact strings.
@@ -148,6 +156,13 @@ type Sample struct {
 	Utilization float64
 }
 
+// Usable reports whether the sample's utilization is a finite, non-negative
+// fraction; the status page's stand-in for a reading that is not a number is
+// not.
+func (s Sample) Usable() bool {
+	return s.Utilization >= 0 && !math.IsInf(s.Utilization, 1)
+}
+
 // MarshalJSON writes [unix_seconds, utilization].
 func (s Sample) MarshalJSON() ([]byte, error) {
 	if math.IsNaN(s.Utilization) || math.IsInf(s.Utilization, 0) {
@@ -238,6 +253,44 @@ func (l Lock) ExpectedEnd() int64 {
 		return l.Expected
 	}
 	return l.To
+}
+
+// Rise is how much of the window was used from since to the newest sample:
+// within each cycle, its last level less its level at since, and a cycle
+// that began after since counts from nothing. A cycle's level at an instant
+// is its latest sample at or before it, and a cycle with no sample by since
+// counts from its first. A sample that is not Usable is skipped.
+func (h WindowHistory) Rise(since time.Time) float64 {
+	rise := 0.0
+	for _, c := range h.Cycles {
+		var first, atSince, last *Sample
+		for i := range c.Samples {
+			s := &c.Samples[i]
+			if !s.Usable() {
+				continue
+			}
+			if first == nil {
+				first = s
+			}
+			if !s.At.After(since) {
+				atSince = s
+			}
+			last = s
+		}
+		if last == nil || last.At.Before(since) {
+			continue
+		}
+		base := 0.0
+		switch {
+		case !c.ResetsAt.Add(-h.Kind.Length()).Before(since):
+		case atSince != nil:
+			base = atSince.Utilization
+		default:
+			base = first.Utilization
+		}
+		rise += max(0, last.Utilization-base)
+	}
+	return rise
 }
 
 // Samples counts the samples across every cycle.
@@ -501,6 +554,14 @@ type Boost struct {
 // Active reports whether the boost holds at now.
 func (b Boost) Active(now time.Time) bool {
 	return b.Until.IsZero() || now.Before(b.Until)
+}
+
+// SpendRates is how much of a seat's 7-day window, and of its 5-hour window,
+// one US dollar of list-price spend used on it lately, each a fraction; nil
+// until the plugin has seen enough of both.
+type SpendRates struct {
+	Weekly   *float64
+	FiveHour *float64
 }
 
 // Login states, from what the host and the usage endpoint show of a seat's
