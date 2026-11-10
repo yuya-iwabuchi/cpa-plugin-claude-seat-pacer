@@ -3642,15 +3642,17 @@ time[data-ts] { cursor: help; }
            the curve is a reference tick on its gutter meter instead. */
         var tx = counted(ws) && num(ws.target) ? sx + sw * clamp(ws.target, 0, 1) : NaN;
         if (counted(ws) && stt !== "unknown" && tx >= bx0 && tx <= bx1) {
+          /* A target past full is the chevron alone, as on the meter: a
+             pointer above it would sit on the chevron's tip. */
           if (pastFull(ws)) pastFullMark(g, tx, cy, barH / 2 - 0.5, 1.6);
           else {
             svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--surface-1)", "stroke-width": 4.5 }, g);
             svg("line", { x1: tx, x2: tx, y1: by - 4, y2: by + barH + 4, stroke: "var(--ink-1)", "stroke-width": 1.75 }, g);
+            svg("path", {
+              d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
+              fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
+            }, g);
           }
-          svg("path", {
-            d: "M" + (tx - 3.4) + " " + (by - 7) + "L" + (tx + 3.4) + " " + (by - 7) + "L" + tx + " " + (by - 2.8) + "Z",
-            fill: "var(--ink-1)", stroke: "var(--surface-1)", "stroke-width": 1.4, "stroke-linejoin": "round"
-          }, g);
         }
         resetStamp(gRow, cy, a, w, resets, rstX);
       });
