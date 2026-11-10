@@ -577,9 +577,9 @@ td .seat-mark { max-width: 22ch; }
 .bb-live li { display: inline-flex; align-items: center; gap: 6px; list-style: none; }
 .bb-error { flex-basis: 100%; margin: 0; color: var(--critical); }
 .bb-error:empty { display: none; }
-/* A seat's boost menu, opened from the bolt in its row: the spans a boost
+/* A seat's boost menu, opened from the arrow in its row: the spans a boost
    can last, Clear on a boosted seat, and what a boost does. It floats over
-   the page at the bolt and stays open across refreshes. */
+   the page at the arrow and stays open across refreshes. */
 .boost-menu { position: absolute; z-index: 40; width: 236px; padding: 10px; background: var(--surface-1);
   border: 1px solid var(--hairline); border-radius: 10px; box-shadow: var(--shadow);
   font: 400 11.5px/1.4 var(--sans); color: var(--ink-2); }
@@ -636,7 +636,7 @@ svg.tl g.show-hidden text { fill: var(--ink-3); }
 svg.tl g.show-hidden text.show-act { fill: var(--ink-1); text-decoration: underline; }
 svg.tl g.hide .hide-mark { fill: none; stroke: var(--ink-3); stroke-width: 1.3; stroke-linecap: round; }
 /* A seat's boost control keeps out of its row as the hide control does,
-   except on a boosted seat, where the filled bolt stays and says so. */
+   except on a boosted seat, where the filled arrow stays and says so. */
 svg.tl g.boost { opacity: 0; cursor: pointer; }
 svg.tl g.row:hover g.boost,
 svg.tl g.boost:hover,
@@ -3212,7 +3212,7 @@ time[data-ts] { cursor: help; }
     return { g: g, w: w };
   }
 
-  /* Opens the seat's boost menu. The bolt is filled while the seat is
+  /* Opens the seat's boost menu. The arrow is filled while the seat is
      boosted, and its tooltip says until when. */
   function boostControl(parent, x, y, a) {
     var b = boostOf(a);
@@ -3226,7 +3226,9 @@ time[data-ts] { cursor: help; }
     if (b) g.setAttribute("data-on", "true");
     svg("rect", { "class": "hit", x: x, y: y - 9, width: BOOST_W, height: 18, rx: 4, fill: "transparent" }, g);
     var bx = x + 4, by = y - 7;
-    svg("path", { "class": "boost-mark", d: "M" + (bx + 6) + " " + by + "l-5 8h4l-1 6l5 -8h-4z" }, g);
+    /* An arrow up to a bar: to the top of the ranking. */
+    svg("path", { "class": "boost-mark", d: "M" + bx + " " + (by + 1) + "h10v1.4h-10z" }, g);
+    svg("path", { "class": "boost-mark", d: "M" + (bx + 5) + " " + (by + 4.2) + "l4.6 4.8h-2.9v5h-3.4v-5h-2.9z" }, g);
     var open = function () { toggleBoostMenu(a, g); };
     g.addEventListener("click", open);
     g.addEventListener("keydown", function (ev) {
@@ -5576,7 +5578,7 @@ time[data-ts] { cursor: help; }
         ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat for them, whatever " +
           "the costs, and is paced against its " + SESSION_SHORT + " window: the gap is its whole cost."
         : "") +
-      " A seat boosted from its bolt on the Seats chart ranks ahead of every other eligible seat, whatever the costs, until " +
+      " A seat boosted from the arrow in its row on the Seats chart ranks ahead of every other eligible seat, whatever the costs, until " +
       "the boost ends."));
 
     var g = def(dl, "what makes a seat ineligible");
@@ -7784,7 +7786,7 @@ time[data-ts] { cursor: help; }
       return g === "session-only" || g === "boosted";
     });
     var GROUP_HEAD = {
-      boosted: { name: "boosted", tip: "boosted from its bolt on the Seats chart: ranked ahead of every other eligible seat while the boost lasts" },
+      boosted: { name: "boosted", tip: "boosted from the arrow in its row on the Seats chart: ranked ahead of every other eligible seat while the boost lasts" },
       "session-only": { name: "no weekly cap", tip: "no weekly cap on " + rankLabel(fam) + " requests: ranked ahead of every capped seat that is not boosted, paced against " + SESSION_SHORT },
       capped: { name: "weekly cap", tip: "a weekly cap on " + rankLabel(fam) + " requests: ranked by cost, after every seat with none" },
       "held-off": { name: "held off", tip: "takes no new " + rankLabel(fam) + " conversation while held off" }
@@ -8712,23 +8714,23 @@ time[data-ts] { cursor: help; }
     if (first) first.focus({ preventScroll: true });
   }
 
-  /* Closes the open menu; refocus puts focus back on the seat's bolt. */
+  /* Closes the open menu; refocus puts focus back on the seat's arrow. */
   function closeBoostMenu(refocus) {
     if (!boostMenu) return;
     var seat = boostMenu.seat;
     boostMenu.el.remove();
     boostMenu = null;
-    var bolt = document.querySelector('[data-fk="boost:' + (window.CSS && CSS.escape ? CSS.escape(seat) : seat) + '"]');
-    if (bolt) {
-      bolt.setAttribute("aria-expanded", "false");
-      if (refocus) bolt.focus({ preventScroll: true });
+    var ctl = document.querySelector('[data-fk="boost:' + (window.CSS && CSS.escape ? CSS.escape(seat) : seat) + '"]');
+    if (ctl) {
+      ctl.setAttribute("aria-expanded", "false");
+      if (refocus) ctl.focus({ preventScroll: true });
     }
   }
 
   document.addEventListener("mousedown", function (ev) {
     if (!boostMenu || boostMenu.el.contains(ev.target)) return;
-    var bolt = ev.target.closest && ev.target.closest("g.boost");
-    if (bolt && bolt.getAttribute("data-fk") === "boost:" + boostMenu.seat) return;
+    var ctl = ev.target.closest && ev.target.closest("g.boost");
+    if (ctl && ctl.getAttribute("data-fk") === "boost:" + boostMenu.seat) return;
     closeBoostMenu(false);
   });
   document.addEventListener("keydown", function (ev) {
