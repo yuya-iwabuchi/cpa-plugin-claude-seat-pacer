@@ -637,4 +637,7 @@ type Status struct {
 	// degraded, such as a single-candidate pool or host session affinity
 	// still enabled.
 	Warnings []string `json:"warnings"`
+	// Preview marks a status scored against draft pace settings rather than
+	// the running ones: Config.Pace is the draft, and nothing routes by it.
+	Preview bool `json:"preview,omitempty"`
 }

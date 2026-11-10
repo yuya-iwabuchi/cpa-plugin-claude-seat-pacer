@@ -109,6 +109,14 @@ type Booster interface {
 	Unboost(authID string, now time.Time) bool
 }
 
+// Previewer is what a Source implements to score the page's draft pace
+// settings. A Source that does not implement it answers a preview with the
+// running scores and no preview flag.
+type Previewer interface {
+	// Preview is the status with every credential scored against pace.
+	Preview(now time.Time, modelID string, pace model.PaceConfig) model.Status
+}
+
 // Source supplies the state the app renders.
 type Source interface {
 	// Status evaluates every credential for modelID at now. modelID "" lets
@@ -195,7 +203,20 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte)
 			s.SyncNow(r.Context())
 		}
 	}
-	status := reduceForPage(src.Status(time.Now(), r.URL.Query().Get("model")), key)
+	var full model.Status
+	draft, previewing, err := previewPace(r.URL.Query().Get("preview"))
+	pv, canPreview := src.(Previewer)
+	switch {
+	case err != nil:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	case previewing && canPreview:
+		full = pv.Preview(time.Now(), r.URL.Query().Get("model"), draft)
+		full.Preview = true
+	default:
+		full = src.Status(time.Now(), r.URL.Query().Get("model"))
+	}
+	status := reduceForPage(full, key)
 
 	// The body is built before any header is written so an encoding failure
 	// can still produce a 500 rather than a truncated 200.
@@ -215,6 +236,21 @@ func writeRawJSON(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
+}
+
+// previewPace decodes a preview query value, the page's draft pace block as
+// JSON, over the default pace config and holds it to the bounds the config
+// holds every pace setting to. An empty value is no preview.
+func previewPace(raw string) (model.PaceConfig, bool, error) {
+	if raw == "" {
+		return model.PaceConfig{}, false, nil
+	}
+	cfg := model.Defaults()
+	if err := json.Unmarshal([]byte(raw), &cfg.Pace); err != nil {
+		return model.PaceConfig{}, false, fmt.Errorf("preview is not a pace block: %w", err)
+	}
+	cfg.Normalize()
+	return cfg.Pace, true, nil
 }
 
 // serveBoost sets or clears a boost on the seat the request names by its

@@ -180,7 +180,7 @@ func main() {
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           faults(newLoginSim(src).wrap(framed(web.NewHandler(src))), *latency, *failAfter),
+		Handler:           faults(newLoginSim(src).wrap(configSim(src, framed(web.NewHandler(src)))), *latency, *failAfter),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	log.Printf("status app on http://%s/", addr)
@@ -212,6 +212,41 @@ func framed(h http.Handler) http.Handler {
 			return
 		}
 		h.ServeHTTP(w, r)
+	})
+}
+
+// configSim answers the page's save of its pace settings the way the host's
+// GET and PATCH /v0/management/plugins/<id>/config do, at the path the page
+// uses away from the host, and hands every other request to next. The
+// fixture's block holds no nested pace mapping, so a GET answers it empty.
+func configSim(f *fixture, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/plugins/claude-seat-pacer/config" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		var body map[string]any
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{})
+			return
+		}
+		if r.Method != http.MethodPatch {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "GET or PATCH only"})
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if err := f.patchPace(body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 }
 
@@ -623,6 +658,70 @@ func (f *fixture) rows(now time.Time, modelID string) []model.AuthStatus {
 	}
 	sort.Slice(auths, func(i, j int) bool { return auths[i].AuthID < auths[j].AuthID })
 	return auths
+}
+
+// Preview is Status with every seat scored against draft, as the plugin's
+// Preview scores it; the recorded history keeps the running curve's fit.
+func (f *fixture) Preview(now time.Time, modelID string, draft model.PaceConfig) model.Status {
+	st := f.Status(now, modelID)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cfg := f.cfg
+	cfg.Pace = draft
+	st.Config = cfg
+	for i := range st.Auths {
+		a := &st.Auths[i]
+		_, ok := f.snapshots[a.AuthID]
+		a.Score = pace.ScoreWithStaleness(cfg, a.Snapshot, ok, a.AuthID, st.Model, st.Now)
+		runtime.ApplyHostState(a)
+		if a.Boost != nil {
+			a.Score.Boosted = true
+		}
+	}
+	return st
+}
+
+// patchPace applies a Management Center style save of dotted pace keys to the
+// fixture's config, as the host's PATCH of the plugin config does once the
+// plugin reconfigures.
+func (f *fixture) patchPace(body map[string]any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cfg := f.cfg
+	for key, v := range body {
+		switch key {
+		case "pace.shape":
+			s, ok := v.(string)
+			if !ok {
+				return fmt.Errorf("%s is not a string", key)
+			}
+			cfg.Pace.Shape = s
+		case "pace.hold-at-full":
+			b, ok := v.(bool)
+			if !ok {
+				return fmt.Errorf("%s is not a boolean", key)
+			}
+			cfg.Pace.HoldAtFull = b
+		case "pace.landing-target", "pace.curve-exponent", "pace.steepness":
+			n, ok := v.(float64)
+			if !ok {
+				return fmt.Errorf("%s is not a number", key)
+			}
+			switch key {
+			case "pace.landing-target":
+				cfg.Pace.LandingTarget = n
+			case "pace.curve-exponent":
+				cfg.Pace.CurveExponent = n
+			default:
+				cfg.Pace.Steepness = n
+			}
+		default:
+			return fmt.Errorf("the fixture saves no %s", key)
+		}
+	}
+	cfg.Normalize()
+	f.cfg = cfg
+	return nil
 }
 
 // Status evaluates every fixture credential for modelID at now.
