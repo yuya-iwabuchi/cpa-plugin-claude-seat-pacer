@@ -34,6 +34,9 @@ type Options struct {
 	// quota.persist-history is on. Empty selects the default beside the
 	// host's plugin directory. Its directory also holds the bindings file.
 	HistoryFile string
+	// APISocket is where web.socket binds the local API socket. Empty selects
+	// api.sock beside the history file.
+	APISocket string
 }
 
 // Plugin owns every piece of runtime state and answers every host method.
@@ -66,6 +69,8 @@ type Plugin struct {
 	hostSchema  uint32
 	lastModel   string
 	cache       map[string]model.CacheStats
+	spend       map[string]spendLedger
+	spendFrom   time.Time
 	auths       []HostAuthFileEntry
 	polls       map[string]pollState
 	// handedOver marks a build whose shutdown must not save its bindings: one
@@ -116,6 +121,13 @@ type Plugin struct {
 	historyLoaded  bool
 	historyRefused bool
 	historySaved   uint64
+
+	// localAPIMu serializes starting and stopping the socket. localAPI is
+	// the running server, nil while the socket is closed, and localAPIErr, under
+	// mu, why the last start failed.
+	localAPIMu  sync.Mutex
+	localAPI    *localAPIServer
+	localAPIErr string
 }
 
 // resourceHandler wraps an http.Handler so it fits an atomic.Pointer.
@@ -147,6 +159,7 @@ func New(opts Options) *Plugin {
 		quota:            quota.NewStore(),
 		boosts:           newBoostStore(),
 		cache:            make(map[string]model.CacheStats),
+		spend:            make(map[string]spendLedger),
 		polls:            make(map[string]pollState),
 		logins:           make(map[string]loginTrack),
 		singleCandidates: make(map[string]int),
@@ -261,6 +274,7 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 		p.mu.Unlock()
 		p.stopPoller()
 		p.saveBindings()
+		p.stopHandedOverLocalAPI()
 		return okEnvelope(emptyResult)
 	case MethodPluginShutdown:
 		p.Shutdown()
@@ -285,7 +299,8 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 // configure answers plugin.register and plugin.reconfigure. Both carry the
 // same payload and the host re-issues reconfigure on every config reload and
 // several times during startup, so the work here is a config swap and a
-// no-op poller start. A register also restores the saved bindings. Either
+// no-op poller start. A register, or a build's first configure, also restores
+// the saved bindings and restarts the spend ledger. Either
 // marks the build live, so a quiesced build saves its bindings again at its
 // next stop once the host reconfigures it, which is how the host rolls back
 // a replacement that failed to load.
@@ -304,13 +319,15 @@ func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 		p.host.log("warn", "claude-seat-pacer config is invalid; plugin is inert", map[string]any{"error": err.Error()})
 	}
 	// A host whose register call failed still counts the build registered and
-	// sends it only reconfigures, so the first configure restores either way.
+	// sends it only reconfigures, so the first configure restores and restarts
+	// the spend ledger either way.
 	p.mu.Lock()
 	first := p.bindings == nil
 	p.mu.Unlock()
 	p.applyConfig(cfg, configWarnings)
 	if register || first {
 		p.restoreBindings(cfg)
+		p.restartSpend()
 	}
 	p.restoreBoosts(p.now())
 
@@ -323,6 +340,7 @@ func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 	p.mu.Unlock()
 
 	p.startPoller()
+	p.syncLocalAPI()
 	return okEnvelope(RegisterResult{
 		SchemaVersion: SchemaVersion,
 		Metadata:      p.metadata(),
