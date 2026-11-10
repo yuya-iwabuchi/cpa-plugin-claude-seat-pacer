@@ -948,6 +948,16 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-msg[data-tone="error"] { color: var(--critical); }
 .tune-msg[data-tone="ok"] { color: var(--ink-1); }
 .tune-msg[data-tone="ok"]::before { content: "\2713  "; color: var(--good); font-weight: 700; }
+/* A save in flight, and a saved plan the plugin has yet to run, turn a ring. */
+.tune-spin, .tune-msg[data-tone="busy"]::before {
+  content: ""; display: inline-block; box-sizing: border-box; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
+  border-radius: 50%; border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor;
+}
+.tune-save:not([data-busy]) .tune-spin { display: none; }
+.tune-actions .tune-save[data-busy] { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); opacity: .8; cursor: progress; }
+@media (prefers-reduced-motion: no-preference) {
+  .tune-spin, .tune-msg[data-tone="busy"]::before { animation: spin .8s linear infinite; }
+}
 .tune-body[data-applying] .tune-form { opacity: .5; pointer-events: none; }
 @media (max-width: 640px) {
   .tune-form { grid-template-columns: 1fr; gap: 4px; }
@@ -5266,7 +5276,16 @@ time[data-ts] { cursor: help; }
     return { W: W, H: H, m: m, pw: W - m.l - m.r, ph: H - m.t - m.b };
   }
 
+  /* The chart keeps its height while it is drawn again: the drawing reads
+     the layout with the chart emptied, and the browser would scroll the
+     page to make up for the height it lost. */
   function renderPace(st, seats, ranks) {
+    var host = $("pace-curve");
+    host.style.minHeight = host.offsetHeight + "px";
+    try { drawPace(st, seats, ranks); } finally { host.style.minHeight = ""; }
+  }
+
+  function drawPace(st, seats, ranks) {
     var host = $("pace-curve");
     host.textContent = "";
     var fams = scopedFamilies(st);
@@ -8845,12 +8864,14 @@ time[data-ts] { cursor: help; }
      matches the running plan, redraws the chart, and asks for the ranking
      the draft gives once the reader pauses. */
   function setTune(patch) {
+    if (tuneUI && tuneUI.saving) return;
     var live = tuneLive(), base = tuneWork(), d = {};
     [live, base, patch].forEach(function (o) { Object.keys(o).forEach(function (k) { d[k] = o[k]; }); });
     paceDraft = sameTune(d, live) ? null : d;
     var ui = tuneUI;
     ui.preview = null;
     ui.saved = null;
+    ui.late = null;
     window.clearTimeout(ui.savedTimer);
     window.clearTimeout(ui.timer);
     tuneMessage("", "");
@@ -8884,11 +8905,12 @@ time[data-ts] { cursor: help; }
     fetchJSON(statusURL(STANDARD, st) + "&preview=" + encodeURIComponent(JSON.stringify(draft)), ctl.signal).then(function (data) {
       if (draft !== paceDraft) return;
       ui.preview = data && data.preview ? data : null;
-      tuneMessage(ui.preview ? "" : "This build cannot preview a ranking; the dashed curve is the draft.", "");
+      /* A save's progress keeps the message line. */
+      if (!ui.saving && !ui.saved) tuneMessage(ui.preview ? "" : "This build cannot preview a ranking; the dashed curve is the draft.", "");
       redrawTune();
     }, function (e) {
       if (e && e.auth) { refuseKey(e); render(); return; }
-      if (draft === paceDraft) {
+      if (draft === paceDraft && !ui.saving && !ui.saved) {
         tuneMessage("The preview failed: " + (e && e.name === "AbortError" ? "no response" : e && e.message ? e.message : e) + ".", "error");
       }
     }).then(function () {
@@ -8935,20 +8957,19 @@ time[data-ts] { cursor: help; }
     if (!draft || ui.saving) return;
     var changed = tuneChanges(draft, live);
     ui.saving = true;
-    ui.save.disabled = true;
-    tuneMessage("Saving…", "");
+    tuneMessage("Saving to the host's config\u2026", "busy");
+    redrawTune();
     mgmtCall("GET", CONFIG_PATH).then(function (block) {
       return mgmtCall("PATCH", CONFIG_PATH, tuneSaveBody(block, changed, draft));
     }).then(function () {
       ui.saved = draft;
-      tuneMessage("Saved to the host's config. Waiting for the plugin to run it\u2026", "");
+      tuneMessage("Saved to the host's config. Waiting for the plugin to run it\u2026", "busy");
       redrawTune();
       awaitApplied(draft, Date.now());
     }, function (e) {
-      ui.save.disabled = false;
       var why = e && e.body && e.body.message ? e.body.message : e && e.message ? e.message : String(e);
       tuneMessage("The save failed: " + unescapeHost(why) + ".", "error");
-    }).then(function () { ui.saving = false; });
+    }).then(function () { ui.saving = false; redrawTune(); });
   }
 
   /* Reads the status every second after a save until the running plan is
@@ -8960,6 +8981,7 @@ time[data-ts] { cursor: help; }
     if (ui.saved !== draft) return;
     if (Date.now() - since > TUNE_APPLY_MS) {
       ui.saved = null;
+      ui.late = draft;
       tuneMessage("Saved, but the plugin is not running it yet. Check the warnings above and the host log.", "error");
       redrawTune();
       return;
@@ -9201,7 +9223,9 @@ time[data-ts] { cursor: help; }
       ui.prev = body.appendChild(h("div", "tune-prev"));
       ui.prev.setAttribute("aria-live", "polite");
       var actions = body.appendChild(h("div", "tune-actions"));
-      ui.save = actions.appendChild(h("button", "tune-save", "Save to host config"));
+      ui.save = actions.appendChild(h("button", "tune-save"));
+      ui.save.appendChild(h("span", "tune-spin")).setAttribute("aria-hidden", "true");
+      ui.saveLabel = ui.save.appendChild(h("span", "", "Save to host config"));
       ui.save.type = "button";
       ui.save.setAttribute("data-fk", "tune:save");
       ui.save.addEventListener("click", saveTune);
@@ -9220,11 +9244,14 @@ time[data-ts] { cursor: help; }
       $("pace-tune").addEventListener("toggle", function () { redrawTune(); });
     }
     var u = tuneUI;
-    /* A saved draft the running config now matches is done. */
+    /* A saved draft the running config now matches is done, one the plugin
+       took longer than TUNE_APPLY_MS to run included. */
     if (paceDraft && sameTune(paceDraft, live)) {
+      var saved = u.saved || u.late === paceDraft;
       paceDraft = null;
       u.preview = null;
-      if (u.saved) {
+      u.late = null;
+      if (saved) {
         window.clearTimeout(u.savedTimer);
         tuneMessage("Saved. The plugin is running this plan.", "ok");
         window.clearTimeout(u.okTimer);
@@ -9237,7 +9264,7 @@ time[data-ts] { cursor: help; }
 
     /* A saved draft reads as saved, and its controls rest, until the plugin
        runs it. */
-    var applying = !!(paceDraft && u.saved === paceDraft);
+    var applying = !!(paceDraft && u.saved === paceDraft), still = applying || !!u.saving;
     fillWords(u.words, planWords(cfg), applying ? "Saved, applying" : paceDraft ? "Draft" : "Running");
     u.was.hidden = !paceDraft;
     if (paceDraft) fillWords(u.was, planWords(live), "Now");
@@ -9265,8 +9292,11 @@ time[data-ts] { cursor: help; }
     u.save.hidden = !paceDraft || applying;
     u.discard.hidden = !paceDraft || applying;
     u.save.disabled = !paceDraft || !!u.saving;
-    u.body.toggleAttribute("data-applying", applying);
-    u.reset.disabled = sameTune(cfg, TUNE_DEFAULTS);
+    u.save.toggleAttribute("data-busy", !!u.saving);
+    u.saveLabel.textContent = u.saving ? "Saving\u2026" : "Save to host config";
+    u.discard.disabled = !!u.saving;
+    u.body.toggleAttribute("data-applying", still);
+    u.reset.disabled = still || sameTune(cfg, TUNE_DEFAULTS);
 
     /* A held draft is ranked again against each new reading, so its moves
        compare two rankings of the same readings. */
