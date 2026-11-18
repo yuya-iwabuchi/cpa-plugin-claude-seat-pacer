@@ -4,8 +4,9 @@
 // reach its port; it is static and carries no data. The status it renders comes
 // from the plugin's page-status management route, which the host answers only
 // with the management key and, by default, only for loopback clients. Every
-// request the app makes that changes anything, a boost or a sign-in, goes to a
-// management route behind that key. model.Status carries ids and labels but no
+// request the app makes that changes anything, a boost, a pace setting saved
+// through the host's plugin-config route or a sign-in, goes to a management
+// route behind that key. model.Status carries ids and labels but no
 // credential material, and serveStatus still names each seat without its
 // account address, withholds the credential file name, keeps only the config
 // block the page reads, strips URLs, filesystem paths and network addresses out

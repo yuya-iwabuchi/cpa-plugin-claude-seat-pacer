@@ -101,6 +101,11 @@ var _ web.SpendRater = (*runtime.Plugin)(nil)
 // assertion that would otherwise fail in silence, answering every boost 501.
 var _ web.Booster = (*runtime.Plugin)(nil)
 
+// The status route scores a draft only for a Source that can preview one,
+// through a type assertion that would otherwise fail in silence, answering
+// every preview with the running scores.
+var _ web.Previewer = (*runtime.Plugin)(nil)
+
 // Plugin identity. The host rejects a plugin with any of these blank. The
 // Makefile reads pluginVersion from this line to name the installed library.
 const (

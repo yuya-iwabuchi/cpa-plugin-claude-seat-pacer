@@ -66,9 +66,11 @@ status.
   ineligible, and lists last in its priority tier, marked "no 5h Standard
   limit", a seat whose latest usage read reports no 5-hour window. Pointing
   at a seat shows its gap to the target where the window is paced. Above 100%
-  the plot is shaded and the 100% line is ruled "past full", and the curve's
-  label names the day it reaches 100% and, on a plan that keeps rising, where
-  it lands at the reset. A stretch in
+  the plot is shaded and the 100% line is ruled "past full", and the
+  curve's label names the day it reaches 100% and, on a plan that
+  keeps rising, where it lands at the reset. Outside the Tune the plan
+  fold, a curve landing above 113% stops the axis just above 110% and
+  runs dotted along its top to an arrow at the reset. A stretch in
   which the provider refused the seat, or a window bearing on the line read
   full, is a hatched sleeve in the seat's colour around its line, under every
   seat still taking work: a full seat takes no new conversation, so the
@@ -191,7 +193,7 @@ is on, only from the same machine.
 
 The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
 (the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
-while `web.enabled` is on; `&preview=<pace block as JSON>` scores it against
+while `web.enabled` is on; `preview=<pace block as JSON>` scores it against
 draft pace settings, which nothing routes by), `POST page-boost?seat=<published id>&span=` (the
 boost menu's route, with `span` one of `1h`, `4h`, `reset`, `cleared` or `off`,
 while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and

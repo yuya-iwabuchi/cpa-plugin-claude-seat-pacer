@@ -948,10 +948,14 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-actions .tune-quiet { border-color: transparent; color: var(--ink-3); }
 .tune-changes { font: 500 11px/1.4 var(--mono); color: var(--ink-3); }
 .tune-msg { margin: 0; color: var(--ink-3); }
-.tune-msg:empty { display: none; }
+/* An empty message takes no room in the grid, and stays rendered, so focus
+   can rest on it. */
+.tune-msg:empty { position: absolute; }
 .tune-msg[data-tone="error"] { color: var(--critical); }
 .tune-msg[data-tone="ok"] { color: var(--ink-1); }
 .tune-msg[data-tone="ok"]::before { content: "\2713  "; color: var(--good); font-weight: 700; }
+/* Focus rests on the save's message through a keyboard save, with no ring. */
+.tune-msg:focus { outline: none; }
 /* A save in flight, and a saved plan the plugin has yet to run, turn a ring. */
 .tune-spin, .tune-msg[data-tone="busy"]::before {
   content: ""; display: inline-block; box-sizing: border-box; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
@@ -1653,10 +1657,6 @@ time[data-ts] { cursor: help; }
              it under the plot of the window shown, as Over time's sits under
              its plot, and it keeps one height whichever view shows. -->
         <ul class="legend" id="pace-legend" aria-label="Plot marks"></ul>
-        <!-- Static and shared by every view, so the fold's open state and a
-             focused summary outlive the refresh and a switch of window. Both
-             notes sit in one cell, so the open fold is as tall as the longer
-             one whichever view shows; only the shown note is visible. -->
         <!-- Static, so its open state outlives the refresh; the script builds
              the form inside once and keeps the reader's draft across
              refreshes. -->
@@ -1664,6 +1664,10 @@ time[data-ts] { cursor: help; }
           <summary>Tune the plan</summary>
           <div class="tune-body" id="tune-body"></div>
         </details>
+        <!-- Static and shared by every view, so the fold's open state and a
+             focused summary outlive the refresh and a switch of window. Both
+             notes sit in one cell, so the open fold is as tall as the longer
+             one whichever view shows; only the shown note is visible. -->
         <details class="pace-more">
           <summary>How to read this chart</summary>
           <div class="pace-notes">
@@ -8938,7 +8942,7 @@ time[data-ts] { cursor: help; }
      one request at a time, given up after FETCH_TIMEOUT_MS. */
   function fetchTunePreview(draft) {
     var st = state.data, ui = tuneUI;
-    if (!st || awaitingKey() || draft !== paceDraft || ui.previewing) return;
+    if (!draft || !st || awaitingKey() || draft !== paceDraft || ui.previewing) return;
     ui.previewing = true;
     ui.previewFor = st;
     var ctl = new AbortController();
@@ -8946,12 +8950,12 @@ time[data-ts] { cursor: help; }
     fetchJSON(statusURL(STANDARD, st) + "&preview=" + encodeURIComponent(JSON.stringify(draft)), ctl.signal).then(function (data) {
       if (draft !== paceDraft) return;
       ui.preview = data && data.preview ? data : null;
-      /* A save's progress keeps the message line. */
-      if (!ui.saving && !ui.saved) tuneMessage(ui.preview ? "" : "This build cannot preview a ranking; the dashed curve is the draft.", "");
+      /* A save's progress, or its late warning, keeps the message line. */
+      if (!ui.saving && !ui.saved && !ui.late) tuneMessage(ui.preview ? "" : "This build cannot preview a ranking; the dashed curve is the draft.", "");
       redrawTune();
     }, function (e) {
       if (e && e.auth) { refuseKey(e); render(); return; }
-      if (draft === paceDraft && !ui.saving && !ui.saved) {
+      if (draft === paceDraft && !ui.saving && !ui.saved && !ui.late) {
         tuneMessage("The preview failed: " + (e && e.name === "AbortError" ? "no response" : e && e.message ? e.message : e) + ".", "error");
       }
     }).then(function () {
@@ -8999,6 +9003,13 @@ time[data-ts] { cursor: help; }
     var changed = tuneChanges(draft, live);
     ui.saving = true;
     tuneMessage("Saving to the host's config\u2026", "busy");
+    /* Save rests until the plugin runs the plan, so focus waits on the
+       message saying how the save is going, where a held key toggles
+       nothing. */
+    if (document.activeElement === ui.save) {
+      ui.msg.tabIndex = -1;
+      ui.msg.focus({ preventScroll: true });
+    }
     redrawTune();
     mgmtCall("GET", CONFIG_PATH).then(function (block) {
       return mgmtCall("PATCH", CONFIG_PATH, tuneSaveBody(block, changed, draft));
@@ -9009,9 +9020,13 @@ time[data-ts] { cursor: help; }
       awaitApplied(draft, Date.now());
     }, function (e) {
       var why = e && e.body && e.body.message ? e.body.message : e && e.message ? e.message : String(e);
-      tuneMessage("The save failed: " + unescapeHost(why) + ".", "error");
+      tuneMessage("The save failed: " + why + ".", "error");
     }).then(function () { ui.saving = false; redrawTune(); });
   }
+
+  /* Said when the page drops a saved draft the plugin was not running
+     TUNE_APPLY_MS after the save. */
+  var TUNE_LATE_KEPT = "The host's config still holds the saved plan, and the plugin may still start running it.";
 
   /* Reads the status every second after a save until the running plan is
      the saved one, which renderTune notices, for up to TUNE_APPLY_MS. */
@@ -9036,7 +9051,7 @@ time[data-ts] { cursor: help; }
     window.clearTimeout(tuneUI.savedTimer);
     paceDraft = null;
     tuneUI.preview = null;
-    tuneMessage("", "");
+    tuneMessage(tuneUI.late ? TUNE_LATE_KEPT : "", tuneUI.late ? "error" : "");
     redrawTune();
   }
 
@@ -9299,6 +9314,15 @@ time[data-ts] { cursor: help; }
         u.okTimer = window.setTimeout(function () { if (u.msg.getAttribute("data-tone") === "ok") tuneMessage("", ""); }, 6000);
       }
       u.saved = null;
+    } else if (u.late && u.late !== paceDraft && sameTune(u.late, live)) {
+      /* A late save the reader set aside, by Discard or Undo, that the
+         plugin now runs: its warning no longer holds. */
+      u.late = null;
+      if (u.msg.textContent === TUNE_LATE_KEPT) {
+        tuneMessage("Saved. The plugin is running the plan saved earlier.", "ok");
+        window.clearTimeout(u.okTimer);
+        u.okTimer = window.setTimeout(function () { if (u.msg.getAttribute("data-tone") === "ok") tuneMessage("", ""); }, 6000);
+      }
     }
     var cfg = tuneWork(), L = landingOf(cfg), full = fullAt(cfg);
     var shape = cfg.shape === "power" || cfg.shape === "sigmoid" ? cfg.shape : "linear";
