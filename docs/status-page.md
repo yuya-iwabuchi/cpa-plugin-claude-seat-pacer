@@ -27,11 +27,13 @@ still offers it for other models, and its tooltip names the host status.
   from it.
 - **Seats.** Each seat's windows as bars, the weekly ones against their plan,
   with the gap to target and the time to reset, beside a two-week time axis
-  showing each window's current cycle. A window holding its seat off, full or
-  refused, is hatched red and marked with a pause, and that seat's other
-  windows turn grey, as every window of a seat the host holds does. A
-  window with no reset to name says "no open window" where its reset would
-  sit. A seat eligible for no family is tinted whole: red, with "takes no
+  showing each window's current cycle. Where a window's plan has passed 100%,
+  its target lies past the end of its meter and bar, which stop at full, and
+  shows as a chevron at their end ("target past full"). A window holding its
+  seat off, full or refused, is hatched red and marked with a pause, and that
+  seat's other windows turn grey, as every window of a seat the host holds
+  does. A window with no reset to name says "no open window" where its reset
+  would sit. A seat eligible for no family is tinted whole: red, with "takes no
   new conversations" and the time it is back ("no return time known" where
   no hold names one, "login expired" where a sign-in is due), when the
   provider or host holds it; amber, with "not scored" and the reason or the
@@ -59,7 +61,10 @@ still offers it for other models, and its tooltip names the host status.
   view shows where each seat stands against the limit that can make it
   ineligible, and lists last in its priority tier, marked "no 5h Standard
   limit", a seat whose latest usage read reports no 5-hour window. Pointing
-  at a seat shows its gap to the target where the window is paced. A stretch in
+  at a seat shows its gap to the target where the window is paced. Above 100%
+  the plot is shaded and the 100% line is ruled "past full", and the curve's
+  label names the day it reaches 100% and, on a plan that keeps rising, where
+  it lands at the reset. A stretch in
   which the provider refused the seat, or a window bearing on the line read
   full, is a hatched sleeve in the seat's colour around its line, under every
   seat still taking work: a full seat takes no new conversation, so the
