@@ -44,9 +44,9 @@ type Options struct {
 // Concurrency: the host calls scheduler.pick, request.intercept_before and
 // usage.handle concurrently with each other and with lifecycle methods and
 // management requests. Config is an atomic pointer swapped whole; the quota
-// store, binding store and decision log lock internally; everything else
-// mutable sits behind mu, held only for field access and never across a
-// host callback.
+// store, binding store, boost store and decision log lock internally;
+// everything else mutable sits behind mu, held only for field access and
+// never across a host callback.
 type Plugin struct {
 	opts Options
 	host host
@@ -274,6 +274,7 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 		p.mu.Unlock()
 		p.stopPoller()
 		p.saveBindings()
+		p.retryBoostSave()
 		p.stopHandedOverLocalAPI()
 		return okEnvelope(emptyResult)
 	case MethodPluginShutdown:
@@ -300,10 +301,11 @@ func (p *Plugin) dispatch(method string, payload []byte) ([]byte, error) {
 // same payload and the host re-issues reconfigure on every config reload and
 // several times during startup, so the work here is a config swap and a
 // no-op poller start. A register, or a build's first configure, also restores
-// the saved bindings and restarts the spend ledger. Either
-// marks the build live, so a quiesced build saves its bindings again at its
-// next stop once the host reconfigures it, which is how the host rolls back
-// a replacement that failed to load.
+// the saved bindings and boosts and restarts the spend ledger; any other
+// configure writes a boosts table whose last save failed. Both methods mark
+// the build live, so a quiesced build saves its bindings again at its next
+// stop once the host reconfigures it, which is how the host rolls back a
+// replacement that failed to load.
 func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 	var req LifecycleRequest
 	if len(payload) > 0 {
@@ -327,9 +329,11 @@ func (p *Plugin) configure(payload []byte, register bool) ([]byte, error) {
 	p.applyConfig(cfg, configWarnings)
 	if register || first {
 		p.restoreBindings(cfg)
+		p.restoreBoosts(p.now())
 		p.restartSpend()
+	} else {
+		p.retryBoostSave()
 	}
-	p.restoreBoosts(p.now())
 
 	p.mu.Lock()
 	p.handedOver = false

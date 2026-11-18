@@ -305,7 +305,7 @@ type fixture struct {
 }
 
 // Boost boosts a fixture seat the way the plugin does, ending a reset span at
-// the seat's weekly reset, or its 5-hour reset where it has no weekly window.
+// the reset runtime.BoostResetAt reads from the seat's snapshot.
 func (f *fixture) Boost(authID, span string, now time.Time) (model.Boost, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -318,11 +318,7 @@ func (f *fixture) Boost(authID, span string, now time.Time) (model.Boost, error)
 		b.Until = now.Add(4 * time.Hour)
 	case model.BoostUntilCleared:
 	case model.BoostReset:
-		for _, w := range f.snapshots[authID].Windows {
-			if w.ResetsAt.After(now) && (w.Kind == model.WindowWeekly || (w.Kind == model.WindowSession && b.Until.IsZero())) {
-				b.Until = w.ResetsAt
-			}
-		}
+		b.Until = runtime.BoostResetAt(f.snapshots[authID], now)
 		if b.Until.IsZero() {
 			return model.Boost{}, runtime.ErrNoReset
 		}

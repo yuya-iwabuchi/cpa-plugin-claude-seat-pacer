@@ -404,7 +404,7 @@ type Score struct {
 	// model: no weekly window bears on it, so the 5-hour window is its only
 	// quota there. That window resets several times a day rather than running
 	// down over a week, so an eligible one ranks ahead of every credential
-	// with a weekly cap, whatever their costs.
+	// with a weekly cap that is not Boosted, whatever their costs.
 	SessionOnly bool `json:"session_only,omitempty"`
 	// Boosted marks a credential an operator boosted: eligible, it ranks
 	// ahead of every credential that is not, SessionOnly ones included,
@@ -532,9 +532,10 @@ type AuthStatus struct {
 const (
 	BoostHour      = "1h"
 	BoostFourHours = "4h"
-	// BoostReset lasts until the reset of the credential's all-models weekly
-	// window as read when the boost is set, or of its 5-hour window on a
-	// credential with no weekly window.
+	// BoostReset lasts until the credential's reset as read when the boost
+	// is set: of the windows that name a reset, its all-models weekly
+	// window's, else its soonest model-family weekly window's, else its
+	// 5-hour window's.
 	BoostReset = "reset"
 	// BoostUntilCleared lasts until the operator clears it.
 	BoostUntilCleared = "cleared"

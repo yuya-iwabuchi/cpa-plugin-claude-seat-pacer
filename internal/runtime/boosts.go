@@ -39,11 +39,17 @@ var ErrUnknownSpan = errors.New("unknown boost span")
 // boostStore holds the live boosts by credential id. It locks internally, so
 // a pick reads it without the plugin's mutex. saveMu is held across each
 // change and the file write that follows it, and across a restore, so the
-// file and the table never disagree once a change returns.
+// file and the table never disagree once a change returns unless the write
+// failed, which unsaved records.
 type boostStore struct {
 	mu     sync.Mutex
 	boosts map[string]model.Boost
+	// missed holds the boosted credentials the latest listing left out.
+	missed map[string]struct{}
 	saveMu sync.Mutex
+	// unsaved marks a table the boosts file does not hold because its last
+	// write failed. saveMu guards it.
+	unsaved bool
 }
 
 func newBoostStore() *boostStore {
@@ -99,23 +105,31 @@ func (s *boostStore) live(now time.Time) []model.Boost {
 	return out
 }
 
-// prune drops every boost on a credential outside keep and reports whether
-// it dropped any.
+// prune drops every boost on a credential that neither keep nor the listing
+// before it holds, the one listing's grace quota.Store.Prune gives a
+// credential's history, and reports whether it dropped any.
 func (s *boostStore) prune(keep map[string]struct{}) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	dropped := false
+	missed := make(map[string]struct{})
 	for id := range s.boosts {
-		if _, ok := keep[id]; !ok {
+		if _, ok := keep[id]; ok {
+			continue
+		}
+		if _, ok := s.missed[id]; ok {
 			delete(s.boosts, id)
 			dropped = true
+			continue
 		}
+		missed[id] = struct{}{}
 	}
+	s.missed = missed
 	return dropped
 }
 
 // replace swaps the table for boosts that hold at now.
-func (s *boostStore) replace(boosts []model.Boost, now time.Time) int {
+func (s *boostStore) replace(boosts []model.Boost, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.boosts = make(map[string]model.Boost, len(boosts))
@@ -124,13 +138,11 @@ func (s *boostStore) replace(boosts []model.Boost, now time.Time) int {
 			s.boosts[b.AuthID] = b
 		}
 	}
-	return len(s.boosts)
 }
 
 // Boost boosts authID for span from now and saves the table. A BoostReset
-// span ends at the reset the credential's latest reading names for its
-// all-models weekly window, or for its 5-hour window when it has no weekly
-// window.
+// span ends at the reset BoostResetAt reads from the credential's latest
+// reading.
 func (p *Plugin) Boost(authID, span string, now time.Time) (model.Boost, error) {
 	b := model.Boost{AuthID: authID, Span: span, SetAt: now}
 	switch span {
@@ -141,7 +153,7 @@ func (p *Plugin) Boost(authID, span string, now time.Time) (model.Boost, error) 
 	case model.BoostUntilCleared:
 	case model.BoostReset:
 		snap, _ := p.quota.Get(authID)
-		b.Until = boostReset(snap, now)
+		b.Until = BoostResetAt(snap, now)
 		if b.Until.IsZero() {
 			return model.Boost{}, ErrNoReset
 		}
@@ -167,8 +179,8 @@ func (p *Plugin) Unboost(authID string, now time.Time) bool {
 	return ok
 }
 
-// pruneBoosts drops every boost on a credential outside keep and saves the
-// table when it dropped one.
+// pruneBoosts drops every boost on a credential absent from keep and from
+// the listing before it, and saves the table when it dropped one.
 func (p *Plugin) pruneBoosts(keep map[string]struct{}, now time.Time) {
 	p.boosts.saveMu.Lock()
 	defer p.boosts.saveMu.Unlock()
@@ -177,22 +189,46 @@ func (p *Plugin) pruneBoosts(keep map[string]struct{}, now time.Time) {
 	}
 }
 
-// boostReset is the reset a BoostReset span lasts until: the all-models
-// weekly window's, else the 5-hour window's, when it lies ahead of now.
-func boostReset(snap model.AuthSnapshot, now time.Time) time.Time {
-	var session time.Time
+// BoostResetAt is the reset a BoostReset span lasts until: the all-models
+// weekly window's, else the soonest model-family weekly window's, else the
+// 5-hour window's when it lies ahead of now, skipping a window that names no
+// reset. A weekly reset at or before now has rolled over since the reading,
+// so it is carried forward by whole weeks. Zero when the reading names none.
+func BoostResetAt(snap model.AuthSnapshot, now time.Time) time.Time {
+	var weekly, scoped, session time.Time
 	for _, w := range snap.Windows {
-		if !w.ResetsAt.After(now) {
+		if w.ResetsAt.IsZero() {
 			continue
 		}
 		switch w.Kind {
 		case model.WindowWeekly:
-			return w.ResetsAt
+			weekly = nextWeeklyReset(w.ResetsAt, now)
+		case model.WindowWeeklyScoped:
+			if r := nextWeeklyReset(w.ResetsAt, now); scoped.IsZero() || r.Before(scoped) {
+				scoped = r
+			}
 		case model.WindowSession:
-			session = w.ResetsAt
+			if w.ResetsAt.After(now) {
+				session = w.ResetsAt
+			}
 		}
 	}
+	switch {
+	case !weekly.IsZero():
+		return weekly
+	case !scoped.IsZero():
+		return scoped
+	}
 	return session
+}
+
+// nextWeeklyReset is the first weekly reset after now on the cycle reset
+// falls on.
+func nextWeeklyReset(reset, now time.Time) time.Time {
+	if reset.After(now) {
+		return reset
+	}
+	return reset.Add((now.Sub(reset)/model.WeeklyDuration + 1) * model.WeeklyDuration)
 }
 
 // boostsPath is where the boosts file lives: in the history file's directory.
@@ -205,8 +241,12 @@ func (p *Plugin) boostsPath() string {
 }
 
 // saveBoostsLocked writes the live boosts to the boosts file, or removes the
-// file when none is live. The caller holds saveMu. A failed write costs only
-// the next run's boosts, so it is logged and dropped.
+// file when none is live. The caller holds saveMu. A failed write marks the
+// table unsaved, and the next change, each poll tick, each configure other
+// than a build's register or first configure, plugin.quiesce and a shutdown
+// of a build not yet handed over each write an unsaved table again; a
+// register or first configure takes the file instead. The failure goes to
+// host.log, which a host that has already closed the build's callbacks drops.
 func (p *Plugin) saveBoostsLocked(now time.Time) {
 	path := p.boostsPath()
 	if path == "" {
@@ -214,7 +254,12 @@ func (p *Plugin) saveBoostsLocked(now time.Time) {
 	}
 	live := p.boosts.live(now)
 	if len(live) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		err := os.Remove(path)
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+		p.boosts.unsaved = err != nil
+		if err != nil {
 			p.host.log("warn", "claude-seat-pacer could not remove the boosts file", map[string]any{"error": err.Error()})
 		}
 		return
@@ -223,16 +268,31 @@ func (p *Plugin) saveBoostsLocked(now time.Time) {
 	if err == nil {
 		err = quota.WriteFile(path, body)
 	}
+	p.boosts.unsaved = err != nil
 	if err != nil {
 		p.host.log("warn", "claude-seat-pacer could not save the boosts", map[string]any{"error": err.Error()})
 	}
 }
 
-// restoreBoosts replaces the boost table with the boosts file's. It runs at
-// every configure: the file is written at every change, so it is the latest
-// table whichever build wrote it, including one the host has since replaced
-// or rolled back. A file that is missing, unreadable, unparseable or of
-// another version leaves the table empty.
+// retryBoostSave writes a table whose last save failed, and does nothing when
+// no save is pending. It runs at each poll tick and each configure that does
+// not restore the table, and when the host stops the build, at plugin.quiesce
+// and shutdown.
+func (p *Plugin) retryBoostSave() {
+	p.boosts.saveMu.Lock()
+	defer p.boosts.saveMu.Unlock()
+	if p.boosts.unsaved {
+		p.saveBoostsLocked(p.now())
+	}
+}
+
+// restoreBoosts replaces the boost table with the boosts file's. It runs when
+// a build registers or takes its first configure; from then on the table in
+// memory is the build's own, and each change writes it to the file. A host
+// that loads the same library again reuses the build's memory and registers
+// it again, so the build takes whatever table another build has written
+// since. A file that is missing, unreadable, unparseable or of another
+// version leaves the table empty.
 func (p *Plugin) restoreBoosts(now time.Time) {
 	path := p.boostsPath()
 	if path == "" {
@@ -240,6 +300,7 @@ func (p *Plugin) restoreBoosts(now time.Time) {
 	}
 	p.boosts.saveMu.Lock()
 	defer p.boosts.saveMu.Unlock()
+	p.boosts.unsaved = false
 	body, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		p.boosts.replace(nil, now)

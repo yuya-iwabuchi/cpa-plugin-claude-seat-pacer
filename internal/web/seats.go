@@ -139,7 +139,7 @@ func serveSeats(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 		http.Error(w, "seats answer encode failed", http.StatusInternalServerError)
 		return
 	}
-	writeRawJSON(w, body)
+	writeRawJSON(w, http.StatusOK, body)
 }
 
 // requestModel is the model id a request for modelID carries upstream. Claude

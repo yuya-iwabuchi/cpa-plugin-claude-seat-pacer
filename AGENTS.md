@@ -15,16 +15,17 @@ reset, and each conversation stays on one seat so Anthropic prompt caches keep
 hitting. A seat with no weekly cap on the requested model, meaning its latest
 usage read and the responses since show no weekly window covering that model's
 family, has no weekly quota to lose: its 5-hour window is its only quota. It
-goes ahead of every seat with a weekly cap that is not boosted and is paced
-against that 5-hour window, so a seat with a weekly cap starts a conversation
-for that model, other than a subagent of one it already holds, only while no
-seat without one is eligible. A seat whose latest usage read shows weekly windows and no
-5-hour window, as a plan with no 5-hour limit reports, is paced and gated by
-its weekly windows alone.
+is paced against that 5-hour window and goes ahead of every seat with a
+weekly cap that is not boosted, so a seat with a weekly cap that is not
+boosted starts a conversation for that model, other than a subagent of one it
+already holds, only while no seat without one is eligible. A seat whose
+latest usage read shows weekly windows and no 5-hour window, as a plan with
+no 5-hour limit reports, is paced and gated by its weekly windows alone.
 
 An operator's boost (`internal/runtime/boosts.go`) puts an eligible seat
-ahead of every other eligible seat for new conversations until it ends; it
-moves no bound conversation and never makes an ineligible seat eligible.
+ahead of every other eligible seat for new conversations, other than a
+subagent joining its parent's seat, until it ends; it moves no bound
+conversation and never makes an ineligible seat eligible.
 
 The preference is a policy, not a bug to fix: `LandingTarget` defaults above
 full on purpose, because weekly quota left at reset is lost. 1.0 removes only
@@ -86,12 +87,13 @@ the run. Do not remove that test.
   decline and the answer to anything the plugin is unsure about;
   `runtime.Degrade` gives each method its least damaging failure.
 - **`pick` is called concurrently with no serialization.** Config is held in an
-  `atomic.Pointer`; the quota store, binding store and decision log lock
-  internally; everything else mutable sits behind a mutex held only for field
-  access and never across a host callback. The locks that serialize the poll
-  loop's and the local API socket's start, stop and polls are held across
-  that work, host callbacks and bounded waits included; the pick never takes
-  them.
+  `atomic.Pointer`; the quota store, binding store, boost store and decision
+  log lock internally; everything else mutable sits behind a mutex held only
+  for field access and never across a host callback. The locks that
+  serialize the poll loop's and the local API socket's start, stop and polls,
+  and the boost store's `saveMu`, which serializes each boost change with its
+  file write, are held across that work, host callbacks and bounded waits
+  included; the pick never takes them.
 - **Candidates are pre-filtered and capped at the highest priority tier.**
   Disabled, cooling, model-incompatible and already-tried credentials are gone
   before the plugin is asked, and lower tiers are never offered, so the plugin
