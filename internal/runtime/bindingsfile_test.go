@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer/internal/model"
 )
 
 // pluginAt registers a plugin whose history file is path, with the real
@@ -284,6 +286,9 @@ func TestAFirstReconfigureTakesTheSavedTable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.json")
 	old := pluginAt(t, path, testConfigYAML)
 	old.bindingStore().Bind("claude", "opus", "k", "seat-a", testNow)
+	if _, err := old.Boost("seat-b", model.BoostUntilCleared, testNow); err != nil {
+		t.Fatal(err)
+	}
 	old.callOK(t, MethodPluginQuiesce, nil, nil)
 
 	tp := &testPlugin{host: newFakeHost()}
@@ -293,6 +298,9 @@ func TestAFirstReconfigureTakesTheSavedTable(t *testing.T) {
 	tp.register(t, MethodPluginReconfigure, testConfigYAML)
 	if got, want := boundSeats(tp), map[string]string{"k": "seat-a"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("table after a first reconfigure = %v, want the saved %v", got, want)
+	}
+	if _, ok := tp.boosts.active("seat-b", testNow); !ok {
+		t.Error("a first reconfigure did not restore the saved boost on seat-b")
 	}
 	tp.mu.Lock()
 	from := tp.spendFrom

@@ -590,6 +590,8 @@ td .seat-mark { max-width: 22ch; }
 .boost-menu button { padding: 6px 9px; text-align: left; }
 .boost-menu .bm-clear { color: var(--critical); }
 .boost-menu .bm-note { margin: 8px 0 0; font-size: 11px; color: var(--ink-3); }
+.boost-menu .bm-why { margin: -2px 0 0; font-size: 11px; color: var(--ink-3); }
+.boost-menu .bm-why:empty { display: none; }
 .boost-menu .bm-error { margin: 8px 0 0; color: var(--critical); }
 .boost-menu .bm-error:empty { display: none; }
 #timeline { overflow-x: auto; }
@@ -598,7 +600,9 @@ svg .past-full { fill: var(--serious); fill-opacity: .07; }
 svg .overflow path { fill: none; stroke: var(--ink-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 svg .overflow path.overflow-run { stroke-dasharray: 1 5; }
 svg .full-rule { stroke: var(--serious); stroke-opacity: .75; stroke-width: 1; stroke-dasharray: 4 3; }
-svg.pace text.full-label { fill: var(--serious); }
+/* The label takes the serious tone toward the ink so its 10px text keeps
+   4.5:1 on the band in both themes. */
+svg.pace text.full-label { fill: color-mix(in srgb, var(--serious) 85%, var(--ink-1)); }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
 svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -3860,13 +3864,10 @@ time[data-ts] { cursor: help; }
     return counted(ws) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND;
   }
 
-  /* The meter's fill carries the lane state's pattern as the bar does, so a
-     refused or spent window reads as one in the gutter, where a
-     window that is a sliver on the time axis is read. */
   /* Whether a paced window's target stands past full, beyond the end of the
-     meter and the bar, which stop at 100%. */
+     meter and the bar, which stop at 100%: past the 100.0% its label reads. */
   function pastFull(ws) {
-    return counted(ws) && num(ws.target) && ws.target > 1;
+    return counted(ws) && num(ws.target) && ws.target > 1 && pct(ws.target) !== pct(1);
   }
 
   /* A target past full: a chevron pointing on, the track's height, ending at
@@ -3880,6 +3881,9 @@ time[data-ts] { cursor: help; }
     return l;
   }
 
+  /* The meter's fill carries the lane state's pattern as the bar does, so a
+     refused or spent window reads as one in the gutter, where a
+     window that is a sliver on the time axis is read. */
   function budgetMeter(parent, cy, w, ws, meta, eligible) {
     var color = meta.color, y = cy - MET_H / 2;
     svg("rect", { x: MET_X + 0.5, y: y + 0.5, width: MET_W - 1, height: MET_H - 1,
@@ -5784,8 +5788,8 @@ time[data-ts] { cursor: help; }
         "request on a seat that has them; " + onTopText(fams) : "") +
       "." +
       (hasSessionOnly
-        ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat for them, whatever " +
-          "the costs, and is paced against its " + SESSION_SHORT + " window: the gap is its whole cost."
+        ? " A seat with no weekly cap on a family's requests ranks ahead of every capped seat that is not boosted, for those " +
+          "requests, whatever the costs, and is paced against its " + SESSION_SHORT + " window: the gap is its whole cost."
         : "") +
       " A seat boosted from the arrow in its row on the Seats chart ranks ahead of every other eligible seat, whatever the costs, until " +
       "the boost ends."));
@@ -7765,12 +7769,12 @@ time[data-ts] { cursor: help; }
   /* -------------------------------------------------------------- ranking */
 
   /* The pick as a list: one per request family, every seat in the order the
-     scorer ranks them for it, SessionOnly seats for the family first
-     and then the lowest cost, so the top row is the seat that family's next
-     new conversation lands on. Beside the plot whose gaps the costs are
-     made of: the plot carries the inputs, the list the answer, and the
-     formula line between them says how one becomes the other in the weights
-     the plugin is running with.
+     scorer ranks them for it, boosted seats first, then SessionOnly seats for
+     the family, then the lowest cost, so the top row is the seat that
+     family's next new conversation lands on. Beside the plot whose gaps the
+     costs are made of: the plot carries the inputs, the list the answer, and
+     the formula line between them says how one becomes the other in the
+     weights the plugin is running with.
 
      A seat no request can land on sits under the eligible ones, in the
      scorer's own order, greyed, with the hold in its tooltip. */
@@ -8304,8 +8308,9 @@ time[data-ts] { cursor: help; }
       var tdE = h("td", "");
       tdE.appendChild(s.eligible ? chip("eligible", "good", "✓")
                                  : chip(reasonText(s.reason), "critical", CANNOT_SERVE[s.reason] ? PAUSE_GLYPH : CROSS_GLYPH));
-      /* A SessionOnly seat for the request ranks ahead of every capped seat,
-         so the chip is what accounts for a dearer seat above a cheaper one. */
+      /* A SessionOnly seat for the request ranks ahead of every capped seat
+         that is not boosted, so the chip is what accounts for a dearer seat
+         above a cheaper one. */
       if (s.eligible && sessionOnly(s)) {
         tdE.appendChild(document.createTextNode(" "));
         tdE.appendChild(chip("no weekly cap", "info", ""));
@@ -9511,26 +9516,37 @@ time[data-ts] { cursor: help; }
 
   /* Sets or clears (span "off") the boost on the seat the page names by its
      published id, then reads the status again. A failure is said in the menu
-     when it is open, and under the timeline otherwise. */
+     when it is open, and under the timeline otherwise; a success ends the
+     seat's failure said under the timeline. */
   var boostBusy = false;
   function sendBoost(seat, span) {
     if (boostBusy) return;
     boostBusy = true;
-    setBoostError("");
+    setBoostError("", seat);
     mgmtCall("POST", BOOST_PATH + "?seat=" + encodeURIComponent(seat) + "&span=" + encodeURIComponent(span))
-      .then(function () { closeBoostMenu(true); refresh(true); }, function (e) {
-        setBoostError("The boost did not apply: " + unescapeHost(e.message || String(e)) + ".");
+      .then(function () {
+        if (boostError && boostError.seat === seat) boostError = null;
+        closeBoostMenu(true);
+        refresh(true);
+      }, function (e) {
+        setBoostError((span === "off" ? "The boost was not cleared: " : "The boost did not apply: ") +
+          unescapeHost(e.message || String(e)) + ".", seat);
       })
       .then(function () { boostBusy = false; });
   }
 
-  function setBoostError(text) {
+  /* The failure said under the timeline, as {seat, text}: it stands while
+     its seat is listed there as boosted. */
+  var boostError = null;
+  function setBoostError(text, seat) {
+    if (!boostMenu) boostError = text ? { seat: seat, text: text } : null;
     var el = boostMenu ? boostMenu.error : $("boosts").querySelector(".bb-error");
     if (el) el.textContent = text;
     if (!boostMenu && text) $("boosts").hidden = false;
   }
 
-  /* The open boost menu, as {seat, el, error, anchor}, or null. */
+  /* The open boost menu, as {seat, el, now, reset, why, clear, error}, or
+     null. */
   var boostMenu = null;
 
   function toggleBoostMenu(a, anchor) {
@@ -9541,40 +9557,92 @@ time[data-ts] { cursor: help; }
 
   function openBoostMenu(a, anchor) {
     hideTip();
-    var b = boostOf(a);
     var el = h("div", "boost-menu");
     el.setAttribute("role", "dialog");
     el.setAttribute("aria-label", "Boost " + seatLabel(a));
     el.appendChild(h("p", "bm-title", "Boost " + seatLabel(a)));
-    el.appendChild(h("p", "bm-now", b ? boostText(b, nowMs()) : ""));
+    var now = el.appendChild(h("p", "bm-now"));
     var spans = el.appendChild(h("div", "bm-spans"));
+    var reset = null, why = null;
     BOOST_SPANS.forEach(function (sp) {
       var btn = spans.appendChild(h("button", "", sp[1]));
       btn.type = "button";
       btn.setAttribute("data-fk", "boost:" + sp[0]);
       btn.addEventListener("click", function () { sendBoost(a.auth_id, sp[0]); });
+      if (sp[0] === "reset") { reset = btn; why = spans.appendChild(h("p", "bm-why")); }
     });
-    if (b) {
-      var clear = spans.appendChild(h("button", "bm-clear", "Clear the boost"));
-      clear.type = "button";
-      clear.setAttribute("data-fk", "boost:off");
-      clear.addEventListener("click", function () { sendBoost(a.auth_id, "off"); });
-    }
+    var clear = spans.appendChild(h("button", "bm-clear", "Clear the boost"));
+    clear.type = "button";
+    clear.setAttribute("data-fk", "boost:off");
+    clear.addEventListener("click", function () { sendBoost(a.auth_id, "off"); });
     var error = el.appendChild(h("p", "bm-error"));
     error.setAttribute("role", "alert");
-    el.appendChild(h("p", "bm-note", "A boosted seat takes every new conversation it can, ahead of the pace ranking, " +
+    el.appendChild(h("p", "bm-note", "A boosted seat takes every new conversation it can, other than a subagent joining its " +
+      "parent's seat, ahead of the pace ranking, " +
       "until the boost ends. Conversations already on other seats stay where they are. A full or refused seat takes " +
       "none however it is boosted."));
     document.body.appendChild(el);
-    var r = anchor.getBoundingClientRect();
+    anchor.setAttribute("aria-expanded", "true");
+    boostMenu = { seat: a.auth_id, el: el, now: now, reset: reset, why: why, clear: clear, error: error };
+    refreshBoostMenu(a);
+    placeBoostMenu();
+    firstBoostControl().focus({ preventScroll: true });
+  }
+
+  /* The open menu's first control a click reaches. */
+  function firstBoostControl() {
+    return boostMenu.el.querySelector("button:not([disabled]):not([hidden])");
+  }
+
+  /* The reset a reset boost on the seat ends at, as the plugin reads it:
+     "weekly" for a weekly window that names a reset, passed or not, else
+     "session" for a 5-hour reset ahead of now, else null. */
+  function boostResetKind(a, now) {
+    var session = false;
+    var weekly = (a.snapshot && a.snapshot.windows || []).some(function (w) {
+      var r = parseT(w.resets_at);
+      if (r && w.kind === "five_hour" && r.getTime() > now) session = true;
+      return !!r && (w.kind === "seven_day" || w.kind === "weekly_scoped");
+    });
+    return weekly ? "weekly" : session ? "session" : null;
+  }
+
+  /* Brings the open menu to the seat's latest reading: the boost it holds,
+     with Clear only while it holds one, and the reset span labelled by the
+     reset the reading names, greyed out with the reason when it names none.
+     Focus on a control this hides or greys out moves to the menu's first
+     control a click reaches. */
+  function refreshBoostMenu(a) {
+    var m = boostMenu, now = nowMs(), b = boostOf(a), kind = boostResetKind(a, now);
+    var focused = m.el.contains(document.activeElement) ? document.activeElement : null;
+    m.now.textContent = b ? boostText(b, now) : "";
+    m.clear.hidden = !b;
+    m.reset.textContent = kind === "session" ? "until its 5-hour reset" : kind === "weekly" ? BOOST_SPANS[2][1] : "until its reset";
+    m.reset.disabled = !kind;
+    m.why.textContent = kind ? "" : "The seat's latest reading names no reset to end at.";
+    if (focused && (focused.disabled || focused.hidden)) firstBoostControl().focus({ preventScroll: true });
+  }
+
+  function boostArrow(seat) {
+    return document.querySelector('[data-fk="boost:' + (window.CSS && CSS.escape ? CSS.escape(seat) : seat) + '"]');
+  }
+
+  /* Sets the open menu under its seat's arrow, which a render redraws, and a
+     reflow above the timeline or a scroll of the timeline moves. A menu whose
+     arrow is gone, or scrolled out of the timeline's view, closes. */
+  function placeBoostMenu() {
+    if (!boostMenu) return;
+    var anchor = boostArrow(boostMenu.seat);
+    var r = anchor && anchor.getBoundingClientRect(), view = $("timeline").getBoundingClientRect();
+    if (!r || !(r.width || r.height) || r.right <= view.left || r.left >= view.right) { closeBoostMenu(false); return; }
+    var el = boostMenu.el;
     var left = Math.max(8, Math.min(r.right - el.offsetWidth, document.documentElement.clientWidth - el.offsetWidth - 8));
     el.style.left = (left + window.scrollX) + "px";
     el.style.top = (r.bottom + 6 + window.scrollY) + "px";
     anchor.setAttribute("aria-expanded", "true");
-    boostMenu = { seat: a.auth_id, el: el, error: error };
-    var first = el.querySelector("button");
-    if (first) first.focus({ preventScroll: true });
   }
+  new ResizeObserver(placeBoostMenu).observe(document.body);
+  document.addEventListener("scroll", placeBoostMenu, { capture: true, passive: true });
 
   /* Closes the open menu; refocus puts focus back on the seat's arrow. */
   function closeBoostMenu(refocus) {
@@ -9582,7 +9650,7 @@ time[data-ts] { cursor: help; }
     var seat = boostMenu.seat;
     boostMenu.el.remove();
     boostMenu = null;
-    var ctl = document.querySelector('[data-fk="boost:' + (window.CSS && CSS.escape ? CSS.escape(seat) : seat) + '"]');
+    var ctl = boostArrow(seat);
     if (ctl) {
       ctl.setAttribute("aria-expanded", "false");
       if (refocus) ctl.focus({ preventScroll: true });
@@ -9607,8 +9675,8 @@ time[data-ts] { cursor: help; }
     var now = nowMs();
     var live = (st.auths || []).slice().sort(byName).filter(function (a) { return boostOf(a); });
     var focused = captureFocus();
-    var err = host.querySelector(".bb-error");
-    var errText = err ? err.textContent : "";
+    if (boostError && !live.some(function (a) { return a.auth_id === boostError.seat; })) boostError = null;
+    var errText = boostError ? boostError.text : "";
     host.textContent = "";
     host.hidden = !live.length && !errText;
     if (live.length) host.appendChild(h("span", "bb-title", "Boosted"));
@@ -9627,6 +9695,8 @@ time[data-ts] { cursor: help; }
     var e2 = host.appendChild(h("p", "bb-error", errText));
     e2.setAttribute("role", "alert");
     restoreFocus(focused);
+    /* A cleared seat's button is gone, so focus goes to that seat's arrow. */
+    if (focused && focused.indexOf("boost:clear:") === 0) restoreFocus("boost:" + focused.slice(12));
   }
 
   /* ------------------------------------------------ the Log in button */
@@ -10286,6 +10356,9 @@ time[data-ts] { cursor: help; }
     if (!empty) {
       renderTimeline(st, seats, ranks);
       renderBoosts(st);
+      var menuSeat = boostMenu && (st.auths || []).filter(function (a) { return a.auth_id === boostMenu.seat; })[0];
+      if (menuSeat) refreshBoostMenu(menuSeat);
+      placeBoostMenu();
       renderPace(st, seats, ranks);
       renderHistory(st, seats);
     }
