@@ -987,7 +987,6 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
   .tune-spin, .tune-msg[data-tone="busy"]::before, .tune-sum-state[data-busy]::before { animation: spin .8s linear infinite; }
 }
 .tune-body[data-applying] .tune-form { opacity: .5; pointer-events: none; }
-/* The points table under the form, in as many columns as fit. */
 .tune-row[data-off] .tune-lab { opacity: .55; }
 .tune-points { border-top: 1px solid var(--rule); padding-top: 6px; }
 .tune-points > summary { display: flex; align-items: center; gap: 12px; cursor: pointer; font: 600 11px/1.6 var(--sans); color: var(--ink-2); list-style: none; }
@@ -995,6 +994,7 @@ svg.pace g.reset-mark:focus-visible circle { stroke: var(--focus); stroke-width:
 .tune-points > summary::before { content: "\25B8"; font-size: 10px; color: var(--ink-3); margin-right: -6px; }
 .tune-points[open] > summary::before { content: "\25BE"; }
 .tune-add { padding: 2px 9px; font: 600 11px/1.4 var(--sans); }
+/* The points table under the form, in as many columns as fit. */
 .tune-pts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 460px)); gap: 2px 16px; margin: 6px 0 0; }
 .tune-pt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 7px; }
 .tune-step[data-bare] input { width: 3.3em; padding: 5px 0; }
@@ -9101,14 +9101,20 @@ time[data-ts] { cursor: help; }
   }
 
   /* Steps back (dir -1) or forward (1) through the edits. A step back to a
-     plan the plugin now runs leaves no draft. */
+     plan the plugin now runs leaves no draft. A step keeps a late save on
+     record, and a step off its draft says the host's config still holds
+     it. */
   function stepTune(dir) {
     var from = dir < 0 ? tuneUndo : tuneRedo, to = dir < 0 ? tuneRedo : tuneUndo;
     if (tuneApplying() || tuneDrag || !from.length) return;
     to.push({ draft: paceDraft, sel: tuneUI.sel });
-    var s = from.pop();
+    var s = from.pop(), late = tuneUI.late;
     tuneUI.sel = s.sel;
     showDraft(s.draft && !sameTune(s.draft, tuneLive()) ? s.draft : null);
+    if (late) {
+      tuneUI.late = late;
+      if (paceDraft !== late) tuneMessage(TUNE_LATE_KEPT, "error");
+    }
   }
 
   /* Shows d as the draft, null for none: drops any preview and message, and
@@ -9808,7 +9814,7 @@ time[data-ts] { cursor: help; }
       document.addEventListener("keydown", function (ev) {
         if (!tuneOpen() || !(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
         var t = ev.target, key = ev.key.toLowerCase();
-        if (t && (t.tagName === "INPUT" && t.type === "text" || t.tagName === "TEXTAREA")) return;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
         var dir = key === "z" ? (ev.shiftKey ? 1 : -1) : key === "y" && !ev.shiftKey ? 1 : 0;
         if (!dir) return;
         ev.preventDefault();
@@ -9839,6 +9845,15 @@ time[data-ts] { cursor: help; }
         window.clearTimeout(u.okTimer);
         u.okTimer = window.setTimeout(function () { if (u.msg.getAttribute("data-tone") === "ok") tuneMessage("", ""); }, 6000);
       }
+    }
+    /* The edit history never spans a change of the running plan: a step
+       recorded as no draft meant the plan running then. */
+    if (st.config && st.config.pace) {
+      if (u.ran && !sameTune(u.ran, live)) {
+        tuneUndo = [];
+        tuneRedo = [];
+      }
+      u.ran = live;
     }
     var cfg = tuneWork(), knobs = planKnobs(cfg), preset = presetOf(cfg), pts = workPoints();
     if (preset) u.preset = preset[0];
@@ -9897,7 +9912,7 @@ time[data-ts] { cursor: help; }
     u.undo.disabled = still || !tuneUndo.length;
     u.redo.disabled = still || !tuneRedo.length;
     var sum = $("tune-sum-state");
-    sum.textContent = u.saving ? "saving" : applying ? "saved, applying" : paceDraft ? "unsaved draft" : "";
+    sum.textContent = u.saving ? "saving" : applying ? "saved, applying" : paceDraft && u.late === paceDraft ? "saved, not running" : paceDraft ? "unsaved draft" : "";
     sum.hidden = !sum.textContent;
     sum.toggleAttribute("data-busy", !!u.saving || applying);
     u.save.hidden = !paceDraft || applying;
@@ -9971,7 +9986,7 @@ time[data-ts] { cursor: help; }
       hg.setAttribute("data-kind", last ? "end" : "point");
       hg.setAttribute("data-fk", "tune-pt:" + i);
       hg.setAttribute("aria-label", "point " + (i + 1) + (last ? ", at the reset" : ""));
-      hg.setAttribute("aria-valuetext", text + ", " + p.kind);
+      ariaValue(hg, p.y, text + ", " + p.kind);
       if (tuneUI.sel === i) hg.setAttribute("data-sel", "true");
       if (tuneDrag && tuneDrag.i === i && !tuneDrag.guide) hg.setAttribute("data-drag", "true");
       svg("circle", { "class": "hit", cx: cx, cy: cy, r: 13 }, hg);
@@ -9993,6 +10008,15 @@ time[data-ts] { cursor: help; }
       tuneUI.sel = i;
       setPoints(pts2);
     });
+  }
+
+  /* A chart handle's slider value: the percent it stands at, within the
+     curve's bounds, with text that also names its day. */
+  function ariaValue(el, y, text) {
+    el.setAttribute("aria-valuemin", "0");
+    el.setAttribute("aria-valuemax", String(CURVE_MAX_Y * 100));
+    el.setAttribute("aria-valuenow", String(pointPct({ y: y })));
+    el.setAttribute("aria-valuetext", text);
   }
 
   /* The guides of the curve's guided stretches, each a diamond: the
@@ -10018,7 +10042,7 @@ time[data-ts] { cursor: help; }
       if (on) hg.setAttribute("data-sel", "true");
       if (tuneDrag && tuneDrag.guide && tuneDrag.i === i) hg.setAttribute("data-drag", "true");
       hg.setAttribute("aria-label", guided ? "guide of the stretch into point " + (i + 1) : "add a guide to the stretch into point " + (i + 1));
-      hg.setAttribute("aria-valuetext", guided ? "day " + pointDay(gd).toFixed(2) + " · " + pct(gd.y, 1) + ", pull " + gd.pull.toFixed(2) : "no guide");
+      ariaValue(hg, gd.y, guided ? "day " + pointDay(gd).toFixed(2) + " · " + pct(gd.y, 1) + ", pull " + gd.pull.toFixed(2) : "no guide");
       var r = on ? 6 : 4;
       svg("circle", { "class": "hit", cx: gx, cy: gy, r: on ? 12 : 8 }, hg);
       svg("path", { "class": "diamond", d: "M" + gx + " " + (gy - r) + "L" + (gx + r) + " " + gy + "L" + gx + " " + (gy + r) + "L" + (gx - r) + " " + gy + "Z" }, hg);

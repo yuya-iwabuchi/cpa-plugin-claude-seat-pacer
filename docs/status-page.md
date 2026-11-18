@@ -80,16 +80,18 @@ status.
   The Tune the plan fold under the chart edits the plan as a points curve
   (`shape: points` and `points`) and says it in words. Presets (Even,
   Back-loaded, Front-loaded, S-curve) set the points from two knobs, the day
-  the plan reaches 100% and whether it keeps rising after; past that, the
-  curve is yours. While the fold is open, a 7-day chart shows the curve's
-  points: drag one, double-click the chart to add one, and select one to
-  move it with the arrow keys or remove it with Delete. A selected point
+  the plan reaches 100% (day 3.5 to 7) and whether it keeps rising after; past
+  that, the curve is yours. While the fold is open, a 7-day chart shows the
+  curve's points: drag one, double-click the chart to add one, and select one
+  to move it with the arrow keys or remove it with Delete. A selected point
   shows a diamond for the stretch into it: drag the diamond and the stretch
   bends toward it, and the scroll wheel over it or + and − set how hard it
   pulls. The Points table under the form sets each point's day and percent
   exactly and how the curve runs into it: smooth, straight, step or guided,
   with a guided stretch's pull. Undo and Redo, or ⌘Z and ⇧⌘Z (Ctrl+Z and
-  Ctrl+Y), step through the fold's edits, a discarded draft included. A running formula curve
+  Ctrl+Y), step through the fold's edits, a discarded draft included, back
+  to the plugin's last plan change. Defaults drafts the plan the plugin runs
+  with no pace settings, and Discard drops the draft. A running formula curve
   shows as points and turns into them at the first change. A draft is
   drawn dashed on the 7-day chart, the next new Standard conversation's seat
   under it is named, and the serving seats are ranked for Standard requests

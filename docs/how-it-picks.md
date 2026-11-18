@@ -30,10 +30,15 @@ that holds the earlier value until the point, or bent toward a guide:
 so the plan still never falls. A 5-hour window follows the
 same curve scaled to its length. Days rise from point to point and the plan
 never falls; a curve that starts after day 0 starts there at 0%, and one that
-stops before day 7 holds its last value to it. The landing and
-`hold-at-full` do not apply: the last point is the landing, and a flat run at
-100% holds. A list the plugin cannot read runs the linear curve and raises a
-warning on the status page.
+stops before day 7 holds its last value to it. A curve holds at most 16
+points, counting the ends the plugin adds, and reaches at most 400%. The
+landing and `hold-at-full` do not apply: the last point is the landing, and a
+flat run at 100% holds. A list that is empty, breaks any of these rules,
+names a day past 7, starts above 0% on day 0 or has an entry the plugin cannot
+read runs the linear curve and raises a warning on the status page. `points`
+must be a YAML list: a single string, such as `"0:0, 7:110"`, fails the whole
+block's parse like any value of the wrong type, and the plugin stays off with
+a warning in the host log.
 
 Sending everything to the seat that resets soonest looks only at the clock: it
 keeps feeding a nearly spent seat while one with most of its week unused

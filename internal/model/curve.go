@@ -106,8 +106,6 @@ func ParsePoints(entries []string) ([]CurvePoint, error) {
 			if kind == "" {
 				kind = SegmentSmooth
 			}
-		case "linear":
-			kind = SegmentStraight
 		case SegmentSmooth, SegmentStraight, SegmentStep:
 		default:
 			return nil, fmt.Errorf("%q names %q, not smooth, straight or step", raw, m[3])

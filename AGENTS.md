@@ -247,7 +247,9 @@ and unit-testable without the host.
   `TestPageCurveMatchesTheScorer` lifts the curve functions the same way, with
   only `num` and `clamp` defined, and holds them to `pace.Target`.
   `TestPageTuneSaveBody` lifts `tuneSaveBody` the same way, with nothing
-  defined.
+  defined. `TestPagePointsPlanParses` lifts `pointDay`, `pointPct` and
+  `pointsPlan` the same way, with only `CURVE_DAYS` defined, and `sameCurve`
+  with nothing defined.
 - The local API's JSON is a published format, documented field by field in
   `docs/local-api.md`. Adding a field, or a new value of a field, keeps
   `web.LocalAPIVersion`; removing a field or changing its meaning raises it.
