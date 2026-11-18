@@ -215,7 +215,7 @@ func weightOf(cfg model.PaceConfig, w model.Window, onlySession bool) float64 {
 }
 
 // Rank scores every candidate and orders the results: eligible before
-// ineligible, then SessionOnly first, then Cost ascending, then AuthID
+// ineligible, then Boosted, then SessionOnly, then Cost ascending, then AuthID
 // ascending so repeated calls on the same inputs agree regardless of the order
 // the host offered candidates in. A repeated id is scored and returned once. A
 // candidate with no snapshot scores ineligible with model.ReasonNoSnapshot. The

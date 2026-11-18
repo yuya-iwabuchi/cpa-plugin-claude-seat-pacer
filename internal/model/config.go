@@ -51,9 +51,10 @@ type AffinityConfig struct {
 //
 // The pace model compares each window's observed utilization against the
 // utilization a target curve expects at the same point in the window.
-// SessionOnly credentials (Score.SessionOnly) rank ahead of the rest, and
-// within each group the one furthest behind its curve wins, which drains a
-// window that is about to reset while holding back one with days left.
+// Boosted credentials, then SessionOnly ones (Score.SessionOnly), rank ahead
+// of the rest, and within each group the one furthest behind its curve wins,
+// which drains a window that is about to reset while holding back one with
+// days left.
 type PaceConfig struct {
 	// Shape names the curve the target follows across a window: "linear"
 	// spends evenly, "power" bends it by CurveExponent, "sigmoid" holds back early,

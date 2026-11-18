@@ -3,8 +3,10 @@
 // The page itself is a resource route, which the host serves to anyone who can
 // reach its port; it is static and carries no data. The status it renders comes
 // from the plugin's page-status management route, which the host answers only
-// with the management key and, by default, only for loopback clients. The app
-// issues no mutating request, model.Status carries ids and labels but no
+// with the management key and, by default, only for loopback clients. Every
+// request the app makes that changes anything, a boost, a pace setting saved
+// through the host's plugin-config route or a sign-in, goes to a management
+// route behind that key. model.Status carries ids and labels but no
 // credential material, and serveStatus still names each seat without its
 // account address, withholds the credential file name, keeps only the config
 // block the page reads, strips URLs, filesystem paths and network addresses out
@@ -227,14 +229,14 @@ func serveStatus(w http.ResponseWriter, r *http.Request, src Source, key []byte)
 		return
 	}
 
-	writeRawJSON(w, body)
+	writeRawJSON(w, http.StatusOK, body)
 }
 
-// writeRawJSON sends body as a 200 JSON response.
-func writeRawJSON(w http.ResponseWriter, body []byte) {
+// writeRawJSON sends body as a JSON response with status.
+func writeRawJSON(w http.ResponseWriter, status int, body []byte) {
 	setCommonHeaders(w)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }
 
@@ -306,10 +308,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 		http.Error(w, "encode failed", http.StatusInternalServerError)
 		return
 	}
-	setCommonHeaders(w)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write(encoded)
+	writeRawJSON(w, status, encoded)
 }
 
 // nonFiniteSentinel stands in for a float64 that JSON has no literal for. A

@@ -3,7 +3,7 @@
 // conversation goes to the seat furthest behind a plan that spends its quota
 // steadily and finishes a little early, and each conversation stays on one seat
 // so Anthropic prompt caches keep hitting. A seat with no weekly cap on the
-// requested model goes ahead of every seat with one.
+// requested model goes ahead of every seat with one that is not boosted.
 //
 // This file is the C ABI boundary only: it installs the plugin vtable, guards
 // every entry point against panics, and forwards each call to
@@ -96,6 +96,15 @@ var _ web.SessionBinder = (*runtime.Plugin)(nil)
 // work it out, through a type assertion that would otherwise fail in silence,
 // leaving every seat without a rate.
 var _ web.SpendRater = (*runtime.Plugin)(nil)
+
+// The boost route sets a boost only on a Source that takes one, through a type
+// assertion that would otherwise fail in silence, answering every boost 501.
+var _ web.Booster = (*runtime.Plugin)(nil)
+
+// The status route scores a draft only for a Source that can preview one,
+// through a type assertion that would otherwise fail in silence, answering
+// every preview with the running scores.
+var _ web.Previewer = (*runtime.Plugin)(nil)
 
 // Plugin identity. The host rejects a plugin with any of these blank. The
 // Makefile reads pluginVersion from this line to name the installed library.
