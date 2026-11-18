@@ -571,7 +571,9 @@ td .seat-mark { max-width: 22ch; }
 /* The band past 100% on a utilization chart, and the rule at full under it. */
 svg .past-full { fill: var(--serious); fill-opacity: .07; }
 svg .full-rule { stroke: var(--serious); stroke-opacity: .75; stroke-width: 1; stroke-dasharray: 4 3; }
-svg.pace text.full-label { fill: var(--serious); }
+/* The label takes the serious tone toward the ink so its 10px text keeps
+   4.5:1 on the band in both themes. */
+svg.pace text.full-label { fill: color-mix(in srgb, var(--serious) 85%, var(--ink-1)); }
 svg.tl { display: block; }
 svg.tl text { font-family: var(--sans); fill: var(--ink-1); }
 svg.tl .t-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -3699,13 +3701,10 @@ time[data-ts] { cursor: help; }
     return counted(ws) && num(ws.target) && Math.abs(ws.slack) >= PACE_BAND;
   }
 
-  /* The meter's fill carries the lane state's pattern as the bar does, so a
-     refused or spent window reads as one in the gutter, where a
-     window that is a sliver on the time axis is read. */
   /* Whether a paced window's target stands past full, beyond the end of the
-     meter and the bar, which stop at 100%. */
+     meter and the bar, which stop at 100%: past the 100.0% its label reads. */
   function pastFull(ws) {
-    return counted(ws) && num(ws.target) && ws.target > 1;
+    return counted(ws) && num(ws.target) && ws.target > 1 && pct(ws.target) !== pct(1);
   }
 
   /* A target past full: a chevron pointing on, the track's height, ending at
@@ -3719,6 +3718,9 @@ time[data-ts] { cursor: help; }
     return l;
   }
 
+  /* The meter's fill carries the lane state's pattern as the bar does, so a
+     refused or spent window reads as one in the gutter, where a
+     window that is a sliver on the time axis is read. */
   function budgetMeter(parent, cy, w, ws, meta, eligible) {
     var color = meta.color, y = cy - MET_H / 2;
     svg("rect", { x: MET_X + 0.5, y: y + 0.5, width: MET_W - 1, height: MET_H - 1,
