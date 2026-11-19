@@ -19,8 +19,8 @@ set -euo pipefail
 # GO_VERSION equals go.mod's toolchain directive. Raising that pin means
 # setting both of these from https://go.dev/dl/ and checking the patch still
 # applies.
-GO_VERSION=go1.26.10
-GO_SRC_SHA256=fd63e883ba2f2bfca93c1646b31ebef63e2b1e4d2b317c9789d976a68d81f36f
+GO_VERSION=go1.26.11
+GO_SRC_SHA256=d44101b0ff27ed2a4c75ad46c17b9c74359209e2eb2ca7c9df6cb4fdb68e1969
 
 out=${1:?usage: build-darwin-amd64.sh <library>}
 mkdir -p "$(dirname "$out")"
