@@ -4,14 +4,16 @@ The Management Center gains a "Claude Seat Pacer" entry: a live dashboard of
 what the plugin decides and the numbers behind it. The page calls a seat's
 plan its target, and ranks the eligible seats by cost: the weighted gap to
 target, negative while a seat is behind, so the lowest cost takes the next new
-conversation, except that an eligible seat with no weekly cap on the requested
-model ranks ahead of every seat with one. While such a seat is eligible on the
-serving tier, the ranking splits under "no weekly cap", "weekly cap" and "held
-off" headings. A seat held off ranks below the eligible seats, including one
-the host has disabled ("host disabled") or holds in a cooldown that covers
-every model ("held by host", with the time the host lets it back). A seat
-whose served models the host cools on their own keeps its rank, since the host
-still offers it for other models, and its tooltip names the host status.
+conversation, except that an eligible boosted seat ranks ahead of every other,
+and an eligible seat with no weekly cap on the requested model ranks ahead of
+every seat with one that is not boosted. While such a seat is eligible on the
+serving tier, the ranking splits under "boosted", "no weekly cap", "weekly cap"
+and "held off" headings. A seat held off ranks below the eligible seats,
+including one the host has disabled ("host disabled") or holds in a cooldown
+that covers every model ("held by host", with the time the host lets it back).
+A seat whose served models the host cools on their own keeps its rank, since
+the host still offers it for other models, and its tooltip names the host
+status.
 
 - **Next pick.** The bar across the top names the eligible seat the next new
   conversation lands on, for Standard requests and for each model family with
@@ -47,6 +49,15 @@ still offers it for other models, and its tooltip names the host status.
   is marked fallback, and a tier none of whose seats can take requests is
   skipped, with the reason: disabled in the host, held by host, refused by
   the provider, full, or not scored.
+  Pointing at a seat's row shows an arrow to the top (⤒) beside the hide
+  control; it opens a menu that boosts the seat for an hour, four hours,
+  until its weekly reset, or until cleared, and clears a live boost. On a
+  seat whose weekly windows name no reset, the reset span reads "until its
+  5-hour reset"; on one whose reading names neither a weekly reset nor a
+  5-hour reset ahead, it reads "until its reset" and is greyed out, with the
+  reason under it. A boosted seat keeps its arrow filled, reads "boosted
+  until" in each seat list, and is listed under the chart with a Clear
+  button, a seat hidden on the page included.
 - **Current window.** Each seat's use of its current window against the curve,
   one window at a time: 7d Standard, each model family's 7-day cap the cost
   weighs, and 5h Standard. A 7-day view lists the seats in its family's ranking
@@ -164,5 +175,7 @@ is on, only from the same machine.
 
 The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
 (the full status as JSON, `?model=<id>`), `GET page-status` (the page's view,
+while `web.enabled` is on), `POST page-boost?seat=<published id>&span=` (the
+boost menu's route, with `span` one of `1h`, `4h`, `reset`, `cleared` or `off`,
 while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
 `POST bindings/sweep`.

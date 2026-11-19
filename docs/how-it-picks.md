@@ -2,7 +2,8 @@
 
 Every new conversation goes to the eligible seat furthest behind its weekly
 plan, and then stays on that seat. Seats with no weekly cap on the requested
-model go first, paced against their 5-hour window instead.
+model go first, after any boosted seat, paced against their 5-hour window
+instead.
 
 Each weekly window's plan rises from nothing at the window's start. At the
 default `landing-target: 1.10` on the linear shape it reaches the full quota
@@ -34,13 +35,14 @@ Some seats, including some Team seats, report no all-models weekly window, only
 a 5-hour window and a Fable weekly window. On a model outside Fable such a seat
 has no weekly cap: its 5-hour window is its only quota, and it resets several
 times a day. Every eligible seat with no weekly cap goes ahead of every seat
-with one, and a seat with a weekly cap takes a new conversation for that model
-only while no seat without one can. Once a seat with no weekly cap has room
-again after its 5-hour reset, new conversations go back to it, and a
-conversation already bound to a seat with a weekly cap stays there. Among seats
-with no weekly cap, the one furthest behind its plan on the 5-hour window goes
-first, whatever the weights; a seat whose 5-hour window has not opened yet is
-neither behind nor ahead of its plan. On Fable these seats have a weekly cap
+with one that is not boosted, and a seat with a weekly cap that is not boosted
+takes a new conversation for that model, other than a subagent joining its
+parent's seat, only while no seat without one can. Once a seat with no weekly
+cap has room again after its 5-hour reset, new conversations go back to it, and
+a conversation already bound to a seat with a weekly cap stays there. Among
+seats with no weekly cap, the one furthest behind its plan on the 5-hour window
+goes first, whatever the weights; a seat whose 5-hour window has not opened yet
+is neither behind nor ahead of its plan. On Fable these seats have a weekly cap
 like any other and are paced the usual way. No setting controls this: it
 follows each seat's latest readings, so a seat whose usage read or responses
 report an all-models weekly window is paced like any other, and a pool in which
@@ -50,11 +52,30 @@ pacing alone.
 A seat whose usage read reports weekly windows and no 5-hour window, as a plan
 with no 5-hour limit does, has no 5-hour limit to gate it. It is ranked on its
 weekly windows alone, so it stays eligible while seats with a 5-hour limit wait
-out a full one, though a seat with no weekly cap on the model still goes first.
+out a full one, though a seat with no weekly cap on the model, or a boosted
+seat, still goes first.
 With a `session-weight` above 0, the seats it is compared with carry a 5-hour
 term it does not. A refusal of the 5-hour window it had before ends at the
 first read that no longer reports the window, and the plugin then ends the
 host's cooldown from that refusal as it does after an early reset.
+
+You can boost a seat from the arrow (⤒) at the end of its row on the Seats
+chart, which shows when you point at the row: for an hour, for four hours,
+until its reset, or until you clear it. Of the windows the seat's latest
+reading names a reset for, that reset is the all-models weekly window's, else
+the soonest of its model-family weekly windows', else the 5-hour window's
+while it lies ahead. The menu says "until its weekly reset" or "until its
+5-hour reset" to match, and greys the option out on a seat whose reading names
+no such reset. A weekly reset the reading names as passed counts as the next
+reset on its weekly cycle, whole weeks after it. While a boost lasts, the
+boosted seat takes every new conversation it is eligible for, other than a
+subagent joining its parent's seat, ahead of seats with no weekly cap and of
+the pace ranking. Two boosted seats are ranked against each other as
+usual. A boost moves no conversation that is already bound, and it never makes
+an ineligible seat eligible: a full or refused seat takes nothing, boosted or
+not. It also works only among the seats the host offers, which are the ones on
+the highest `priority` in use. Boosts are kept in `boosts.state` beside the
+history file, so they survive a plugin update or a host restart.
 
 A seat is ineligible when:
 

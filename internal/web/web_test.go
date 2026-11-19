@@ -887,7 +887,8 @@ func idStatus() model.Status {
 				AuthID: seatAID, AuthIndex: "3011c15be15be4ee", Label: "alice@acme.example",
 				ObservedAt: base, Source: model.SourceUsageEndpoint, Windows: []model.Window{},
 			},
-			Score: model.Score{AuthID: seatAID, Eligible: true},
+			Score: model.Score{AuthID: seatAID, Eligible: true, Boosted: true},
+			Boost: &model.Boost{AuthID: seatAID, Span: model.BoostHour, SetAt: base, Until: base.Add(time.Hour)},
 		}, {
 			AuthID: seatBID, Label: "aaron@acme.example", Provider: "claude", HostStatus: "active",
 			Snapshot: model.AuthSnapshot{

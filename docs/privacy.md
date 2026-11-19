@@ -51,6 +51,12 @@ conversation's opening, never the text itself. The file follows
 `affinity.enabled` off, or a config block the plugin cannot parse, the plugin
 deletes it when the host next stops the plugin.
 
+`boosts.state` in the same directory keeps the live boosts: for each, the
+credential id, its span, and when it was set and ends. The plugin rewrites it
+at every boost change, dropping the boosts that have ended, and deletes it at
+a change that leaves none live. A boost that ends on its own stays in the
+file, ignored, until the next change.
+
 Uninstalling the plugin leaves these files in place; delete the directory to
 remove them.
 

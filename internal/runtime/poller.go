@@ -204,12 +204,13 @@ func (p *Plugin) stopPoller() {
 	p.saveHistory(p.config())
 }
 
-// Shutdown stops the poll loop, saves the bindings unless the build has been
-// handed over, marks it handed over, stops the local API socket, and then
-// drains the host calls they left outstanding. It is idempotent. Only the
-// unload reaches it, and by then the host has waited for every in-flight
-// plugin call to return (internal/pluginhost/client_guard.go:112-122), so
-// nothing can start another callback beside it.
+// Shutdown stops the poll loop, saves the bindings and retries a failed
+// boosts save unless the build has been handed over, marks it handed over,
+// stops the local API socket, and then drains the host calls they left
+// outstanding. It is idempotent. Only the unload reaches it, and by then the
+// host has waited for every in-flight plugin call to return
+// (internal/pluginhost/client_guard.go:112-122), so nothing can start another
+// callback beside it.
 //
 // An unloaded library can stay mapped until the process exits, so the stopped
 // loop is what keeps a detached plugin from polling on. The drain keeps the
@@ -218,7 +219,8 @@ func (p *Plugin) stopPoller() {
 //
 // plugin.quiesce precedes a replacement rather than an unload, and runs while
 // the host is still counting its own call, so it stops the loop and the
-// socket and saves the bindings but drains nothing.
+// socket, saves the bindings and retries a failed boosts save, but drains
+// nothing.
 func (p *Plugin) Shutdown() {
 	p.stopPoller()
 	p.mu.Lock()
@@ -227,6 +229,7 @@ func (p *Plugin) Shutdown() {
 	p.mu.Unlock()
 	if !handedOver {
 		p.saveBindings()
+		p.retryBoostSave()
 	}
 	p.stopLocalAPI()
 	p.host.drain(hostDrainTimeout)
@@ -264,11 +267,13 @@ func (p *Plugin) runPoller(pl *poller) {
 }
 
 // guardedPoll runs one poll under guard and returns the wait before the next,
-// first bringing the local API socket in line with the config. A poll that
-// panics costs itself only: the next one waits a regular interval, and
-// nextPollAt names that wake so the page's countdown stays true.
+// first bringing the local API socket in line with the config and writing a
+// boosts table whose last save failed. A poll that panics costs itself only:
+// the next one waits a regular interval, and nextPollAt names that wake so
+// the page's countdown stays true.
 func (p *Plugin) guardedPoll(ctx context.Context) time.Duration {
 	p.guard("local API sync", p.syncLocalAPI)
+	p.guard("boosts save", p.retryBoostSave)
 	wait := p.config().Quota.PollInterval
 	if p.guard("poll", func() { wait = p.pollAndSchedule(ctx) }) {
 		p.mu.Lock()
@@ -542,6 +547,10 @@ func (p *Plugin) pollLocked(ctx context.Context) (wait time.Duration, cutShort b
 	// Store.MergeHeaders. Pruning against the fetch set would discard every
 	// such credential's recorded history on each poll.
 	p.quota.Prune(listed)
+	// A boost on a credential the host stopped listing has no seat on the
+	// page to clear it from, so it goes once two listings in a row leave the
+	// credential out, as its history does.
+	p.pruneBoosts(listed, p.now())
 
 	p.mu.Lock()
 	p.listErr = ""

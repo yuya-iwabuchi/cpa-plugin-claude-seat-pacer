@@ -1372,3 +1372,25 @@ func TestSeatWithNoSessionWindowPacesOnItsWeeklyWindows(t *testing.T) {
 		}
 	}
 }
+
+// A boosted seat ranks ahead of every other eligible seat, a SessionOnly one
+// and a seat further behind its plan included, and never ahead of an eligible
+// seat while it is ineligible itself.
+func TestApplyBoostsRanksAnEligibleBoostedSeatFirst(t *testing.T) {
+	now := testNow
+	cfg := model.Defaults().Pace
+	snaps := snapshots(
+		seat("a-behind", now, weekly(now, 0.9, 0.1)),
+		seat("b-session-only", now, paced(model.WindowSession, "", now, 0.5, 0.1)),
+		seat("c-boosted", now, weekly(now, 0.2, 0.8)),
+		seat("d-boosted-full", now, weekly(now, 0.5, 1)),
+	)
+	ranked := Rank(cfg, snaps, []string{"a-behind", "b-session-only", "c-boosted", "d-boosted-full"}, opus, now)
+	ApplyBoosts(ranked, func(id string) bool { return strings.Contains(id, "boosted") })
+	if got, want := rankedIDs(ranked), []string{"c-boosted", "b-session-only", "a-behind", "d-boosted-full"}; !slices.Equal(got, want) {
+		t.Fatalf("ranked %v, want %v", got, want)
+	}
+	if !ranked[0].Boosted || ranked[1].Boosted || !ranked[3].Boosted {
+		t.Fatalf("Boosted marks = %v %v %v %v", ranked[0].Boosted, ranked[1].Boosted, ranked[2].Boosted, ranked[3].Boosted)
+	}
+}

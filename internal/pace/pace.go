@@ -209,7 +209,7 @@ func weightOf(cfg model.PaceConfig, w model.Window, onlySession bool) float64 {
 }
 
 // Rank scores every candidate and orders the results: eligible before
-// ineligible, then SessionOnly first, then Cost ascending, then AuthID
+// ineligible, then Boosted, then SessionOnly, then Cost ascending, then AuthID
 // ascending so repeated calls on the same inputs agree regardless of the order
 // the host offered candidates in. A repeated id is scored and returned once. A
 // candidate with no snapshot scores ineligible with model.ReasonNoSnapshot. The
@@ -276,13 +276,29 @@ func RankWithStaleness(cfg model.Config, snaps map[string]model.AuthSnapshot, ca
 	return scores
 }
 
-// better is the ranking order: eligible first, then SessionOnly, then a
-// comparable Cost ahead of a NaN one, then lower Cost, then lower AuthID. NaN
-// compares false against every number, so it needs its own branch for the
-// order to stay transitive.
+// ApplyBoosts marks each score whose credential boosted names and orders the
+// scores again, so an eligible boosted credential ranks first. The slice is
+// sorted in place.
+func ApplyBoosts(scores []model.Score, boosted func(authID string) bool) {
+	if boosted == nil {
+		return
+	}
+	for i := range scores {
+		scores[i].Boosted = boosted(scores[i].AuthID)
+	}
+	sort.SliceStable(scores, func(i, j int) bool { return better(scores[i], scores[j]) })
+}
+
+// better is the ranking order: eligible first, then Boosted, then
+// SessionOnly, then a comparable Cost ahead of a NaN one, then lower Cost,
+// then lower AuthID. NaN compares false against every number, so it needs its
+// own branch for the order to stay transitive.
 func better(a, b model.Score) bool {
 	if a.Eligible != b.Eligible {
 		return a.Eligible
+	}
+	if a.Boosted != b.Boosted {
+		return a.Boosted
 	}
 	if a.SessionOnly != b.SessionOnly {
 		return a.SessionOnly
