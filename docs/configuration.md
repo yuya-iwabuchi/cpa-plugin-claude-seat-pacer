@@ -56,7 +56,8 @@ status page's Tune the plan fold, which previews the ranking before it saves.
         max-sessions: 65536     # bindings held before the least recently seen is dropped
         persist: true           # keep live bindings across a plugin update or host restart
       pace:
-        shape: linear           # linear, power or sigmoid
+        shape: linear           # linear, power, sigmoid or points
+        points: []              # points shape only: "day:percent" over a 7-day week, each optionally smooth (default), straight, step, or "via day:percent [pull N]"
         curve-exponent: 1.0     # power shape only, and selects it when shape is unset; above 1 holds back early
         steepness: 8.0          # sigmoid shape only
         landing-target: 1.10    # 1.10 finishes ~9% early (linear), 1.0 at the reset; 0 < x <= 4
@@ -83,7 +84,13 @@ is under twice `poll-interval` and runs at twice it. A negative weight counts
 as 0, and any other out-of-range value falls back to its default. `usage-url`
 receives every seat's token, so it must be `https` to `api.anthropic.com`, or
 `http` to a loopback host; anything else runs at the default, with a
-status-page warning. A block that doesn't parse loads the plugin disabled.
+status-page warning. Under `shape: points`, a `points` list the plugin cannot
+use runs the linear shape with a status-page warning: an empty list, an entry
+it cannot read, days that do not rise, a percent that falls, a day past 7, a
+start above 0% on day 0, more than 16 points counting the ends the plugin
+adds, a point above 400%, a guide into day 0 or outside its stretch's box, or
+a pull outside 0.1 to 10. A block that doesn't parse loads the plugin
+disabled, as does a `points` that is not a YAML list.
 `affinity.override-threshold` and `pace.hysteresis-margin` are no longer
 settings: a bound conversation stays on its seat however far another seat is
 behind its plan, and the status page warns while the block still sets either.

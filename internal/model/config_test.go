@@ -2,6 +2,7 @@ package model
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -158,7 +159,7 @@ func TestNormalizeRejectsNaNAndInf(t *testing.T) {
 			ScopedWeight:  bad,
 		}}
 		cfg.Normalize()
-		if cfg.Pace != d.Pace {
+		if !reflect.DeepEqual(cfg.Pace, d.Pace) {
 			t.Errorf("pace after %v = %+v, want the defaults", bad, cfg.Pace)
 		}
 	}
