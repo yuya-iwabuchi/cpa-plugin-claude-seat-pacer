@@ -20,6 +20,9 @@ type BindingStore interface {
 	Lookup(provider, modelID, sessionKey string, now time.Time) (model.Binding, bool)
 	// Bind pins a conversation to a credential, replacing any prior binding.
 	Bind(provider, modelID, sessionKey, authID string, now time.Time) model.Binding
+	// Restore files bindings an earlier run saved, skipping any idle past the
+	// TTL at now or already held, and reports how many it kept.
+	Restore(saved []model.Binding, now time.Time) int
 	// DropAuth unbinds every conversation on a credential and reports how many.
 	DropAuth(authID string) int
 	// All returns every binding, newest LastSeen first.

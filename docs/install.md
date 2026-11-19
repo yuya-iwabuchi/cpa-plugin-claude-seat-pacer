@@ -59,12 +59,17 @@ restart the host (`brew services restart cliproxyapi` on Homebrew).
 
 ## Updating and uninstalling
 
-Uninstall by deleting the plugin in the Management Center. A new version
-starts with no conversation bindings, costing each open conversation one
-prompt-cache miss. CLIProxyAPI 8.0.31 and later keep each version of the
-plugin they have loaded, an uninstalled or replaced one included, in memory
-until the host restarts; a version no longer in use does no work there. On a
-macOS host older than 8.0.31, restart the host after updating, disabling or
-uninstalling the plugin: the Go library it unloads leaves its signal handler
-behind, and a Go plugin loaded beside it, the plugin's own new version
-included, can then hold a CPU core at 100% until the restart.
+Uninstall by deleting the plugin in the Management Center. That removes the
+library but leaves the files [Privacy and data](privacy.md) lists in
+`~/.cli-proxy-api/plugins/claude-seat-pacer/`; delete that directory to remove
+them. A new version keeps each open conversation on its seat while
+`affinity.persist` is on, the default. Updating from 0.6.0 or earlier still
+starts with no bindings, costing each open conversation one prompt-cache miss,
+because those versions save none. CLIProxyAPI 8.0.31 and later keep each
+version of the plugin they have loaded, an uninstalled or replaced one
+included, in memory until the host restarts; a version no longer in use does
+no work there. On a macOS host older than 8.0.31, restart the host after
+updating, disabling or uninstalling the plugin: the Go library it unloads
+leaves its signal handler behind, and a Go plugin loaded beside it, the
+plugin's own new version included, can then hold a CPU core at 100% until the
+restart.

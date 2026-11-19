@@ -66,6 +66,28 @@ func TestParseUsagePayload(t *testing.T) {
 			},
 		},
 		{
+			name: "a seat with no 5-hour window",
+			file: "usage_no_session.json",
+			want: []model.Window{
+				{
+					Kind:        model.WindowWeekly,
+					Utilization: 0.42,
+					ResetsAt:    day(10, 14),
+					Duration:    model.WeeklyDuration,
+					Severity:    model.SeverityNormal,
+					Active:      true,
+				},
+				{
+					Kind:        model.WindowWeeklyScoped,
+					Scope:       "Fable",
+					Utilization: 0.12,
+					ResetsAt:    day(10, 14),
+					Duration:    model.WeeklyDuration,
+					Severity:    model.SeverityNormal,
+				},
+			},
+		},
+		{
 			name: "live payload with the session window spent",
 			file: "usage_late_week.json",
 			want: []model.Window{

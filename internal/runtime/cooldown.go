@@ -64,20 +64,26 @@ func within(until time.Time, l model.Lock) bool {
 	return until.Sub(time.Unix(l.ExpectedEnd(), 0)).Abs() <= deadlineSlack
 }
 
-// reopened reports whether a window's history opened a cycle at or after a
-// span ended: the provider cleared the window or it rolled onto a new reset.
-// A span a served request ended shows only that one request got through.
-func reopened(h model.WindowHistory, l model.Lock) bool {
-	_, ok := reopenedAt(h, l)
+// reopened reports whether a window reopened after a span ended: its history
+// opened a cycle at or after the span's end, as the provider clearing the
+// window or its rolling onto a new reset does, or the span ended as cleared
+// on a window snap no longer carries, as a usage read that stops reporting
+// the window ends it. A span a served request ended shows only that one
+// request got through.
+func reopened(snap model.AuthSnapshot, h model.WindowHistory, l model.Lock) bool {
+	_, ok := reopenedAt(snap, h, l)
 	return ok
 }
 
-// reopenedAt is when the first cycle reopened says opened.
-func reopenedAt(h model.WindowHistory, l model.Lock) (time.Time, bool) {
+// reopenedAt is when the window reopened says it did.
+func reopenedAt(snap model.AuthSnapshot, h model.WindowHistory, l model.Lock) (time.Time, bool) {
 	for _, c := range h.Cycles {
 		if len(c.Samples) > 0 && c.Samples[0].At.Unix() >= l.To {
 			return c.Samples[0].At, true
 		}
+	}
+	if _, carried := snap.Window(h.Kind, h.Scope); !carried && l.End == model.LockEndCleared {
+		return time.Unix(l.To, 0), true
 	}
 	return time.Time{}, false
 }
@@ -106,8 +112,8 @@ func explains(history []model.WindowHistory, c model.Lock, until time.Time) bool
 //     and weekly windows it carries, carries at least one, and shows the
 //     provider refusing neither.
 //   - No refusal span on those windows is ongoing. The cause is the latest of
-//     them to end whose window has cleared or rolled since, and which
-//     `explains` ties to the cooldown.
+//     them to end whose window has cleared or rolled since, or that the read
+//     no longer reports, and which `explains` ties to the cooldown.
 //   - None of them still open when the cause began expected the reset the
 //     cooldown ends at without its window clearing or rolling since: while
 //     that window stays full the provider refuses every model.
@@ -149,7 +155,7 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 			if l.End == "" {
 				return staleHold{}, false
 			}
-			if at, ok := reopenedAt(h, l); ok && l.To > cause.To && explains(history, l, entry.NextRetryAfter) {
+			if at, ok := reopenedAt(snap, h, l); ok && l.To > cause.To && explains(history, l, entry.NextRetryAfter) {
 				cause, released = l, at
 			}
 		}
@@ -162,7 +168,7 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 			continue
 		}
 		for _, l := range h.Locks {
-			if l.To >= cause.From && within(entry.NextRetryAfter, l) && !reopened(h, l) {
+			if l.To >= cause.From && within(entry.NextRetryAfter, l) && !reopened(snap, h, l) {
 				return staleHold{}, false
 			}
 		}
@@ -196,6 +202,7 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, read map[string]bool) {
 	now := p.now()
 	held := make(map[string]staleHold)
+	cleared := make(map[string]bool)
 	listed := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		id := authID(entry)
@@ -228,6 +235,7 @@ func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, 
 		default:
 			hold.problem = p.resetHold(ctx, id, entry.AuthIndex, hold)
 			if hold.problem == "" {
+				cleared[id] = true
 				continue
 			}
 		}
@@ -242,6 +250,15 @@ func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, 
 		}
 	}
 	p.holds = held
+	// p.auths is the listing this poll read before the resets, and it stands
+	// until the next poll. A cleared entry takes the state the host's reset
+	// leaves on a credential with no other fault.
+	for i := range p.auths {
+		if cleared[authID(p.auths[i])] {
+			p.auths[i].Unavailable, p.auths[i].NextRetryAfter = false, time.Time{}
+			p.auths[i].Status, p.auths[i].StatusMessage = "active", ""
+		}
+	}
 }
 
 // resetUnsupportedProblem is the warning's reason for a host older than the

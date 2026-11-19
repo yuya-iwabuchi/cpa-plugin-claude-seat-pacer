@@ -65,6 +65,15 @@ type savedReading struct {
 	ObservedAt time.Time      `json:"observed_at"`
 	Source     string         `json:"source,omitempty"`
 	Windows    []model.Window `json:"windows"`
+	// Read lists the windows the latest usage read reporting a 5-hour or
+	// weekly window carried.
+	Read []savedKey `json:"read,omitempty"`
+}
+
+// savedKey names a window as the history file holds it.
+type savedKey struct {
+	Kind  model.WindowKind `json:"kind"`
+	Scope string           `json:"scope,omitempty"`
 }
 
 // exportReadings copies every credential's last reading, pending ones
@@ -84,7 +93,11 @@ func (s *Store) exportReadings() map[string]savedReading {
 				return
 			}
 		}
-		out[id] = savedReading{ObservedAt: e.snap.ObservedAt, Source: e.snap.Source, Windows: slices.Clone(e.snap.Windows)}
+		r := savedReading{ObservedAt: e.snap.ObservedAt, Source: e.snap.Source, Windows: slices.Clone(e.snap.Windows)}
+		for _, key := range e.read {
+			r.Read = append(r.Read, savedKey{Kind: key.kind, Scope: key.scope})
+		}
+		out[id] = r
 	}
 	for id, e := range s.pending {
 		add(id, e)
@@ -122,6 +135,10 @@ func (s *Store) importReadings(saved map[string]savedReading, now time.Time) {
 		}
 		p.snap = model.AuthSnapshot{AuthID: id, Windows: slices.Clone(r.Windows), ObservedAt: r.ObservedAt, Source: r.Source}
 		p.seenAt = nil
+		p.read = nil
+		for _, key := range r.Read {
+			p.read = append(p.read, windowKey{kind: key.Kind, scope: key.Scope})
+		}
 	}
 }
 
@@ -150,18 +167,23 @@ func (s *Store) importLogins(saved map[string]time.Time, devices map[string]stri
 }
 
 // SaveHistory writes the store's whole history as of now, every credential's
-// last reading and every login instant to path, by writing and syncing a temporary file
-// of its own in the same directory and renaming it into place, so a reader
-// never sees a partial file and two writers never share a temporary one. The
-// directory is created as needed.
+// last reading and every login instant to path through WriteFile.
 func (s *Store) SaveHistory(path string, now time.Time) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	logins, devices := s.exportLogins()
 	body, err := json.Marshal(historyFile{Version: historyFileVersion, Auths: s.ExportHistory(now), Readings: s.exportReadings(), Logins: logins, LoginDevices: devices})
 	if err != nil {
+		return err
+	}
+	return WriteFile(path, body)
+}
+
+// WriteFile writes body to path, readable by the owner alone, by writing and
+// syncing a temporary file of its own in the same directory and renaming it
+// into place, so a reader never sees a partial file and two writers never
+// share a temporary one. The directory is created as needed.
+func WriteFile(path string, body []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")

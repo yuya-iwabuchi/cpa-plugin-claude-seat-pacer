@@ -36,10 +36,15 @@ type AffinityConfig struct {
 	TTL time.Duration `yaml:"ttl" json:"ttl"`
 	// MaxSessions caps the binding table, evicting least-recently-seen.
 	MaxSessions int `yaml:"max-sessions" json:"max_sessions"`
-	// Subagents pins a subagent request to its parent's credential. Subagents
-	// replay the parent's prefix, so sharing its credential is a large cache
-	// win at the cost of parallel spread.
+	// Subagents places a subagent that holds no live binding of its own on its
+	// parent's credential. Subagents replay the parent's prefix, so sharing its
+	// credential is a large cache win at the cost of parallel spread. Once
+	// bound, a subagent keeps its own credential like any conversation, and its
+	// requests keep its parent's binding on the same model alive.
 	Subagents bool `yaml:"subagents" json:"subagents"`
+	// Persist carries the live bindings across a plugin update and a host
+	// restart, in a file beside the history file.
+	Persist bool `yaml:"persist" json:"persist"`
 }
 
 // PaceConfig governs cold-start credential choice.
@@ -128,6 +133,10 @@ type WebConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// HistoryLimit caps retained routing decisions, at most 10000.
 	HistoryLimit int `yaml:"history-limit" json:"history_limit"`
+	// Socket serves the local API, a read-only Unix socket beside the
+	// history file that only the host's own user can open, while Enabled
+	// is on too.
+	Socket bool `yaml:"socket" json:"socket"`
 }
 
 // DefaultUsageURL reports per-window utilization for a subscription credential
@@ -145,6 +154,7 @@ func Defaults() Config {
 			TTL:         time.Hour,
 			MaxSessions: 65536,
 			Subagents:   true,
+			Persist:     true,
 		},
 		Pace: PaceConfig{
 			Shape:         ShapeLinear,
@@ -165,6 +175,7 @@ func Defaults() Config {
 		Web: WebConfig{
 			Enabled:      true,
 			HistoryLimit: 500,
+			Socket:       false,
 		},
 	}
 }

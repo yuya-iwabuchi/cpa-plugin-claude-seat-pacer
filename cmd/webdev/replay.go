@@ -160,7 +160,7 @@ func presentWindow(h model.WindowHistory, now time.Time) (model.Window, bool) {
 	if last == nil {
 		return model.Window{}, false
 	}
-	dur := windowLength(h.Kind)
+	dur := h.Kind.Length()
 	w := model.Window{
 		Kind: h.Kind, Scope: h.Scope, Duration: dur,
 		Utilization: last.Samples[len(last.Samples)-1].Utilization,
@@ -177,13 +177,6 @@ func presentWindow(h model.WindowHistory, now time.Time) (model.Window, bool) {
 		}
 	}
 	return w, true
-}
-
-func windowLength(kind model.WindowKind) time.Duration {
-	if kind == model.WindowSession {
-		return model.SessionDuration
-	}
-	return model.WeeklyDuration
 }
 
 // mergeLocks is the spans of a and b, oldest first, each stretch once: of two
@@ -247,7 +240,7 @@ func before(hs []model.WindowHistory, now time.Time) []model.WindowHistory {
 		w, ok := presentWindow(h, now)
 		for i, l := range h.Locks {
 			if now.Unix() < l.To {
-				to := time.Unix(l.From, 0).Add(windowLength(h.Kind))
+				to := time.Unix(l.From, 0).Add(h.Kind.Length())
 				if ok {
 					to = w.ResetsAt
 				}

@@ -13,6 +13,21 @@ secret in `page-id.key` beside
 management route, listed in [Status page](status-page.md), serves everything
 unreduced, behind the same key.
 
+On macOS and Linux, turning on `web.socket` (off by default) while
+`web.enabled` is on makes the plugin also serve a Unix socket, `api.sock`,
+beside `history.json`. It answers `GET /api/seats?session=<Claude Code session
+id>&model=<model>` with the seat that session is bound to and every seat's
+windows, in the page's form: masked names, keyed-hash ids and the page's
+warnings. It adds each seat's use per dollar, worked out from the token counts
+on the responses the plugin sees, priced at list price. The plugin keeps the
+dollar amounts as hourly totals per seat, in memory only, and reads the last
+day of them. [Local API](local-api.md) describes the answer. It never listens
+on the network: the plugin makes its directory the host user's alone (no group
+or other permission, owned by that user, not a link) and the socket `0600`, so
+only the user the host runs as can connect, the user who can already read
+`history.json`. A failure to bind it is a status-page warning. Windows, and a
+host with no home directory to keep the plugin's data in, serve no socket.
+
 `~/.cli-proxy-api/plugins/claude-seat-pacer/history.json` keeps per-seat
 utilization samples and each seat's last reading across restarts: credential
 ids (file names or account emails), timestamped fractions, each window's reset
@@ -25,5 +40,19 @@ nothing. The team name appears on the status page so you know which
 organization to pick when logging in again, with any email address in it
 masked as the seat's is.
 An unreadable file is set aside as `history.json.corrupt-<unix-ts>` and a
-fresh one starts. No token, refresh token or request body is ever logged, and
-an error that would carry a token is scrubbed first.
+fresh one starts.
+
+`bindings.state` in the same directory keeps the live conversation bindings
+across a plugin update or host restart: for each, the provider, model,
+conversation key, credential id, when it was made and last used, and its hit
+count. A conversation key is a digest of the ids the client sends or of the
+conversation's opening, never the text itself. The file follows
+`affinity.persist`, not `persist-history`; with `affinity.persist` or
+`affinity.enabled` off, or a config block the plugin cannot parse, the plugin
+deletes it when the host next stops the plugin.
+
+Uninstalling the plugin leaves these files in place; delete the directory to
+remove them.
+
+No token, refresh token or request body is ever logged, and an error that
+would carry a token is scrubbed first.
