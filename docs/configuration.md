@@ -43,7 +43,8 @@ These keys go under `claude-seat-pacer:`. Every key is optional;
 `landing-target`, `affinity.ttl` and `poll-interval` are the ones worth tuning.
 The host applies changes live. Changing `affinity.ttl` or `max-sessions` while
 the plugin runs clears the bindings, costing each open conversation one
-prompt-cache miss.
+prompt-cache miss. The pace settings can also be tried and saved from the
+status page's Tune the plan fold, which previews the ranking before it saves.
 
 ```yaml
       providers: [claude]       # provider keys the plugin routes; others fall to the host

@@ -107,7 +107,7 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	// The page and its data route come and go together with web.enabled.
 	if p.config().Web.Enabled {
 		resp.Routes = append(resp.Routes,
-			ManagementRoute{Method: http.MethodGet, Path: prefix + routePageStatus, Description: "The status page's data. Takes ?model=<id>, and ?sync=1 to read usage first."},
+			ManagementRoute{Method: http.MethodGet, Path: prefix + routePageStatus, Description: "The status page's data. Takes ?model=<id>, ?sync=1 to read usage first, and ?preview=<pace block as JSON> to score draft pace settings."},
 			ManagementRoute{Method: http.MethodPost, Path: prefix + routePageBoost, Description: "Boost or unboost a seat the status page names. Takes ?seat=<published id>&span=1h|4h|reset|cleared|off."})
 		resp.Resources = []ResourceRoute{
 			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Status page. Its data comes from " + prefix + routePageStatus + ", which needs the management key."},

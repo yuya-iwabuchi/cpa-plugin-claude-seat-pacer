@@ -473,3 +473,26 @@ func TestStatusRanksOnlySeatsTheHostOffers(t *testing.T) {
 		})
 	}
 }
+
+// A preview scores every seat against the draft and leaves the running config,
+// and so the pick, alone.
+func TestPreviewScoresTheDraftAndRoutesNothingByIt(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	tp.seats(t)
+	draft := tp.config().Pace
+	draft.LandingTarget = 0.5
+
+	st := tp.Preview(testNow, fableModel, draft)
+	if st.Config.Pace.LandingTarget != 0.5 {
+		t.Fatalf("preview pace = %+v, want the draft", st.Config.Pace)
+	}
+	live := tp.Status(testNow, fableModel)
+	for i, row := range st.Auths {
+		if row.Score.Cost == live.Auths[i].Score.Cost {
+			t.Errorf("%s: preview cost %v equals the running one", row.AuthID, row.Score.Cost)
+		}
+	}
+	if tp.config().Pace.LandingTarget == 0.5 {
+		t.Error("the preview changed the running config")
+	}
+}

@@ -67,3 +67,36 @@ if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
 		t.Errorf("page curve: %v\n%s", err, out)
 	}
 }
+
+// TestPageTuneSaveBody runs the page's tuning save body under node: changes go
+// into a nested pace mapping where the block has one, removing a dotted twin,
+// and are dotted keys where it has none.
+func TestPageTuneSaveBody(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	src := pageFunctions(t, "tuneSaveBody") + `
+var fails = [];
+function eq(name, got, want) {
+  if (JSON.stringify(got) !== JSON.stringify(want)) fails.push(name + ": got " + JSON.stringify(got) + ", want " + JSON.stringify(want));
+}
+var changed = [["landing_target", "pace.landing-target"], ["hold_at_full", "pace.hold-at-full"]];
+var draft = { landing_target: 1.3, hold_at_full: true, shape: "linear" };
+eq("no block", tuneSaveBody(null, changed, draft), { "pace.landing-target": 1.3, "pace.hold-at-full": true });
+eq("flat block", tuneSaveBody({ enabled: true, "pace.shape": "power" }, changed, draft), { "pace.landing-target": 1.3, "pace.hold-at-full": true });
+var block = { enabled: true, pace: { shape: "sigmoid", "landing-target": 1.1 }, "pace.landing-target": 1.2 };
+eq("nested block", tuneSaveBody(block, changed, draft),
+  { "pace.landing-target": null, pace: { shape: "sigmoid", "landing-target": 1.3, "hold-at-full": true } });
+eq("nested block untouched", block.pace, { shape: "sigmoid", "landing-target": 1.1 });
+if (fails.length) { console.log(fails.join("\n")); process.exit(1); }
+`
+	file := filepath.Join(t.TempDir(), "tune.js")
+	if err := os.WriteFile(file, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(node, file).CombinedOutput(); err != nil {
+		t.Errorf("tune save body: %v\n%s", err, out)
+	}
+}
