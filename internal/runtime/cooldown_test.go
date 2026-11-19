@@ -296,6 +296,31 @@ func TestPollClearsAStaleHostCooldownOnce(t *testing.T) {
 	}
 }
 
+// TestAClearedHoldLeavesTheStatusViewAtOnce covers the status view between
+// the poll that clears a cooldown and the next one: the listing that poll
+// read still names the cooldown, and the seat it cleared ranks as a
+// candidate all the same.
+func TestAClearedHoldLeavesTheStatusViewAtOnce(t *testing.T) {
+	tp := newTestPlugin(t, testConfigYAML)
+	staleHoldFixture(t, tp)
+	if err := tp.refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if n := tp.host.count(MethodHostRoutingResetCooldown); n != 1 {
+		t.Fatalf("reset_cooldown called %d times, want once", n)
+	}
+	for _, row := range tp.Status(testNow, "").Auths {
+		if row.AuthID != "claude-a.json" {
+			continue
+		}
+		if row.HostStatus == "unavailable" || row.HostHeldUntil != nil || row.Score.Reason == model.ReasonNotCandidate {
+			t.Errorf("row = status %q held until %v reason %q, want the cleared seat offered", row.HostStatus, row.HostHeldUntil, row.Score.Reason)
+		}
+		return
+	}
+	t.Fatal("no status row for claude-a.json")
+}
+
 func TestAStaleHoldTheHostKeepsIsNotResetAgain(t *testing.T) {
 	tp := newTestPlugin(t, testConfigYAML)
 	staleHoldFixture(t, tp)
