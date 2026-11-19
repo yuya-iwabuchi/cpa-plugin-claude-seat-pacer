@@ -202,6 +202,7 @@ func findStaleHold(entry HostAuthFileEntry, snap model.AuthSnapshot, history []m
 func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, read map[string]bool) {
 	now := p.now()
 	held := make(map[string]staleHold)
+	cleared := make(map[string]bool)
 	listed := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		id := authID(entry)
@@ -234,6 +235,7 @@ func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, 
 		default:
 			hold.problem = p.resetHold(ctx, id, entry.AuthIndex, hold)
 			if hold.problem == "" {
+				cleared[id] = true
 				continue
 			}
 		}
@@ -248,6 +250,15 @@ func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, 
 		}
 	}
 	p.holds = held
+	// p.auths is the listing this poll read before the resets, and it stands
+	// until the next poll. A cleared entry takes the state the host's reset
+	// leaves on a credential with no other fault.
+	for i := range p.auths {
+		if cleared[authID(p.auths[i])] {
+			p.auths[i].Unavailable, p.auths[i].NextRetryAfter = false, time.Time{}
+			p.auths[i].Status, p.auths[i].StatusMessage = "active", ""
+		}
+	}
 }
 
 // resetUnsupportedProblem is the warning's reason for a host older than the
