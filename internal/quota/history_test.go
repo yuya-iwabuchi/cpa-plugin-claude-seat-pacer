@@ -91,6 +91,27 @@ func TestHistoryReplacesAReadingWithinAMinute(t *testing.T) {
 	}
 }
 
+func TestHistoryKeepsAMinuteStepUnderSteadyTraffic(t *testing.T) {
+	s := NewStore()
+	resets := testNow.Add(3 * time.Hour)
+	// An hour of response headers 20 seconds apart, rising a point every five
+	// minutes.
+	for i := 0; i < 180; i++ {
+		at := testNow.Add(time.Duration(i) * 20 * time.Second)
+		s.MergeHeaders("auth-1", []model.Window{sessionAt(0.10+float64(i/15)/100, resets)}, at)
+	}
+	h := historyOf(t, s, "auth-1", model.WindowSession)
+	levels := map[float64]bool{}
+	for _, c := range h.Cycles {
+		for _, smp := range c.Samples {
+			levels[smp.Utilization] = true
+		}
+	}
+	if len(levels) != 12 {
+		t.Errorf("history holds %d distinct levels in %d samples, want all 12 rises kept", len(levels), h.Samples())
+	}
+}
+
 func TestHistoryOpensACycleAtAReset(t *testing.T) {
 	s := NewStore()
 	first := testNow.Add(time.Hour)
@@ -729,7 +750,7 @@ func TestAStaleFallOpensNoCycle(t *testing.T) {
 }
 
 // TestAClearingConfirmedWithinAMinuteSurvivesReplay covers a clearing whose
-// confirming reading lands within historyFineStep of the first low one and
+// confirming reading lands in the first low one's historyFineStep bucket and
 // replaces it, leaving the fresh cycle a single sample. The stored cycle opens
 // on a fall, so a replayed file keeps it as a cycle of its own.
 func TestAClearingConfirmedWithinAMinuteSurvivesReplay(t *testing.T) {
