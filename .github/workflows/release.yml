@@ -84,6 +84,12 @@ jobs:
             fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The library embeds the status page from this runner's checkout, whose
+      # line endings follow the runner's git, so no platform packages a page
+      # its own script-src would block.
+      - name: check the embedded page
+        shell: bash
+        run: go test -run '^TestPageHoldsNoRewrittenByte$' ./internal/web
       # cgo cannot cross-compile here, so each platform builds natively and
       # GOOS/GOARCH stay unset. darwin/amd64 builds with a toolchain patched
       # to keep the goroutine pointer out of the host runtime's TSD slot,

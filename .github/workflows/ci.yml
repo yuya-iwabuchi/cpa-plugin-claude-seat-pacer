@@ -82,6 +82,12 @@ jobs:
         with:
           path: ${{ runner.temp }}/go-tls/go
           key: go-tls-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.version }}-${{ hashFiles('.github/scripts/go-tls-slot.patch', '.github/scripts/build-darwin-amd64.sh') }}
+      # The library embeds the status page from this runner's checkout, whose
+      # line endings follow the runner's git, so the page's byte check runs
+      # here on every platform before the build.
+      - name: check the embedded page
+        shell: bash
+        run: go test -run '^TestPageHoldsNoRewrittenByte$' ./internal/web
       # -buildmode=c-shared needs cgo, and cgo has no cross toolchain here, so
       # every target builds on a runner of its own architecture. GOOS and
       # GOARCH stay unset for that reason: the native default is the target.

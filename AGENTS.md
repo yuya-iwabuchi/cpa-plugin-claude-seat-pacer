@@ -256,7 +256,10 @@ and unit-testable without the host.
   Update the doc with either.
 - `internal/web/index.html` holds no NUL or CR byte: the CSP hashes the inline
   script from the file's bytes, and the HTML tokenizer rewrites both
-  (`TestPageHoldsNoRewrittenByte`).
+  (`TestPageHoldsNoRewrittenByte`). The library embeds the file as the build
+  runner checked it out, so `.gitattributes` checks every text file out with
+  LF, where git on a Windows runner would write CRLF, and every CI and release
+  build runs that test before it builds.
 - `docs/logo.svg` is the plugin store listing's `logo`, which the registries
   fetch from `main` by URL, so the file keeps its path. `index.html` carries
   the same bytes as its favicon, and `TestFaviconIsTheLogo` prints the line to
