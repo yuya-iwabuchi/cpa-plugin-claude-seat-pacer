@@ -51,10 +51,10 @@ func NewClient(d Doer, usageURL string, timeout time.Duration) *Client {
 	if usageURL == "" {
 		usageURL = model.DefaultUsageURL
 	}
-	return &Client{doer: d, url: usageURL, timeout: timeout, now: time.Now}
+	return &Client{doer: d, url: withGrantQuery(usageURL), timeout: timeout, now: time.Now}
 }
 
-// Fetch reads one credential's quota windows.
+// Fetch reads one credential's quota windows and limit-reset grants.
 //
 // The returned snapshot is usable in both outcomes: on failure it carries Err
 // and ErrCategory and no windows, so a caller can hand it straight to
@@ -82,6 +82,9 @@ func (c *Client) Fetch(ctx context.Context, authID, authIndex, accessToken strin
 	snap.ObservedAt = c.now()
 	if err == nil {
 		snap.Windows, err = ParseUsagePayload(body, snap.ObservedAt)
+	}
+	if err == nil {
+		snap.Resets = ParseResetGrants(body)
 	}
 	if err != nil {
 		snap.Windows = nil

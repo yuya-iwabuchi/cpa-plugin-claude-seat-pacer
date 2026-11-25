@@ -230,6 +230,27 @@ func TestSeatsGivesEachWindowItsUseSinceAndEachSeatItsRate(t *testing.T) {
 	}
 }
 
+func TestSeatsListsTheResetsLeft(t *testing.T) {
+	st := seatsStatus()
+	ends, past := st.Now.Add(90*24*time.Hour), st.Now.Add(-time.Hour)
+	st.Auths[0].Snapshot.Resets = &model.ResetGrants{Grants: []model.ResetGrant{
+		{ID: "full-1", Type: model.ResetTypeFull, Left: 0},
+		{ID: "fable-1", Type: model.ResetTypeFull, Family: model.FamilyFable, Left: 2, EndsAt: &ends, UsableNow: true},
+		{ID: "paused-1", Type: model.ResetTypeFull, Left: 1, Paused: true},
+		{ID: "expired-1", Type: model.ResetTypeFull, Left: 1, EndsAt: &past},
+	}}
+	answer := answerOfResponse(t, get(t, testHandler(&stubSource{status: st}), "/api/seats"))
+	want := []SeatsResponseReset{{ID: "fable-1", Type: model.ResetTypeFull, Family: model.FamilyFable, Left: 2, EndsAt: &ends, UsableNow: true}}
+	got := answer.Seats[0].Resets
+	if len(got) != 1 || got[0].ID != want[0].ID || got[0].Family != want[0].Family || got[0].Left != 2 ||
+		got[0].EndsAt == nil || !got[0].EndsAt.Equal(ends) || !got[0].UsableNow {
+		t.Errorf("resets = %+v, want only %+v: a spent, paused or expired grant is left out", got, want)
+	}
+	if answer.Seats[1].Resets != nil {
+		t.Errorf("seat b resets = %+v, want none for a read that reported none", answer.Seats[1].Resets)
+	}
+}
+
 func TestSeatsUsedSinceReadsTheFiveHourWindowAndAPlusOffset(t *testing.T) {
 	now := time.Now()
 	st := seatsStatus()

@@ -51,7 +51,7 @@ func TestClientFetchSendsTheExpectedRequest(t *testing.T) {
 	if got.Method != "GET" {
 		t.Errorf("method = %q, want GET", got.Method)
 	}
-	if got.URL != "https://usage.test/api/oauth/usage" {
+	if got.URL != "https://usage.test/api/oauth/usage?cedar_ember=1&skip_spend=1" {
 		t.Errorf("url = %q", got.URL)
 	}
 	want := map[string]string{
@@ -294,8 +294,8 @@ func TestClientFetchRetainsNothingFromTheBody(t *testing.T) {
 
 func TestNewClientDefaultsToTheAnthropicEndpoint(t *testing.T) {
 	client := NewClient(nil, "", 0)
-	if client.url != model.DefaultUsageURL {
-		t.Errorf("url = %q, want %q", client.url, model.DefaultUsageURL)
+	if want := model.DefaultUsageURL + "?cedar_ember=1&skip_spend=1"; client.url != want {
+		t.Errorf("url = %q, want %q", client.url, want)
 	}
 	if client.now == nil {
 		t.Error("now is nil")

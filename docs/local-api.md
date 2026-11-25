@@ -82,6 +82,9 @@ that returns the same figures.
         { "kind": "five_hour", "utilization": 0.31, "resets_at": "2026-10-28T01:36:30-04:00", "used_since": 0.155 },
         { "kind": "seven_day", "utilization": 0.35, "resets_at": "2026-11-01T11:56:30-05:00" },
         { "kind": "weekly_scoped", "scope": "Fable", "utilization": 0.28, "resets_at": "2026-11-01T11:56:30-05:00" }
+      ],
+      "resets": [
+        { "id": "fable-launch", "type": "full", "family": "Fable", "left": 1, "ends_at": "2027-03-09T00:00:00Z", "usable_now": true }
       ]
     }
   ],
@@ -116,6 +119,13 @@ the name the page shows. A field that does not apply is left out.
 | `windows[].utilization` | How much of the window is used, as a fraction; above 1 past the cap, `null` for a reading that is not a number. |
 | `windows[].resets_at` | When the window resets. Absent when the reading names no reset. |
 | `windows[].used_since` | How much of the window was used after `since` (or `since_five_hour`), when the plugin's history covers the window. |
+| `seats[].resets` | The seat's limit resets left, one entry per grant, as its latest usage read reports them. A reset empties windows by hand on claude.ai; the plugin never uses one. Absent when the seat holds none, and until the plugin has read its usage. A paused or expired grant is left out. |
+| `resets[].id` | The grant's id, as the usage endpoint names it. |
+| `resets[].type` | The grant's type as the usage endpoint names it: `full`, `weekly`, `session`, or a type the endpoint added since. |
+| `resets[].family` | The model family whose weekly cap the grant empties in place of the 7-day window, such as `Fable`. Absent for any other grant. |
+| `resets[].left` | How many resets the grant has left. |
+| `resets[].ends_at` | When the grant's unused resets expire. Absent when the endpoint names no end. |
+| `resets[].usable_now` | Whether a reset could be used now. |
 | `warnings` | The status page's warnings. |
 
 ## A Claude Code status line

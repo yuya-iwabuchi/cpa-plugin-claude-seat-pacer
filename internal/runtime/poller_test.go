@@ -47,7 +47,7 @@ func pollFixture(t *testing.T, tp *testPlugin) {
 	tp.host.auths["idx-g"] = json.RawMessage(`{"type":"gemini","access_token":"g"}`)
 	body := usagePayload(t)
 	tp.host.http = func(req HostHTTPRequest) (HostHTTPResponse, error) {
-		if req.URL != model.DefaultUsageURL {
+		if req.URL != model.DefaultUsageURL+"?cedar_ember=1&skip_spend=1" {
 			return HostHTTPResponse{StatusCode: 404}, nil
 		}
 		if !strings.HasPrefix(req.Headers.Get("Authorization"), "Bearer "+secretToken) {

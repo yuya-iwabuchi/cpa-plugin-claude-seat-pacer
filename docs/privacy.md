@@ -17,7 +17,7 @@ On macOS and Linux, turning on `web.socket` (off by default) while
 `web.enabled` is on makes the plugin also serve a Unix socket, `api.sock`,
 beside `history.json`. It answers `GET /api/seats?session=<Claude Code session
 id>&model=<model>` with the seat that session is bound to and every seat's
-windows, in the page's form: masked names, keyed-hash ids and the page's
+windows and limit resets, in the page's form: masked names, keyed-hash ids and the page's
 warnings. It adds each seat's use per dollar, worked out from the token counts
 on the responses the plugin sees, priced at list price. The plugin keeps the
 dollar amounts as hourly totals per seat, in memory only, and reads the last

@@ -39,7 +39,7 @@ func main() {
 	port := flag.Int("port", 8377, "loopback port to serve the status app on")
 	scenario := flag.String("scenario", "full",
 		"fixture scenario: full, single, stale, degraded, throttled, many, tiers, tiers-down, collide, session-only, no-session, "+
-			"cleared, exhausted, logins, logins-all, logins-network, replay or empty")
+			"cleared, exhausted, resets, logins, logins-all, logins-network, replay or empty")
 	historyPath := flag.String("history", "", "history file the replay scenario draws its seats from")
 	locksPath := flag.String("locks", "",
 		"lock spans file the replay scenario adds to the spans its history file records: a JSON object keyed by credential id, "+
@@ -168,6 +168,10 @@ func main() {
 		src.auths = nil
 		src.bindings = nil
 		src.decisions = nil
+	case "resets":
+		// Seats holding limit resets, named for the windows a reset would
+		// clear.
+		src.resetsScenario()
 	case "full":
 	default:
 		log.Fatalf("unknown scenario %q", *scenario)
@@ -469,6 +473,7 @@ func newFixture(anchor time.Time) *fixture {
 					Status:   model.StatusAllowedWarning, Severity: model.SeverityCritical,
 				},
 			},
+			Resets: grantSpec{full: 1, fable: 1, fullIn: 16 * 24 * time.Hour}.resets(anchor),
 		},
 		seatBID: {
 			AuthID:      seatBID,
@@ -497,6 +502,7 @@ func newFixture(anchor time.Time) *fixture {
 					Status:   model.StatusAllowed, Severity: model.SeverityNormal,
 				},
 			},
+			Resets: grantSpec{fullSpent: 1, fable: 1, fullIn: 16 * 24 * time.Hour}.resets(anchor),
 		},
 	}
 
@@ -950,6 +956,8 @@ type manySeat struct {
 	// priority is the host's priority for the credential; 0 means 10, the
 	// pool's priority.
 	priority int
+	// grants is the limit-reset grants the seat's usage read reports.
+	grants grantSpec
 }
 
 // The first three rows are the pool `many -seats 3` renders, and they are the
@@ -1217,6 +1225,10 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		// is still serving every request and is still eligible.
 		snap.Windows[2].Status = model.StatusAllowedWarning
 		snap.Windows[2].Severity = model.SeverityCritical
+	case "weekly-rejected":
+		// The provider refused the all-models weekly window.
+		snap.Windows[1].Status = model.StatusRejected
+		snap.Windows[1].Severity = model.SeverityCritical
 	case "scoped-rejected":
 		// The provider refused the family cap and nothing else: the seat still
 		// takes Standard requests and is out for Fable ones, which is the state
@@ -1250,6 +1262,7 @@ func (f *fixture) addManySeat(i int, ms manySeat) {
 		snap.Windows = slices.Delete(snap.Windows, 0, 1)
 		snap.Windows[0].Active = true
 	}
+	snap.Resets = ms.grants.resets(f.anchor)
 	if ms.state != "nosnap" && ms.state != "disabled" {
 		f.snapshots[ms.id] = snap
 	}

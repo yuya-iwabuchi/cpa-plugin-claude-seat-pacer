@@ -284,6 +284,27 @@ func TestStorePutWithAnErrorRetainsPriorReadings(t *testing.T) {
 	}
 }
 
+// TestStorePutKeepsResetGrantsUntilTheNextRead covers the grants a usage
+// read reports: a failed read and a header merge keep them, and the next
+// successful read replaces them, with nil when it reports none.
+func TestStorePutKeepsResetGrantsUntilTheNextRead(t *testing.T) {
+	s := NewStore()
+	read := endpointSnapshot("auth-1", testNow, sessionWindow(0.5), weeklyWindow(0.1))
+	read.Resets = &model.ResetGrants{Grants: []model.ResetGrant{{ID: "g1", Type: model.ResetTypeFull, Left: 1}}}
+	s.Put(read)
+
+	s.Put(model.AuthSnapshot{AuthID: "auth-1", ObservedAt: testNow.Add(time.Minute), Source: model.SourceUsageEndpoint, Err: "quota: transport: request failed"})
+	s.MergeHeaders("auth-1", []model.Window{sessionWindow(0.6)}, testNow.Add(2*time.Minute))
+	if got := mustGet(t, s, "auth-1").Resets; got == nil || len(got.Grants) != 1 || got.Grants[0].ID != "g1" {
+		t.Errorf("resets after a failed read and a header merge = %+v, want the prior grant g1", got)
+	}
+
+	s.Put(endpointSnapshot("auth-1", testNow.Add(3*time.Minute), sessionWindow(0.7), weeklyWindow(0.2)))
+	if got := mustGet(t, s, "auth-1").Resets; got != nil {
+		t.Errorf("resets after a read reporting none = %+v, want nil", got)
+	}
+}
+
 // TestStorePutKeepsAWindowTheStoreSawMoreRecently covers the fetch that
 // overlaps a merge: the endpoint read observes the credential before the header
 // reading does, so the window the merge already advanced stays put and a merge
