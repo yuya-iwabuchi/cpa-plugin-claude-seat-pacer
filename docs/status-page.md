@@ -44,6 +44,21 @@ status.
   host offers, preferring one the provider has not refused or reported full
   for the requested model. While no seat can take a Standard request, the
   section's subtitle says so and names the first seat back.
+  A seat holding limit resets, which Anthropic grants some accounts to empty
+  a window by hand, shows a reset icon after the time to reset of the window
+  each kind is for: a full reset on 7d Standard, a family's reset on that
+  family's cap, or, on a seat without that window, the first window the
+  reset empties. Pointing at it lists each kind with how many are left and
+  when they expire, and each window one would empty, reading now and after,
+  and the bars mark what it gives back. A reset keeps each window's reset
+  time, so what it gives back is spent before that window resets. A Fable
+  reset also gives back Fable's part of 7d Standard, which the usage
+  endpoint does not report: Fable is capped at half the weekly limit, so the
+  page estimates that part as half the Fable cap's reading and marks it as
+  an estimate. Clicking the time to reset opens Usage on claude.ai, where a
+  reset is used; the link cannot pick the seat's team, so switch to it
+  there. The section's subtitle counts the pool's resets left by kind. The
+  plugin never uses a reset.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is

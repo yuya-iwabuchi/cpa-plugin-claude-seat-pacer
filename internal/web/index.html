@@ -677,6 +677,13 @@ svg.tl g.fam[data-lead] .fam-plate {
   fill: color-mix(in srgb, var(--info) 15%, var(--surface-1));
   stroke: color-mix(in srgb, var(--info) 42%, transparent);
 }
+#seats-sub .sub-resets { color: var(--ink-2); }
+svg.tl g.rst-icon { stroke: var(--ink-2); }
+svg.tl rect.rs-cover { fill: var(--track); stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
+svg.tl g.rst-icon path { fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+svg.tl g.rst-link { cursor: pointer; }
+svg.tl g.rs-gain { pointer-events: none; }
+svg.tl g.rs-gain text { font-size: 10px; font-weight: 600; fill: var(--ink-1); paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px; stroke-linejoin: round; }
 svg.tl g.fam[aria-hidden] { pointer-events: none; }
 svg.tl g.fam[data-tip] { cursor: default; }
 svg.tl g.fam:focus-visible .fam-plate { stroke: var(--focus); stroke-width: 2; }
@@ -1403,6 +1410,8 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip .tip-badge[data-type="limit"] { --tone: var(--critical); }
 #tooltip .tip-badge[data-type="now"] { --tone: var(--ink-1); }
 #tooltip .tip-badge[data-type="reset"] { --tone: var(--ink-2); }
+#tooltip .tip-badge[data-type="grant"] { --tone: var(--info); }
+#tooltip .tip-muted { color: var(--ink-3); font-size: 11px; margin-top: 8px; }
 #tooltip .tip-badge[data-type="unrec"] { background: none; border: 1px dashed var(--ink-3); }
 #tooltip .tip-when { color: var(--ink-1); }
 #tooltip .tip-dur { color: var(--ink-3); font: 500 11px/1 var(--mono); }
@@ -3311,6 +3320,241 @@ time[data-ts] { cursor: help; }
     return chips;
   }
 
+  /* Limit resets. A reset zeroes the windows it clears and keeps their reset
+     times, so it gives back what each window has used, to spend before that
+     window resets. */
+
+  /* A grant's kind as the page names it: the family whose weekly cap it
+     clears, or its type. */
+  function resetKind(g) {
+    if (g.family) return g.family;
+    return { full: "full", weekly: "weekly", session: "5h" }[g.type] || g.type || "limit";
+  }
+  var RESET_ORDER = { full: 0, weekly: 2, "5h": 3 };
+  function resetOrder(k) { return k in RESET_ORDER ? RESET_ORDER[k] : 1; }
+
+  /* A seat's resets left that have not expired, one entry per kind, full
+     first: how many, its grants, the windows one clears, whether one can be
+     used now, whether it returns its family's part of the 7-day window, and
+     the seat's windows. */
+  function seatResets(a, now) {
+    var r = a.snapshot && a.snapshot.resets;
+    if (!r || !r.grants) return [];
+    var by = {}, out = [];
+    r.grants.forEach(function (g) {
+      var end = parseT(g.ends_at);
+      if (!(g.left > 0) || g.paused || end && end.getTime() <= now) return;
+      var k = resetKind(g), e = by[k];
+      if (!e) { e = by[k] = { kind: k, left: 0, grants: [], usable: false, givesBack: false, clears: [] }; out.push(e); }
+      e.left += g.left;
+      e.grants.push(g);
+      e.usable = e.usable || !!g.usable_now;
+      e.givesBack = e.givesBack || !!g.gives_back;
+      (g.clears || []).forEach(function (c) {
+        if (!e.clears.some(function (x) { return sameWindow(x, c); })) e.clears.push(c);
+      });
+    });
+    out.forEach(function (e) { e.wins = (a.snapshot && a.snapshot.windows) || []; });
+    return out.sort(function (x, y) { return resetOrder(x.kind) - resetOrder(y.kind); });
+  }
+
+  /* The share of the 7-day window a family's weekly cap stands for: Fable
+     is capped at half the weekly limit, so its cap reading at 40% is 20% of
+     the 7-day window. */
+  var FAMILY_WEEKLY_SHARE = { Fable: 0.5 };
+
+  /* What a reset that returns a family's use gives back of the 7-day
+     window, as a fraction of it: the family's cap reading at its share,
+     never more than the 7-day window holds. Null where the share or a
+     reading is unknown. */
+  function familyGiveBack(wins, fam) {
+    var share = FAMILY_WEEKLY_SHARE[fam];
+    var f = wins.filter(function (w) { return w.kind === "weekly_scoped" && w.scope === fam; })[0];
+    var wk = wins.filter(function (w) { return w.kind === "seven_day" && !w.scope; })[0];
+    if (!share || !f || !wk || !num(f.utilization) || !num(wk.utilization)) return null;
+    return Math.min(Math.max(0, wk.utilization), Math.max(0, f.utilization) * share);
+  }
+
+  function resetName(e) { return e.kind + " reset" + (e.left > 1 ? "s" : ""); }
+
+  /* The window whose lane carries a kind of reset's icon, among the seat's
+     windows that name a reset, since the icon follows the lane's reset
+     time: the family cap a family's reset clears, else the 7-day window;
+     otherwise the first window it clears, in lane order. Null where it
+     clears none of them. */
+  function resetHome(e) {
+    var wins = sortedWindows(e.wins).filter(function (x) { return !!parseT(x.resets_at); });
+    var want = e.grants.some(function (g) { return g.family; }) ? { kind: "weekly_scoped", scope: e.kind } : { kind: "seven_day" };
+    function clears(x) { return e.clears.some(function (c) { return sameWindow(c, x); }); }
+    return wins.filter(function (x) { return clears(x) && sameWindow(x, want); })[0] || wins.filter(clears)[0] || null;
+  }
+
+  function laneKey(w) { return w.kind + ":" + (w.scope || ""); }
+  function sameWindow(p, q) { return p.kind === q.kind && (p.scope || "") === (q.scope || ""); }
+
+  /* The resets a lane's reset stamp speaks for: those resetHome gives its
+     window. */
+  function stampEntries(entries, w) {
+    return entries.filter(function (e) {
+      var home = resetHome(e);
+      return !!home && sameWindow(home, w);
+    });
+  }
+
+  /* A reset stamp's part in a seat's resets, where the lane's window is
+     the one a reset is for: the reset icon after the stamp, each such reset
+     in its tooltip, and a link to Usage on claude.ai, where a reset is
+     used. */
+  function stampResets(g, a, w, entries, fills, rstX, cy, parent) {
+    var here = stampEntries(entries, w);
+    if (!here.length) return;
+    resetIcon(g, rstX + 7 + RESET_ICON_PX / 2, cy);
+    g.querySelector("rect.hit").setAttribute("width", RST_W + RESET_ICON_PX + 9);
+    var spec = g.tipSpec;
+    spec.groups = here.map(function (e) { return resetGroup(e, w); });
+    var team = teamOf(loginOf(a));
+    spec.lines.push({ t: "Click to open Usage on claude.ai, then switch to " + team + ".", muted: true });
+    setTip(g, spec);
+    g.setAttribute("aria-label", g.getAttribute("aria-label") + ", " + here.map(function (e) {
+      return e.left + " " + resetName(e) + ": " + gainText(e);
+    }).join("; ") + "; opens Usage on claude.ai");
+    g.classList.add("rst-link");
+    g.setAttribute("role", "link");
+    g.setAttribute("data-fk", "rst:" + a.auth_id + ":" + laneKey(w));
+    function openUsage() { window.open(USAGE_URL, "_blank", "noopener"); }
+    g.addEventListener("click", openUsage);
+    g.addEventListener("keydown", function (ev) { if (ev.key === "Enter") openUsage(); });
+    /* While the stamp is pointed at or focused, each window the first
+       reset refills covers the use it gives back on its bar and says how
+       much, as resetGroup's rows read it. */
+    var parts = here[0].usable ? resetRefills(here[0]) : [];
+    var marks = [];
+    function on() {
+      off();
+      parts.forEach(function (r) {
+        var f = fills[laneKey(r.x)], gain = r.x.utilization - r.after;
+        if (!f) return;
+        var x0 = clamp(f.sx + f.sw * clamp(r.after, 0, 1), f.bx0, f.fx1);
+        if (f.fx1 > x0 + 1) {
+          marks.push(svg("rect", { "class": "rs-cover", x: x0 + 0.5, y: f.by + 0.5, width: f.fx1 - x0 - 1, height: f.h - 1, rx: 2 }, f.g));
+        }
+        marks.push(gainMark(parent, x0, f.fx1, f.plotX, f.cy, (r.est ? "~" : "") + pct(gain, 0) + " back"));
+      });
+    }
+    function off() {
+      marks.forEach(function (m) { if (m.parentNode) m.parentNode.removeChild(m); });
+      marks = [];
+    }
+    g.addEventListener("mouseenter", on);
+    g.addEventListener("focus", on);
+    g.addEventListener("mouseleave", off);
+    g.addEventListener("blur", off);
+  }
+
+  /* The reset icon, Lucide's timer-reset (ISC licence) drawn on its
+     24-unit grid at RESET_ICON_PX, centred on cx, cy so it sits on a lane's
+     centre line whatever the font. */
+  var RESET_ICON = ["M10 2h4", "M12 14v-4", "M4 13a8 8 0 0 1 8-7 8 8 0 1 1-5.3 14L4 17.6", "M9 17H4v5"];
+  var RESET_ICON_PX = 13;
+  var USAGE_URL = "https://claude.ai/settings/usage";
+  function resetIcon(parent, cx, cy) {
+    var k = RESET_ICON_PX / 24;
+    var g = svg("g", { "class": "rst-icon", transform: "translate(" + (cx - RESET_ICON_PX / 2) + "," + (cy - RESET_ICON_PX / 2) + ") scale(" + k + ")" }, parent);
+    RESET_ICON.forEach(function (d) { svg("path", { d: d }, g); });
+    return g;
+  }
+
+  /* A gain label for the part of a lane's bar from x0 to x1 that a reset
+     frees: beside the part, on its left where the plot has room, else on
+     its right, led by the reset icon. */
+  function gainMark(parent, x0, x1, plotX, cy, text) {
+    var g = svg("g", { "class": "rs-gain" }, parent);
+    var t = svgText(g, x0 - 6, cy + 3.5, text, "", { "text-anchor": "end" });
+    var w = t.getComputedTextLength();
+    var half = RESET_ICON_PX / 2;
+    if (x0 - 6 - w - 2 * half - 4 < plotX + 4) {
+      t.setAttribute("text-anchor", "start");
+      t.setAttribute("x", x1 + 8 + 2 * half + 3);
+      resetIcon(g, x1 + 8 + half, cy);
+    } else resetIcon(g, x0 - 6 - w - 3 - half, cy);
+    return g;
+  }
+
+  /* A kind's grants by expiry date, grants expiring the same day as one. */
+  function grantsText(e) {
+    var by = [];
+    e.grants.forEach(function (gr) {
+      var end = parseT(gr.ends_at), day = end ? end.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+      var same = by.filter(function (b) { return b.day === day; })[0];
+      if (same) same.left += gr.left;
+      else by.push({ day: day, left: gr.left });
+    });
+    if (by.length === 1) return by[0].day ? "expires " + by[0].day : "";
+    return by.map(function (b) { return b.left + "× " + (b.day ? "expires " + b.day : "no expiry"); }).join(", ");
+  }
+
+  /* The windows a usable reset refills, in the timeline's lane order:
+     each window it clears that holds use, at 0% after, and for a family
+     reset the family's estimated part of the 7-day Standard window. */
+  function resetRefills(e) {
+    var wins = e.wins || [], out = [];
+    var back = e.givesBack ? familyGiveBack(wins, e.kind) : null;
+    sortedWindows(wins).forEach(function (x) {
+      if (e.clears.some(function (c) { return sameWindow(c, x); })) {
+        if (x.utilization > 0.005) out.push({ x: x, after: 0, est: false });
+      } else if (back > 0.005 && x.kind === "seven_day" && !x.scope) {
+        out.push({ x: x, after: Math.max(0, x.utilization - back), est: true });
+      }
+    });
+    return out;
+  }
+
+  /* Why a reset can't be used now, from its first grant. */
+  function resetBlocked(e) {
+    var why = e.grants[0].unavailable;
+    return "can't be used now" + (why ? " (" + why.replace(/_/g, " ") + ")" : "");
+  }
+
+  function sentence(t) { return t.charAt(0).toUpperCase() + t.slice(1) + "."; }
+
+  /* What using one now gives back, in a phrase. An estimate is marked
+     with a tilde. */
+  function gainText(e) {
+    if (!e.usable) return resetBlocked(e);
+    var parts = resetRefills(e).map(function (r) {
+      return (r.est ? "~" : "") + pct(r.x.utilization - r.after, 0) + " of " + windowShort(r.x);
+    });
+    return parts.length ? "gives back " + andList(parts) : "nothing to give back now";
+  }
+
+  /* A reset's block in a stamp's tooltip: a badge naming it with its count
+     and expiry, then a row for each window it gives back, reading before
+     and after, the stamp's own window lifted. */
+  function resetGroup(e, w) {
+    var out = { label: e.left + "× " + e.kind + " reset", type: "grant", when: grantsText(e), rows: [], note: "" };
+    if (!e.usable) { out.note = sentence(resetBlocked(e)); return out; }
+    out.rows = resetRefills(e).map(function (r) {
+      return { name: windowShort(r.x), col: "var(--ink-3)", note: r.est ? "estimate" : "",
+        value: pct(r.x.utilization, 0) + " → " + (r.est ? "~" : "") + pct(r.after, 0), on: sameWindow(r.x, w) };
+    });
+    if (!out.rows.length) out.note = sentence(gainText(e));
+    return out;
+  }
+
+  /* The pool's resets left by kind, as the Seats heading reads them. */
+  function poolResetsText(st, now) {
+    var by = {}, order = [];
+    stableAuths(st.auths).forEach(function (a) {
+      seatResets(a, now).forEach(function (e) {
+        if (!(e.kind in by)) { by[e.kind] = 0; order.push(e.kind); }
+        by[e.kind] += e.left;
+      });
+    });
+    if (!order.length) return "";
+    order.sort(function (x, y) { return resetOrder(x) - resetOrder(y); });
+    return order.map(function (k) { return by[k] + " " + k + " reset" + (by[k] > 1 ? "s" : ""); }).join(", ") + " left";
+  }
+
   /* The holds keeping a seat off one family: each window that holds it, full
      or refused, with its reset, led by the family's reason with when it lifts
      where that reason is not one of those windows. A hold that lifts on its
@@ -3605,7 +3849,13 @@ time[data-ts] { cursor: help; }
        than its floor; so a seat named by its account address reads whole
        wherever the card is wide enough, and the plot keeps the larger part
        everywhere. */
-    var gut = GUT;
+    /* A reset icon takes a slot after the reset column on every lane while
+       any seat shows one, so the gutter grows by it and the column moves
+       left by it. */
+    var rstSlot = seats.some(function (a) {
+      return seatResets(a, nowMs()).some(function (e) { return !!resetHome(e); });
+    }) ? RESET_ICON_PX + 11 : 0;
+    var gut = GUT + rstSlot;
     seats.forEach(function (a) {
       var need = NAME_X + textW(root, seatLabel(a), { "font-size": geo.name, "font-weight": 600 }) + 8;
       seatChips(a, ranks).forEach(function (c) {
@@ -3614,8 +3864,8 @@ time[data-ts] { cursor: help; }
       need += 18 + HIDE_RES;
       gut = Math.max(gut, need);
     });
-    gut = Math.round(Math.min(gut, Math.max(GUT, width * GUT_SHARE)));
-    var rstX = gut - 12;
+    gut = Math.round(Math.min(gut, Math.max(GUT + rstSlot, width * GUT_SHARE)));
+    var rstX = gut - 12 - rstSlot;
     var plotW = width - gut - PAD_R;
     var X = function (t) { return gut + (t - t0) / (t1 - t0) * plotW; };
 
@@ -3760,6 +4010,7 @@ time[data-ts] { cursor: help; }
       hideControl(gRow, gut - 14 - HIDE_W, headY - 4, a);
       if (down) noteBoxes.push(downNote(gRow, gut + 8, headY, down, nowMs()));
 
+      var laneFills = {}, seatRs = seatResets(a, nowMs());
       row.lanes.forEach(function (lane) {
         var w = lane.w;
         var ws = scoreFor(a, w);
@@ -3803,7 +4054,7 @@ time[data-ts] { cursor: help; }
              past keeps the column, and the plot says it instead. */
           if (resets) {
             svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
-            resetStamp(gRow, cy, a, w, resets, rstX);
+            stampResets(resetStamp(gRow, cy, a, w, resets, rstX), a, w, seatRs, laneFills, rstX, cy, gRow);
           } else {
             svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W, height: 18, rx: 3, fill: "transparent" }, g);
             svgText(g, rstX, cy + 3.5, "no open window", "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
@@ -3844,6 +4095,7 @@ time[data-ts] { cursor: help; }
            target show where they fall inside the part drawn. */
         var sx = cutL || cutR ? x0 : bx0, sw = cutL || cutR ? x1 - x0 : bx1 - bx0;
         var fx1 = clamp(sx + sw * clamp(w.utilization, 0, 1), bx0, bx1);
+        laneFills[laneKey(w)] = { g: gb, cy: cy, plotX: gut, bx0: bx0, fx1: fx1, sx: sx, sw: sw, by: by, h: barH };
         if (fx1 > bx0) {
           var fr = !(cutR && fx1 >= bx1);
           if (drawn.pattern) {
@@ -3876,7 +4128,7 @@ time[data-ts] { cursor: help; }
             }, g);
           }
         }
-        resetStamp(gRow, cy, a, w, resets, rstX);
+        stampResets(resetStamp(gRow, cy, a, w, resets, rstX), a, w, seatRs, laneFills, rstX, cy, gRow);
       });
     });
 
@@ -5234,6 +5486,11 @@ time[data-ts] { cursor: help; }
       spec.label + (spec.when ? " · " + spec.when : "") + (spec.dur ? " (" + spec.dur + ")" : "")];
     if (spec.big) out.push(spec.big.join(" → ") + (spec.delta ? " · " + spec.delta : ""));
     (spec.rows || []).forEach(function (r) { out.push(r.name + " " + r.value + (r.note ? " · " + r.note : "")); });
+    (spec.groups || []).forEach(function (gr) {
+      out.push(gr.label + (gr.when ? " · " + gr.when : ""));
+      gr.rows.forEach(function (r) { out.push(r.name + " " + r.value + (r.note ? " · " + r.note : "")); });
+      if (gr.note) out.push(gr.note);
+    });
     spec.lines.forEach(function (l) { out.push((l.b ? l.b + ": " : "") + l.t + (l.alert ? " · " + l.alert : "")); });
     return out.join("\n");
   }
@@ -5276,8 +5533,25 @@ time[data-ts] { cursor: help; }
         put(tr, "span", "tip-val", r.value);
       });
     }
+    (spec.groups || []).forEach(function (gr) {
+      var gt = row("tip-tag");
+      put(gt, "span", "tip-badge", gr.label).setAttribute("data-type", gr.type);
+      put(gt, "span", "tip-when", gr.when);
+      if (gr.rows.length) {
+        var gt2 = row("tip-rows");
+        gr.rows.forEach(function (r) {
+          var tr = put(gt2, "div", "tip-row", null);
+          if (r.on) tr.setAttribute("data-on", "true");
+          put(tr, "span", "tip-dot").style.background = r.col;
+          put(tr, "span", "tip-name", r.name);
+          put(tr, "span", "tip-note", r.note || "");
+          put(tr, "span", "tip-val", r.value);
+        });
+      }
+      if (gr.note) put(row("tip-line"), "span", "", gr.note);
+    });
     spec.lines.forEach(function (l) {
-      var line = row("tip-line");
+      var line = row(l.muted ? "tip-line tip-muted" : "tip-line");
       if (l.b) put(line, "b", "", l.b);
       put(line, "span", "", l.t);
       if (l.alert) put(line, "span", "tip-alert", l.alert);
@@ -8664,6 +8938,8 @@ time[data-ts] { cursor: help; }
     renderPicks(st, ranks);
 
     renderSeatsSub(st, ranks);
+    var held = poolResetsText(st, nowMs());
+    if (held) $("seats-sub").appendChild(h("span", "sub-resets", " · " + held));
   }
 
   /* The Seats subtitle: how the rows are ordered and which seat takes the

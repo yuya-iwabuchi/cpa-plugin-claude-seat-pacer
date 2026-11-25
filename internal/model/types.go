@@ -327,6 +327,56 @@ type AuthSnapshot struct {
 	// ErrCategory is the machine-readable class of Err, such as auth or
 	// timeout, so the status app can render it without parsing the message.
 	ErrCategory string `json:"err_category,omitempty"`
+	// Resets is the seat's limit-reset grants as of its latest usage read,
+	// and nil when that read carried no grants list it could read, or before
+	// the first read since the plugin started.
+	Resets *ResetGrants `json:"resets,omitempty"`
+}
+
+// Limit-reset grant types, as the usage endpoint names them.
+const (
+	ResetTypeFull    = "full"
+	ResetTypeWeekly  = "weekly"
+	ResetTypeSession = "session"
+)
+
+// ResetGrants is a seat's limit-reset grants: resets Anthropic hands an
+// account, each used by hand on claude.ai, which empty the windows they
+// clear. A reset keeps each window's reset time, so it gives back what the
+// window had used, to spend before that window resets.
+type ResetGrants struct {
+	Grants []ResetGrant `json:"grants"`
+}
+
+// ResetGrant is one grant of limit resets.
+type ResetGrant struct {
+	ID string `json:"id"`
+	// Type is ResetTypeFull, ResetTypeWeekly or ResetTypeSession, or a type
+	// the endpoint added since.
+	Type string `json:"type"`
+	// Family names the model family whose weekly cap the grant clears, for a
+	// grant that clears such a cap and not the 7-day window, as a Fable reset
+	// does.
+	Family string `json:"family,omitempty"`
+	Left   int    `json:"left"`
+	// EndsAt is when the grant's unused resets expire.
+	EndsAt *time.Time `json:"ends_at,omitempty"`
+	// Clears lists the windows a reset empties.
+	Clears []WindowRef `json:"clears"`
+	// UsableNow reports whether a reset could be used now.
+	UsableNow bool `json:"usable_now"`
+	Paused    bool `json:"paused,omitempty"`
+	// GivesBack marks a grant that also returns its family's use to the 7-day
+	// window.
+	GivesBack bool `json:"gives_back,omitempty"`
+	// Unavailable is the endpoint's reason a reset cannot be used now.
+	Unavailable string `json:"unavailable,omitempty"`
+}
+
+// WindowRef names one window by its identity.
+type WindowRef struct {
+	Kind  WindowKind `json:"kind"`
+	Scope string     `json:"scope,omitempty"`
 }
 
 // Window returns the reading for a kind and scope, and whether it exists.

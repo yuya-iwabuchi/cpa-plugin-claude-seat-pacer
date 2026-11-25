@@ -51,8 +51,8 @@ reason. This plugin is that pick.
 ## See the pool
 
 The plugin adds a status page to the Management Center showing the next pick,
-every seat against its plan, the live bindings and the routing log. Over time
-piles every seat's use into the pool's total and totals each day, so you can
+every seat against its plan, each seat's limit resets and what one would give
+back, the live bindings and the routing log. Over time piles every seat's use into the pool's total and totals each day, so you can
 see whether the pool has enough seats.
 
 <img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, each band hatched where its seat was full, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">

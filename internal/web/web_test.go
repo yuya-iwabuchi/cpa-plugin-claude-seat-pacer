@@ -377,6 +377,8 @@ func TestPageFunctionNamesAreUnique(t *testing.T) {
 func TestPageIsOffline(t *testing.T) {
 	t.Parallel()
 	page := get(t, testHandler(&stubSource{status: richStatus()}), "/").Body.String()
+	// The Usage page on claude.ai is a link the reader opens, never a load.
+	page = strings.Replace(page, `"https://claude.ai/settings/usage"`, `""`, 1)
 
 	for _, banned := range []string{"http://", "https://", "//fonts.", "cdn."} {
 		if strings.Contains(page, banned) {

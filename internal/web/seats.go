@@ -78,6 +78,22 @@ type SeatsResponseSeat struct {
 	// FiveHourPerUSD is the same for the 5-hour window.
 	FiveHourPerUSD *float64              `json:"five_hour_per_usd,omitempty"`
 	Windows        []SeatsResponseWindow `json:"windows"`
+	// Resets is the seat's limit-reset grants with resets left that are
+	// neither paused nor expired, absent when it holds none or its latest
+	// usage read reported none.
+	Resets []SeatsResponseReset `json:"resets,omitempty"`
+}
+
+// SeatsResponseReset is one limit-reset grant with resets left. Type is full,
+// weekly or session, or a type the endpoint added since; Family names the model family whose weekly cap a grant
+// clears in place of the 7-day window. EndsAt is when its resets expire.
+type SeatsResponseReset struct {
+	ID        string     `json:"id"`
+	Type      string     `json:"type"`
+	Family    string     `json:"family,omitempty"`
+	Left      int        `json:"left"`
+	EndsAt    *time.Time `json:"ends_at,omitempty"`
+	UsableNow bool       `json:"usable_now"`
 }
 
 // SeatsResponseWindow is one window reading. Utilization is a fraction, above
@@ -195,9 +211,25 @@ func responseOf(st model.Status, binding *SeatsResponseBinding, rates map[string
 			}
 			seat.Windows = append(seat.Windows, window)
 		}
+		seat.Resets = resetsOf(a.Snapshot.Resets, st.Now)
 		answer.Seats = append(answer.Seats, seat)
 	}
 	return answer
+}
+
+// resetsOf lists the grants with resets left that are neither paused nor
+// expired at now, or nil for none.
+func resetsOf(r *model.ResetGrants, now time.Time) []SeatsResponseReset {
+	if r == nil {
+		return nil
+	}
+	var out []SeatsResponseReset
+	for _, g := range r.Grants {
+		if g.Left > 0 && !g.Paused && (g.EndsAt == nil || g.EndsAt.After(now)) {
+			out = append(out, SeatsResponseReset{ID: g.ID, Type: g.Type, Family: g.Family, Left: g.Left, EndsAt: g.EndsAt, UsableNow: g.UsableNow})
+		}
+	}
+	return out
 }
 
 // nextOf is the credential id of the seat a new conversation goes to: the one
