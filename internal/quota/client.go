@@ -20,7 +20,11 @@ const MaxBodyBytes = 256 << 10
 
 // userAgent identifies the caller to Anthropic as an OAuth CLI client, which
 // is the surface a subscription credential is entitled to use.
-const userAgent = "claude-cli/1.0.60 (external, cli)"
+//
+// The usage endpoint reports limit-reset grants only to a Claude Code version
+// it still supports, and answers an older one ineligible with the reason
+// cli_version, so the version follows a current Claude Code release.
+const userAgent = "claude-cli/2.1.322 (external, cli)"
 
 // oauthBeta gates the OAuth usage endpoint.
 const oauthBeta = "oauth-2025-04-20"
