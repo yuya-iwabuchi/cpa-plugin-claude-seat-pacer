@@ -115,7 +115,7 @@ var _ web.Previewer = (*runtime.Plugin)(nil)
 // Makefile reads pluginVersion from this line to name the installed library.
 const (
 	pluginName    = "claude-seat-pacer"
-	pluginVersion = "0.7.1"
+	pluginVersion = "0.8.0"
 	pluginAuthor  = "yuya-iwabuchi"
 	pluginRepo    = "https://github.com/yuya-iwabuchi/cpa-plugin-claude-seat-pacer"
 )
