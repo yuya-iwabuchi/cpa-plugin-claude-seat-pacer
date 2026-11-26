@@ -51,6 +51,7 @@ func TestManagementRegisterDeclaresRoutesAndResources(t *testing.T) {
 		"GET " + testMgmtPrefix + "/status",
 		"GET " + testMgmtPrefix + "/page-status",
 		"POST " + testMgmtPrefix + "/page-boost",
+		"POST " + testMgmtPrefix + "/page-reset",
 		"POST " + testMgmtPrefix + "/refresh",
 		"POST " + testMgmtPrefix + "/unbind",
 		"POST " + testMgmtPrefix + "/bindings/sweep",
@@ -148,10 +149,25 @@ func TestManagementAdapterStripsResourcePrefix(t *testing.T) {
 		t.Errorf("page-boost: handler saw %s %q query %q, want POST /api/boost", h.method, h.path, h.query)
 	}
 	h.path = ""
+	var claimed ManagementResponse
+	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodPost, Path: testMgmtPrefix + "/page-reset",
+		Query: url.Values{"seat": {"x"}, "check": {"1"}}}), &claimed)
+	if h.path != "/api/reset" || h.method != http.MethodPost || h.query != "check=1&seat=x" {
+		t.Errorf("page-reset: handler saw %s %q query %q, want POST /api/reset", h.method, h.path, h.query)
+	}
+	h.path = ""
 	var refused ManagementResponse
 	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodGet, Path: testMgmtPrefix + "/page-boost"}), &refused)
 	if refused.StatusCode != http.StatusMethodNotAllowed || h.path != "" {
 		t.Errorf("GET page-boost: status %d, handler saw %q; want 405 without reaching the app", refused.StatusCode, h.path)
+	}
+	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodGet, Path: testMgmtPrefix + "/page-reset"}), &refused)
+	if refused.StatusCode != http.StatusMethodNotAllowed || h.path != "" {
+		t.Errorf("GET page-reset: status %d, handler saw %q; want 405 without reaching the app", refused.StatusCode, h.path)
+	}
+	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodPost, Path: testResourceBase + "/api/reset"}), &refused)
+	if refused.StatusCode != http.StatusNotFound || h.path != "" {
+		t.Errorf("resource api/reset: status %d, handler saw %q; want 404 without reaching the app", refused.StatusCode, h.path)
 	}
 	tp.callOK(t, MethodManagementHandle, mustJSON(t, ManagementRequest{Method: http.MethodPost, Path: testResourceBase + "/api/boost"}), &refused)
 	if refused.StatusCode != http.StatusNotFound || h.path != "" {

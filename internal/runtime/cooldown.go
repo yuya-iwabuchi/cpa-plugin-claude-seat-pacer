@@ -210,36 +210,12 @@ func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, 
 		if !read[id] {
 			continue
 		}
-		snap, _ := p.quota.Get(id)
-		// One sample per window is enough: only the refusal spans are read,
-		// and History copies every one of them.
-		hold, ok := findStaleHold(entry, snap, p.quota.History(id, 1, now), now)
-		if !ok {
-			continue
+		switch hold, state := p.settleHold(ctx, id, entry, now); state {
+		case holdHeld:
+			held[id] = hold
+		case holdCleared:
+			cleared[id] = true
 		}
-		p.mu.Lock()
-		prior, tried := p.holdResets[id]
-		unsupported := p.resetUnsupported
-		p.mu.Unlock()
-		switch {
-		case tried && (prior.span == hold.span ||
-			hold.until.Sub(prior.until).Abs() <= deadlineSlack && time.Unix(hold.span, 0).Sub(prior.asked) < repeatWindow):
-			hold.problem = prior.problem
-			if hold.problem == "" {
-				hold.problem = "the host cooled it again after the plugin cleared it"
-			}
-		case unsupported:
-			hold.problem = resetUnsupportedProblem
-		case ctx.Err() != nil:
-			continue
-		default:
-			hold.problem = p.resetHold(ctx, id, entry.AuthIndex, hold)
-			if hold.problem == "" {
-				cleared[id] = true
-				continue
-			}
-		}
-		held[id] = hold
 	}
 
 	p.mu.Lock()
@@ -255,10 +231,83 @@ func (p *Plugin) releaseHolds(ctx context.Context, entries []HostAuthFileEntry, 
 	// leaves on a credential with no other fault.
 	for i := range p.auths {
 		if cleared[authID(p.auths[i])] {
-			p.auths[i].Unavailable, p.auths[i].NextRetryAfter = false, time.Time{}
-			p.auths[i].Status, p.auths[i].StatusMessage = "active", ""
+			markCleared(&p.auths[i])
 		}
 	}
+}
+
+// releaseHold is releaseHolds for one seat read outside a poll, as after a
+// reset claim. It replaces that seat's hold and listing entry and leaves
+// every other seat's as the last poll left them.
+func (p *Plugin) releaseHold(ctx context.Context, entry HostAuthFileEntry) {
+	id := authID(entry)
+	hold, state := p.settleHold(ctx, id, entry, p.now())
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// status reads p.holds after it lets go of mu, so the map is replaced
+	// rather than written in place.
+	holds := make(map[string]staleHold, len(p.holds)+1)
+	for k, v := range p.holds {
+		if k != id {
+			holds[k] = v
+		}
+	}
+	if state == holdHeld {
+		holds[id] = hold
+	}
+	p.holds = holds
+	if state == holdCleared {
+		p.auths = withEntry(p.auths, id, markCleared)
+	}
+}
+
+// markCleared gives a listing entry the state the host's reset leaves on a
+// credential with no other fault.
+func markCleared(entry *HostAuthFileEntry) {
+	entry.Unavailable, entry.NextRetryAfter = false, time.Time{}
+	entry.Status, entry.StatusMessage = "active", ""
+}
+
+// What settleHold did about one seat's cooldown.
+const (
+	holdNone    = iota // no stale cooldown, or no time left to ask about one
+	holdHeld           // a stale cooldown still stands
+	holdCleared        // the host cleared a stale cooldown
+)
+
+// settleHold looks for a stale host cooldown on one seat with a fresh usage
+// read, and asks the host to clear one it finds unless releaseHolds' rules
+// leave it to the operator. A hold it reports carries why it still stands.
+func (p *Plugin) settleHold(ctx context.Context, id string, entry HostAuthFileEntry, now time.Time) (staleHold, int) {
+	snap, _ := p.quota.Get(id)
+	// One sample per window is enough: only the refusal spans are read, and
+	// History copies every one of them.
+	hold, ok := findStaleHold(entry, snap, p.quota.History(id, 1, now), now)
+	if !ok {
+		return staleHold{}, holdNone
+	}
+	p.mu.Lock()
+	prior, tried := p.holdResets[id]
+	unsupported := p.resetUnsupported
+	p.mu.Unlock()
+	switch {
+	case tried && (prior.span == hold.span ||
+		hold.until.Sub(prior.until).Abs() <= deadlineSlack && time.Unix(hold.span, 0).Sub(prior.asked) < repeatWindow):
+		hold.problem = prior.problem
+		if hold.problem == "" {
+			hold.problem = "the host cooled it again after the plugin cleared it"
+		}
+	case unsupported:
+		hold.problem = resetUnsupportedProblem
+	case ctx.Err() != nil:
+		return staleHold{}, holdNone
+	default:
+		hold.problem = p.resetHold(ctx, id, entry.AuthIndex, hold)
+		if hold.problem == "" {
+			return staleHold{}, holdCleared
+		}
+	}
+	return hold, holdHeld
 }
 
 // resetUnsupportedProblem is the warning's reason for a host older than the

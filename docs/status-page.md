@@ -55,10 +55,24 @@ status.
   reset also gives back Fable's part of 7d Standard, which the usage
   endpoint does not report: Fable is capped at half the weekly limit, so the
   page estimates that part as half the Fable cap's reading and marks it as
-  an estimate. Clicking the time to reset opens Usage on claude.ai, where a
-  reset is used; the link cannot pick the seat's team, so switch to it
-  there. The section's subtitle counts the pool's resets left by kind. The
-  plugin never uses a reset.
+  an estimate. The section's subtitle counts the pool's resets left by kind.
+  Clicking the time to reset opens a dialog that lists each window the reset
+  empties, reading now and after, with the time left until that window
+  resets, and uses one reset of the kind you pick on that seat once you
+  confirm; it cannot be undone. The dialog then reads the seat again every
+  few seconds, up to six times over about 80 seconds, until its usage shows
+  the reset, and closes; Continue in background closes it at once and
+  leaves the checks running while the page stays open. A read that finds the
+  seat held by a cooldown the reset ended asks the host to clear it, as a
+  poll does; a host before 8.0.12 cannot, and keeps the seat until the
+  cooldown ends, which the page warns about. A claim that may have reached
+  the endpoint without its answer reaching the page stays in that browser
+  for 15 minutes, or until the seat's reading shows the reset used, and
+  using that kind of reset on the seat in that time sends the same claim
+  again, which the endpoint answers as it did the first, so the two use at
+  most one reset. The dialog also links to Usage on claude.ai, where a reset can be used too; that link cannot pick
+  the seat's team, so switch to it there. The plugin uses a reset only when
+  you confirm one.
   When seats differ in `priority`, the page groups them by tier, marks the
   tier taking requests as serving, and ranks only its seats. A tier below it
   is marked fallback, and a tier none of whose seats can take requests is
@@ -220,5 +234,10 @@ The routes under `/v0/management/plugins/claude-seat-pacer/` are `GET status`
 while `web.enabled` is on; `preview=<pace block as JSON>` scores it against
 draft pace settings, which nothing routes by), `POST page-boost?seat=<published id>&span=` (the
 boost menu's route, with `span` one of `1h`, `4h`, `reset`, `cleared` or `off`,
-while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
+while `web.enabled` is on), `POST page-reset?seat=<published id>&grant=<grant
+id>&request=<request id>` (the reset dialog's route, which uses one of the
+grant's resets and answers the reset endpoint's answer, where the same
+request id gets the same answer, so a retry uses at most one reset, or, with
+`?seat=<published id>&check=1`, reads the seat again, at most once every two
+seconds, while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
 `POST bindings/sweep`.

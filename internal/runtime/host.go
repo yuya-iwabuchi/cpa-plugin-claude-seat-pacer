@@ -234,6 +234,7 @@ func (d hostDoer) Do(ctx context.Context, req quota.Request) (quota.Response, er
 		Method:  req.Method,
 		URL:     req.URL,
 		Headers: headers,
+		Body:    req.Body,
 	}, &resp)
 	if err != nil {
 		return quota.Response{}, err

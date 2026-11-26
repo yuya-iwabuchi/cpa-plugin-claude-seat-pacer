@@ -86,7 +86,8 @@ receives every seat's token, so it must be `https` to `api.anthropic.com`, or
 `http` to a loopback host; anything else runs at the default, with a
 status-page warning. Each read adds `cedar_ember=1` and `skip_spend=1` to
 the URL's query where it does not set them already, asking for the seat's
-limit resets and leaving out its spend. Under `shape: points`, a `points`
+limit resets and leaving out its spend. A reset used from the status page
+goes to the same host. Under `shape: points`, a `points`
 list the plugin cannot use runs the linear shape with a status-page warning: an empty list, an entry
 it cannot read, days that do not rise, a percent that falls, a day past 7, a
 start above 0% on day 0, more than 16 points counting the ends the plugin

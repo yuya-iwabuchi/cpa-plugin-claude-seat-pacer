@@ -341,6 +341,11 @@ type fixture struct {
 	idKeyFile string
 	// boosts are the page's live boosts by credential id, held in memory.
 	boosts map[string]model.Boost
+	// claims are the answers to the page's reset claims by request id.
+	claims map[string]model.ResetClaim
+	// lagging are the readings claims left that a recheck has yet to read,
+	// by credential id.
+	lagging map[string]laggingRead
 }
 
 // Boost boosts a fixture seat the way the plugin does, ending a reset span at

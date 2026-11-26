@@ -101,12 +101,18 @@ type Plugin struct {
 	holds            map[string]staleHold
 	holdResets       map[string]staleHold
 	resetUnsupported bool
-	mgmtBase         string
-	resourceBase     string
+	// rechecked is when the status page last had each seat read again.
+	rechecked    map[string]time.Time
+	mgmtBase     string
+	resourceBase string
 
 	lifeMu sync.Mutex
 	poller *poller
 	pollMu sync.Mutex
+	// rechecking is set while a seat recheck holds pollMu.
+	rechecking atomic.Bool
+	// claimMu runs one reset claim at a time, across its host callbacks.
+	claimMu sync.Mutex
 	// fetchStagger spaces one credential's usage read from the next; tests
 	// zero it so a poll costs no wall clock.
 	fetchStagger time.Duration

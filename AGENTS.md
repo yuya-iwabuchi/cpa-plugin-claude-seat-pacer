@@ -91,9 +91,10 @@ the run. Do not remove that test.
   log lock internally; everything else mutable sits behind a mutex held only
   for field access and never across a host callback. The locks that
   serialize the poll loop's and the local API socket's start, stop and polls,
-  and the boost store's `saveMu`, which serializes each boost change with its
-  file write, are held across that work, host callbacks and bounded waits
-  included; the pick never takes them.
+  the boost store's `saveMu`, which serializes each boost change with its
+  file write, and `claimMu`, which runs one limit-reset claim at a time, are
+  held across that work, host callbacks and bounded waits included; the pick
+  never takes them.
 - **Candidates are pre-filtered and capped at the highest priority tier.**
   Disabled, cooling, model-incompatible and already-tried credentials are gone
   before the plugin is asked, and lower tiers are never offered, so the plugin

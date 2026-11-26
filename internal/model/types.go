@@ -5,6 +5,7 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -341,8 +342,8 @@ const (
 )
 
 // ResetGrants is a seat's limit-reset grants: resets Anthropic hands an
-// account, each used by hand on claude.ai, which empty the windows they
-// clear. A reset keeps each window's reset time, so it gives back what the
+// account, each used by hand on claude.ai or from the status page, which
+// empty the windows they clear. A reset keeps each window's reset time, so it gives back what the
 // window had used, to spend before that window resets.
 type ResetGrants struct {
 	Grants []ResetGrant `json:"grants"`
@@ -371,6 +372,36 @@ type ResetGrant struct {
 	GivesBack bool `json:"gives_back,omitempty"`
 	// Unavailable is the endpoint's reason a reset cannot be used now.
 	Unavailable string `json:"unavailable,omitempty"`
+}
+
+// Answers to a reset claim, as the endpoint names them. A claim the endpoint
+// refuses names its reason in ResetClaim.Reason.
+const (
+	ClaimReset       = "reset"
+	ClaimAlreadyUsed = "already_used"
+	ClaimNotLimited  = "not_limited"
+	ClaimCooldown    = "cooldown"
+	ClaimIneligible  = "ineligible"
+	ClaimUnavailable = "unavailable"
+)
+
+// ErrClaimNotSent is what errors.Is finds in an error that stopped a reset
+// claim before it was sent, so no reset can have been used.
+var ErrClaimNotSent = errors.New("the claim was not sent")
+
+// ResetClaim is the endpoint's answer to a claim of one limit reset.
+type ResetClaim struct {
+	// Result is ClaimReset for a reset used, else why none was.
+	Result string `json:"result"`
+	Reason string `json:"reason,omitempty"`
+	// ResetsLeft is the grant's resets left after the claim, nil when the
+	// answer names none.
+	ResetsLeft *int `json:"resets_left,omitempty"`
+	// Cleared lists the windows the claim emptied.
+	Cleared []WindowRef `json:"cleared"`
+	// CooldownUntil is when the account may claim again, nil when the answer
+	// names none.
+	CooldownUntil *time.Time `json:"cooldown_until,omitempty"`
 }
 
 // WindowRef names one window by its identity.

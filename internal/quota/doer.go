@@ -15,11 +15,12 @@ type Doer interface {
 }
 
 // Request is a Doer's input. Header carries one value per name, which is all
-// the usage endpoint needs.
+// the endpoint needs.
 type Request struct {
 	Method string
 	URL    string
 	Header map[string]string
+	Body   []byte
 }
 
 // Response is a Doer's output. Body is already read.
