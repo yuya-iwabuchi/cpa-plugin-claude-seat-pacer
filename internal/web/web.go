@@ -4,10 +4,10 @@
 // reach its port; it is static and carries no data. The status it renders comes
 // from the plugin's page-status management route, which the host answers only
 // with the management key and, by default, only for loopback clients. Every
-// request the app makes that changes anything, a boost, a pace setting saved
-// through the host's plugin-config route or a sign-in, goes to a management
-// route behind that key. model.Status carries ids and labels but no
-// credential material, and serveStatus still names each seat without its
+// request the app makes that changes anything, a boost, a limit reset used, a
+// pace setting saved through the host's plugin-config route or a sign-in, goes
+// to a management route behind that key. model.Status carries ids and labels
+// but no credential material, and serveStatus still names each seat without its
 // account address, withholds the credential file name, keeps only the config
 // block the page reads, strips URLs, filesystem paths and network addresses out
 // of the operator warnings and bounds the binding list, so the page is safe to
@@ -36,6 +36,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -111,6 +112,18 @@ type Booster interface {
 	Unboost(authID string, now time.Time) bool
 }
 
+// Claimer is what a Source implements to use a seat's limit resets from the
+// page. A Source that does not implement it answers every reset request 501.
+type Claimer interface {
+	// ClaimReset uses one of the grant's resets on the credential, under
+	// the page's request id.
+	ClaimReset(ctx context.Context, authID, grantID, requestID string) (model.ResetClaim, error)
+	// RecheckSeat reads the credential's usage again, unless it was
+	// rechecked too recently or a read is already running, and reports
+	// whether it read.
+	RecheckSeat(ctx context.Context, authID string) (bool, error)
+}
+
 // Previewer is what a Source implements to score the page's draft pace
 // settings. A Source that does not implement it answers a preview with the
 // running scores and no preview flag.
@@ -129,9 +142,10 @@ type Source interface {
 // NewHandler serves the app at app-relative paths: "/index.html" for the page,
 // "/api/status" for its data, which the plugin reaches from the page-status
 // management route, "/api/boost" for its boosts, which it reaches from the
-// page-boost management route, and "/api/seats" for one conversation's seat,
-// which the plugin serves only on its Unix socket and cmd/webdev serves for its
-// own fixtures. A bare "/" reaches it only from cmd/webdev:
+// page-boost management route, "/api/reset" for its limit resets, which it
+// reaches from the page-reset management route, and "/api/seats" for one
+// conversation's seat, which the plugin serves only on its Unix socket and
+// cmd/webdev serves for its own fixtures. A bare "/" reaches it only from cmd/webdev:
 // the host matches a resource route by exact path and refuses an empty one
 // (internal/runtime/management.go).
 func NewHandler(src Source) http.Handler {
@@ -155,6 +169,8 @@ func newHandler(src Source, key func() []byte) http.Handler {
 			serveStatus(w, r, src, key())
 		case "/api/boost":
 			serveBoost(w, r, src, key())
+		case "/api/reset":
+			serveReset(w, r, src, key())
 		case "/api/seats":
 			if !allowRead(w, r) {
 				return
@@ -272,15 +288,7 @@ func serveBoost(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 	}
 	now := time.Now()
 	seat := r.URL.Query().Get("seat")
-	authID := ""
-	if seat != "" {
-		for _, a := range src.Status(now, "").Auths {
-			if hmac.Equal([]byte(publicID(key, a.AuthID)), []byte(seat)) {
-				authID = a.AuthID
-				break
-			}
-		}
-	}
+	authID := seatOf(src, key, seat, now)
 	if authID == "" {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such seat"})
 		return
@@ -298,6 +306,76 @@ func serveBoost(w http.ResponseWriter, r *http.Request, src Source, key []byte) 
 	}
 	boost.AuthID = seat
 	writeJSON(w, http.StatusOK, map[string]any{"seat": seat, "boost": boost})
+}
+
+// seatOf is the credential id of the seat the page names by its published id,
+// or empty for none.
+func seatOf(src Source, key []byte, seat string, now time.Time) string {
+	if seat == "" {
+		return ""
+	}
+	for _, a := range src.Status(now, "").Auths {
+		if hmac.Equal([]byte(publicID(key, a.AuthID)), []byte(seat)) {
+			return a.AuthID
+		}
+	}
+	return ""
+}
+
+// serveReset uses one of a grant's limit resets on the seat the request names
+// by its published id: ?seat=<id>&grant=<grant id>&request=<request id>. It
+// answers the endpoint's answer, or the reason no claim was answered: 409 for
+// one never sent, 502 for one that may have reached the endpoint.
+// ?seat=<id>&check=1 reads the seat again instead, and answers {"read": bool}.
+// A reason reaches the page as the status view's errors do, without
+// addresses, paths or the credential id.
+func serveReset(w http.ResponseWriter, r *http.Request, src Source, key []byte) {
+	if r.Method != http.MethodPost {
+		setCommonHeaders(w)
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	c, ok := src.(Claimer)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "this build uses no resets"})
+		return
+	}
+	q := r.URL.Query()
+	authID := seatOf(src, key, q.Get("seat"), time.Now())
+	if authID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such seat"})
+		return
+	}
+	if q.Get("check") == "1" {
+		read, err := c.RecheckSeat(r.Context(), authID)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": resetError(err, key, authID)})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"read": read})
+		return
+	}
+	if q.Get("grant") == "" || q.Get("request") == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "grant and request are required"})
+		return
+	}
+	res, err := c.ClaimReset(r.Context(), authID, q.Get("grant"), q.Get("request"))
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, model.ErrClaimNotSent) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": resetError(err, key, authID)})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// resetError is err's text for the page, through publicText, with the seat's
+// credential id published.
+func resetError(err error, key []byte, authID string) string {
+	return publicText(err.Error(), strings.NewReplacer(authID, publicID(key, authID)))
 }
 
 // writeJSON answers status with body encoded as JSON under the common headers.

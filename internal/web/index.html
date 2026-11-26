@@ -594,6 +594,46 @@ td .seat-mark { max-width: 22ch; }
 .boost-menu .bm-why:empty { display: none; }
 .boost-menu .bm-error { margin: 8px 0 0; color: var(--critical); }
 .boost-menu .bm-error:empty { display: none; }
+/* A seat's reset dialog, opened from the reset icon on a lane: each kind of
+   reset the lane's window takes and what one gives back, a choice between
+   them when the window takes two, the wait for a used reset to show, and a
+   footer with the Usage link and its buttons. It shares the tooltip's rows. */
+.reset-dialog { width: min(380px, calc(100vw - 32px)); padding: 16px; background: var(--surface-1);
+  border: 1px solid var(--hairline); border-radius: 12px; box-shadow: var(--shadow);
+  font: 400 12px/1.45 var(--sans); color: var(--ink-2); }
+.reset-dialog::backdrop { background: rgba(11,11,11,.4); }
+.reset-dialog h2 { margin: 0 0 6px; font: 600 14px/1.3 var(--sans); color: var(--ink-1); }
+.reset-dialog .rd-seat { display: flex; align-items: baseline; gap: 7px; min-width: 0; margin: 0 0 12px; }
+.reset-dialog .rd-seat .tip-dot { align-self: center; }
+.reset-dialog .rd-seat-label { font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.reset-dialog .rd-seat-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink-1); }
+.reset-dialog .rd-seat-lane { flex: none; color: var(--ink-3); }
+.reset-dialog .rd-kind { display: block; padding: 10px; border: 1px solid var(--hairline); border-radius: 8px; }
+.reset-dialog .rd-kind + .rd-kind { margin-top: 8px; }
+.reset-dialog label.rd-kind { cursor: pointer; }
+.reset-dialog label.rd-kind:has(input:checked) { border-color: var(--ink-1); }
+.reset-dialog label.rd-kind:has(input:disabled) { cursor: default; }
+.reset-dialog .rd-kind input { margin: 0; align-self: center; }
+.reset-dialog .tip-tag { margin-top: 0; }
+.reset-dialog .rd-why { margin: 6px 0 0; font-size: 11px; color: var(--ink-3); }
+.reset-dialog .rd-wait { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--hairline); border-radius: 8px; }
+.reset-dialog .rd-wait p { margin: 0; }
+.reset-dialog .rd-wait-head { color: var(--ink-1); font-weight: 600; }
+.reset-dialog .rd-wait .rd-wait-sub { margin-top: 3px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.reset-dialog .rd-late { margin: 0; color: var(--ink-1); }
+.reset-dialog .rd-note { margin: 12px 0 0; font-size: 11.5px; color: var(--ink-3); }
+.reset-dialog .rd-error { margin: 10px 0 0; color: var(--critical); }
+.reset-dialog .rd-error:empty { display: none; }
+.reset-dialog .rd-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.reset-dialog .rd-foot a { margin-right: auto; font-size: 11.5px; white-space: nowrap; color: var(--info); }
+/* On a phone the link takes a line of its own above the buttons. */
+@media (max-width: 420px) {
+  .reset-dialog .rd-foot { justify-content: flex-end; }
+  .reset-dialog .rd-foot a { flex-basis: 100%; margin-right: 0; }
+}
+.reset-dialog .rd-confirm { background: var(--ink-1); color: var(--surface-1); border-color: var(--ink-1); }
+.reset-dialog .rd-confirm:hover { background: var(--ink-1); opacity: .88; }
+.reset-dialog .rd-confirm:disabled { background: var(--surface-1); color: var(--ink-3); border-color: var(--axis); opacity: 1; }
 #timeline { overflow-x: auto; }
 /* The band past 100% on a utilization chart, and the rule at full under it. */
 svg .past-full { fill: var(--serious); fill-opacity: .07; }
@@ -664,6 +704,7 @@ svg.tl text.gap-label.t-muted { fill: var(--ink-3); }
 svg.tl g.rst { cursor: default; }
 svg.tl g.rst:focus-visible rect.hit { stroke: var(--focus); stroke-width: 2; }
 svg.tl g.rst:hover rect.hit { fill: var(--surface-2); }
+html[data-quiet-focus] svg.tl g.rst:focus-visible rect.hit { stroke: none; }
 /* A family chip on a seat's header row: the seat's rank in that family, or
    the reason the family is held off it. The chip of a family whose next new
    conversation the seat takes is tinted, and the #1 it reads says the same,
@@ -1394,12 +1435,14 @@ th[aria-sort] button { color: var(--ink-1); }
 /* A chart section's tooltip: the line it belongs to, a badge for the kind
    of stretch, its figure large, and plain prose under it. */
 #tooltip.rich { white-space: normal; max-width: 300px; padding: 10px 12px 11px; font: 400 12px/1.45 var(--sans); color: var(--ink-2); }
+/* A reset's rows carry a column more, which the tooltip widens for. */
+#tooltip.rich:has(.tip-row-left) { max-width: 360px; }
 #tooltip .tip-head { display: flex; align-items: center; gap: 6px; }
-#tooltip .tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+:is(#tooltip, .reset-dialog) .tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 #tooltip .tip-seat { font-weight: 650; font-size: 12.5px; color: var(--ink-1); }
 #tooltip .tip-win { color: var(--ink-3); font-size: 11.5px; }
-#tooltip .tip-tag { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; margin-top: 8px; font-size: 11.5px; }
-#tooltip .tip-badge {
+:is(#tooltip, .reset-dialog) .tip-tag { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; margin-top: 8px; font-size: 11.5px; }
+:is(#tooltip, .reset-dialog) .tip-badge {
   --tone: var(--ink-3);
   font: 700 9.5px/1 var(--mono); letter-spacing: .07em; text-transform: uppercase;
   padding: 2px 4px 1px; border-radius: 3px; color: var(--ink-1);
@@ -1410,10 +1453,10 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip .tip-badge[data-type="limit"] { --tone: var(--critical); }
 #tooltip .tip-badge[data-type="now"] { --tone: var(--ink-1); }
 #tooltip .tip-badge[data-type="reset"] { --tone: var(--ink-2); }
-#tooltip .tip-badge[data-type="grant"] { --tone: var(--info); }
+:is(#tooltip, .reset-dialog) .tip-badge[data-type="grant"] { --tone: var(--info); }
 #tooltip .tip-muted { color: var(--ink-3); font-size: 11px; margin-top: 8px; }
 #tooltip .tip-badge[data-type="unrec"] { background: none; border: 1px dashed var(--ink-3); }
-#tooltip .tip-when { color: var(--ink-1); }
+:is(#tooltip, .reset-dialog) .tip-when { color: var(--ink-1); }
 #tooltip .tip-dur { color: var(--ink-3); font: 500 11px/1 var(--mono); }
 #tooltip .tip-big { display: flex; align-items: baseline; margin-top: 7px; font: 600 17px/1.15 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; }
 #tooltip .tip-arrow { color: var(--ink-3); font-weight: 400; margin: 0 5px; }
@@ -1421,17 +1464,32 @@ th[aria-sort] button { color: var(--ink-1); }
 #tooltip .tip-line { margin-top: 5px; }
 /* A per-seat breakdown: dot, name, a muted note, the figure; the row of the
    seat the pointer is on is lifted. */
-#tooltip .tip-rows { margin: 8px -4px 0; }
-#tooltip .tip-row + .tip-row { margin-top: 1px; }
-#tooltip .tip-row {
+:is(#tooltip, .reset-dialog) .tip-rows { margin: 8px -4px 0; }
+:is(#tooltip, .reset-dialog) .tip-row + .tip-row { margin-top: 1px; }
+:is(#tooltip, .reset-dialog) .tip-row {
   display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 7px;
   padding: 2px 4px; border-radius: 4px; font-size: 11.5px;
 }
-#tooltip .tip-row[data-on] { background: var(--emph); color: var(--ink-1); font-weight: 600; }
-#tooltip .tip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#tooltip .tip-note { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+/* A reset's row ends with how long its window has left. */
+:is(#tooltip, .reset-dialog) .tip-row.tip-row-left { grid-template-columns: 8px minmax(0, 1fr) auto auto 11.5ch; }
+:is(#tooltip, .reset-dialog) .tip-left { color: var(--ink-3); font: 500 11px/1.3 var(--mono); text-align: right; white-space: nowrap; }
+/* On a phone the tooltip keeps the window names and drops the time left,
+   which the dialog still shows; the dialog drops a row's "estimate" note
+   instead, as the "~" on the value still marks it. */
+@media (max-width: 480px) {
+  #tooltip .tip-row.tip-row-left { grid-template-columns: 8px minmax(0, 1fr) auto auto; }
+  #tooltip .tip-left { display: none; }
+}
+@media (max-width: 400px) {
+  #reset-dialog { padding: 14px 12px; }
+  #reset-dialog .tip-row.tip-row-left { grid-template-columns: 8px minmax(0, 1fr) auto auto; }
+  #reset-dialog .tip-note { display: none; }
+}
+:is(#tooltip, .reset-dialog) .tip-row[data-on] { background: var(--emph); color: var(--ink-1); font-weight: 600; }
+:is(#tooltip, .reset-dialog) .tip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(#tooltip, .reset-dialog) .tip-note { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
 #tooltip .tip-note[data-tone="critical"] { color: var(--critical); }
-#tooltip .tip-val { font: 600 11.5px/1.3 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; text-align: right; min-width: 4ch; }
+:is(#tooltip, .reset-dialog) .tip-val { font: 600 11.5px/1.3 var(--mono); color: var(--ink-1); font-variant-numeric: tabular-nums; text-align: right; min-width: 4ch; }
 #tooltip .tip-line b { color: var(--ink-1); font-weight: 600; margin-right: 5px; }
 #tooltip .tip-alert { color: var(--critical); font-weight: 600; margin-left: 5px; }
 
@@ -2877,6 +2935,22 @@ time[data-ts] { cursor: help; }
      causes to bring the element into view, and any later one — and the tip
      follows the element instead. */
   var tipByFocus = false;
+  /* Whether focus should show what it reveals: the tooltip, a reset
+     stamp's preview, the focus ring the page puts back. A key or a touch
+     leaves it on; a mouse press turns it off, since the mouse shows those
+     by hovering, and focus it brings, or that the page hands back after a
+     mouse closed a dialog, would otherwise hold them up after the pointer
+     has left. */
+  var focusReveals = true;
+  document.addEventListener("keydown", function (ev) {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    focusReveals = true;
+    document.documentElement.removeAttribute("data-quiet-focus");
+  }, true);
+  document.addEventListener("pointerdown", function (ev) {
+    focusReveals = ev.pointerType !== "mouse";
+    if (focusReveals) document.documentElement.removeAttribute("data-quiet-focus");
+  }, true);
   /* What the tooltip holds: the spec it drew, or the plain text it set. */
   var tipBody = null;
 
@@ -2906,6 +2980,9 @@ time[data-ts] { cursor: help; }
       tipFor = el;
     }
     var pad = 14;
+    /* Measured from the left edge, so the room the last tip's spot left
+       does not narrow this one. */
+    tipEl.style.left = "0px";
     var r = tipEl.getBoundingClientRect();
     var left = Math.min(x + pad, window.innerWidth - r.width - 8);
     var top = y + pad + r.height > window.innerHeight ? y - r.height - pad : y + pad;
@@ -2941,6 +3018,7 @@ time[data-ts] { cursor: help; }
   document.addEventListener("focusin", function (ev) {
     var t = ev.target.closest ? ev.target.closest("[data-tip]") : null;
     if (!t) { hideTip(); return; }
+    if (!focusReveals) return;
     focusTip(t);
     tipByFocus = true;
   });
@@ -3180,6 +3258,9 @@ time[data-ts] { cursor: help; }
      It is as wide as the longest stamp the reset mode writes, so a figure
      that lengthens as it counts down never reaches the gap label. */
   var RST_W = 100;
+  /* The room a stamp's hover box leaves past its text, or past its reset
+     icon. */
+  var RST_PAD = 5;
   /* The gutter's floor is its lane columns; it widens to the longest seat
      name and chips the payload holds, up to a share of the card that keeps
      the plot the larger part. */
@@ -3403,27 +3484,28 @@ time[data-ts] { cursor: help; }
 
   /* A reset stamp's part in a seat's resets, where the lane's window is
      the one a reset is for: the reset icon after the stamp, each such reset
-     in its tooltip, and a link to Usage on claude.ai, where a reset is
-     used. */
+     in its tooltip, and the dialog that uses one, opened by a click. */
   function stampResets(g, a, w, entries, fills, rstX, cy, parent) {
     var here = stampEntries(entries, w);
     if (!here.length) return;
     resetIcon(g, rstX + 7 + RESET_ICON_PX / 2, cy);
-    g.querySelector("rect.hit").setAttribute("width", RST_W + RESET_ICON_PX + 9);
+    g.querySelector("rect.hit").setAttribute("width", RST_W + 7 + RESET_ICON_PX + RST_PAD);
     var spec = g.tipSpec;
     spec.groups = here.map(function (e) { return resetGroup(e, w); });
-    var team = teamOf(loginOf(a));
-    spec.lines.push({ t: "Click to open Usage on claude.ai, then switch to " + team + ".", muted: true });
+    spec.lines.push({ t: "Click to use a reset.", muted: true });
     setTip(g, spec);
     g.setAttribute("aria-label", g.getAttribute("aria-label") + ", " + here.map(function (e) {
       return e.left + " " + resetName(e) + ": " + gainText(e);
-    }).join("; ") + "; opens Usage on claude.ai");
+    }).join("; ") + "; opens a dialog to use one");
     g.classList.add("rst-link");
-    g.setAttribute("role", "link");
-    g.setAttribute("data-fk", "rst:" + a.auth_id + ":" + laneKey(w));
-    function openUsage() { window.open(USAGE_URL, "_blank", "noopener"); }
-    g.addEventListener("click", openUsage);
-    g.addEventListener("keydown", function (ev) { if (ev.key === "Enter") openUsage(); });
+    g.setAttribute("role", "button");
+    g.setAttribute("aria-haspopup", "dialog");
+    g.setAttribute("data-fk", resetKey(a, w));
+    function open() { openResetMenu(a, w); }
+    g.addEventListener("click", open);
+    g.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); }
+    });
     /* While the stamp is pointed at or focused, each window the first
        reset refills covers the use it gives back on its bar and says how
        much, as resetGroup's rows read it. */
@@ -3446,7 +3528,7 @@ time[data-ts] { cursor: help; }
       marks = [];
     }
     g.addEventListener("mouseenter", on);
-    g.addEventListener("focus", on);
+    g.addEventListener("focus", function () { if (focusReveals) on(); });
     g.addEventListener("mouseleave", off);
     g.addEventListener("blur", off);
   }
@@ -3533,12 +3615,21 @@ time[data-ts] { cursor: help; }
   function resetGroup(e, w) {
     var out = { label: e.left + "× " + e.kind + " reset", type: "grant", when: grantsText(e), rows: [], note: "" };
     if (!e.usable) { out.note = sentence(resetBlocked(e)); return out; }
+    var now = nowMs();
     out.rows = resetRefills(e).map(function (r) {
       return { name: windowShort(r.x), col: "var(--ink-3)", note: r.est ? "estimate" : "",
-        value: pct(r.x.utilization, 0) + " → " + (r.est ? "~" : "") + pct(r.after, 0), on: sameWindow(r.x, w) };
+        value: pct(r.x.utilization, 0) + " → " + (r.est ? "~" : "") + pct(r.after, 0), on: sameWindow(r.x, w),
+        left: windowLeftText(r.x, now) };
     });
     if (!out.rows.length) out.note = sentence(gainText(e));
     return out;
+  }
+
+  /* How long a window has before it resets, as a reset's row reads it:
+     the time what the reset gives back in it lasts. */
+  function windowLeftText(x, now) {
+    var d = parseT(x.resets_at), s = d ? Math.floor((d.getTime() - now) / 1000) : 0;
+    return s > 0 ? durText(s) + " left" : "";
   }
 
   /* The pool's resets left by kind, as the Seats heading reads them. */
@@ -3721,7 +3812,7 @@ time[data-ts] { cursor: help; }
      the dimmest ink the page has. */
   function resetStamp(parent, cy, a, w, resets, rstX) {
     var g = svg("g", { "class": "rst", tabindex: 0, role: "img" }, parent);
-    svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W, height: 18,
+    svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W + RST_PAD, height: 18,
       rx: 3, fill: "transparent" }, g);
     var t = svgText(g, rstX, cy + 3.5, resetText(resets, nowMs()), "t-mono t-muted",
       { "font-size": 10, "text-anchor": "end" });
@@ -4056,7 +4147,7 @@ time[data-ts] { cursor: help; }
             svgText(gRow, gut + 4, cy + 4, "no open window", "t-muted", { "font-size": 10.5 });
             stampResets(resetStamp(gRow, cy, a, w, resets, rstX), a, w, seatRs, laneFills, rstX, cy, gRow);
           } else {
-            svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W, height: 18, rx: 3, fill: "transparent" }, g);
+            svg("rect", { "class": "hit", x: rstX - RST_W, y: cy - 9, width: RST_W + RST_PAD, height: 18, rx: 3, fill: "transparent" }, g);
             svgText(g, rstX, cy + 3.5, "no open window", "t-mono t-muted", { "font-size": 10, "text-anchor": "end" });
           }
           return;
@@ -5488,7 +5579,7 @@ time[data-ts] { cursor: help; }
     (spec.rows || []).forEach(function (r) { out.push(r.name + " " + r.value + (r.note ? " · " + r.note : "")); });
     (spec.groups || []).forEach(function (gr) {
       out.push(gr.label + (gr.when ? " · " + gr.when : ""));
-      gr.rows.forEach(function (r) { out.push(r.name + " " + r.value + (r.note ? " · " + r.note : "")); });
+      gr.rows.forEach(function (r) { out.push(r.name + " " + r.value + (r.note ? " · " + r.note : "") + (r.left ? ", " + r.left : "")); });
       if (gr.note) out.push(gr.note);
     });
     spec.lines.forEach(function (l) { out.push((l.b ? l.b + ": " : "") + l.t + (l.alert ? " · " + l.alert : "")); });
@@ -5540,12 +5631,13 @@ time[data-ts] { cursor: help; }
       if (gr.rows.length) {
         var gt2 = row("tip-rows");
         gr.rows.forEach(function (r) {
-          var tr = put(gt2, "div", "tip-row", null);
+          var tr = put(gt2, "div", "tip-row tip-row-left", null);
           if (r.on) tr.setAttribute("data-on", "true");
           put(tr, "span", "tip-dot").style.background = r.col;
           put(tr, "span", "tip-name", r.name);
           put(tr, "span", "tip-note", r.note || "");
           put(tr, "span", "tip-val", r.value);
+          put(tr, "span", "tip-left", r.left || "");
         });
       }
       if (gr.note) put(row("tip-line"), "span", "", gr.note);
@@ -10486,6 +10578,7 @@ time[data-ts] { cursor: help; }
 
   function openBoostMenu(a, anchor) {
     hideTip();
+    closeResetMenu(false);
     var el = h("div", "boost-menu");
     el.setAttribute("role", "dialog");
     el.setAttribute("aria-label", "Boost " + seatLabel(a));
@@ -10596,6 +10689,462 @@ time[data-ts] { cursor: help; }
     if (ev.key === "Escape" && boostMenu) closeBoostMenu(true);
   });
 
+  /* --------------------------------------------------------------- resets */
+
+  /* The page-reset route under the host's management mount, or cmd/webdev's
+     app path beside the page. */
+  var RESET_PATH = HOST_MOUNT ? "plugins/" + HOST_MOUNT[2] + "/page-reset" : "reset";
+
+  /* A lane's reset icon, as its focus key. */
+  function resetKey(a, w) { return "rst:" + a.auth_id + ":" + laneKey(w); }
+
+  /* A claim of one kind of reset on a seat that may have reached the
+     endpoint without its answer reaching the page, as {grant, req, at,
+     before, left}: the grant it drew on, its request id, when it was sent,
+     and the seat's readings by window and the grant's resets left as the
+     dialog showed them then. Until an answer arrives, using that kind on
+     that seat sends the same claim again, which the endpoint answers as it
+     did the first, so the two use at most one reset. A reading that shows
+     the grant one reset down or gone settles it as used. It lives in this
+     browser's storage, shared by the page's tabs, or in memory where the
+     storage refuses it, and lapses after RESET_PENDING_MS. */
+  var RESET_PENDING_MS = 15 * 60 * 1000;
+  var resetPendings = Object.create(null);
+  function resetPending(seat, kind) {
+    var k = "reset-pending:" + seat + ":" + kind, v = null;
+    try { v = JSON.parse(window.localStorage.getItem(k) || "null"); } catch (e) { /* memory below */ }
+    if (!v) v = resetPendings[k] || null;
+    if (!v || typeof v.grant !== "string" || typeof v.req !== "string" || !v.before ||
+        !(Date.now() - v.at < RESET_PENDING_MS)) return null;
+    return v;
+  }
+  function setResetPending(seat, kind, v) {
+    var k = "reset-pending:" + seat + ":" + kind;
+    delete resetPendings[k];
+    try {
+      if (v) window.localStorage.setItem(k, JSON.stringify(v));
+      else window.localStorage.removeItem(k);
+    } catch (e) {
+      /* Only a record the storage refused lives in memory, so another tab
+         clearing the storage's copy clears this tab's too. An older copy the
+         storage still holds would hide it. */
+      if (v) resetPendings[k] = v;
+      try { window.localStorage.removeItem(k); } catch (e2) { /* none to hide it */ }
+    }
+  }
+  /* Drops the claims out on seat a that its reading shows used, the grant
+     one reset down or gone. Where the open dialog said one may not have gone
+     through, it turns to the wait for the reset to show, as a claim
+     answered "reset" does. */
+  function settleResetPendings(a) {
+    var prefix = "reset-pending:" + a.auth_id + ":", kinds = Object.create(null);
+    Object.keys(resetPendings).forEach(function (k) { if (k.indexOf(prefix) === 0) kinds[k.slice(prefix.length)] = true; });
+    try {
+      for (var i = 0; i < window.localStorage.length; i++) {
+        var k = window.localStorage.key(i);
+        if (k && k.indexOf(prefix) === 0) kinds[k.slice(prefix.length)] = true;
+      }
+    } catch (e) { /* memory only */ }
+    Object.keys(kinds).forEach(function (kind) {
+      var pend = resetPending(a.auth_id, kind);
+      if (!pend) return;
+      var g = seatGrant(a, pend.grant);
+      if (g && !(g.left < pend.left)) return;
+      setResetPending(a.auth_id, kind, null);
+      if (resetMenu && resetMenu.seat === a.auth_id && resetMenu.maybeKind === kind) {
+        resetMenu.maybeKind = null;
+        resetMenu.error.textContent = "";
+        startResetWait(resetMenu, { cleared: [] }, pend);
+      }
+    });
+  }
+
+  function newRequestId() {
+    var b = new Uint8Array(16);
+    window.crypto.getRandomValues(b);
+    return Array.prototype.map.call(b, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+  }
+
+  /* The grant a claim of a kind draws on: its first with a reset that can be
+     used now, in the order the usage read lists them. */
+  function resetGrantOf(e) {
+    return e.grants.filter(function (g) { return g.usable_now && g.left > 0; })[0] || null;
+  }
+
+  /* What the endpoint's answer to a claim says, for an answer that used no
+     reset. */
+  function claimText(r) {
+    var why = r.reason ? " (" + r.reason.replace(/_/g, " ") + ")" : "";
+    switch (r.result) {
+      case "already_used": return "Not used: that reset was already used" + why + ".";
+      case "not_limited": return "Not used: this reset only works once the seat is at its limit" + why + ".";
+      case "cooldown": return "Not used: another reset was used too recently" +
+        (parseT(r.cooldown_until) ? "; try again after " + clockAt(parseT(r.cooldown_until), nowMs()) : "") + why + ".";
+      case "ineligible": return "Not used: this account can't use resets" + why + ".";
+      default: return "Not used: the reset isn't available now" + why + ".";
+    }
+  }
+
+  /* The waits for a used reset to show on the page, by seat id. After the
+     endpoint answers a claim, the page asks the plugin to read the seat
+     again on RESET_CHECK_GAPS, in seconds apart, until the seat's reading
+     shows the reset (each window it cleared lower than before, the grant
+     one reset down) and the host offers the seat again. A wait outlives its
+     dialog: Continue in background closes the dialog and the checks go on.
+     Each is {seat, grant, left, before, step, timer, next, checking}. */
+  var RESET_CHECK_GAPS = [3, 5, 8, 12, 20, 30];
+  var resetWaits = Object.create(null);
+
+  function seatGrant(a, id) {
+    var r = a && a.snapshot && a.snapshot.resets;
+    return ((r && r.grants) || []).filter(function (g) { return g.id === id; })[0] || null;
+  }
+
+  /* Starts waiting for the claim r of pend.grant on the dialog's seat to
+     show, against the reading the dialog showed when the claim was first
+     sent. */
+  function startResetWait(m, r, pend) {
+    var wt = { seat: m.seat, grant: pend.grant, left: pend.left, step: 0, timer: null, next: 0, checking: false,
+      before: (r.cleared || []).map(function (c) {
+        var u = pend.before[laneKey(c)];
+        return { ref: c, util: typeof u === "number" ? u : null };
+      }) };
+    resetWaits[m.seat] = wt;
+    scheduleResetCheck(wt);
+  }
+
+  function scheduleResetCheck(wt) {
+    wt.next = Date.now() + RESET_CHECK_GAPS[wt.step] * 1000;
+    wt.timer = window.setTimeout(function () { checkResetWait(wt); }, RESET_CHECK_GAPS[wt.step] * 1000);
+  }
+
+  /* One recheck: the plugin reads the seat again, then the page refreshes,
+     and renderResetWaits judges what it shows. */
+  function checkResetWait(wt) {
+    wt.timer = null;
+    if (resetWaits[wt.seat] !== wt) return;
+    wt.checking = true;
+    drawResetWait();
+    function landed() {
+      if (resetWaits[wt.seat] !== wt) return;
+      wt.checking = false;
+      wt.step++;
+      if (wt.step < RESET_CHECK_GAPS.length) scheduleResetCheck(wt);
+      /* The refresh below ends the wait as it lands; this ends it from the
+         status in hand if that refresh fails. */
+      else wt.timer = window.setTimeout(function () { wt.timer = null; if (state.data) renderResetWaits(state.data); }, 5000);
+      refresh(true);
+      drawResetWait();
+    }
+    mgmtCall("POST", RESET_PATH + "?seat=" + encodeURIComponent(wt.seat) + "&check=1").then(landed, landed);
+  }
+
+  /* Whether seat a's reading shows the wait's reset: each window the claim
+     cleared below where it stood, or empty, or no longer reported, and the
+     grant one reset down or gone. */
+  function resetShown(wt, a) {
+    var ws = (a.snapshot && a.snapshot.windows) || [];
+    var cleared = wt.before.every(function (b) {
+      var w = ws.filter(function (x) { return sameWindow(x, b.ref); })[0];
+      if (!w || typeof w.utilization !== "number") return true;
+      return w.utilization <= 0.005 || b.util != null && w.utilization < b.util - 0.005;
+    });
+    var g = seatGrant(a, wt.grant);
+    return cleared && (wt.left == null || !g || g.left < wt.left);
+  }
+
+  /* Judges every wait against the latest status: one whose seat shows the
+     reset and is offered again ends, and closes its dialog; one out of checks
+     ends late, and its dialog says what is still missing. */
+  function renderResetWaits(st) {
+    Object.keys(resetWaits).forEach(function (seat) {
+      var wt = resetWaits[seat];
+      var a = (st.auths || []).filter(function (x) { return x.auth_id === seat; })[0];
+      if (!a) { endResetWait(wt, null); return; }
+      var shown = resetShown(wt, a), offered = a.host_status !== "unavailable";
+      if (shown && offered) { endResetWait(wt, null); return; }
+      if (wt.step >= RESET_CHECK_GAPS.length && !wt.checking) {
+        endResetWait(wt, shown
+          ? "The seat's usage shows the reset, but the host is still holding the seat back. The page shows the change once the host offers it again."
+          : "The reset was used, but the seat's usage doesn't show it yet. The page shows it once a usage read does.");
+      }
+    });
+  }
+
+  /* Ends a wait. late is why it ended without the reset showing, or null.
+     The seat's open dialog closes on a wait that ended well and says late
+     otherwise. */
+  function endResetWait(wt, late) {
+    if (wt.timer) window.clearTimeout(wt.timer);
+    delete resetWaits[wt.seat];
+    var m = resetMenu;
+    if (!m || m.seat !== wt.seat) return;
+    if (!late) { closeResetMenu(true); return; }
+    m.late = late;
+    fillResetMenu(m.a, m.w);
+    m.cancel.focus();
+  }
+
+  /* The open reset dialog, as {key, seat, lane, a, w, el, ...parts, pick,
+     busy, late}, or null. pick is the reset kind Use draws on; late is why
+     a finished wait did not see the reset show. */
+  var resetMenu = null;
+
+  function openResetMenu(a, w) {
+    hideTip();
+    closeBoostMenu(false);
+    closeResetMenu(false);
+    var el = h("dialog", "reset-dialog");
+    el.id = "reset-dialog";
+    var title = el.appendChild(h("h2", "", "Use a reset"));
+    title.id = "reset-dialog-title";
+    el.setAttribute("aria-labelledby", title.id);
+    /* The seat as its row and tooltip name it: its dot, its name, and the
+       window whose icon opened the dialog. */
+    var who = el.appendChild(h("p", "rd-seat"));
+    who.id = "reset-dialog-seat";
+    el.setAttribute("aria-describedby", who.id);
+    who.appendChild(h("span", "rd-seat-label", "Seat"));
+    who.appendChild(h("span", "tip-dot")).style.background = seatColor(a);
+    who.appendChild(h("span", "rd-seat-name", seatLabel(a)));
+    who.appendChild(h("span", "rd-seat-lane", windowShort(w)));
+    var body = el.appendChild(h("div", "rd-body"));
+    var note = el.appendChild(h("p", "rd-note", "Using a reset can't be undone. Each window keeps its reset time, so what a reset gives back " +
+      "lasts only for the time left shown."));
+    var error = el.appendChild(h("p", "rd-error"));
+    error.setAttribute("role", "alert");
+    var foot = el.appendChild(h("div", "rd-foot"));
+    var lk = foot.appendChild(h("a", "", "Open Usage on claude.ai"));
+    lk.href = USAGE_URL;
+    lk.target = "_blank";
+    lk.rel = "noopener";
+    function button(cls, fk) {
+      var b = foot.appendChild(h("button", cls));
+      b.type = "button";
+      b.setAttribute("data-fk", fk);
+      return b;
+    }
+    var cancel = button("rd-cancel", "reset-cancel"), bg = button("rd-bg", "reset-bg"), confirm = button("rd-confirm", "reset-confirm");
+    bg.textContent = "Continue in background";
+    var m = resetMenu = { key: resetKey(a, w), seat: a.auth_id, lane: { kind: w.kind, scope: w.scope }, a: a, w: w,
+      el: el, body: body, note: note, error: error, cancel: cancel, bg: bg, confirm: confirm, pick: null, busy: false, late: "" };
+    function dismiss() { if (resetMenu === m && !m.busy) closeResetMenu(true); }
+    cancel.addEventListener("click", dismiss);
+    bg.addEventListener("click", dismiss);
+    confirm.addEventListener("click", function () { sendReset(m); });
+    el.addEventListener("cancel", function (ev) { ev.preventDefault(); dismiss(); });
+    /* A browser can close the dialog past the cancel event, as Chrome does on
+       a second Escape. While a claim is out the dialog opens again to show
+       its answer; otherwise it closes as Cancel would. */
+    el.addEventListener("close", function () {
+      if (resetMenu !== m) return;
+      if (m.busy) el.showModal();
+      else closeResetMenu(true);
+    });
+    el.addEventListener("click", function (ev) {
+      if (ev.target !== el) return;
+      var r = el.getBoundingClientRect();
+      if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) dismiss();
+    });
+    document.body.appendChild(el);
+    fillResetMenu(a, w);
+    el.showModal();
+    (resetWaits[m.seat] ? bg : cancel).focus();
+  }
+
+  /* Draws the dialog from the seat's latest reading. While a used reset
+     waits to show, it holds a spinner, when the next check runs, and
+     Continue in background. Otherwise it lists each reset kind the lane
+     takes, its rows as the icon's tooltip reads them, greyed out with the
+     reason when none can be used now, with a choice between them when the
+     lane takes two, and Cancel and a Use button that names the chosen
+     kind. */
+  function fillResetMenu(a, w) {
+    var m = resetMenu, focused = m.el.contains(document.activeElement) ? document.activeElement.getAttribute("data-fk") : null;
+    m.a = a;
+    m.w = w;
+    var wt = resetWaits[m.seat];
+    m.note.hidden = !!wt || !!m.late;
+    m.bg.hidden = !wt;
+    m.cancel.hidden = m.confirm.hidden = !!wt;
+    m.cancel.disabled = !!m.busy;
+    if (wt) {
+      m.error.textContent = "";
+      /* The wait's box stays through redraws, so a screen reader announces
+         its status once; the countdown under it is left out of that. */
+      if (m.wait && m.body.contains(m.wait)) return;
+      m.body.textContent = "";
+      var box = m.body.appendChild(h("div", "rd-wait"));
+      box.appendChild(h("span", "ld-spin")).setAttribute("aria-hidden", "true");
+      var text = box.appendChild(h("div"));
+      text.appendChild(h("p", "rd-wait-head", "Reset used. Waiting for the seat's usage to update…")).setAttribute("role", "status");
+      m.wait = text.appendChild(h("p", "rd-wait-sub", resetWaitText(wt)));
+      m.wait.setAttribute("aria-hidden", "true");
+      return;
+    }
+    m.wait = null;
+    if (m.late) {
+      m.cancel.textContent = "Close";
+      m.confirm.hidden = true;
+      /* Kept through redraws, so a screen reader reads it once. */
+      if (m.lateEl && m.body.contains(m.lateEl)) return;
+      m.body.textContent = "";
+      m.lateEl = m.body.appendChild(h("p", "rd-late", m.late));
+      m.lateEl.setAttribute("role", "alert");
+      return;
+    }
+    m.body.textContent = "";
+    m.cancel.textContent = "Cancel";
+    var here = stampEntries(seatResets(a, nowMs()), w);
+    settleResetPendings(a);
+    if (resetWaits[m.seat]) { fillResetMenu(a, w); return; }
+    /* A kind with a claim out can be sent again whatever its grants show. */
+    var usable = here.filter(function (e) { return resetPending(m.seat, e.kind) || resetGrantOf(e); });
+    if (!usable.some(function (e) { return e.kind === m.pick; })) m.pick = usable.length ? usable[0].kind : null;
+    if (m.pick && resetPending(m.seat, m.pick) && !m.busy && !m.error.textContent) m.body.appendChild(h("p", "rd-why",
+      "A " + m.pick + " reset was sent from this browser and its answer didn't arrive. Using it again sends the same request, so it can't use two."));
+    if (!here.length) m.body.appendChild(h("p", "rd-why", "The seat holds no reset for this window now."));
+    var choose = here.length > 1;
+    here.forEach(function (e) {
+      var gr = resetGroup(e, w), grant = resetGrantOf(e);
+      var box = m.body.appendChild(h(choose ? "label" : "div", "rd-kind"));
+      var tag = box.appendChild(h("div", "tip-tag"));
+      if (choose) {
+        var pick = tag.appendChild(h("input"));
+        pick.type = "radio";
+        pick.name = "reset-kind";
+        pick.checked = e.kind === m.pick;
+        pick.disabled = !(grant || resetPending(m.seat, e.kind)) || !!m.busy;
+        pick.setAttribute("data-fk", "reset-pick:" + e.kind);
+        pick.addEventListener("change", function () { m.pick = e.kind; fillResetMenu(m.a, m.w); });
+      }
+      tag.appendChild(h("span", "tip-badge", gr.label)).setAttribute("data-type", gr.type);
+      tag.appendChild(h("span", "tip-when", gr.when));
+      if (gr.rows.length) {
+        var rows = box.appendChild(h("div", "tip-rows"));
+        gr.rows.forEach(function (r) {
+          var tr = rows.appendChild(h("div", "tip-row tip-row-left"));
+          if (r.on) tr.setAttribute("data-on", "true");
+          tr.appendChild(h("span", "tip-dot")).style.background = r.col;
+          tr.appendChild(h("span", "tip-name", r.name));
+          tr.appendChild(h("span", "tip-note", r.note || ""));
+          tr.appendChild(h("span", "tip-val", r.value));
+          tr.appendChild(h("span", "tip-left", r.left || ""));
+        });
+      }
+      if (gr.note) box.appendChild(h("p", "rd-why", gr.note));
+    });
+    var kind = m.pick || (here.length === 1 ? here[0].kind : "");
+    m.confirm.textContent = m.busy ? "Using…" : kind ? "Use 1 " + kind + " reset" : "Use a reset";
+    m.confirm.disabled = !m.pick || !!m.busy;
+    if (focused) {
+      var again = m.el.querySelector('[data-fk="' + focused + '"]');
+      if (again && !again.disabled && !again.hidden) again.focus({ preventScroll: true });
+    }
+  }
+
+  /* When a wait checks next, as its dialog says it. */
+  function resetWaitText(wt) {
+    if (wt.checking || !wt.timer || wt.step >= RESET_CHECK_GAPS.length) return "Checking the seat's usage now.";
+    var s = Math.max(1, Math.ceil((wt.next - Date.now()) / 1000));
+    return "Checking again in " + s + "s (check " + (wt.step + 1) + " of " + RESET_CHECK_GAPS.length + ").";
+  }
+
+  /* Brings the open dialog's wait line up to date. */
+  function drawResetWait() {
+    var m = resetMenu, wt = m && resetWaits[m.seat];
+    if (wt && m.wait) m.wait.textContent = resetWaitText(wt);
+  }
+  window.setInterval(drawResetWait, 1000);
+
+  /* Uses one reset of the dialog's chosen kind on its seat, or sends the
+     seat's claim without an answer again. The dialog holds until the answer
+     is in. A reset used starts the wait for it to show; an answer that used
+     none says why. A failure that may have reached the endpoint keeps the
+     claim, so sending again cannot use two; any other drops it. */
+  function sendReset(m) {
+    if (resetMenu !== m || m.busy || resetWaits[m.seat]) return;
+    var seat = m.a.auth_id, kind = m.pick, pend = kind && resetPending(seat, kind);
+    if (!pend) {
+      var e = stampEntries(seatResets(m.a, nowMs()), m.w).filter(function (x) { return x.kind === kind; })[0];
+      var grant = e && resetGrantOf(e);
+      if (!grant) return;
+      var before = {};
+      ((m.a.snapshot && m.a.snapshot.windows) || []).forEach(function (w) {
+        if (typeof w.utilization === "number") before[laneKey(w)] = w.utilization;
+      });
+      pend = { grant: grant.id, req: newRequestId(), at: Date.now(), before: before, left: grant.left };
+    }
+    /* Stored before it goes, so a reload while it is out sends it again. */
+    setResetPending(seat, kind, pend);
+    var id = pend.grant;
+    m.busy = true;
+    m.maybeKind = null;
+    m.error.textContent = "";
+    fillResetMenu(m.a, m.w);
+    mgmtCall("POST", RESET_PATH + "?seat=" + encodeURIComponent(seat) + "&grant=" + encodeURIComponent(id) +
+      "&request=" + encodeURIComponent(pend.req))
+      .then(function (r) {
+        setResetPending(seat, kind, null);
+        if (r.result === "reset") startResetWait(m, r, pend);
+        if (resetMenu === m) {
+          m.busy = false;
+          if (r.result !== "reset") m.error.textContent = claimText(r);
+          fillResetMenu(m.a, m.w);
+          (r.result === "reset" ? m.bg : m.cancel).focus();
+        }
+        refresh(true);
+      }, function (err) {
+        /* Only a lost connection or a failed call to the endpoint (502) may
+           have used the reset; any other refusal sent nothing. */
+        var maybe = err instanceof TypeError || err.httpStatus === 502;
+        /* Kept again, since another tab may have settled it while it was out;
+           the next reading settles it here the same way. */
+        setResetPending(seat, kind, maybe ? pend : null);
+        if (resetMenu !== m) return;
+        m.busy = false;
+        m.maybeKind = maybe ? kind : null;
+        m.error.textContent = maybe
+          ? "The reset may not have gone through: " + unescapeHost(err.message || String(err)) + ". Trying again sends the same request, so it can't use two."
+          : "Not used: " + unescapeHost(err.message || String(err)) + ".";
+        fillResetMenu(m.a, m.w);
+        m.cancel.focus();
+      });
+  }
+
+  /* Brings the open dialog to the latest status: its seat's kinds redrawn,
+     or the dialog closed once the seat or the lane's window is gone. */
+  function refreshResetMenu(st) {
+    renderResetWaits(st);
+    if (!resetMenu) return;
+    var a = (st.auths || []).filter(function (x) { return x.auth_id === resetMenu.seat; })[0];
+    var w = a && ((a.snapshot && a.snapshot.windows) || []).filter(function (x) { return sameWindow(x, resetMenu.lane); })[0];
+    if (!w) { if (!resetMenu.busy) closeResetMenu(false); return; }
+    if (!resetMenu.busy) fillResetMenu(a, w);
+  }
+
+  function resetIconOf(key) {
+    return document.querySelector('[data-fk="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
+  }
+
+  /* Closes the open dialog; refocus puts focus back on its reset icon. A
+     wait the dialog showed goes on. */
+  function closeResetMenu(refocus) {
+    if (!resetMenu) return;
+    var key = resetMenu.key, el = resetMenu.el, seatKey = "rst:" + resetMenu.seat + ":";
+    resetMenu = null;
+    if (el.open) el.close();
+    el.remove();
+    /* The icon that opened it, or, once the lane holds no reset, another
+       of the seat's. */
+    var ctl = resetIconOf(key) || document.querySelector('[data-fk^="' + (window.CSS && CSS.escape ? CSS.escape(seatKey) : seatKey) + '"]');
+    if (!ctl || !refocus) return;
+    /* After a mouse close the icon takes focus back without its ring, until
+       a key is pressed. */
+    if (!focusReveals) document.documentElement.setAttribute("data-quiet-focus", "");
+    ctl.focus({ preventScroll: true, focusVisible: focusReveals });
+  }
+
   /* The live boosts under the timeline: every boosted seat, hidden on this
      page or disabled in the host included, since a boost keeps steering new
      conversations whatever the page draws. */
@@ -10655,6 +11204,7 @@ time[data-ts] { cursor: help; }
         return res.json().catch(function () { return {}; }).then(function (data) {
           var e = new Error((data && data.error) || "HTTP " + res.status);
           e.body = data;
+          e.httpStatus = res.status;
           if (HOST_MOUNT && (res.status === 401 || res.status === 403)) {
             e.status = res.status;
             refuseKey(e);
@@ -11288,6 +11838,7 @@ time[data-ts] { cursor: help; }
       var menuSeat = boostMenu && (st.auths || []).filter(function (a) { return a.auth_id === boostMenu.seat; })[0];
       if (menuSeat) refreshBoostMenu(menuSeat);
       placeBoostMenu();
+      refreshResetMenu(st);
       renderPace(st, seats, ranks);
       renderHistory(st, seats);
     }
@@ -11300,7 +11851,7 @@ time[data-ts] { cursor: help; }
     /* A stop that kept its node through the rebuild kept focus too, and the
        tip the render took down comes back to it. */
     var active = document.activeElement;
-    if (active && active.getAttribute && active.getAttribute("data-tip")) { focusTip(active); tipByFocus = true; }
+    if (focusReveals && active && active.getAttribute && active.getAttribute("data-tip")) { focusTip(active); tipByFocus = true; }
   }
 
   /* The loading stage, while no reply has landed. Its card stays as it is;

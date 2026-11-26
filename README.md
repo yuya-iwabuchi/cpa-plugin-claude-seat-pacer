@@ -51,8 +51,8 @@ reason. This plugin is that pick.
 ## See the pool
 
 The plugin adds a status page to the Management Center showing the next pick,
-every seat against its plan, each seat's limit resets and what one would give
-back, the live bindings and the routing log. Over time piles every seat's use into the pool's total and totals each day, so you can
+every seat against its plan, each seat's limit resets, what one would give back
+and a dialog to use one, the live bindings and the routing log. Over time piles every seat's use into the pool's total and totals each day, so you can
 see whether the pool has enough seats.
 
 <img src="docs/over-time-stacked.png" width="900" alt="The Over time chart in its Stacked form over two weeks of 7d Standard: three seats' use piled into the pool's total under the 300% line of what the pool holds, a bracket over each day with the pool's use, each seat's share inside its band, each band hatched where its seat was full, reset marks where a seat's band falls, and past now each band held until its seat's reset; beside it, what the pool has used of what it holds and what each reset brings back.">
@@ -84,7 +84,8 @@ updating and uninstalling.
 
 ## Privacy
 
-The plugin sends each seat's token only to Anthropic's usage endpoint, or to a
+The plugin sends each seat's token only to Anthropic's usage endpoint, and to
+its reset endpoint when you use a limit reset from the status page, or to a
 loopback host you set as `usage-url`, through the host's own HTTP client, and
 never logs a token or a request body. The status page masks email addresses,
 so it is safe to put on a screen. [Privacy and data](docs/privacy.md) covers

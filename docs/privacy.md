@@ -1,8 +1,12 @@
 # Privacy and data
 
-The plugin calls one external endpoint, the usage endpoint at `usage-url` set
-in [Configuration](configuration.md), through the host's HTTP client with each
-seat's OAuth token, which the host already holds.
+The plugin calls the usage endpoint at `usage-url` set in
+[Configuration](configuration.md), through the host's HTTP client with each
+seat's OAuth token, which the host already holds. When you use a limit reset
+from the status page, it also calls the reset endpoint on the same host,
+`/api/organizations/<organization>/reset_rate_limits`, with that seat's token
+and the organization id its credential file names, sending the grant
+program, the grant id and a random request id; it calls it at no other time.
 
 The status page leaves out account addresses, file paths and network
 addresses, so it is safe to put on a screen. An email is masked to its first

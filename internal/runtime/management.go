@@ -43,11 +43,18 @@ const (
 	// routePageBoost sets or clears a boost on the seat the page names by its
 	// published id, which only the status app can resolve.
 	routePageBoost = "/page-boost"
+	// routePageReset uses one of a seat's limit resets, on the seat the page
+	// names by its published id.
+	routePageReset = "/page-reset"
 )
 
 // appBoostPath is where the status app answers routePageBoost inside the
 // plugin.
 const appBoostPath = "/api/boost"
+
+// appResetPath is where the status app answers routePageReset inside the
+// plugin.
+const appResetPath = "/api/reset"
 
 // Defaults for the prefixes when the registration request omits them; the host
 // always sends both (internal/pluginhost/management.go:113).
@@ -108,7 +115,8 @@ func (p *Plugin) managementRegister(payload []byte) ([]byte, error) {
 	if p.config().Web.Enabled {
 		resp.Routes = append(resp.Routes,
 			ManagementRoute{Method: http.MethodGet, Path: prefix + routePageStatus, Description: "The status page's data. Takes ?model=<id>, ?sync=1 to read usage first, and ?preview=<pace block as JSON> to score draft pace settings."},
-			ManagementRoute{Method: http.MethodPost, Path: prefix + routePageBoost, Description: "Boost or unboost a seat the status page names. Takes ?seat=<published id>&span=1h|4h|reset|cleared|off."})
+			ManagementRoute{Method: http.MethodPost, Path: prefix + routePageBoost, Description: "Boost or unboost a seat the status page names. Takes ?seat=<published id>&span=1h|4h|reset|cleared|off."},
+			ManagementRoute{Method: http.MethodPost, Path: prefix + routePageReset, Description: "Use one of a limit-reset grant's resets on a seat the status page names. Takes ?seat=<published id>&grant=<grant id>&request=<request id>, or ?seat=<published id>&check=1 to read the seat again."})
 		resp.Resources = []ResourceRoute{
 			{Path: resourceBase + resourceIndexPath, Menu: menuLabel, Description: "Status page. Its data comes from " + prefix + routePageStatus + ", which needs the management key."},
 		}
@@ -161,7 +169,7 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 	if method == "" {
 		method = http.MethodGet
 	}
-	want := map[string]string{routeStatus: http.MethodGet, routePageStatus: http.MethodGet, routePageBoost: http.MethodPost, routeRefresh: http.MethodPost, routeUnbind: http.MethodPost, routeSweep: http.MethodPost}[route]
+	want := map[string]string{routeStatus: http.MethodGet, routePageStatus: http.MethodGet, routePageBoost: http.MethodPost, routePageReset: http.MethodPost, routeRefresh: http.MethodPost, routeUnbind: http.MethodPost, routeSweep: http.MethodPost}[route]
 	switch {
 	case want == "":
 		return okEnvelope(jsonResponse(http.StatusNotFound, map[string]string{"error": "unknown path"}))
@@ -177,6 +185,8 @@ func (p *Plugin) managementHandle(payload []byte) ([]byte, error) {
 		return okEnvelope(p.serveResource(req, appStatusPath))
 	case routePageBoost:
 		return okEnvelope(p.serveResource(req, appBoostPath))
+	case routePageReset:
+		return okEnvelope(p.serveResource(req, appResetPath))
 	case routeRefresh:
 		ctx, cancel := context.WithTimeout(context.Background(), p.refreshTimeout())
 		defer cancel()
@@ -215,12 +225,13 @@ func (p *Plugin) refreshTimeout() time.Duration {
 }
 
 // serveResource hands a request to the status app at an app-relative path:
-// /index.html for the resource route, /api/status for routePageStatus and
-// /api/boost for routePageBoost. Without an installed app it answers 503
-// rather than 404, whatever web.enabled says, which tells an operator the
-// build is missing its front end. With an app and web.enabled off, none of
-// these paths is declared and each answers 404, including a request that
-// arrives from a registration the host has not replaced yet.
+// /index.html for the resource route, /api/status for routePageStatus,
+// /api/boost for routePageBoost and /api/reset for routePageReset. Without an
+// installed app it answers 503 rather than 404, whatever web.enabled says,
+// which tells an operator the build is missing its front end. With an app and
+// web.enabled off, none of these paths is declared and each answers 404,
+// including a request that arrives from a registration the host has not
+// replaced yet.
 func (p *Plugin) serveResource(req ManagementRequest, path string) ManagementResponse {
 	h := p.resource.Load()
 	if h == nil {
@@ -284,7 +295,9 @@ func jsonResponse(status int, body any) ManagementResponse {
 //
 // A running poll is the read the caller asked for, so SyncNow never queues
 // behind one: it answers false at once, and the response carries what that
-// poll has published so far.
+// poll has published so far. A seat recheck holding the poll lock reads one
+// seat, so SyncNow waits for the lock instead, which its timeouts bound; a
+// poll that takes the lock first answers for SyncNow as above.
 //
 // A forced read that finishes its sweep takes the place of the loop's next
 // poll: the loop's next wake is timed from it as from one of its own, a loop
@@ -293,7 +306,10 @@ func jsonResponse(status int, body any) ManagementResponse {
 // on time.
 func (p *Plugin) SyncNow(ctx context.Context) bool {
 	if !p.pollMu.TryLock() {
-		return false
+		if !p.rechecking.Load() {
+			return false
+		}
+		p.pollMu.Lock()
 	}
 	defer p.pollMu.Unlock()
 

@@ -135,11 +135,26 @@ func retryAfterOf(h map[string][]string) time.Duration {
 }
 
 // get performs the usage request and reports the response body.
+func (c *Client) get(ctx context.Context, accessToken string) ([]byte, error) {
+	return c.send(ctx, Request{Method: "GET", URL: c.url, Header: c.header(accessToken)}, accessToken)
+}
+
+// header is the header set every request to the endpoint's host carries.
+func (c *Client) header(accessToken string) map[string]string {
+	return map[string]string{
+		"Authorization":  "Bearer " + accessToken,
+		"Content-Type":   "application/json",
+		"anthropic-beta": oauthBeta,
+		"User-Agent":     userAgent,
+	}
+}
+
+// send performs one request and reports the response body.
 //
 // The Doer runs on its own goroutine and the deadline is enforced here, so a
-// Doer that ignores ctx cannot hold the poll loop open: at the deadline get
+// Doer that ignores ctx cannot hold the poll loop open: at the deadline send
 // reports a timeout and the abandoned goroutine's result is dropped.
-func (c *Client) get(ctx context.Context, accessToken string) ([]byte, error) {
+func (c *Client) send(ctx context.Context, req Request, accessToken string) ([]byte, error) {
 	if c.doer == nil {
 		return nil, &FetchError{Category: CategoryTransport, Detail: "no doer configured"}
 	}
@@ -160,19 +175,10 @@ func (c *Client) get(ctx context.Context, accessToken string) ([]byte, error) {
 		// process. It becomes a failed fetch instead.
 		defer func() {
 			if r := recover(); r != nil {
-				done <- outcome{err: fmt.Errorf("usage request panicked: %v", r)}
+				done <- outcome{err: fmt.Errorf("request panicked: %v", r)}
 			}
 		}()
-		resp, err := c.doer.Do(ctx, Request{
-			Method: "GET",
-			URL:    c.url,
-			Header: map[string]string{
-				"Authorization":  "Bearer " + accessToken,
-				"Content-Type":   "application/json",
-				"anthropic-beta": oauthBeta,
-				"User-Agent":     userAgent,
-			},
-		})
+		resp, err := c.doer.Do(ctx, req)
 		done <- outcome{resp: resp, err: err}
 	}()
 

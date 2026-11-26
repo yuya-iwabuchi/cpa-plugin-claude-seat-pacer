@@ -119,7 +119,7 @@ the name the page shows. A field that does not apply is left out.
 | `windows[].utilization` | How much of the window is used, as a fraction; above 1 past the cap, `null` for a reading that is not a number. |
 | `windows[].resets_at` | When the window resets. Absent when the reading names no reset. |
 | `windows[].used_since` | How much of the window was used after `since` (or `since_five_hour`), when the plugin's history covers the window. |
-| `seats[].resets` | The seat's limit resets left, one entry per grant, as its latest usage read reports them. A reset empties windows by hand on claude.ai; the plugin never uses one. Absent when the seat holds none, and until the plugin has read its usage. A paused or expired grant is left out. |
+| `seats[].resets` | The seat's limit resets left, one entry per grant, as its latest usage read reports them. A reset empties windows once someone uses it, on claude.ai or from the status page; the plugin never uses one unasked. Absent when the seat holds none, and until the plugin has read its usage. A paused or expired grant is left out. |
 | `resets[].id` | The grant's id, as the usage endpoint names it. |
 | `resets[].type` | The grant's type as the usage endpoint names it: `full`, `weekly`, `session`, or a type the endpoint added since. |
 | `resets[].family` | The model family whose weekly cap the grant empties in place of the 7-day window, such as `Fable`. Absent for any other grant. |

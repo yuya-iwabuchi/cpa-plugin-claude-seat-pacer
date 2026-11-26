@@ -101,6 +101,11 @@ var _ web.SpendRater = (*runtime.Plugin)(nil)
 // assertion that would otherwise fail in silence, answering every boost 501.
 var _ web.Booster = (*runtime.Plugin)(nil)
 
+// The reset route uses a reset only on a Source that can claim one, through a
+// type assertion that would otherwise fail in silence, answering every claim
+// 501.
+var _ web.Claimer = (*runtime.Plugin)(nil)
+
 // The status route scores a draft only for a Source that can preview one,
 // through a type assertion that would otherwise fail in silence, answering
 // every preview with the running scores.
