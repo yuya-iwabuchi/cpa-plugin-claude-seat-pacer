@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -177,6 +180,26 @@ func TestRecheckSeatReleasesAStaleCooldown(t *testing.T) {
 	}
 	if _, err := tp.RecheckSeat(context.Background(), "claude-off.json"); !errors.Is(err, ErrNoSuchSeat) {
 		t.Errorf("recheck of a disabled seat: err = %v, want %v", err, ErrNoSuchSeat)
+	}
+}
+
+// The status page spaces its checks of a seat at least MinSeatRecheckGap
+// apart, so none lands inside the gap and reads nothing.
+func TestPageRecheckGapsClearTheSeatGap(t *testing.T) {
+	t.Parallel()
+	page, err := os.ReadFile("../web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`var RESET_CHECK_GAPS = \[([0-9, ]+)\];`).FindSubmatch(page)
+	if m == nil {
+		t.Fatal("index.html declares no RESET_CHECK_GAPS")
+	}
+	for _, f := range strings.Split(string(m[1]), ",") {
+		s, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil || time.Duration(s)*time.Second < MinSeatRecheckGap {
+			t.Errorf("RESET_CHECK_GAPS holds %q, want whole seconds of at least %v", f, MinSeatRecheckGap)
+		}
 	}
 }
 

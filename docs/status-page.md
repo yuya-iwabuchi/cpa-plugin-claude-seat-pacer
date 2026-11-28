@@ -59,9 +59,9 @@ status.
   Clicking the time to reset opens a dialog that lists each window the reset
   empties, reading now and after, with the time left until that window
   resets, and uses one reset of the kind you pick on that seat once you
-  confirm; it cannot be undone. The dialog then reads the seat again every
-  few seconds, up to six times over about 80 seconds, until its usage shows
-  the reset, and closes; Continue in background closes it at once and
+  confirm; it cannot be undone. The dialog then reads the seat again up to
+  four times over about two minutes, until its usage shows the reset, and
+  closes; Continue in background closes it at once and
   leaves the checks running while the page stays open. A read that finds the
   seat held by a cooldown the reset ended asks the host to clear it, as a
   poll does; a host before 8.0.12 cannot, and keeps the seat until the
@@ -238,6 +238,6 @@ while `web.enabled` is on), `POST page-reset?seat=<published id>&grant=<grant
 id>&request=<request id>` (the reset dialog's route, which uses one of the
 grant's resets and answers the reset endpoint's answer, where the same
 request id gets the same answer, so a retry uses at most one reset, or, with
-`?seat=<published id>&check=1`, reads the seat again, at most once every two
+`?seat=<published id>&check=1`, reads the seat again, at most once every 15
 seconds, while `web.enabled` is on), `POST refresh`, `POST unbind?auth_id=` and
 `POST bindings/sweep`.

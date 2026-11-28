@@ -30,8 +30,9 @@ func (e notSent) Is(target error) bool { return target == model.ErrClaimNotSent 
 
 // MinSeatRecheckGap is the least time between two rechecks of one seat. The
 // status page rechecks a seat a few times while it waits for a reset to
-// show, and every open page can ask.
-const MinSeatRecheckGap = 2 * time.Second
+// show, and every open page can ask. The usage endpoint refuses reads of one
+// credential that come a few seconds apart.
+const MinSeatRecheckGap = 15 * time.Second
 
 // ClaimReset uses one of grantID's limit resets on the seat whose credential
 // id is seat, as the status page asks, then reads the seat again as
