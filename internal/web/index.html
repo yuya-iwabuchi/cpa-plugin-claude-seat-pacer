@@ -10791,8 +10791,10 @@ time[data-ts] { cursor: help; }
      shows the reset (each window it cleared lower than before, the grant
      one reset down) and the host offers the seat again. A wait outlives its
      dialog: Continue in background closes the dialog and the checks go on.
-     Each is {seat, grant, left, before, step, timer, next, checking}. */
-  var RESET_CHECK_GAPS = [3, 5, 8, 12, 20, 30];
+     Each is {seat, grant, left, before, step, timer, next, checking}. The
+     gaps stay at or above the plugin's MinSeatRecheckGap, inside which a
+     check reads nothing. */
+  var RESET_CHECK_GAPS = [20, 30, 30, 40];
   var resetWaits = Object.create(null);
 
   function seatGrant(a, id) {
